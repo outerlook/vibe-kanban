@@ -115,19 +115,17 @@ impl CommandBuilder {
     }
 
     fn build(&self, additional_args: &[String]) -> Result<CommandParts, CommandBuildError> {
-        let mut parts = split_command_line(&self.simple_join(additional_args))?;
-
-        let program = parts.remove(0);
-        Ok(CommandParts::new(program, parts))
-    }
-
-    fn simple_join(&self, additional_args: &[String]) -> String {
-        let mut parts = vec![self.base.clone()];
+        let mut parts = split_command_line(&self.base)?;
+        if parts.is_empty() {
+            return Err(CommandBuildError::EmptyCommand);
+        }
         if let Some(ref params) = self.params {
             parts.extend(params.clone());
         }
         parts.extend(additional_args.iter().cloned());
-        parts.join(" ")
+
+        let program = parts.remove(0);
+        Ok(CommandParts::new(program, parts))
     }
 }
 
@@ -158,5 +156,23 @@ pub fn apply_overrides(builder: CommandBuilder, overrides: &CmdOverrides) -> Com
         builder.extend_params(extra.clone())
     } else {
         builder
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(not(windows))]
+    fn build_preserves_param_with_spaces() {
+        let builder =
+            CommandBuilder::new("bash -lc").params([r#"mgrep --store "fiet-maker""#]);
+        let parts = builder.build_initial().unwrap();
+        assert_eq!(parts.program, "bash");
+        assert_eq!(
+            parts.args,
+            vec!["-lc".to_string(), r#"mgrep --store "fiet-maker""#.to_string()]
+        );
     }
 }
