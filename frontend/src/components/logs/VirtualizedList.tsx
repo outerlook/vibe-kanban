@@ -1,10 +1,11 @@
 import {
   DataWithScrollModifier,
-  ScrollModifier,
   VirtuosoMessageList,
   VirtuosoMessageListLicense,
   VirtuosoMessageListMethods,
   VirtuosoMessageListProps,
+  useVirtuosoLocation,
+  useVirtuosoMethods,
 } from '@virtuoso.dev/message-list';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -15,7 +16,7 @@ import {
   PatchTypeWithKey,
   useConversationHistory,
 } from '@/hooks/useConversationHistory';
-import { Loader2 } from 'lucide-react';
+import { ArrowDown, Loader2 } from 'lucide-react';
 import { TaskWithAttemptStatus } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { ApprovalFormProvider } from '@/contexts/ApprovalFormContext';
@@ -32,24 +33,8 @@ interface MessageListContext {
 
 const INITIAL_TOP_ITEM = { index: 'LAST' as const, align: 'end' as const };
 
-const InitialDataScrollModifier: ScrollModifier = {
-  type: 'item-location',
-  location: INITIAL_TOP_ITEM,
-  purgeItemSizes: true,
-};
-
-const AutoScrollToBottom: ScrollModifier = {
-  type: 'auto-scroll-to-bottom',
-  autoScroll: 'smooth',
-};
-
 const TOP_LOAD_THRESHOLD = 8;
-
-const makePrependScrollModifier = (offset: number): ScrollModifier => ({
-  type: 'item-location',
-  location: { index: offset, align: 'start' },
-  purgeItemSizes: true,
-});
+const BOTTOM_OFFSET_THRESHOLD = 100;
 
 const ItemContent: VirtuosoMessageListProps<
   PatchTypeWithKey,
@@ -88,37 +73,80 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
   const [channelData, setChannelData] =
     useState<DataWithScrollModifier<PatchTypeWithKey> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [atBottom, setAtBottom] = useState(true);
+  const [unseenMessages, setUnseenMessages] = useState(0);
+  const didInitScrollRef = useRef(false);
   const previousEntryCountRef = useRef(0);
+  const bottomOffsetRef = useRef(0);
+  const messageListRef = useRef<VirtuosoMessageListMethods | null>(null);
   const { setEntries, reset } = useEntries();
 
   useEffect(() => {
     setLoading(true);
     setChannelData(null);
     previousEntryCountRef.current = 0;
+    bottomOffsetRef.current = 0;
+    didInitScrollRef.current = false;
+    setAtBottom(true);
+    setUnseenMessages(0);
     reset();
   }, [attempt.id, reset]);
+
+  useEffect(() => {
+    if (atBottom) {
+      setUnseenMessages(0);
+    }
+  }, [atBottom]);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    messageListRef.current?.scrollToItem({
+      index: 'LAST',
+      align: 'end',
+      behavior,
+    });
+  }, []);
 
   const onEntriesUpdated = (
     newEntries: PatchTypeWithKey[],
     addType: AddEntryType,
     newLoading: boolean
   ) => {
-    let scrollModifier: ScrollModifier = InitialDataScrollModifier;
     const previousCount = previousEntryCountRef.current;
     const nextCount = newEntries.length;
+    const addedCount = nextCount - previousCount;
     previousEntryCountRef.current = nextCount;
+    const wasLoading = loading;
 
-    if (addType === 'running' && !loading) {
-      scrollModifier = AutoScrollToBottom;
-    } else if (addType === 'historic' && !loading && nextCount > previousCount) {
-      scrollModifier = makePrependScrollModifier(nextCount - previousCount);
-    }
-
-    setChannelData({ data: newEntries, scrollModifier });
+    setChannelData({ data: newEntries });
     setEntries(newEntries);
 
     if (loading) {
       setLoading(newLoading);
+    }
+
+    if (wasLoading || addedCount <= 0) {
+      return;
+    }
+
+    if (addType === 'running') {
+      const isNearBottom = bottomOffsetRef.current < BOTTOM_OFFSET_THRESHOLD;
+      if (atBottom || isNearBottom) {
+        requestAnimationFrame(() => {
+          scrollToBottom('smooth');
+        });
+      } else {
+        setUnseenMessages((prev) => prev + addedCount);
+      }
+      return;
+    }
+
+    if (addType === 'historic') {
+      requestAnimationFrame(() => {
+        messageListRef.current?.scrollToItem({
+          index: addedCount,
+          align: 'start',
+        });
+      });
     }
   };
 
@@ -126,7 +154,21 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
     useConversationHistory({ attempt, onEntriesUpdated });
 
   const handleScroll = useCallback(
-    ({ listOffset }: { listOffset: number }) => {
+    ({
+      listOffset,
+      bottomOffset,
+    }: {
+      listOffset: number;
+      bottomOffset?: number;
+    }) => {
+      if (bottomOffset !== undefined) {
+        bottomOffsetRef.current = bottomOffset;
+        const isAtBottom = bottomOffset < BOTTOM_OFFSET_THRESHOLD;
+        setAtBottom(isAtBottom);
+        if (isAtBottom) {
+          setUnseenMessages(0);
+        }
+      }
       if (!hasMoreHistory || isLoadingMore || loading) return;
       if (listOffset >= -TOP_LOAD_THRESHOLD) {
         loadMoreHistory();
@@ -135,11 +177,58 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
     [hasMoreHistory, isLoadingMore, loadMoreHistory, loading]
   );
 
-  const messageListRef = useRef<VirtuosoMessageListMethods | null>(null);
   const messageListContext = useMemo(
     () => ({ attempt, task }),
     [attempt, task]
   );
+
+  const StickyFooter: VirtuosoMessageListProps<
+    PatchTypeWithKey,
+    MessageListContext
+  >['StickyFooter'] = () => {
+    const location = useVirtuosoLocation();
+    const methods = useVirtuosoMethods();
+
+    if (location.bottomOffset < BOTTOM_OFFSET_THRESHOLD) {
+      return null;
+    }
+
+    const label =
+      unseenMessages > 0
+        ? `${unseenMessages} new message${unseenMessages === 1 ? '' : 's'}`
+        : 'Jump to bottom';
+
+    return (
+      <div className="absolute bottom-4 right-4 z-10">
+        <button
+          onClick={() => {
+            methods.scrollToItem({
+              index: 'LAST',
+              align: 'end',
+              behavior: 'smooth',
+            });
+            setUnseenMessages(0);
+          }}
+          className="bg-primary text-primary-foreground px-3 py-2 rounded-full shadow-lg flex items-center gap-2 text-sm"
+        >
+          <ArrowDown className="h-4 w-4" />
+          <span>{label}</span>
+        </button>
+      </div>
+    );
+  };
+
+  useEffect(() => {
+    const dataLength = channelData?.data?.length ?? 0;
+    if (loading || didInitScrollRef.current || dataLength === 0) {
+      return;
+    }
+
+    didInitScrollRef.current = true;
+    requestAnimationFrame(() => {
+      scrollToBottom();
+    });
+  }, [loading, channelData, scrollToBottom]);
 
   return (
     <ApprovalFormProvider>
@@ -148,7 +237,7 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
       >
         <VirtuosoMessageList<PatchTypeWithKey, MessageListContext>
           ref={messageListRef}
-          className="flex-1"
+          className="flex-1 relative"
           data={channelData}
           initialLocation={INITIAL_TOP_ITEM}
           context={messageListContext}
@@ -165,6 +254,7 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
           }
           Footer={() => <div className="h-2"></div>}
           onScroll={handleScroll}
+          StickyFooter={StickyFooter}
         />
       </VirtuosoMessageListLicense>
       {loading && (
