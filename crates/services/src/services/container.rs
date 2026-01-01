@@ -15,6 +15,7 @@ use db::{
             ExecutionProcessStatus,
         },
         execution_process_logs::ExecutionProcessLogs,
+        execution_process_normalized_entry::ExecutionProcessNormalizedEntry,
         execution_process_repo_state::{
             CreateExecutionProcessRepoState, ExecutionProcessRepoState,
         },
@@ -38,7 +39,7 @@ use executors::{
     profile::{ExecutorConfigs, ExecutorProfileId},
 };
 use futures::{StreamExt, future};
-use sqlx::Error as SqlxError;
+use sqlx::{Error as SqlxError, SqlitePool};
 use thiserror::Error;
 use tokio::{sync::RwLock, task::JoinHandle};
 use utils::{
@@ -56,6 +57,130 @@ use crate::services::{
     worktree_manager::WorktreeError,
 };
 pub type ContainerRef = String;
+
+enum NormalizedEntryPatchOp {
+    Upsert { index: i64, entry: NormalizedEntry },
+    Remove { index: i64 },
+}
+
+fn extract_normalized_entry_ops(patch: &json_patch::Patch) -> Vec<NormalizedEntryPatchOp> {
+    let value = match serde_json::to_value(patch) {
+        Ok(value) => value,
+        Err(_) => return Vec::new(),
+    };
+    let ops = match value.as_array() {
+        Some(ops) => ops,
+        None => return Vec::new(),
+    };
+
+    ops.iter()
+        .filter_map(|op| {
+            let op_type = op.get("op")?.as_str()?;
+            let path = op.get("path")?.as_str()?;
+            let entry_index = path.strip_prefix("/entries/")?.parse::<i64>().ok()?;
+
+            match op_type {
+                "add" | "replace" => {
+                    let value = op.get("value")?;
+                    let entry_type = value.get("type")?.as_str()?;
+                    if entry_type != "NORMALIZED_ENTRY" {
+                        return None;
+                    }
+                    let content = value.get("content")?;
+                    let entry: NormalizedEntry = serde_json::from_value(content.clone()).ok()?;
+                    Some(NormalizedEntryPatchOp::Upsert {
+                        index: entry_index,
+                        entry,
+                    })
+                }
+                "remove" => Some(NormalizedEntryPatchOp::Remove {
+                    index: entry_index,
+                }),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+async fn apply_normalized_entry_ops(
+    pool: &SqlitePool,
+    execution_id: Uuid,
+    ops: Vec<NormalizedEntryPatchOp>,
+) -> Result<(), ContainerError> {
+    for op in ops {
+        match op {
+            NormalizedEntryPatchOp::Upsert { index, entry } => {
+                ExecutionProcessNormalizedEntry::upsert(pool, execution_id, index, &entry)
+                    .await
+                    .map_err(ContainerError::Other)?;
+            }
+            NormalizedEntryPatchOp::Remove { index } => {
+                ExecutionProcessNormalizedEntry::delete(pool, execution_id, index).await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn persist_normalized_entries_from_store(
+    pool: SqlitePool,
+    execution_id: Uuid,
+    store: Arc<MsgStore>,
+) -> Result<(), ContainerError> {
+    use tokio::time::{Duration, sleep};
+
+    let mut processed_len = 0usize;
+    let mut last_len = 0usize;
+    let mut stable_rounds = 0u8;
+    let mut rounds = 0u8;
+    let max_rounds = 10u8;
+    let delay = Duration::from_millis(200);
+
+    while stable_rounds < 2 && rounds < max_rounds {
+        rounds = rounds.saturating_add(1);
+        let history = store.get_history();
+        let history_len = history.len();
+
+        if history_len == last_len {
+            stable_rounds = stable_rounds.saturating_add(1);
+        } else {
+            stable_rounds = 0;
+            last_len = history_len;
+        }
+
+        if history_len < processed_len {
+            processed_len = 0;
+        }
+
+        for msg in history.into_iter().skip(processed_len) {
+            if let LogMsg::JsonPatch(patch) = msg {
+                let ops = extract_normalized_entry_ops(&patch);
+                if ops.is_empty() {
+                    continue;
+                }
+                apply_normalized_entry_ops(&pool, execution_id, ops).await?;
+            }
+        }
+
+        processed_len = history_len;
+
+        if stable_rounds >= 2 {
+            break;
+        }
+
+        sleep(delay).await;
+    }
+
+    if stable_rounds < 2 {
+        tracing::warn!(
+            "Normalized entry backfill may be incomplete for execution {}",
+            execution_id
+        );
+    }
+
+    Ok(())
+}
 
 #[derive(Debug, Error)]
 pub enum ContainerError {
@@ -671,6 +796,112 @@ pub trait ContainerService {
         }
     }
 
+    async fn build_normalized_store_from_db(&self, id: &Uuid) -> Option<Arc<MsgStore>> {
+        let log_records = match ExecutionProcessLogs::find_by_execution_id(&self.db().pool, *id)
+            .await
+        {
+            Ok(records) if !records.is_empty() => records,
+            Ok(_) => return None,
+            Err(e) => {
+                tracing::error!("Failed to fetch logs for execution {}: {}", id, e);
+                return None;
+            }
+        };
+
+        let raw_messages = match ExecutionProcessLogs::parse_logs(&log_records) {
+            Ok(msgs) => msgs,
+            Err(e) => {
+                tracing::error!("Failed to parse logs for execution {}: {}", id, e);
+                return None;
+            }
+        };
+
+        let temp_store = Arc::new(MsgStore::new());
+        for msg in raw_messages {
+            if matches!(
+                msg,
+                LogMsg::Stdout(_) | LogMsg::Stderr(_) | LogMsg::JsonPatch(_)
+            ) {
+                temp_store.push(msg);
+            }
+        }
+        temp_store.push_finished();
+
+        let process = match ExecutionProcess::find_by_id(&self.db().pool, *id).await {
+            Ok(Some(process)) => process,
+            Ok(None) => {
+                tracing::error!("No execution process found for ID: {}", id);
+                return None;
+            }
+            Err(e) => {
+                tracing::error!("Failed to fetch execution process {}: {}", id, e);
+                return None;
+            }
+        };
+
+        let (workspace, _session) =
+            match process.parent_workspace_and_session(&self.db().pool).await {
+                Ok(Some((workspace, session))) => (workspace, session),
+                Ok(None) => {
+                    tracing::error!(
+                        "No workspace/session found for session ID: {}",
+                        process.session_id
+                    );
+                    return None;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to fetch workspace for session {}: {}",
+                        process.session_id,
+                        e
+                    );
+                    return None;
+                }
+            };
+
+        if let Err(err) = self.ensure_container_exists(&workspace).await {
+            tracing::warn!(
+                "Failed to recreate worktree before log normalization for workspace {}: {}",
+                workspace.id,
+                err
+            );
+        }
+
+        let current_dir = self.workspace_to_current_dir(&workspace);
+
+        let executor_action = if let Ok(executor_action) = process.executor_action() {
+            executor_action
+        } else {
+            tracing::error!(
+                "Failed to parse executor action: {:?}",
+                process.executor_action()
+            );
+            return None;
+        };
+
+        match executor_action.typ() {
+            ExecutorActionType::CodingAgentInitialRequest(request) => {
+                let executor = ExecutorConfigs::get_cached()
+                    .get_coding_agent_or_default(&request.executor_profile_id);
+                executor.normalize_logs(temp_store.clone(), &current_dir);
+            }
+            ExecutorActionType::CodingAgentFollowUpRequest(request) => {
+                let executor = ExecutorConfigs::get_cached()
+                    .get_coding_agent_or_default(&request.executor_profile_id);
+                executor.normalize_logs(temp_store.clone(), &current_dir);
+            }
+            _ => {
+                tracing::debug!(
+                    "Executor action doesn't support log normalization: {:?}",
+                    process.executor_action()
+                );
+                return None;
+            }
+        }
+
+        Some(temp_store)
+    }
+
     async fn stream_normalized_logs(
         &self,
         id: &Uuid,
@@ -687,113 +918,9 @@ pub trait ContainerService {
                     .boxed(),
             )
         } else {
-            // Fallback: load from DB and normalize
-            let log_records =
-                match ExecutionProcessLogs::find_by_execution_id(&self.db().pool, *id).await {
-                    Ok(records) if !records.is_empty() => records,
-                    Ok(_) => return None, // No logs exist
-                    Err(e) => {
-                        tracing::error!("Failed to fetch logs for execution {}: {}", id, e);
-                        return None;
-                    }
-                };
-
-            let raw_messages = match ExecutionProcessLogs::parse_logs(&log_records) {
-                Ok(msgs) => msgs,
-                Err(e) => {
-                    tracing::error!("Failed to parse logs for execution {}: {}", id, e);
-                    return None;
-                }
-            };
-
-            // Create temporary store and populate
-            // Include JsonPatch messages (already normalized) and Stdout/Stderr (need normalization)
-            let temp_store = Arc::new(MsgStore::new());
-            for msg in raw_messages {
-                if matches!(
-                    msg,
-                    LogMsg::Stdout(_) | LogMsg::Stderr(_) | LogMsg::JsonPatch(_)
-                ) {
-                    temp_store.push(msg);
-                }
-            }
-            temp_store.push_finished();
-
-            let process = match ExecutionProcess::find_by_id(&self.db().pool, *id).await {
-                Ok(Some(process)) => process,
-                Ok(None) => {
-                    tracing::error!("No execution process found for ID: {}", id);
-                    return None;
-                }
-                Err(e) => {
-                    tracing::error!("Failed to fetch execution process {}: {}", id, e);
-                    return None;
-                }
-            };
-
-            // Get the workspace to determine correct directory
-            let (workspace, _session) =
-                match process.parent_workspace_and_session(&self.db().pool).await {
-                    Ok(Some((workspace, session))) => (workspace, session),
-                    Ok(None) => {
-                        tracing::error!(
-                            "No workspace/session found for session ID: {}",
-                            process.session_id
-                        );
-                        return None;
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to fetch workspace for session {}: {}",
-                            process.session_id,
-                            e
-                        );
-                        return None;
-                    }
-                };
-
-            if let Err(err) = self.ensure_container_exists(&workspace).await {
-                tracing::warn!(
-                    "Failed to recreate worktree before log normalization for workspace {}: {}",
-                    workspace.id,
-                    err
-                );
-            }
-
-            let current_dir = self.workspace_to_current_dir(&workspace);
-
-            let executor_action = if let Ok(executor_action) = process.executor_action() {
-                executor_action
-            } else {
-                tracing::error!(
-                    "Failed to parse executor action: {:?}",
-                    process.executor_action()
-                );
-                return None;
-            };
-
-            // Spawn normalizer on populated store
-            match executor_action.typ() {
-                ExecutorActionType::CodingAgentInitialRequest(request) => {
-                    let executor = ExecutorConfigs::get_cached()
-                        .get_coding_agent_or_default(&request.executor_profile_id);
-                    executor.normalize_logs(temp_store.clone(), &current_dir);
-                }
-                ExecutorActionType::CodingAgentFollowUpRequest(request) => {
-                    let executor = ExecutorConfigs::get_cached()
-                        .get_coding_agent_or_default(&request.executor_profile_id);
-                    executor.normalize_logs(temp_store.clone(), &current_dir);
-                }
-                _ => {
-                    tracing::debug!(
-                        "Executor action doesn't support log normalization: {:?}",
-                        process.executor_action()
-                    );
-                    return None;
-                }
-            }
+            let store = self.build_normalized_store_from_db(id).await?;
             Some(
-                temp_store
+                store
                     .history_plus_stream()
                     .filter(|msg| future::ready(matches!(msg, Ok(LogMsg::JsonPatch(..)))))
                     .chain(futures::stream::once(async {
@@ -802,6 +929,24 @@ pub trait ContainerService {
                     .boxed(),
             )
         }
+    }
+
+    async fn backfill_normalized_entries(
+        &self,
+        execution_id: Uuid,
+    ) -> Result<(), ContainerError> {
+        let store = if let Some(store) = self.get_msg_store_by_id(&execution_id).await {
+            Some(store)
+        } else {
+            self.build_normalized_store_from_db(&execution_id).await
+        };
+
+        if let Some(store) = store {
+            persist_normalized_entries_from_store(self.db().pool.clone(), execution_id, store)
+                .await?;
+        }
+
+        Ok(())
     }
 
     fn spawn_stream_raw_logs_to_db(&self, execution_id: &Uuid) -> JoinHandle<()> {
@@ -872,6 +1017,45 @@ pub trait ContainerService {
                             break;
                         }
                         LogMsg::JsonPatch(_) => continue,
+                    }
+                }
+            }
+        })
+    }
+
+    fn spawn_stream_normalized_entries_to_db(&self, execution_id: &Uuid) -> JoinHandle<()> {
+        let execution_id = *execution_id;
+        let msg_stores = self.msg_stores().clone();
+        let db = self.db().clone();
+
+        tokio::spawn(async move {
+            let store = {
+                let map = msg_stores.read().await;
+                map.get(&execution_id).cloned()
+            };
+
+            if let Some(store) = store {
+                let mut stream = store.history_plus_stream();
+
+                while let Some(Ok(msg)) = stream.next().await {
+                    match msg {
+                        LogMsg::JsonPatch(patch) => {
+                            let ops = extract_normalized_entry_ops(&patch);
+                            if ops.is_empty() {
+                                continue;
+                            }
+                            if let Err(err) =
+                                apply_normalized_entry_ops(&db.pool, execution_id, ops).await
+                            {
+                                tracing::error!(
+                                    "Failed to persist normalized entries for execution {}: {}",
+                                    execution_id,
+                                    err
+                                );
+                            }
+                        }
+                        LogMsg::Finished => break,
+                        _ => continue,
                     }
                 }
             }
@@ -1152,6 +1336,8 @@ pub trait ContainerService {
                     executor_profile_id
                 );
             }
+
+            self.spawn_stream_normalized_entries_to_db(&execution_process.id);
         }
 
         self.spawn_stream_raw_logs_to_db(&execution_process.id);

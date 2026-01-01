@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                        entry_index,\n                        entry_json\n                   FROM execution_process_normalized_entries\n                   WHERE execution_id = $1\n                     AND entry_index < $2\n                   ORDER BY entry_index DESC\n                   LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "name": "entry_index",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "entry_json",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "17cc98ffc6bcb1959e7081d4c8831c253d18a2fb418b6a506567ac6b4de52850"
+}

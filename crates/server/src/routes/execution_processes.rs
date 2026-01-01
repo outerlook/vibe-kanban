@@ -11,12 +11,15 @@ use axum::{
 };
 use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessError, ExecutionProcessStatus},
+    execution_process_normalized_entry::{
+        ExecutionProcessNormalizedEntriesPage, ExecutionProcessNormalizedEntry,
+    },
     execution_process_repo_state::ExecutionProcessRepoState,
 };
 use deployment::Deployment;
 use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use serde::Deserialize;
-use services::services::container::ContainerService;
+use services::services::container::{ContainerError, ContainerService};
 use utils::{log_msg::LogMsg, response::ApiResponse};
 use uuid::Uuid;
 
@@ -29,6 +32,15 @@ pub struct ExecutionProcessQuery {
     #[serde(default)]
     pub show_soft_deleted: Option<bool>,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct NormalizedEntriesQuery {
+    pub before_index: Option<i64>,
+    pub limit: Option<usize>,
+}
+
+const DEFAULT_NORMALIZED_ENTRIES_LIMIT: usize = 200;
+const MAX_NORMALIZED_ENTRIES_LIMIT: usize = 500;
 
 pub async fn get_execution_process_by_id(
     Extension(execution_process): Extension<ExecutionProcess>,
@@ -143,6 +155,41 @@ pub async fn stream_normalized_logs_ws(
     }))
 }
 
+pub async fn get_normalized_entries(
+    Extension(execution_process): Extension<ExecutionProcess>,
+    State(deployment): State<DeploymentImpl>,
+    Query(query): Query<NormalizedEntriesQuery>,
+) -> Result<ResponseJson<ApiResponse<ExecutionProcessNormalizedEntriesPage>>, ApiError> {
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_NORMALIZED_ENTRIES_LIMIT)
+        .clamp(1, MAX_NORMALIZED_ENTRIES_LIMIT);
+
+    let existing = ExecutionProcessNormalizedEntry::count_by_execution_id(
+        &deployment.db().pool,
+        execution_process.id,
+    )
+    .await?;
+
+    if existing == 0 && execution_process.status != ExecutionProcessStatus::Running {
+        deployment
+            .container()
+            .backfill_normalized_entries(execution_process.id)
+            .await?;
+    }
+
+    let page = ExecutionProcessNormalizedEntry::fetch_page(
+        &deployment.db().pool,
+        execution_process.id,
+        query.before_index,
+        limit,
+    )
+    .await
+    .map_err(|err| ApiError::Container(ContainerError::Other(err)))?;
+
+    Ok(ResponseJson(ApiResponse::success(page)))
+}
+
 async fn handle_normalized_logs_ws(
     socket: WebSocket,
     stream: impl futures_util::Stream<Item = anyhow::Result<LogMsg>> + Unpin + Send + 'static,
@@ -248,6 +295,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/", get(get_execution_process_by_id))
         .route("/stop", post(stop_execution_process))
         .route("/repo-states", get(get_execution_process_repo_states))
+        .route("/normalized-entries", get(get_normalized_entries))
         .route("/raw-logs/ws", get(stream_raw_logs_ws))
         .route("/normalized-logs/ws", get(stream_normalized_logs_ws))
         .layer(from_fn_with_state(

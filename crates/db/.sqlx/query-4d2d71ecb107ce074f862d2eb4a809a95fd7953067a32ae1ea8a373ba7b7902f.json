@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO execution_process_normalized_entries (\n                    execution_id,\n                    entry_index,\n                    entry_json\n                ) VALUES ($1, $2, $3)\n                ON CONFLICT(execution_id, entry_index)\n                DO UPDATE SET entry_json = excluded.entry_json",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "4d2d71ecb107ce074f862d2eb4a809a95fd7953067a32ae1ea8a373ba7b7902f"
+}

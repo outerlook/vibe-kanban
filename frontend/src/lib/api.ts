@@ -83,6 +83,7 @@ import {
   SharedTaskDetails,
   QueueStatus,
   PrCommentsResponse,
+  NormalizedEntry,
   MergeTaskAttemptRequest,
   PushTaskAttemptRequest,
   RepoBranchStatus,
@@ -108,6 +109,17 @@ export class ApiError<E = unknown> extends Error {
     this.status = statusCode;
     this.error_data = error_data;
   }
+}
+
+export interface NormalizedEntriesPageEntry {
+  entry_index: number;
+  entry: NormalizedEntry;
+}
+
+export interface ExecutionProcessNormalizedEntriesPage {
+  entries: NormalizedEntriesPageEntry[];
+  next_before_index: number | null;
+  has_more: boolean;
 }
 
 const makeRequest = async (url: string, options: RequestInit = {}) => {
@@ -769,6 +781,26 @@ export const executionProcessesApi = {
       `/api/execution-processes/${processId}/repo-states`
     );
     return handleApiResponse<ExecutionProcessRepoState[]>(response);
+  },
+
+  getNormalizedEntries: async (
+    processId: string,
+    params?: { beforeIndex?: number; limit?: number }
+  ): Promise<ExecutionProcessNormalizedEntriesPage> => {
+    const query = new URLSearchParams();
+    if (params?.beforeIndex !== undefined) {
+      query.set('before_index', String(params.beforeIndex));
+    }
+    if (params?.limit !== undefined) {
+      query.set('limit', String(params.limit));
+    }
+    const suffix = query.toString();
+    const response = await makeRequest(
+      `/api/execution-processes/${processId}/normalized-entries${
+        suffix ? `?${suffix}` : ''
+      }`
+    );
+    return handleApiResponse<ExecutionProcessNormalizedEntriesPage>(response);
   },
 
   stopExecutionProcess: async (processId: string): Promise<void> => {
