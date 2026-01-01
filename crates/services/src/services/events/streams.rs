@@ -87,34 +87,13 @@ fn record_task_cache_result(hit: bool) {
 }
 
 impl EventService {
-    /// Stream raw task messages for a specific project with initial snapshot
+    /// Stream raw task messages for a specific project with optional snapshot
     pub async fn stream_tasks_raw(
         &self,
         project_id: Uuid,
+        include_snapshot: bool,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, EventError>
     {
-        // Get initial snapshot of tasks
-        let tasks = Task::find_by_project_id_with_attempt_status(&self.db.pool, project_id).await?;
-
-        for task in &tasks {
-            cache_project_for_task(task.id, task.project_id).await;
-        }
-
-        // Convert task array to object keyed by task ID
-        let tasks_map: serde_json::Map<String, serde_json::Value> = tasks
-            .into_iter()
-            .map(|task| (task.id.to_string(), serde_json::to_value(task).unwrap()))
-            .collect();
-
-        let initial_patch = json!([
-            {
-                "op": "replace",
-                "path": "/tasks",
-                "value": tasks_map
-            }
-        ]);
-        let initial_msg = LogMsg::JsonPatch(serde_json::from_value(initial_patch).unwrap());
-
         // Clone necessary data for the async filter
         let db_pool = self.db.pool.clone();
 
@@ -244,6 +223,32 @@ impl EventService {
                     }
                 }
             });
+
+        if !include_snapshot {
+            return Ok(filtered_stream.boxed());
+        }
+
+        // Get initial snapshot of tasks
+        let tasks = Task::find_by_project_id_with_attempt_status(&self.db.pool, project_id).await?;
+
+        for task in &tasks {
+            cache_project_for_task(task.id, task.project_id).await;
+        }
+
+        // Convert task array to object keyed by task ID
+        let tasks_map: serde_json::Map<String, serde_json::Value> = tasks
+            .into_iter()
+            .map(|task| (task.id.to_string(), serde_json::to_value(task).unwrap()))
+            .collect();
+
+        let initial_patch = json!([
+            {
+                "op": "replace",
+                "path": "/tasks",
+                "value": tasks_map
+            }
+        ]);
+        let initial_msg = LogMsg::JsonPatch(serde_json::from_value(initial_patch).unwrap());
 
         // Start with initial snapshot, then live updates
         let initial_stream = futures::stream::once(async move { Ok(initial_msg) });

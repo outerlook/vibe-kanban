@@ -1,11 +1,12 @@
-import { useCallback, useMemo } from 'react';
-import { useJsonPatchWsStream } from './useJsonPatchWsStream';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks';
 import { useProject } from '@/contexts/ProjectContext';
 import { useLiveQuery, eq, isNull } from '@tanstack/react-db';
 import { sharedTasksCollection } from '@/lib/electric/sharedTasksCollection';
 import { useAssigneeUserNames } from './useAssigneeUserName';
 import { useAutoLinkSharedTasks } from './useAutoLinkSharedTasks';
+import { tasksApi } from '@/lib/api';
+import type { Operation } from 'rfc6902';
 import type {
   SharedTask,
   TaskStatus,
@@ -23,6 +24,16 @@ type TasksState = {
   tasks: Record<string, TaskWithAttemptStatus>;
 };
 
+const PAGE_SIZE = 50;
+const TASK_PATH_PREFIX = '/tasks/';
+
+type WsJsonPatchMsg = { JsonPatch: Operation[] };
+type WsFinishedMsg = { finished: boolean };
+type WsMsg = WsJsonPatchMsg | WsFinishedMsg;
+
+const decodePointerSegment = (value: string) =>
+  value.replace(/~1/g, '/').replace(/~0/g, '~');
+
 export interface UseProjectTasksResult {
   tasks: TaskWithAttemptStatus[];
   tasksById: Record<string, TaskWithAttemptStatus>;
@@ -30,29 +41,234 @@ export interface UseProjectTasksResult {
   sharedTasksById: Record<string, SharedTaskRecord>;
   sharedOnlyByStatus: Record<TaskStatus, SharedTaskRecord[]>;
   isLoading: boolean;
-  isConnected: boolean;
+  isLoadingMore: boolean;
+  total: number;
+  hasMore: boolean;
+  loadMore: () => void;
   error: string | null;
 }
 
-/**
- * Stream tasks for a project via WebSocket (JSON Patch) and expose as array + map.
- * Server sends initial snapshot: replace /tasks with an object keyed by id.
- * Live updates arrive at /tasks/<id> via add/replace/remove operations.
- */
 export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
   const { project } = useProject();
   const { isSignedIn } = useAuth();
   const remoteProjectId = project?.remote_project_id;
+  const [tasksById, setTasksById] = useState<TasksState['tasks']>({});
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const endpoint = `/api/tasks/stream/ws?project_id=${encodeURIComponent(projectId)}`;
-
-  const initialData = useCallback((): TasksState => ({ tasks: {} }), []);
-
-  const { data, isConnected, error } = useJsonPatchWsStream(
-    endpoint,
-    !!projectId,
-    initialData
+  const mergeTasks = useCallback(
+    (incoming: TaskWithAttemptStatus[], replace: boolean) => {
+      setTasksById((prev) => {
+        const next = replace ? {} : { ...prev };
+        incoming.forEach((task) => {
+          next[task.id] = task;
+        });
+        return next;
+      });
+    },
+    []
   );
+
+  useEffect(() => {
+    if (!projectId) {
+      setTasksById({});
+      setOffset(0);
+      setTotal(0);
+      setHasMore(false);
+      setIsLoading(false);
+      setIsLoadingMore(false);
+      setError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoading(true);
+    setIsLoadingMore(false);
+    setError(null);
+    setOffset(0);
+    setTotal(0);
+    setHasMore(false);
+
+    tasksApi
+      .list(projectId, { offset: 0, limit: PAGE_SIZE })
+      .then((page) => {
+        if (cancelled) return;
+        mergeTasks(page.tasks, true);
+        setOffset(page.tasks.length);
+        setTotal(page.total);
+        setHasMore(page.hasMore);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'Failed to load tasks');
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, mergeTasks]);
+
+  const loadMore = useCallback(() => {
+    if (!projectId || isLoading || isLoadingMore || !hasMore) {
+      return;
+    }
+
+    setIsLoadingMore(true);
+    setError(null);
+
+    tasksApi
+      .list(projectId, { offset, limit: PAGE_SIZE })
+      .then((page) => {
+        mergeTasks(page.tasks, false);
+        setOffset(offset + page.tasks.length);
+        setTotal(page.total);
+        setHasMore(page.hasMore);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : 'Failed to load tasks');
+      })
+      .finally(() => {
+        setIsLoadingMore(false);
+      });
+  }, [projectId, isLoading, isLoadingMore, hasMore, offset, mergeTasks]);
+
+  const applyTaskPatches = useCallback(
+    (patches: Operation[]) => {
+      if (!patches.length) return;
+
+      setTasksById((prev) => {
+        let next = prev;
+        let added = 0;
+        let removed = 0;
+
+        for (const op of patches) {
+          if (!op.path.startsWith(TASK_PATH_PREFIX)) continue;
+
+          const rawId = op.path.slice(TASK_PATH_PREFIX.length);
+          const taskId = decodePointerSegment(rawId);
+          if (!taskId) continue;
+
+          if (op.op === 'remove') {
+            if (!next[taskId]) continue;
+            if (next === prev) next = { ...prev };
+            delete next[taskId];
+            removed += 1;
+            continue;
+          }
+
+          if (op.op !== 'add' && op.op !== 'replace') continue;
+
+          const value = (op as { value?: unknown }).value;
+          if (!value) continue;
+
+          const task = value as TaskWithAttemptStatus;
+          if (task.project_id !== projectId) continue;
+
+          const exists = Boolean(next[task.id]);
+          if (op.op === 'replace' && !exists) continue;
+
+          if (next === prev) next = { ...prev };
+          if (!exists) added += 1;
+          next[task.id] = task;
+        }
+
+        if (added || removed) {
+          const delta = added - removed;
+          setTotal((current) => Math.max(0, current + delta));
+          setOffset((current) => Math.max(0, current + delta));
+        }
+
+        return next;
+      });
+    },
+    [projectId]
+  );
+
+  useEffect(() => {
+    if (!projectId) {
+      return;
+    }
+
+    let ws: WebSocket | null = null;
+    let retryTimer: number | null = null;
+    let retryAttempts = 0;
+    let closed = false;
+
+    const scheduleReconnect = () => {
+      if (retryTimer) return;
+      const delay = Math.min(8000, 1000 * Math.pow(2, retryAttempts));
+      retryTimer = window.setTimeout(() => {
+        retryTimer = null;
+        connect();
+      }, delay);
+    };
+
+    const connect = () => {
+      if (closed) return;
+      const endpoint = `/api/tasks/stream/ws?project_id=${encodeURIComponent(
+        projectId
+      )}&include_snapshot=false`;
+      const wsEndpoint = endpoint.replace(/^http/, 'ws');
+      ws = new WebSocket(wsEndpoint);
+
+      ws.onopen = () => {
+        retryAttempts = 0;
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg: WsMsg = JSON.parse(event.data);
+          if ('JsonPatch' in msg) {
+            applyTaskPatches(msg.JsonPatch);
+          }
+          if ('finished' in msg) {
+            ws?.close(1000, 'finished');
+          }
+        } catch (err) {
+          console.error('Failed to process task updates stream:', err);
+        }
+      };
+
+      ws.onerror = () => {
+        // Best-effort live updates; ignore errors and rely on reconnects.
+      };
+
+      ws.onclose = (evt) => {
+        if (closed) return;
+        if (evt?.code === 1000 && evt?.wasClean) {
+          return;
+        }
+        retryAttempts += 1;
+        scheduleReconnect();
+      };
+    };
+
+    connect();
+
+    return () => {
+      closed = true;
+      if (retryTimer) {
+        window.clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      if (ws) {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        ws.close();
+        ws = null;
+      }
+    };
+  }, [projectId, applyTaskPatches]);
 
   const sharedTasksQuery = useLiveQuery(
     useCallback(
@@ -77,7 +293,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     [sharedTasksQuery.data]
   );
 
-  const localTasksById = useMemo(() => data?.tasks ?? {}, [data?.tasks]);
+  const localTasksById = useMemo(() => tasksById, [tasksById]);
 
   const referencedSharedIds = useMemo(
     () =>
@@ -115,7 +331,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     return map;
   }, [sharedTasksList, assignees]);
 
-  const { tasks, tasksById, tasksByStatus } = useMemo(() => {
+  const { tasks, tasksById: mergedTasksById, tasksByStatus } = useMemo(() => {
     const merged: Record<string, TaskWithAttemptStatus> = { ...localTasksById };
     const byStatus: Record<TaskStatus, TaskWithAttemptStatus[]> = {
       todo: [],
@@ -177,26 +393,28 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     return grouped;
   }, [localTasksById, sharedTasksById, referencedSharedIds]);
 
-  const isLoading = !data && !error; // until first snapshot
-
   // Auto-link shared tasks assigned to current user
   useAutoLinkSharedTasks({
     sharedTasksById,
     localTasksById,
     referencedSharedIds,
     isLoading,
+    hasMore,
     remoteProjectId: project?.remote_project_id || undefined,
     projectId,
   });
 
   return {
     tasks,
-    tasksById,
+    tasksById: mergedTasksById,
     tasksByStatus,
     sharedTasksById,
     sharedOnlyByStatus,
     isLoading,
-    isConnected,
+    isLoadingMore,
+    total,
+    hasMore,
+    loadMore,
     error,
   };
 };

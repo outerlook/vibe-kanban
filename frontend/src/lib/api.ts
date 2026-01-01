@@ -30,6 +30,7 @@ import {
   Tag,
   TagSearchParams,
   TaskWithAttemptStatus,
+  TaskStatus,
   UpdateProject,
   UpdateTask,
   UpdateTag,
@@ -120,6 +121,12 @@ export interface ExecutionProcessNormalizedEntriesPage {
   entries: NormalizedEntriesPageEntry[];
   next_before_index: number | null;
   has_more: boolean;
+}
+
+export interface PaginatedTasksResponse {
+  tasks: TaskWithAttemptStatus[];
+  total: number;
+  hasMore: boolean;
 }
 
 const makeRequest = async (url: string, options: RequestInit = {}) => {
@@ -399,6 +406,28 @@ export const projectsApi = {
 
 // Task Management APIs
 export const tasksApi = {
+  list: async (
+    projectId: string,
+    params?: {
+      offset?: number;
+      limit?: number;
+      status?: TaskStatus;
+    }
+  ): Promise<PaginatedTasksResponse> => {
+    const search = new URLSearchParams({ project_id: projectId });
+    if (params?.offset !== undefined) {
+      search.set('offset', params.offset.toString());
+    }
+    if (params?.limit !== undefined) {
+      search.set('limit', params.limit.toString());
+    }
+    if (params?.status) {
+      search.set('status', params.status);
+    }
+
+    const response = await makeRequest(`/api/tasks?${search.toString()}`);
+    return handleApiResponse<PaginatedTasksResponse>(response);
+  },
   getById: async (taskId: string): Promise<Task> => {
     const response = await makeRequest(`/api/tasks/${taskId}`);
     return handleApiResponse<Task>(response);

@@ -16,7 +16,7 @@ use db::models::{
     image::TaskImage,
     project::{Project, ProjectError},
     repo::Repo,
-    task::{CreateTask, Task, TaskWithAttemptStatus, UpdateTask},
+    task::{CreateTask, Task, TaskStatus, TaskWithAttemptStatus, UpdateTask},
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
@@ -38,28 +38,69 @@ use crate::{
 };
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct TaskQuery {
+pub struct ListTasksQuery {
     pub project_id: Uuid,
+    pub limit: Option<i32>,
+    pub offset: Option<i32>,
+    pub status: Option<TaskStatus>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaginatedTasks {
+    pub tasks: Vec<TaskWithAttemptStatus>,
+    pub total: i64,
+    pub has_more: bool,
 }
 
 pub async fn get_tasks(
     State(deployment): State<DeploymentImpl>,
-    Query(query): Query<TaskQuery>,
-) -> Result<ResponseJson<ApiResponse<Vec<TaskWithAttemptStatus>>>, ApiError> {
-    let tasks =
-        Task::find_by_project_id_with_attempt_status(&deployment.db().pool, query.project_id)
-            .await?;
+    Query(query): Query<ListTasksQuery>,
+) -> Result<ResponseJson<ApiResponse<PaginatedTasks>>, ApiError> {
+    const DEFAULT_LIMIT: i32 = 50;
+    const MAX_LIMIT: i32 = 200;
+    const DEFAULT_OFFSET: i32 = 0;
 
-    Ok(ResponseJson(ApiResponse::success(tasks)))
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_LIMIT)
+        .clamp(0, MAX_LIMIT) as i64;
+    let offset = query.offset.unwrap_or(DEFAULT_OFFSET).max(0) as i64;
+
+    let (tasks, total) = Task::find_paginated_by_project_id_with_attempt_status(
+        &deployment.db().pool,
+        query.project_id,
+        query.status,
+        limit,
+        offset,
+    )
+    .await?;
+
+    let has_more = offset + (tasks.len() as i64) < total;
+
+    Ok(ResponseJson(ApiResponse::success(PaginatedTasks {
+        tasks,
+        total,
+        has_more,
+    })))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TaskStreamQuery {
+    pub project_id: Uuid,
+    pub include_snapshot: Option<bool>,
 }
 
 pub async fn stream_tasks_ws(
     ws: WebSocketUpgrade,
     State(deployment): State<DeploymentImpl>,
-    Query(query): Query<TaskQuery>,
+    Query(query): Query<TaskStreamQuery>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| async move {
-        if let Err(e) = handle_tasks_ws(socket, deployment, query.project_id).await {
+        let include_snapshot = query.include_snapshot.unwrap_or(true);
+        if let Err(e) =
+            handle_tasks_ws(socket, deployment, query.project_id, include_snapshot).await
+        {
             tracing::warn!("tasks WS closed: {}", e);
         }
     })
@@ -69,11 +110,12 @@ async fn handle_tasks_ws(
     socket: WebSocket,
     deployment: DeploymentImpl,
     project_id: Uuid,
+    include_snapshot: bool,
 ) -> anyhow::Result<()> {
     // Get the raw stream and convert LogMsg to WebSocket messages
     let mut stream = deployment
         .events()
-        .stream_tasks_raw(project_id)
+        .stream_tasks_raw(project_id, include_snapshot)
         .await?
         .map_ok(|msg| msg.to_ws_message_unchecked());
 

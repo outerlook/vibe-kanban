@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COUNT(*) as \"count!: i64\"\n               FROM tasks t\n               WHERE t.project_id = $1\n                 AND ($2 IS NULL OR t.status = $2)",
+  "describe": {
+    "columns": [
+      {
+        "name": "count!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5121d9b4ac1f6da7cd47eebf39333b1374371c4be2920b23868c92b58d0647ae"
+}

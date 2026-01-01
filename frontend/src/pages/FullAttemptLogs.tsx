@@ -7,6 +7,7 @@ import { WebviewContextMenu } from '@/vscode/ContextMenu';
 import TaskAttemptPanel from '@/components/panels/TaskAttemptPanel';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { useProjectTasks } from '@/hooks/useProjectTasks';
+import { useTask } from '@/hooks/useTask';
 import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import { ReviewProvider } from '@/contexts/ReviewProvider';
 import { ClickedElementsProvider } from '@/contexts/ClickedElementsProvider';
@@ -24,7 +25,10 @@ export function FullAttemptLogsPage() {
 
   const { data: attempt } = useTaskAttemptWithSession(attemptId);
   const { tasksById } = useProjectTasks(projectId);
-  const task = taskId ? (tasksById[taskId] ?? null) : null;
+  const { data: taskFallback } = useTask(taskId, {
+    enabled: !!taskId && !tasksById[taskId],
+  });
+  const task = taskId ? (tasksById[taskId] ?? taskFallback ?? null) : null;
 
   return (
     <AppWithStyleOverride>

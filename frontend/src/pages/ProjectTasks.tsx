@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { AlertTriangle, Plus, X } from 'lucide-react';
+import { AlertTriangle, Loader2, Plus, X } from 'lucide-react';
 import { Loader } from '@/components/ui/loader';
 import { tasksApi } from '@/lib/api';
 import type { RepoBranchStatus, Workspace } from 'shared/types';
@@ -17,6 +17,7 @@ import { useSearch } from '@/contexts/SearchContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { useTaskAttempts } from '@/hooks/useTaskAttempts';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
+import { useTask } from '@/hooks/useTask';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useBranchStatus, useAttemptExecution } from '@/hooks';
 import { paths } from '@/lib/paths';
@@ -172,12 +173,21 @@ export function ProjectTasks() {
     sharedTasksById,
     sharedOnlyByStatus,
     isLoading,
-    error: streamError,
+    isLoadingMore,
+    hasMore,
+    total,
+    loadMore,
+    error: tasksError,
   } = useProjectTasks(projectId || '');
 
+  const { data: selectedTaskFallback } = useTask(taskId, {
+    enabled: !!taskId && !tasksById[taskId],
+  });
+
   const selectedTask = useMemo(
-    () => (taskId ? (tasksById[taskId] ?? null) : null),
-    [taskId, tasksById]
+    () =>
+      taskId ? (tasksById[taskId] ?? selectedTaskFallback ?? null) : null,
+    [taskId, tasksById, selectedTaskFallback]
   );
 
   const selectedSharedTask = useMemo(() => {
@@ -825,6 +835,31 @@ export function ProjectTasks() {
       : `${truncated}...`;
   };
 
+  const loadMoreSection =
+    total > 0 ? (
+      <div className="flex flex-col items-center gap-2 py-4">
+        {hasMore && (
+          <Button
+            onClick={loadMore}
+            disabled={isLoadingMore}
+            variant="secondary"
+          >
+            {isLoadingMore && (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            )}
+            {t('pagination.loadMore', { defaultValue: 'Load more' })}
+          </Button>
+        )}
+        <div className="text-xs text-muted-foreground">
+          {t('pagination.showing', {
+            defaultValue: 'Showing {{count}} of {{total}} tasks',
+            count: tasks.length,
+            total,
+          })}
+        </div>
+      </div>
+    ) : null;
+
   const kanbanContent =
     tasks.length === 0 && !hasSharedTasks ? (
       <div className="max-w-7xl mx-auto mt-8">
@@ -860,6 +895,7 @@ export function ProjectTasks() {
           onCreateTask={handleCreateNewTask}
           projectId={projectId!}
         />
+        {loadMoreSection}
       </div>
     );
 
@@ -1031,13 +1067,13 @@ export function ProjectTasks() {
 
   return (
     <div className="min-h-full h-full flex flex-col">
-      {streamError && (
+      {tasksError && (
         <Alert className="w-full z-30 xl:sticky xl:top-0">
           <AlertTitle className="flex items-center gap-2">
             <AlertTriangle size="16" />
-            {t('common:states.reconnecting')}
+            {t('common:states.error')}
           </AlertTitle>
-          <AlertDescription>{streamError}</AlertDescription>
+          <AlertDescription>{tasksError}</AlertDescription>
         </Alert>
       )}
 

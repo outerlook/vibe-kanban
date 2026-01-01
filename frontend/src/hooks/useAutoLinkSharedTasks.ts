@@ -9,6 +9,7 @@ interface UseAutoLinkSharedTasksProps {
   localTasksById: Record<string, TaskWithAttemptStatus>;
   referencedSharedIds: Set<string>;
   isLoading: boolean;
+  hasMore: boolean;
   remoteProjectId?: string;
   projectId?: string;
 }
@@ -22,6 +23,7 @@ export function useAutoLinkSharedTasks({
   localTasksById,
   referencedSharedIds,
   isLoading,
+  hasMore,
   remoteProjectId,
   projectId,
 }: UseAutoLinkSharedTasksProps): void {
@@ -31,7 +33,13 @@ export function useAutoLinkSharedTasks({
   const failedTasks = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!currentUser?.user_id || isLoading || !remoteProjectId || !projectId) {
+    if (
+      !currentUser?.user_id ||
+      isLoading ||
+      hasMore ||
+      !remoteProjectId ||
+      !projectId
+    ) {
       return;
     }
 
@@ -78,6 +86,7 @@ export function useAutoLinkSharedTasks({
     localTasksById,
     referencedSharedIds,
     isLoading,
+    hasMore,
     remoteProjectId,
     projectId,
     linkSharedTaskToLocal,

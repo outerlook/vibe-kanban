@@ -184,6 +184,14 @@ pub struct ListTasksFilters {
     pub limit: i32,
 }
 
+#[derive(Debug, Deserialize)]
+struct PaginatedTasksResponse {
+    pub tasks: Vec<TaskWithAttemptStatus>,
+    pub total: i64,
+    #[serde(rename = "hasMore")]
+    pub has_more: bool,
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct UpdateTaskRequest {
     #[schemars(description = "The ID of the task to update")]
@@ -605,24 +613,23 @@ impl TaskServer {
             None
         };
 
-        let url = self.url(&format!("/api/tasks?project_id={}", project_id));
-        let all_tasks: Vec<TaskWithAttemptStatus> =
-            match self.send_json(self.client.get(&url)).await {
+        let task_limit = limit.unwrap_or(50).clamp(0, 200);
+        let mut url = format!(
+            "/api/tasks?project_id={}&limit={}&offset=0",
+            project_id, task_limit
+        );
+        if let Some(status) = status_filter.as_ref() {
+            url.push_str(&format!("&status={}", status));
+        }
+
+        let page: PaginatedTasksResponse =
+            match self.send_json(self.client.get(&self.url(&url))).await {
                 Ok(t) => t,
                 Err(e) => return Ok(e),
             };
 
-        let task_limit = limit.unwrap_or(50).max(0) as usize;
-        let filtered = all_tasks.into_iter().filter(|t| {
-            if let Some(ref want) = status_filter {
-                &t.status == want
-            } else {
-                true
-            }
-        });
-        let limited: Vec<TaskWithAttemptStatus> = filtered.take(task_limit).collect();
-
-        let task_summaries: Vec<TaskSummary> = limited
+        let task_summaries: Vec<TaskSummary> = page
+            .tasks
             .into_iter()
             .map(TaskSummary::from_task_with_status)
             .collect();
