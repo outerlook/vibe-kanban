@@ -37,6 +37,8 @@ export const useJsonPatchWsStream = <T extends object>(
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const dataRef = useRef<T | undefined>(undefined);
+  const pendingPatchesRef = useRef<Operation[]>([]);
+  const rafRef = useRef<number | null>(null);
   const retryTimerRef = useRef<number | null>(null);
   const retryAttemptsRef = useRef<number>(0);
   const [retryNonce, setRetryNonce] = useState(0);
@@ -69,6 +71,11 @@ export const useJsonPatchWsStream = <T extends object>(
       }
       retryAttemptsRef.current = 0;
       finishedRef.current = false;
+      pendingPatchesRef.current = [];
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
       setData(undefined);
       setIsConnected(false);
       setError(null);
@@ -106,6 +113,37 @@ export const useJsonPatchWsStream = <T extends object>(
         }
       };
 
+      const flushPendingPatches = () => {
+        const current = dataRef.current;
+        if (!current || pendingPatchesRef.current.length === 0) {
+          pendingPatchesRef.current = [];
+          return;
+        }
+
+        const patches = pendingPatchesRef.current;
+        pendingPatchesRef.current = [];
+
+        try {
+          applyPatch(current, patches);
+          const next = Array.isArray(current)
+            ? ([...current] as T)
+            : ({ ...(current as Record<string, unknown>) } as T);
+          dataRef.current = next;
+          setData(next);
+        } catch (err) {
+          console.error('Failed to apply stream patches:', err);
+          setError('Failed to process stream update');
+        }
+      };
+
+      const scheduleFlush = () => {
+        if (rafRef.current !== null) return;
+        rafRef.current = window.requestAnimationFrame(() => {
+          rafRef.current = null;
+          flushPendingPatches();
+        });
+      };
+
       ws.onmessage = (event) => {
         try {
           const msg: WsMsg = JSON.parse(event.data);
@@ -120,20 +158,19 @@ export const useJsonPatchWsStream = <T extends object>(
             const current = dataRef.current;
             if (!filtered.length || !current) return;
 
-            // Deep clone the current state before mutating it
-            const next = structuredClone(current);
-
-            // Apply patch (mutates the clone in place)
-            applyPatch(next, filtered);
-
-            dataRef.current = next;
-            setData(next);
+            pendingPatchesRef.current.push(...filtered);
+            scheduleFlush();
           }
 
           // Handle finished messages ({finished: true})
           // Treat finished as terminal - do NOT reconnect
           if ('finished' in msg) {
             finishedRef.current = true;
+            if (rafRef.current !== null) {
+              window.cancelAnimationFrame(rafRef.current);
+              rafRef.current = null;
+            }
+            flushPendingPatches();
             ws.close(1000, 'finished');
             wsRef.current = null;
             setIsConnected(false);
@@ -183,6 +220,11 @@ export const useJsonPatchWsStream = <T extends object>(
         window.clearTimeout(retryTimerRef.current);
         retryTimerRef.current = null;
       }
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      pendingPatchesRef.current = [];
       finishedRef.current = false;
       dataRef.current = undefined;
       setData(undefined);

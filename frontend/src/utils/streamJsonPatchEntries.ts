@@ -14,7 +14,7 @@ export interface StreamOptions<E = unknown> {
 }
 
 interface StreamController<E = unknown> {
-  /** Current entries array (immutable snapshot) */
+  /** Current entries array snapshot */
   getEntries(): E[];
   /** Full { entries } snapshot */
   getSnapshot(): PatchContainer<E>;
@@ -38,9 +38,14 @@ export function streamJsonPatchEntries<E = unknown>(
   opts: StreamOptions<E> = {}
 ): StreamController<E> {
   let connected = false;
-  let snapshot: PatchContainer<E> = structuredClone(
-    opts.initial ?? ({ entries: [] } as PatchContainer<E>)
-  );
+  const initialSnapshot =
+    opts.initial ?? ({ entries: [] } as PatchContainer<E>);
+  let snapshot: PatchContainer<E> = {
+    ...initialSnapshot,
+    entries: [...initialSnapshot.entries],
+  };
+  let pendingOps: Operation[] = [];
+  let rafId: number | null = null;
 
   const subscribers = new Set<(entries: E[]) => void>();
   if (opts.onEntries) subscribers.add(opts.onEntries);
@@ -59,6 +64,24 @@ export function streamJsonPatchEntries<E = unknown>(
     }
   };
 
+  const flushPendingOps = () => {
+    rafId = null;
+    if (!pendingOps.length) return;
+    const ops = pendingOps;
+    pendingOps = [];
+    try {
+      applyPatch(snapshot as unknown as object, ops);
+      notify();
+    } catch (err) {
+      opts.onError?.(err);
+    }
+  };
+
+  const scheduleFlush = () => {
+    if (rafId !== null) return;
+    rafId = window.requestAnimationFrame(flushPendingOps);
+  };
+
   const handleMessage = (event: MessageEvent) => {
     try {
       const msg = JSON.parse(event.data);
@@ -68,16 +91,19 @@ export function streamJsonPatchEntries<E = unknown>(
         const raw = msg.JsonPatch as Operation[];
         const ops = dedupeOps(raw);
 
-        // Apply to a working copy (applyPatch mutates)
-        const next = structuredClone(snapshot);
-        applyPatch(next as unknown as object, ops);
-
-        snapshot = next;
-        notify();
+        if (ops.length) {
+          pendingOps.push(...ops);
+          scheduleFlush();
+        }
       }
 
       // Handle Finished messages
       if (msg.finished !== undefined) {
+        if (rafId !== null) {
+          window.cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        flushPendingOps();
         opts.onFinished?.(snapshot.entries);
         ws.close();
       }
@@ -119,6 +145,11 @@ export function streamJsonPatchEntries<E = unknown>(
       return () => subscribers.delete(cb);
     },
     close(): void {
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      pendingOps = [];
       ws.close();
       subscribers.clear();
       connected = false;
