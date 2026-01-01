@@ -19,38 +19,83 @@ import {
   matchRoutes,
 } from 'react-router-dom';
 
-Sentry.init({
-  dsn: 'https://1065a1d276a581316999a07d5dffee26@o4509603705192449.ingest.de.sentry.io/4509605576441937',
-  tracesSampleRate: 1.0,
-  environment: import.meta.env.MODE === 'development' ? 'dev' : 'production',
-  integrations: [
-    Sentry.reactRouterV6BrowserTracingIntegration({
-      useEffect: React.useEffect,
-      useLocation,
-      useNavigationType,
-      createRoutesFromChildren,
-      matchRoutes,
-    }),
-  ],
-});
-Sentry.setTag('source', 'frontend');
+const registerEarlyErrorLogging = () => {
+  const handleError = (event: ErrorEvent) => {
+    console.error('[Early Error]', event.error ?? event.message);
+  };
+  const handleRejection = (event: PromiseRejectionEvent) => {
+    console.error('[Early Error] Unhandled rejection', event.reason);
+  };
 
-if (
-  import.meta.env.VITE_POSTHOG_API_KEY &&
-  import.meta.env.VITE_POSTHOG_API_ENDPOINT
-) {
-  posthog.init(import.meta.env.VITE_POSTHOG_API_KEY, {
-    api_host: import.meta.env.VITE_POSTHOG_API_ENDPOINT,
-    capture_pageview: false,
-    capture_pageleave: true,
-    capture_performance: true,
-    autocapture: false,
-    opt_out_capturing_by_default: true,
-  });
-} else {
-  console.warn(
-    'PostHog API key or endpoint not set. Analytics will be disabled.'
-  );
+  window.addEventListener('error', handleError);
+  window.addEventListener('unhandledrejection', handleRejection);
+
+  return () => {
+    window.removeEventListener('error', handleError);
+    window.removeEventListener('unhandledrejection', handleRejection);
+  };
+};
+
+let analyticsInitialized = false;
+let cleanupEarlyErrorLogging: null | (() => void) = registerEarlyErrorLogging();
+
+function AnalyticsInitializer() {
+  React.useEffect(() => {
+    if (analyticsInitialized) return;
+    analyticsInitialized = true;
+
+    let sentryReady = false;
+    try {
+      Sentry.init({
+        dsn: 'https://1065a1d276a581316999a07d5dffee26@o4509603705192449.ingest.de.sentry.io/4509605576441937',
+        tracesSampleRate: 1.0,
+        environment:
+          import.meta.env.MODE === 'development' ? 'dev' : 'production',
+        integrations: [
+          Sentry.reactRouterV6BrowserTracingIntegration({
+            useEffect: React.useEffect,
+            useLocation,
+            useNavigationType,
+            createRoutesFromChildren,
+            matchRoutes,
+          }),
+        ],
+      });
+      Sentry.setTag('source', 'frontend');
+      sentryReady = true;
+    } catch (error) {
+      console.error('[Analytics] Sentry init failed', error);
+    }
+
+    try {
+      if (
+        import.meta.env.VITE_POSTHOG_API_KEY &&
+        import.meta.env.VITE_POSTHOG_API_ENDPOINT
+      ) {
+        posthog.init(import.meta.env.VITE_POSTHOG_API_KEY, {
+          api_host: import.meta.env.VITE_POSTHOG_API_ENDPOINT,
+          capture_pageview: false,
+          capture_pageleave: true,
+          capture_performance: true,
+          autocapture: false,
+          opt_out_capturing_by_default: true,
+        });
+      } else {
+        console.warn(
+          'PostHog API key or endpoint not set. Analytics will be disabled.'
+        );
+      }
+    } catch (error) {
+      console.error('[Analytics] PostHog init failed', error);
+    }
+
+    if (sentryReady && cleanupEarlyErrorLogging) {
+      cleanupEarlyErrorLogging();
+      cleanupEarlyErrorLogging = null;
+    }
+  }, []);
+
+  return null;
 }
 
 const queryClient = new QueryClient({
@@ -64,6 +109,7 @@ const queryClient = new QueryClient({
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
+    <AnalyticsInitializer />
     <QueryClientProvider client={queryClient}>
       <PostHogProvider client={posthog}>
         <Sentry.ErrorBoundary
