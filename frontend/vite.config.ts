@@ -5,6 +5,60 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import fs from "fs";
 
+const manualChunkGroups: Record<string, string[]> = {
+  "react-vendor": ["react", "react-dom", "react-router-dom"],
+  "ui-vendor": [
+    "@radix-ui/react-dropdown-menu",
+    "@radix-ui/react-label",
+    "@radix-ui/react-select",
+    "@radix-ui/react-slot",
+    "@radix-ui/react-switch",
+    "@radix-ui/react-toggle-group",
+    "@radix-ui/react-tooltip",
+    "@ebay/nice-modal-react",
+    "embla-carousel-react",
+    "framer-motion",
+    "lucide-react",
+    "react-hotkeys-hook",
+    "react-resizable-panels",
+  ],
+  editor: [
+    "@uiw/react-codemirror",
+    "@codemirror/lang-json",
+    "@codemirror/language",
+    "@codemirror/lint",
+    "@codemirror/view",
+  ],
+  "lexical-vendor": ["@lexical", "lexical"],
+  "diff-react-vendor": ["@git-diff-view/react"],
+  "diff-file-vendor": ["@git-diff-view/file"],
+  "diff-utils-vendor": ["rfc6902"],
+  "diff-core-vendor": ["@git-diff-view/core", "diff", "fast-diff"],
+  "highlight-vendor": ["highlight.js"],
+  "lowlight-vendor": ["lowlight"],
+  "data-vendor": ["@tanstack", "zustand", "wa-sqlite"],
+  "i18n-vendor": ["i18next", "react-i18next"],
+  "analytics-vendor": ["@sentry", "posthog-js"],
+  "form-vendor": ["@rjsf", "ajv", "ajv-formats"],
+  "misc-vendor": [
+    "@dnd-kit",
+    "@virtuoso.dev",
+    "react-virtuoso",
+    "react-dropzone",
+    "simple-icons",
+    "vibe-kanban-web-companion",
+    "lodash",
+    "clsx",
+    "class-variance-authority",
+    "tailwind-merge",
+    "tailwindcss-animate",
+    "fancy-ansi",
+  ],
+};
+
+const matchesChunk = (id: string, packages: string[]) =>
+  packages.some((pkg) => id.includes(`/node_modules/${pkg}/`));
+
 function executorSchemasPlugin(): Plugin {
   const VIRTUAL_ID = "virtual:executor-schemas";
   const RESOLVED_VIRTUAL_ID = "\0" + VIRTUAL_ID;
@@ -56,10 +110,21 @@ export default defineConfig({
     executorSchemasPlugin(),
   ],
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-      shared: path.resolve(__dirname, "../shared"),
-    },
+    alias: [
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
+      { find: "shared", replacement: path.resolve(__dirname, "../shared") },
+      {
+        find: "@git-diff-view/lowlight",
+        replacement: path.resolve(
+          __dirname,
+          "./src/shims/git-diff-view-lowlight.ts"
+        ),
+      },
+      {
+        find: /^highlight\.js$/,
+        replacement: "highlight.js/lib/common",
+      },
+    ],
   },
   server: {
     port: parseInt(process.env.FRONTEND_PORT || "3000"),
@@ -78,5 +143,21 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ["wa-sqlite"],
   },
-  build: { sourcemap: "hidden" },
+  build: {
+    sourcemap: "hidden",
+    rollupOptions: {
+      output: {
+        entryFileNames: "assets/app-[hash].js",
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          for (const [chunkName, packages] of Object.entries(
+            manualChunkGroups
+          )) {
+            if (matchesChunk(id, packages)) return chunkName;
+          }
+          return undefined;
+        },
+      },
+    },
+  },
 });
