@@ -47,21 +47,36 @@ async fn main() -> Result<(), VibeKanbanError> {
 
     let deployment = DeploymentImpl::new().await?;
     deployment.update_sentry_scope().await?;
-    deployment
-        .container()
-        .cleanup_orphan_executions()
-        .await
-        .map_err(DeploymentError::from)?;
-    deployment
-        .container()
-        .backfill_before_head_commits()
-        .await
-        .map_err(DeploymentError::from)?;
-    deployment
-        .container()
-        .backfill_repo_names()
-        .await
-        .map_err(DeploymentError::from)?;
+    let deployment_for_orphan_cleanup = deployment.clone();
+    tokio::spawn(async move {
+        if let Err(e) = deployment_for_orphan_cleanup
+            .container()
+            .cleanup_orphan_executions()
+            .await
+        {
+            tracing::error!("Failed to cleanup orphan executions: {}", e);
+        }
+    });
+    let deployment_for_before_head_backfill = deployment.clone();
+    tokio::spawn(async move {
+        if let Err(e) = deployment_for_before_head_backfill
+            .container()
+            .backfill_before_head_commits()
+            .await
+        {
+            tracing::error!("Failed to backfill before head commits: {}", e);
+        }
+    });
+    let deployment_for_repo_name_backfill = deployment.clone();
+    tokio::spawn(async move {
+        if let Err(e) = deployment_for_repo_name_backfill
+            .container()
+            .backfill_repo_names()
+            .await
+        {
+            tracing::error!("Failed to backfill repo names: {}", e);
+        }
+    });
     deployment.spawn_pr_monitor_service().await;
     deployment
         .track_if_analytics_allowed("session_start", serde_json::json!({}))
