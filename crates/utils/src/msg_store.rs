@@ -37,7 +37,7 @@ impl Default for MsgStore {
 
 impl MsgStore {
     pub fn new() -> Self {
-        let (sender, _) = broadcast::channel(10000);
+        let (sender, _) = broadcast::channel(10_000);
         Self {
             inner: RwLock::new(Inner {
                 history: VecDeque::with_capacity(32),
