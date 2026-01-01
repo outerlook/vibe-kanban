@@ -6,7 +6,12 @@ use db::models::{
     task::{Task, TaskWithAttemptStatus},
 };
 use futures::StreamExt;
+use moka::future::Cache;
+use once_cell::sync::Lazy;
 use serde_json::json;
+use sqlx::SqlitePool;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 use utils::log_msg::LogMsg;
 use uuid::Uuid;
@@ -17,6 +22,70 @@ use super::{
     types::{EventError, EventPatch, RecordTypes},
 };
 
+static TASK_PROJECT_CACHE: Lazy<Cache<Uuid, Uuid>> = Lazy::new(|| {
+    Cache::builder()
+        .time_to_live(Duration::from_secs(300))
+        .max_capacity(1000)
+        .build()
+});
+static TASK_PROJECT_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+static TASK_PROJECT_CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
+static TASK_PROJECT_CACHE_LOOKUPS: AtomicU64 = AtomicU64::new(0);
+
+async fn cache_project_for_task(task_id: Uuid, project_id: Uuid) {
+    TASK_PROJECT_CACHE.insert(task_id, project_id).await;
+}
+
+async fn invalidate_task_cache(task_id: Uuid) {
+    TASK_PROJECT_CACHE.invalidate(&task_id).await;
+}
+
+async fn get_project_for_task(db: &SqlitePool, task_id: Uuid) -> Option<Uuid> {
+    if let Some(project_id) = TASK_PROJECT_CACHE.get(&task_id).await {
+        record_task_cache_result(true);
+        return Some(project_id);
+    }
+
+    record_task_cache_result(false);
+    if let Ok(Some(task)) = Task::find_by_id(db, task_id).await {
+        let project_id = task.project_id;
+        TASK_PROJECT_CACHE.insert(task_id, project_id).await;
+        return Some(project_id);
+    }
+
+    None
+}
+
+fn task_id_from_path(path: &str) -> Option<Uuid> {
+    let suffix = path.strip_prefix("/tasks/")?;
+    let id_str = suffix.split('/').next()?;
+    Uuid::parse_str(id_str).ok()
+}
+
+fn record_task_cache_result(hit: bool) {
+    if hit {
+        TASK_PROJECT_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
+    } else {
+        TASK_PROJECT_CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
+    }
+
+    let lookups = TASK_PROJECT_CACHE_LOOKUPS.fetch_add(1, Ordering::Relaxed) + 1;
+    if lookups % 1000 == 0 {
+        let hits = TASK_PROJECT_CACHE_HITS.load(Ordering::Relaxed);
+        let misses = TASK_PROJECT_CACHE_MISSES.load(Ordering::Relaxed);
+        let total = hits + misses;
+        if total > 0 {
+            let hit_rate = hits as f64 / total as f64;
+            tracing::debug!(
+                hits = hits,
+                misses = misses,
+                hit_rate = hit_rate,
+                "task project cache stats"
+            );
+        }
+    }
+}
+
 impl EventService {
     /// Stream raw task messages for a specific project with initial snapshot
     pub async fn stream_tasks_raw(
@@ -26,6 +95,10 @@ impl EventService {
     {
         // Get initial snapshot of tasks
         let tasks = Task::find_by_project_id_with_attempt_status(&self.db.pool, project_id).await?;
+
+        for task in &tasks {
+            cache_project_for_task(task.id, task.project_id).await;
+        }
 
         // Convert task array to object keyed by task ID
         let tasks_map: serde_json::Map<String, serde_json::Value> = tasks
@@ -63,9 +136,15 @@ impl EventService {
                                                 serde_json::from_value::<TaskWithAttemptStatus>(
                                                     op.value.clone(),
                                                 )
-                                                && task.project_id == project_id
                                             {
-                                                return Some(Ok(LogMsg::JsonPatch(patch)));
+                                                cache_project_for_task(
+                                                    task.id,
+                                                    task.project_id,
+                                                )
+                                                .await;
+                                                if task.project_id == project_id {
+                                                    return Some(Ok(LogMsg::JsonPatch(patch)));
+                                                }
                                             }
                                         }
                                         json_patch::PatchOperation::Replace(op) => {
@@ -74,12 +153,23 @@ impl EventService {
                                                 serde_json::from_value::<TaskWithAttemptStatus>(
                                                     op.value.clone(),
                                                 )
-                                                && task.project_id == project_id
                                             {
-                                                return Some(Ok(LogMsg::JsonPatch(patch)));
+                                                cache_project_for_task(
+                                                    task.id,
+                                                    task.project_id,
+                                                )
+                                                .await;
+                                                if task.project_id == project_id {
+                                                    return Some(Ok(LogMsg::JsonPatch(patch)));
+                                                }
                                             }
                                         }
                                         json_patch::PatchOperation::Remove(_) => {
+                                            if let Some(task_id) =
+                                                task_id_from_path(patch_op.path())
+                                            {
+                                                invalidate_task_cache(task_id).await;
+                                            }
                                             // For remove operations, we need to check project membership differently
                                             // We could cache this information or let it pass through for now
                                             // Since we don't have the task data, we'll allow all removals
@@ -95,23 +185,31 @@ impl EventService {
                                     // Handle old EventPatch format for non-task records
                                     match &event_patch.value.record {
                                         RecordTypes::Task(task) => {
+                                            cache_project_for_task(task.id, task.project_id).await;
                                             if task.project_id == project_id {
                                                 return Some(Ok(LogMsg::JsonPatch(patch)));
                                             }
                                         }
                                         RecordTypes::DeletedTask {
-                                            project_id: Some(deleted_project_id),
+                                            project_id: deleted_project_id,
+                                            task_id,
                                             ..
                                         } => {
-                                            if *deleted_project_id == project_id {
+                                            if let Some(task_id) = task_id {
+                                                invalidate_task_cache(*task_id).await;
+                                            }
+                                            if let Some(deleted_project_id) = deleted_project_id
+                                                && *deleted_project_id == project_id
+                                            {
                                                 return Some(Ok(LogMsg::JsonPatch(patch)));
                                             }
                                         }
                                         RecordTypes::Workspace(workspace) => {
                                             // Check if this workspace belongs to a task in our project
-                                            if let Ok(Some(task)) =
-                                                Task::find_by_id(&db_pool, workspace.task_id).await
-                                                && task.project_id == project_id
+                                            if let Some(task_project_id) =
+                                                get_project_for_task(&db_pool, workspace.task_id)
+                                                    .await
+                                                && task_project_id == project_id
                                             {
                                                 return Some(Ok(LogMsg::JsonPatch(patch)));
                                             }
@@ -121,9 +219,10 @@ impl EventService {
                                             ..
                                         } => {
                                             // Check if deleted workspace belonged to a task in our project
-                                            if let Ok(Some(task)) =
-                                                Task::find_by_id(&db_pool, *deleted_task_id).await
-                                                && task.project_id == project_id
+                                            if let Some(task_project_id) =
+                                                get_project_for_task(&db_pool, *deleted_task_id)
+                                                    .await
+                                                && task_project_id == project_id
                                             {
                                                 return Some(Ok(LogMsg::JsonPatch(patch)));
                                             }
