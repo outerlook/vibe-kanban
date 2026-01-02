@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT t1.project_id as \"task_project_id: Uuid\",\n                      t2.project_id as \"depends_on_project_id: Uuid\"\n               FROM tasks t1\n               JOIN tasks t2 ON t2.id = $2\n               WHERE t1.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "task_project_id: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "depends_on_project_id: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "3a697b73b145099f725967c24f362cbf98cebf3c211f6929cebd5a0c33ef20a5"
+}
