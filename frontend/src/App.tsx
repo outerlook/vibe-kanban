@@ -21,6 +21,7 @@ import { Loader } from '@/components/ui/loader';
 import { DisclaimerDialog } from '@/components/dialogs/global/DisclaimerDialog';
 import { OnboardingDialog } from '@/components/dialogs/global/OnboardingDialog';
 import { ReleaseNotesDialog } from '@/components/dialogs/global/ReleaseNotesDialog';
+import { CommandPalette } from '@/components/CommandPalette';
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import NiceModal from '@ebay/nice-modal-react';
 
@@ -154,6 +155,7 @@ function AppContent() {
     <I18nextProvider i18n={i18n}>
       <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
         <SearchProvider>
+          <CommandPalette />
           <div className="h-screen flex flex-col bg-background">
             <Suspense
               fallback={

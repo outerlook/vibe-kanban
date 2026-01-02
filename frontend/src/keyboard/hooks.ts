@@ -76,6 +76,16 @@ export const useKeyOpenDetails = createSemanticHook(Action.OPEN_DETAILS);
 export const useKeyShowHelp = createSemanticHook(Action.SHOW_HELP);
 
 /**
+ * Open command palette action - typically Cmd/Ctrl+K
+ *
+ * @example
+ * useKeyOpenCommandPalette(() => setOpen(true), { scope: Scope.GLOBAL });
+ */
+export const useKeyOpenCommandPalette = createSemanticHook(
+  Action.OPEN_COMMAND_PALETTE
+);
+
+/**
  * Delete task action - typically 'd' key
  *
  * @example

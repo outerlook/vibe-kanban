@@ -22,6 +22,7 @@ export enum Action {
   NAV_RIGHT = 'nav_right',
   OPEN_DETAILS = 'open_details',
   SHOW_HELP = 'show_help',
+  OPEN_COMMAND_PALETTE = 'open_command_palette',
   DELETE_TASK = 'delete_task',
   APPROVE_REQUEST = 'approve_request',
   DENY_APPROVAL = 'deny_approval',
@@ -161,6 +162,13 @@ export const keyBindings: KeyBinding[] = [
     keys: 'shift+slash',
     scopes: [Scope.GLOBAL],
     description: 'Show keyboard shortcuts help',
+    group: 'Global',
+  },
+  {
+    action: Action.OPEN_COMMAND_PALETTE,
+    keys: ['meta+k', 'ctrl+k'],
+    scopes: [Scope.GLOBAL],
+    description: 'Open command palette',
     group: 'Global',
   },
 
