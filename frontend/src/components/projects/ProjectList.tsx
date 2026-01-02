@@ -18,6 +18,12 @@ export function ProjectList() {
   const { projects, isLoading, error: projectsError } = useProjects();
   const [error, setError] = useState('');
   const [focusedProjectId, setFocusedProjectId] = useState<string | null>(null);
+  const isMac =
+    typeof navigator !== 'undefined' &&
+    navigator.platform.toUpperCase().includes('MAC');
+  const modifierKeyLabel = isMac ? 'Cmd' : 'Ctrl';
+  const keycapClassName =
+    'inline-flex h-5 items-center rounded border border-border bg-background px-1.5 text-[10px] font-medium text-foreground shadow-sm';
 
   const handleCreateProject = async () => {
     try {
@@ -54,10 +60,20 @@ export function ProjectList() {
           <h1 className="text-3xl font-bold tracking-tight">{t('title')}</h1>
           <p className="text-muted-foreground">{t('subtitle')}</p>
         </div>
-        <Button onClick={handleCreateProject}>
-          <Plus className="mr-2 h-4 w-4" />
-          {t('createProject')}
-        </Button>
+        <div className="flex items-center gap-3">
+          <div className="hidden items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground md:flex">
+            <span className="whitespace-nowrap">Command palette</span>
+            <span className="flex items-center gap-1">
+              <kbd className={keycapClassName}>{modifierKeyLabel}</kbd>
+              <span className="text-muted-foreground">+</span>
+              <kbd className={keycapClassName}>K</kbd>
+            </span>
+          </div>
+          <Button onClick={handleCreateProject}>
+            <Plus className="mr-2 h-4 w-4" />
+            {t('createProject')}
+          </Button>
+        </div>
       </div>
 
       {(error || projectsError) && (
