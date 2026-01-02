@@ -28,6 +28,7 @@ import WYSIWYGEditor from '@/components/ui/wysiwyg';
 import type { LocalImageMetadata } from '@/components/ui/wysiwyg/context/task-attempt-context';
 import BranchSelector from '@/components/tasks/BranchSelector';
 import RepoBranchSelector from '@/components/tasks/RepoBranchSelector';
+import { DependencySection } from '@/components/tasks/DependencySection';
 import { ExecutorProfileSelector } from '@/components/settings';
 import { useUserSystem } from '@/components/ConfigProvider';
 import {
@@ -500,6 +501,11 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                   </div>
                 )}
               </form.Field>
+            )}
+            {editMode && (
+              <div className="pt-4">
+                <DependencySection taskId={props.task.id} projectId={projectId} />
+              </div>
             )}
           </div>
 

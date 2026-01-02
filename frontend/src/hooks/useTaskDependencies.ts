@@ -5,9 +5,7 @@ import type { Task, TaskDependency } from 'shared/types';
 
 export const taskDependenciesKeys = {
   all: ['taskDependencies'] as const,
-  byTask: (taskId: string | undefined, direction?: DependencyDirection) =>
-    ['taskDependencies', taskId, direction ?? 'blocked_by'] as const,
-  byTaskPrefix: (taskId: string | undefined) =>
+  byTask: (taskId: string | undefined) =>
     ['taskDependencies', taskId] as const,
 };
 
@@ -26,16 +24,32 @@ type QueryOptions = {
   retry?: number | false;
 };
 
-export function useTaskDependencies(
-  taskId?: string,
-  direction?: DependencyDirection,
-  opts?: QueryOptions
-) {
+export type TaskDependencySummary = {
+  blocked_by: Task[];
+  blocking: Task[];
+};
+
+const dependencyDirections: DependencyDirection[] = [
+  'blocked_by',
+  'blocking',
+];
+
+export function useTaskDependencies(taskId?: string, opts?: QueryOptions) {
   const enabled = (opts?.enabled ?? true) && !!taskId;
 
-  return useQuery<Task[]>({
-    queryKey: taskDependenciesKeys.byTask(taskId, direction),
-    queryFn: () => taskDependenciesApi.getDependencies(taskId!, direction),
+  return useQuery<TaskDependencySummary>({
+    queryKey: taskDependenciesKeys.byTask(taskId),
+    queryFn: async () => {
+      const [blockedBy, blocking] = await Promise.all(
+        dependencyDirections.map((direction) =>
+          taskDependenciesApi.getDependencies(taskId!, direction)
+        )
+      );
+      return {
+        blocked_by: blockedBy,
+        blocking,
+      };
+    },
     enabled,
     refetchInterval: opts?.refetchInterval ?? false,
     staleTime: opts?.staleTime ?? 10_000,
@@ -71,12 +85,14 @@ export function useAddDependency() {
   return useMutation<TaskDependency, unknown, DependencyMutationInput>({
     mutationFn: ({ taskId, dependsOnId }) =>
       taskDependenciesApi.addDependency(taskId, dependsOnId),
-    onSuccess: (_dependency, { taskId }) => {
-      queryClient.invalidateQueries({
-        queryKey: taskDependenciesKeys.byTaskPrefix(taskId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: taskDependencyTreeKeys.byTask(taskId),
+    onSuccess: (_dependency, { taskId, dependsOnId }) => {
+      [taskId, dependsOnId].forEach((id) => {
+        queryClient.invalidateQueries({
+          queryKey: taskDependenciesKeys.byTask(id),
+        });
+        queryClient.invalidateQueries({
+          queryKey: taskDependencyTreeKeys.byTask(id),
+        });
       });
     },
     onError: (err) => {
@@ -91,12 +107,14 @@ export function useRemoveDependency() {
   return useMutation<void, unknown, DependencyMutationInput>({
     mutationFn: ({ taskId, dependsOnId }) =>
       taskDependenciesApi.removeDependency(taskId, dependsOnId),
-    onSuccess: (_data, { taskId }) => {
-      queryClient.invalidateQueries({
-        queryKey: taskDependenciesKeys.byTaskPrefix(taskId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: taskDependencyTreeKeys.byTask(taskId),
+    onSuccess: (_data, { taskId, dependsOnId }) => {
+      [taskId, dependsOnId].forEach((id) => {
+        queryClient.invalidateQueries({
+          queryKey: taskDependenciesKeys.byTask(id),
+        });
+        queryClient.invalidateQueries({
+          queryKey: taskDependencyTreeKeys.byTask(id),
+        });
       });
     },
     onError: (err) => {
