@@ -29,6 +29,18 @@ pub struct AddDependencyRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyDirection {
+    BlockedBy,
+    Blocking,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DependencyListQuery {
+    pub direction: Option<DependencyDirection>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct DependencyTreeQuery {
     pub max_depth: Option<u32>,
 }
@@ -50,8 +62,16 @@ type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub async fn get_dependencies(
     Extension(task): Extension<Task>,
     State(deployment): State<DeploymentImpl>,
+    Query(query): Query<DependencyListQuery>,
 ) -> Result<ResponseJson<ApiResponse<Vec<Task>>>, ApiError> {
-    let dependencies = TaskDependency::find_blocked_by(&deployment.db().pool, task.id).await?;
+    let dependencies = match query.direction.unwrap_or(DependencyDirection::BlockedBy) {
+        DependencyDirection::BlockedBy => {
+            TaskDependency::find_blocked_by(&deployment.db().pool, task.id).await?
+        }
+        DependencyDirection::Blocking => {
+            TaskDependency::find_blocking(&deployment.db().pool, task.id).await?
+        }
+    };
     Ok(ResponseJson(ApiResponse::success(dependencies)))
 }
 

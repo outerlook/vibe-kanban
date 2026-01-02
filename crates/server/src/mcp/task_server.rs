@@ -5,6 +5,7 @@ use db::models::{
     repo::Repo,
     tag::Tag,
     task::{CreateTask, Task, TaskStatus, TaskWithAttemptStatus, UpdateTask},
+    task_dependency::TaskDependency,
     workspace::{Workspace, WorkspaceContext},
 };
 use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
@@ -257,6 +258,99 @@ pub struct GetTaskRequest {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct GetTaskResponse {
     pub task: TaskDetails,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AddTaskDependencyRequest {
+    #[schemars(description = "The task to add a dependency for")]
+    pub task_id: Uuid,
+    #[schemars(description = "The task this one depends on")]
+    pub depends_on_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct RemoveTaskDependencyRequest {
+    #[schemars(description = "The task to remove a dependency from")]
+    pub task_id: Uuid,
+    #[schemars(description = "The dependency task to remove")]
+    pub depends_on_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetTaskDependenciesRequest {
+    #[schemars(description = "The task to fetch dependencies for")]
+    pub task_id: Uuid,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TaskDependencyInfo {
+    pub id: String,
+    pub task_id: String,
+    pub depends_on_id: String,
+    pub created_at: String,
+}
+
+impl TaskDependencyInfo {
+    fn from_dependency(dependency: TaskDependency) -> Self {
+        Self {
+            id: dependency.id.to_string(),
+            task_id: dependency.task_id.to_string(),
+            depends_on_id: dependency.depends_on_id.to_string(),
+            created_at: dependency.created_at.to_rfc3339(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct RemoveTaskDependencyResponse {
+    pub task_id: String,
+    pub depends_on_id: String,
+    pub removed: bool,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TaskDependencySummary {
+    pub blocked_by: Vec<TaskDetails>,
+    pub blocking: Vec<TaskDetails>,
+    pub is_blocked: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetTaskDependencyTreeRequest {
+    #[schemars(description = "The task to fetch the dependency tree for")]
+    pub task_id: Uuid,
+    #[schemars(description = "Maximum depth to traverse (defaults to server value)")]
+    pub max_depth: Option<i32>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TaskDependencyTreeNode {
+    pub task: TaskDetails,
+    pub dependencies: Vec<TaskDependencyTreeNode>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct GetTaskDependencyTreeResponse {
+    pub tree: TaskDependencyTreeNode,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskDependencyTreeNodeApi {
+    task: Task,
+    dependencies: Vec<TaskDependencyTreeNodeApi>,
+}
+
+impl TaskDependencyTreeNode {
+    fn from_api(node: TaskDependencyTreeNodeApi) -> Self {
+        Self {
+            task: TaskDetails::from_task(node.task),
+            dependencies: node
+                .dependencies
+                .into_iter()
+                .map(TaskDependencyTreeNode::from_api)
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -815,12 +909,134 @@ impl TaskServer {
 
         TaskServer::success(&response)
     }
+
+    #[tool(description = "Add a dependency between two tasks.")]
+    async fn add_task_dependency(
+        &self,
+        Parameters(AddTaskDependencyRequest {
+            task_id,
+            depends_on_id,
+        }): Parameters<AddTaskDependencyRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/tasks/{}/dependencies", task_id));
+        let payload = serde_json::json!({ "depends_on_id": depends_on_id });
+        let dependency: TaskDependency = match self
+            .send_json(self.client.post(&url).json(&payload))
+            .await
+        {
+            Ok(dep) => dep,
+            Err(e) => return Ok(e),
+        };
+
+        TaskServer::success(&TaskDependencyInfo::from_dependency(dependency))
+    }
+
+    #[tool(description = "Remove a dependency between two tasks.")]
+    async fn remove_task_dependency(
+        &self,
+        Parameters(RemoveTaskDependencyRequest {
+            task_id,
+            depends_on_id,
+        }): Parameters<RemoveTaskDependencyRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!(
+            "/api/tasks/{}/dependencies/{}",
+            task_id, depends_on_id
+        ));
+        if let Err(e) = self
+            .send_json::<serde_json::Value>(self.client.delete(&url))
+            .await
+        {
+            return Ok(e);
+        }
+
+        let response = RemoveTaskDependencyResponse {
+            task_id: task_id.to_string(),
+            depends_on_id: depends_on_id.to_string(),
+            removed: true,
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(
+        description = "Get dependency information for a task, including tasks it depends on and tasks it blocks."
+    )]
+    async fn get_task_dependencies(
+        &self,
+        Parameters(GetTaskDependenciesRequest { task_id }): Parameters<GetTaskDependenciesRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let blocked_by_url = self.url(&format!("/api/tasks/{}/dependencies", task_id));
+        let blocked_by: Vec<Task> =
+            match self.send_json(self.client.get(&blocked_by_url)).await {
+                Ok(tasks) => tasks,
+                Err(e) => return Ok(e),
+            };
+
+        let blocking_url = self.url(&format!(
+            "/api/tasks/{}/dependencies?direction=blocking",
+            task_id
+        ));
+        let blocking: Vec<Task> = match self.send_json(self.client.get(&blocking_url)).await {
+            Ok(tasks) => tasks,
+            Err(e) => return Ok(e),
+        };
+
+        let blocked_by_details: Vec<TaskDetails> = blocked_by
+            .into_iter()
+            .map(TaskDetails::from_task)
+            .collect();
+        let blocking_details: Vec<TaskDetails> = blocking
+            .into_iter()
+            .map(TaskDetails::from_task)
+            .collect();
+
+        let response = TaskDependencySummary {
+            is_blocked: !blocked_by_details.is_empty(),
+            blocked_by: blocked_by_details,
+            blocking: blocking_details,
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(description = "Get a dependency tree for a task.")]
+    async fn get_task_dependency_tree(
+        &self,
+        Parameters(GetTaskDependencyTreeRequest { task_id, max_depth }): Parameters<
+            GetTaskDependencyTreeRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        if let Some(max_depth) = max_depth {
+            if max_depth < 0 {
+                return Self::err("max_depth must be non-negative.".to_string(), None::<String>);
+            }
+        }
+
+        let url = self.url(&format!("/api/tasks/{}/dependency-tree", task_id));
+        let request = if let Some(max_depth) = max_depth {
+            self.client.get(&url).query(&[("max_depth", max_depth)])
+        } else {
+            self.client.get(&url)
+        };
+
+        let tree: TaskDependencyTreeNodeApi = match self.send_json(request).await {
+            Ok(tree) => tree,
+            Err(e) => return Ok(e),
+        };
+
+        let response = GetTaskDependencyTreeResponse {
+            tree: TaskDependencyTreeNode::from_api(tree),
+        };
+
+        TaskServer::success(&response)
+    }
 }
 
 #[tool_handler]
 impl ServerHandler for TaskServer {
     fn get_info(&self) -> ServerInfo {
-        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids.".to_string();
+        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids.".to_string();
         if self.context.is_some() {
             let context_instruction = "Use 'get_context' to fetch project/task/workspace metadata for the active Vibe Kanban workspace session when available.";
             instruction = format!("{} {}", context_instruction, instruction);
