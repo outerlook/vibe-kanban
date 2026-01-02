@@ -140,9 +140,6 @@ importers:
       lodash:
         specifier: ^4.17.21
         version: 4.17.21
-      lowlight:
-        specifier: ^3.3.0
-        version: 3.3.0
       lucide-react:
         specifier: ^0.539.0
         version: 0.539.0(react@18.3.1)
@@ -255,6 +252,9 @@ importers:
       eslint-plugin-unused-imports:
         specifier: ^4.1.4
         version: 4.1.4(@typescript-eslint/eslint-plugin@6.21.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.9.2))(eslint@8.57.1)(typescript@5.9.2))(eslint@8.57.1)
+      lowlight:
+        specifier: ^3.3.0
+        version: 3.3.0
       postcss:
         specifier: ^8.4.32
         version: 8.5.6
