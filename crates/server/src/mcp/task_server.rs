@@ -188,9 +188,6 @@ pub struct ListTasksFilters {
 #[derive(Debug, Deserialize)]
 struct PaginatedTasksResponse {
     pub tasks: Vec<TaskWithAttemptStatus>,
-    pub total: i64,
-    #[serde(rename = "hasMore")]
-    pub has_more: bool,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -717,7 +714,7 @@ impl TaskServer {
         }
 
         let page: PaginatedTasksResponse =
-            match self.send_json(self.client.get(&self.url(&url))).await {
+            match self.send_json(self.client.get(self.url(&url))).await {
                 Ok(t) => t,
                 Err(e) => return Ok(e),
             };
@@ -734,7 +731,7 @@ impl TaskServer {
             project_id: project_id.to_string(),
             applied_filters: ListTasksFilters {
                 status: status.clone(),
-                limit: task_limit as i32,
+                limit: task_limit,
             },
         };
 
@@ -1007,10 +1004,10 @@ impl TaskServer {
             GetTaskDependencyTreeRequest,
         >,
     ) -> Result<CallToolResult, ErrorData> {
-        if let Some(max_depth) = max_depth {
-            if max_depth < 0 {
-                return Self::err("max_depth must be non-negative.".to_string(), None::<String>);
-            }
+        if let Some(max_depth) = max_depth
+            && max_depth < 0
+        {
+            return Self::err("max_depth must be non-negative.".to_string(), None::<String>);
         }
 
         let url = self.url(&format!("/api/tasks/{}/dependency-tree", task_id));

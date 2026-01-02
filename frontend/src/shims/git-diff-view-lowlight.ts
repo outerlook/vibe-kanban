@@ -1,10 +1,38 @@
 import { createLowlight, common } from 'lowlight';
 
+type LowlightNode = {
+  type?: string;
+  value?: string;
+  children?: LowlightNode[];
+  startIndex?: number;
+  endIndex?: number;
+  lineNumber?: number;
+};
+
+type LowlightTextNode = LowlightNode & {
+  type: 'text';
+  value: string;
+};
+
+type LowlightRoot = {
+  children: LowlightNode[];
+};
+
+type LowlightHljs = {
+  COMMENT: (
+    start: string,
+    end: string,
+    opts?: { relevance?: number }
+  ) => unknown;
+};
+
+type LowlightLanguageDef = (hljs: LowlightHljs) => Record<string, unknown>;
+
 type SyntaxEntry = {
   value: string;
   lineNumber: number;
   valueLength: number;
-  nodeList: Array<{ node: any; wrapper?: any }>;
+  nodeList: Array<{ node: LowlightNode; wrapper?: LowlightNode }>;
 };
 
 type SyntaxResult = {
@@ -12,42 +40,43 @@ type SyntaxResult = {
   syntaxFileLineNumber: number;
 };
 
-const processAST = (ast: any): SyntaxResult => {
+const processAST = (ast: LowlightRoot): SyntaxResult => {
   let lineNumber = 1;
   const syntaxObj: Record<number, SyntaxEntry> = {};
 
-  const loopAST = (nodes: any[], wrapper?: any) => {
+  const loopAST = (nodes: LowlightNode[], wrapper?: LowlightNode) => {
     nodes.forEach((node) => {
       if (node.type === 'text') {
-        if (!node.value.includes('\n')) {
-          const valueLength = node.value.length;
+        const textNode = node as LowlightTextNode;
+        if (!textNode.value.includes('\n')) {
+          const valueLength = textNode.value.length;
           if (!syntaxObj[lineNumber]) {
-            node.startIndex = 0;
-            node.endIndex = valueLength - 1;
+            textNode.startIndex = 0;
+            textNode.endIndex = valueLength - 1;
             syntaxObj[lineNumber] = {
-              value: node.value,
+              value: textNode.value,
               lineNumber,
               valueLength,
-              nodeList: [{ node, wrapper }],
+              nodeList: [{ node: textNode, wrapper }],
             };
           } else {
-            node.startIndex = syntaxObj[lineNumber].valueLength;
-            node.endIndex = node.startIndex + valueLength - 1;
-            syntaxObj[lineNumber].value += node.value;
+            textNode.startIndex = syntaxObj[lineNumber].valueLength;
+            textNode.endIndex = textNode.startIndex + valueLength - 1;
+            syntaxObj[lineNumber].value += textNode.value;
             syntaxObj[lineNumber].valueLength += valueLength;
-            syntaxObj[lineNumber].nodeList.push({ node, wrapper });
+            syntaxObj[lineNumber].nodeList.push({ node: textNode, wrapper });
           }
-          node.lineNumber = lineNumber;
+          textNode.lineNumber = lineNumber;
           return;
         }
 
-        const lines = node.value.split('\n');
-        node.children = node.children || [];
+        const lines = textNode.value.split('\n');
+        textNode.children = textNode.children || [];
         for (let i = 0; i < lines.length; i += 1) {
           const value = i === lines.length - 1 ? lines[i] : `${lines[i]}\n`;
           const currentLineNumber = i === 0 ? lineNumber : (lineNumber += 1);
           const valueLength = value.length;
-          const childNode = {
+          const childNode: LowlightTextNode = {
             type: 'text',
             value,
             startIndex: Infinity,
@@ -75,10 +104,10 @@ const processAST = (ast: any): SyntaxResult => {
             });
           }
 
-          node.children.push(childNode);
+          textNode.children.push(childNode);
         }
 
-        node.lineNumber = lineNumber;
+        textNode.lineNumber = lineNumber;
         return;
       }
 
@@ -96,13 +125,13 @@ const processAST = (ast: any): SyntaxResult => {
 const _getAST = () => ({});
 
 const lowlight = createLowlight(common) as {
-  highlight: (lang: string, raw: string) => any;
-  highlightAuto: (raw: string) => any;
+  highlight: (lang: string, raw: string) => LowlightRoot;
+  highlightAuto: (raw: string) => LowlightRoot;
   registered: (lang: string) => boolean;
-  register: (name: string, lang: (hljs: any) => any) => void;
+  register: (name: string, lang: LowlightLanguageDef) => void;
 };
 
-lowlight.register('vue', (hljs: any) => ({
+lowlight.register('vue', (hljs: LowlightHljs) => ({
   subLanguage: 'xml',
   contains: [
     hljs.COMMENT('<!--', '-->', {
@@ -197,7 +226,7 @@ const highlighter = {
 
     return lowlight.highlightAuto(raw);
   },
-  processAST(ast: any) {
+  processAST(ast: LowlightRoot) {
     return processAST(ast);
   },
   hasRegisteredCurrentLang(lang: string) {

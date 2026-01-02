@@ -3,6 +3,12 @@ export { useAttemptExecution } from './useAttemptExecution';
 export { useOpenInEditor } from './useOpenInEditor';
 export { useTaskAttempt, useTaskAttemptWithSession } from './useTaskAttempt';
 export { useTaskImages } from './useTaskImages';
+export {
+  useAddDependency,
+  useRemoveDependency,
+  useTaskDependencies,
+  useTaskDependencyTree,
+} from './useTaskDependencies';
 export { useImageUpload } from './useImageUpload';
 export { useTaskMutations } from './useTaskMutations';
 export { useDevServer } from './useDevServer';

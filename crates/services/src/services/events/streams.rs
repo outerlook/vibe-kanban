@@ -70,7 +70,7 @@ fn record_task_cache_result(hit: bool) {
     }
 
     let lookups = TASK_PROJECT_CACHE_LOOKUPS.fetch_add(1, Ordering::Relaxed) + 1;
-    if lookups % 1000 == 0 {
+    if lookups.is_multiple_of(1000) {
         let hits = TASK_PROJECT_CACHE_HITS.load(Ordering::Relaxed);
         let misses = TASK_PROJECT_CACHE_MISSES.load(Ordering::Relaxed);
         let total = hits + misses;

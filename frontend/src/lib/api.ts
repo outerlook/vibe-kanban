@@ -26,6 +26,7 @@ import {
   SearchResult,
   ShareTaskResponse,
   Task,
+  TaskDependency,
   TaskRelationships,
   Tag,
   TagSearchParams,
@@ -128,6 +129,11 @@ export interface PaginatedTasksResponse {
   total: number;
   hasMore: boolean;
 }
+
+export type TaskDependencyTreeNode = {
+  task: Task;
+  dependencies: TaskDependencyTreeNode[];
+};
 
 const makeRequest = async (url: string, options: RequestInit = {}) => {
   const headers = new Headers(options.headers ?? {});
@@ -505,6 +511,53 @@ export const tasksApi = {
       body: JSON.stringify(data),
     });
     return handleApiResponse<Task | null>(response);
+  },
+};
+
+// Task Dependencies APIs
+export const taskDependenciesApi = {
+  getDependencies: async (taskId: string): Promise<Task[]> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/dependencies`);
+    return handleApiResponse<Task[]>(response);
+  },
+
+  addDependency: async (
+    taskId: string,
+    dependsOnId: string
+  ): Promise<TaskDependency> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/dependencies`, {
+      method: 'POST',
+      body: JSON.stringify({ depends_on_id: dependsOnId }),
+    });
+    return handleApiResponse<TaskDependency>(response);
+  },
+
+  removeDependency: async (
+    taskId: string,
+    dependsOnId: string
+  ): Promise<void> => {
+    const response = await makeRequest(
+      `/api/tasks/${taskId}/dependencies/${dependsOnId}`,
+      {
+        method: 'DELETE',
+      }
+    );
+    return handleApiResponse<void>(response);
+  },
+
+  getDependencyTree: async (
+    taskId: string,
+    maxDepth?: number
+  ): Promise<TaskDependencyTreeNode> => {
+    const query = new URLSearchParams();
+    if (maxDepth !== undefined) {
+      query.set('max_depth', maxDepth.toString());
+    }
+    const suffix = query.toString();
+    const response = await makeRequest(
+      `/api/tasks/${taskId}/dependency-tree${suffix ? `?${suffix}` : ''}`
+    );
+    return handleApiResponse<TaskDependencyTreeNode>(response);
   },
 };
 

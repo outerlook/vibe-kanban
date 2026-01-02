@@ -40,7 +40,7 @@ export function streamJsonPatchEntries<E = unknown>(
   let connected = false;
   const initialSnapshot =
     opts.initial ?? ({ entries: [] } as PatchContainer<E>);
-  let snapshot: PatchContainer<E> = {
+  const snapshot: PatchContainer<E> = {
     ...initialSnapshot,
     entries: [...initialSnapshot.entries],
   };

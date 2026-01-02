@@ -59,7 +59,10 @@ use crate::services::{
 pub type ContainerRef = String;
 
 enum NormalizedEntryPatchOp {
-    Upsert { index: i64, entry: NormalizedEntry },
+    Upsert {
+        index: i64,
+        entry: Box<NormalizedEntry>,
+    },
     Remove { index: i64 },
 }
 
@@ -90,7 +93,7 @@ fn extract_normalized_entry_ops(patch: &json_patch::Patch) -> Vec<NormalizedEntr
                     let entry: NormalizedEntry = serde_json::from_value(content.clone()).ok()?;
                     Some(NormalizedEntryPatchOp::Upsert {
                         index: entry_index,
-                        entry,
+                        entry: Box::new(entry),
                     })
                 }
                 "remove" => Some(NormalizedEntryPatchOp::Remove {
@@ -110,7 +113,12 @@ async fn apply_normalized_entry_ops(
     for op in ops {
         match op {
             NormalizedEntryPatchOp::Upsert { index, entry } => {
-                ExecutionProcessNormalizedEntry::upsert(pool, execution_id, index, &entry)
+                ExecutionProcessNormalizedEntry::upsert(
+                    pool,
+                    execution_id,
+                    index,
+                    entry.as_ref(),
+                )
                     .await
                     .map_err(ContainerError::Other)?;
             }
