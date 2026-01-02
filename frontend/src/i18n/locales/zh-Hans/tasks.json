@@ -308,6 +308,18 @@
       "status": "状态"
     }
   },
+  "dependencyTreeDialog": {
+    "title": "Dependency tree",
+    "blockedBy": "Blocked by (must complete first)",
+    "blocks": "Blocks (waiting on this)",
+    "currentTask": "Current task",
+    "emptyBlockedBy": "No upstream dependencies",
+    "emptyBlocks": "Nothing depends on this task",
+    "loading": "Loading dependency tree...",
+    "error": "Failed to load dependency tree",
+    "expand": "Expand dependencies",
+    "collapse": "Collapse dependencies"
+  },
   "attemptHeaderActions": {
     "preview": "预览",
     "diffs": "差异",
@@ -318,6 +330,7 @@
     "openInIde": "在 IDE 中打开尝试",
     "viewProcesses": "查看进程",
     "viewRelatedTasks": "查看相关任务",
+    "viewDependencyTree": "View dependency tree",
     "createNewAttempt": "创建新尝试",
     "createSubtask": "创建子任务",
     "gitActions": "Git 操作",

@@ -8,7 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { MoreHorizontal } from 'lucide-react';
+import { GitBranch, MoreHorizontal } from 'lucide-react';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import type { Workspace } from 'shared/types';
 import { useOpenInEditor } from '@/hooks/useOpenInEditor';
@@ -21,6 +21,7 @@ import { EditBranchNameDialog } from '@/components/dialogs/tasks/EditBranchNameD
 import { ShareDialog } from '@/components/dialogs/tasks/ShareDialog';
 import { ReassignDialog } from '@/components/dialogs/tasks/ReassignDialog';
 import { StopShareTaskDialog } from '@/components/dialogs/tasks/StopShareTaskDialog';
+import { DependencyTreeDialog } from '@/components/dialogs/tasks/DependencyTreeDialog';
 import { useProject } from '@/contexts/ProjectContext';
 import { openTaskForm } from '@/lib/openTaskForm';
 
@@ -146,6 +147,12 @@ export function ActionsDropdown({
     ShareDialog.show({ task });
   };
 
+  const handleViewDependencyTree = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!task?.id) return;
+    DependencyTreeDialog.show({ taskId: task.id });
+  };
+
   const handleReassign = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!sharedTask) return;
@@ -229,6 +236,13 @@ export function ActionsDropdown({
           {hasTaskActions && (
             <>
               <DropdownMenuLabel>{t('actionsMenu.task')}</DropdownMenuLabel>
+              <DropdownMenuItem
+                disabled={!task}
+                onClick={handleViewDependencyTree}
+              >
+                <GitBranch className="h-4 w-4 mr-2" />
+                {t('actionsMenu.viewDependencyTree')}
+              </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={!task || isShared}
                 onClick={handleShare}

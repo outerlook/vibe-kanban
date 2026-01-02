@@ -308,6 +308,18 @@
       "status": "Status"
     }
   },
+  "dependencyTreeDialog": {
+    "title": "Dependency tree",
+    "blockedBy": "Blocked by (must complete first)",
+    "blocks": "Blocks (waiting on this)",
+    "currentTask": "Current task",
+    "emptyBlockedBy": "No upstream dependencies",
+    "emptyBlocks": "Nothing depends on this task",
+    "loading": "Loading dependency tree...",
+    "error": "Failed to load dependency tree",
+    "expand": "Expand dependencies",
+    "collapse": "Collapse dependencies"
+  },
   "attemptHeaderActions": {
     "preview": "Preview",
     "diffs": "Diffs",
@@ -318,6 +330,7 @@
     "openInIde": "Open attempt in IDE",
     "viewProcesses": "View processes",
     "viewRelatedTasks": "View related tasks",
+    "viewDependencyTree": "View dependency tree",
     "createNewAttempt": "Create new attempt",
     "createSubtask": "Create subtask",
     "gitActions": "Git actions",

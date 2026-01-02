@@ -135,6 +135,8 @@ export type TaskDependencyTreeNode = {
   dependencies: TaskDependencyTreeNode[];
 };
 
+export type DependencyDirection = 'blocked_by' | 'blocking';
+
 const makeRequest = async (url: string, options: RequestInit = {}) => {
   const headers = new Headers(options.headers ?? {});
   if (!headers.has('Content-Type')) {
@@ -516,8 +518,18 @@ export const tasksApi = {
 
 // Task Dependencies APIs
 export const taskDependenciesApi = {
-  getDependencies: async (taskId: string): Promise<Task[]> => {
-    const response = await makeRequest(`/api/tasks/${taskId}/dependencies`);
+  getDependencies: async (
+    taskId: string,
+    direction?: DependencyDirection
+  ): Promise<Task[]> => {
+    const query = new URLSearchParams();
+    if (direction) {
+      query.set('direction', direction);
+    }
+    const suffix = query.toString();
+    const response = await makeRequest(
+      `/api/tasks/${taskId}/dependencies${suffix ? `?${suffix}` : ''}`
+    );
     return handleApiResponse<Task[]>(response);
   },
 

@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { taskDependenciesApi } from '@/lib/api';
-import type { TaskDependencyTreeNode } from '@/lib/api';
+import type { DependencyDirection, TaskDependencyTreeNode } from '@/lib/api';
 import type { Task, TaskDependency } from 'shared/types';
 
 export const taskDependenciesKeys = {
   all: ['taskDependencies'] as const,
-  byTask: (taskId: string | undefined) =>
+  byTask: (taskId: string | undefined, direction?: DependencyDirection) =>
+    ['taskDependencies', taskId, direction ?? 'blocked_by'] as const,
+  byTaskPrefix: (taskId: string | undefined) =>
     ['taskDependencies', taskId] as const,
 };
 
@@ -24,12 +26,16 @@ type QueryOptions = {
   retry?: number | false;
 };
 
-export function useTaskDependencies(taskId?: string, opts?: QueryOptions) {
+export function useTaskDependencies(
+  taskId?: string,
+  direction?: DependencyDirection,
+  opts?: QueryOptions
+) {
   const enabled = (opts?.enabled ?? true) && !!taskId;
 
   return useQuery<Task[]>({
-    queryKey: taskDependenciesKeys.byTask(taskId),
-    queryFn: () => taskDependenciesApi.getDependencies(taskId!),
+    queryKey: taskDependenciesKeys.byTask(taskId, direction),
+    queryFn: () => taskDependenciesApi.getDependencies(taskId!, direction),
     enabled,
     refetchInterval: opts?.refetchInterval ?? false,
     staleTime: opts?.staleTime ?? 10_000,
@@ -67,7 +73,7 @@ export function useAddDependency() {
       taskDependenciesApi.addDependency(taskId, dependsOnId),
     onSuccess: (_dependency, { taskId }) => {
       queryClient.invalidateQueries({
-        queryKey: taskDependenciesKeys.byTask(taskId),
+        queryKey: taskDependenciesKeys.byTaskPrefix(taskId),
       });
       queryClient.invalidateQueries({
         queryKey: taskDependencyTreeKeys.byTask(taskId),
@@ -87,7 +93,7 @@ export function useRemoveDependency() {
       taskDependenciesApi.removeDependency(taskId, dependsOnId),
     onSuccess: (_data, { taskId }) => {
       queryClient.invalidateQueries({
-        queryKey: taskDependenciesKeys.byTask(taskId),
+        queryKey: taskDependenciesKeys.byTaskPrefix(taskId),
       });
       queryClient.invalidateQueries({
         queryKey: taskDependencyTreeKeys.byTask(taskId),
