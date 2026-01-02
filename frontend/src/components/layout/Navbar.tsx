@@ -40,6 +40,7 @@ import {
 import { OAuthDialog } from '@/components/dialogs/global/OAuthDialog';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { oauthApi } from '@/lib/api';
+import { ProjectSwitcher } from '@/components/layout/ProjectSwitcher';
 
 const INTERNAL_NAV = [{ label: 'Projects', icon: FolderOpen, to: '/projects' }];
 
@@ -145,6 +146,12 @@ export function Navbar() {
             <Link to="/projects">
               <Logo />
             </Link>
+            {projectId ? (
+              <>
+                <span className="mx-2 text-muted-foreground">/</span>
+                <ProjectSwitcher />
+              </>
+            ) : null}
             <a
               href="https://discord.gg/AC4nwVtJM3"
               target="_blank"
