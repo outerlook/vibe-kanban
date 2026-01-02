@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
-import { Link, Loader2, XCircle } from 'lucide-react';
+import { Link, Loader2, Lock, XCircle } from 'lucide-react';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import { ActionsDropdown } from '@/components/ui/actions-dropdown';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useNavigateWithSearch } from '@/hooks';
 import { paths } from '@/lib/paths';
@@ -12,7 +13,7 @@ import { TaskCardHeader } from './TaskCardHeader';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/hooks';
 
-type Task = TaskWithAttemptStatus;
+type Task = TaskWithAttemptStatus & { is_blocked?: boolean };
 
 interface TaskCardProps {
   task: Task;
@@ -132,6 +133,12 @@ export function TaskCard({
             </>
           }
         />
+        {task.is_blocked && (
+          <Badge variant="outline" className="w-fit text-orange-500">
+            <Lock className="mr-1 h-3 w-3" />
+            Blocked
+          </Badge>
+        )}
         {task.description && (
           <p className="text-sm text-secondary-foreground break-words">
             {task.description.length > 130

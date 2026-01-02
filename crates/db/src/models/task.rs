@@ -42,6 +42,7 @@ pub struct TaskWithAttemptStatus {
     pub task: Task,
     pub has_in_progress_attempt: bool,
     pub last_attempt_failed: bool,
+    pub is_blocked: bool,
     pub executor: String,
 }
 
@@ -152,6 +153,14 @@ impl Task {
 
   CASE WHEN EXISTS (
     SELECT 1
+      FROM task_dependencies td
+      JOIN tasks dep ON dep.id = td.depends_on_id
+     WHERE td.task_id = t.id
+       AND dep.status != 'done'
+  ) THEN 1 ELSE 0 END            AS "is_blocked!: i64",
+
+  CASE WHEN EXISTS (
+    SELECT 1
       FROM workspaces w
       JOIN sessions s ON s.workspace_id = w.id
       JOIN execution_processes ep ON ep.session_id = s.id
@@ -205,6 +214,7 @@ ORDER BY t.created_at DESC"#,
                 },
                 has_in_progress_attempt: rec.has_in_progress_attempt != 0,
                 last_attempt_failed: rec.last_attempt_failed != 0,
+                is_blocked: rec.is_blocked != 0,
                 executor: rec.executor,
             })
             .collect();
@@ -242,6 +252,14 @@ ORDER BY t.created_at DESC"#,
   t.shared_task_id                AS "shared_task_id: Uuid",
   t.created_at                    AS "created_at!: DateTime<Utc>",
   t.updated_at                    AS "updated_at!: DateTime<Utc>",
+
+  CASE WHEN EXISTS (
+    SELECT 1
+      FROM task_dependencies td
+      JOIN tasks dep ON dep.id = td.depends_on_id
+     WHERE td.task_id = t.id
+       AND dep.status != 'done'
+  ) THEN 1 ELSE 0 END            AS "is_blocked!: i64",
 
   CASE WHEN EXISTS (
     SELECT 1
@@ -303,6 +321,7 @@ LIMIT $3 OFFSET $4"#,
                 },
                 has_in_progress_attempt: rec.has_in_progress_attempt != 0,
                 last_attempt_failed: rec.last_attempt_failed != 0,
+                is_blocked: rec.is_blocked != 0,
                 executor: rec.executor,
             })
             .collect();
