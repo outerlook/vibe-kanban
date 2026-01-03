@@ -10,6 +10,7 @@ use db::models::{
 };
 use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
 use regex::Regex;
+use reqwest::StatusCode;
 use rmcp::{
     ErrorData, ServerHandler,
     handler::server::tool::{Parameters, ToolRouter},
@@ -517,6 +518,39 @@ impl TaskServer {
             .ok_or_else(|| Self::err("VK API response missing data field", None).unwrap())
     }
 
+    async fn send_json_no_data(
+        &self,
+        rb: reqwest::RequestBuilder,
+        allow_not_found: bool,
+    ) -> Result<bool, CallToolResult> {
+        let resp = rb
+            .send()
+            .await
+            .map_err(|e| Self::err("Failed to connect to VK API", Some(&e.to_string())).unwrap())?;
+
+        let status = resp.status();
+        if allow_not_found && status == StatusCode::NOT_FOUND {
+            return Ok(false);
+        }
+
+        if !status.is_success() {
+            return Err(
+                Self::err(format!("VK API returned error status: {}", status), None).unwrap(),
+            );
+        }
+
+        let api_response = resp.json::<ApiResponseEnvelope<serde_json::Value>>().await.map_err(
+            |e| Self::err("Failed to parse VK API response", Some(&e.to_string())).unwrap(),
+        )?;
+
+        if !api_response.success {
+            let msg = api_response.message.as_deref().unwrap_or("Unknown error");
+            return Err(Self::err("VK API returned error", Some(msg)).unwrap());
+        }
+
+        Ok(true)
+    }
+
     fn url(&self, path: &str) -> String {
         format!(
             "{}/{}",
@@ -874,15 +908,20 @@ impl TaskServer {
         Parameters(DeleteTaskRequest { task_id }): Parameters<DeleteTaskRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let url = self.url(&format!("/api/tasks/{}", task_id));
-        if let Err(e) = self
-            .send_json::<serde_json::Value>(self.client.delete(&url))
+        let deleted = match self
+            .send_json_no_data(self.client.delete(&url), true)
             .await
         {
-            return Ok(e);
-        }
+            Ok(deleted) => deleted,
+            Err(e) => return Ok(e),
+        };
 
         let repsonse = DeleteTaskResponse {
-            deleted_task_id: Some(task_id.to_string()),
+            deleted_task_id: if deleted {
+                Some(task_id.to_string())
+            } else {
+                None
+            },
         };
 
         TaskServer::success(&repsonse)
@@ -941,7 +980,7 @@ impl TaskServer {
             task_id, depends_on_id
         ));
         if let Err(e) = self
-            .send_json::<serde_json::Value>(self.client.delete(&url))
+            .send_json_no_data(self.client.delete(&url), false)
             .await
         {
             return Ok(e);
