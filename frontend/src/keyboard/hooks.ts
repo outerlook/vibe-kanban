@@ -76,7 +76,7 @@ export const useKeyOpenDetails = createSemanticHook(Action.OPEN_DETAILS);
 export const useKeyShowHelp = createSemanticHook(Action.SHOW_HELP);
 
 /**
- * Open command palette action - typically Cmd/Ctrl+K
+ * Open command palette action - typically Cmd/Ctrl+Shift+K
  *
  * @example
  * useKeyOpenCommandPalette(() => setOpen(true), { scope: Scope.GLOBAL });

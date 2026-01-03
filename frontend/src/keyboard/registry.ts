@@ -166,7 +166,7 @@ export const keyBindings: KeyBinding[] = [
   },
   {
     action: Action.OPEN_COMMAND_PALETTE,
-    keys: ['meta+k', 'ctrl+k'],
+    keys: ['meta+shift+k', 'ctrl+shift+k'],
     scopes: [Scope.GLOBAL],
     description: 'Open command palette',
     group: 'Global',
