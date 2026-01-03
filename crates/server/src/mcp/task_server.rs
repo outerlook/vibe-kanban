@@ -38,6 +38,18 @@ pub struct CreateTaskRequest {
     pub description: Option<String>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CreateTaskWithDepsRequest {
+    #[schemars(description = "The ID of the project to create the task in. This is required!")]
+    pub project_id: Uuid,
+    #[schemars(description = "The title of the task")]
+    pub title: String,
+    #[schemars(description = "Optional description of the task")]
+    pub description: Option<String>,
+    #[schemars(description = "Task IDs this task is blocked by")]
+    pub depends_on: Option<Vec<Uuid>>,
+}
+
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct CreateTaskResponse {
     pub task_id: String,
@@ -861,6 +873,58 @@ impl TaskServer {
         TaskServer::success(&response)
     }
 
+    #[tool(
+        description = "Create a task with dependencies in one call. Specify task IDs this new task depends on."
+    )]
+    async fn create_task_with_dependencies(
+        &self,
+        Parameters(CreateTaskWithDepsRequest {
+            project_id,
+            title,
+            description,
+            depends_on,
+        }): Parameters<CreateTaskWithDepsRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let expanded_description = match description {
+            Some(desc) => Some(self.expand_tags(&desc).await),
+            None => None,
+        };
+
+        let url = self.url("/api/tasks");
+        let task: Task = match self
+            .send_json(
+                self.client
+                    .post(&url)
+                    .json(&CreateTask::from_title_description(
+                        project_id,
+                        title,
+                        expanded_description,
+                    )),
+            )
+            .await
+        {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
+
+        if let Some(depends_on) = depends_on {
+            for depends_on_id in depends_on {
+                let dep_url = self.url(&format!("/api/tasks/{}/dependencies", task.id));
+                let payload = serde_json::json!({ "depends_on_id": depends_on_id });
+                if let Err(e) = self
+                    .send_json::<TaskDependency>(self.client.post(&dep_url).json(&payload))
+                    .await
+                {
+                    return Ok(e);
+                }
+            }
+        }
+
+        TaskServer::success(&CreateTaskResponse {
+            task_id: task.id.to_string(),
+        })
+    }
+
     #[tool(description = "List all the available projects")]
     async fn list_projects(&self) -> Result<CallToolResult, ErrorData> {
         let url = self.url("/api/projects");
@@ -1274,7 +1338,7 @@ impl TaskServer {
 #[tool_handler]
 impl ServerHandler for TaskServer {
     fn get_info(&self) -> ServerInfo {
-        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'bulk_create_tasks', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids.".to_string();
+        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'bulk_create_tasks', 'create_task_with_dependencies', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids.".to_string();
         if self.context.is_some() {
             let context_instruction = "Use 'get_context' to fetch project/task/workspace metadata for the active Vibe Kanban workspace session when available.";
             instruction = format!("{} {}", context_instruction, instruction);
