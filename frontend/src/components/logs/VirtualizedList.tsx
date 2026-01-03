@@ -34,7 +34,8 @@ interface MessageListContext {
 const INITIAL_TOP_ITEM = { index: 'LAST' as const, align: 'end' as const };
 
 const TOP_LOAD_THRESHOLD = 8;
-const BOTTOM_OFFSET_THRESHOLD = 100;
+const AUTO_SCROLL_THRESHOLD = 100;
+const BUTTON_VISIBILITY_THRESHOLD = 500;
 
 const ItemContent: VirtuosoMessageListProps<
   PatchTypeWithKey,
@@ -129,7 +130,7 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
     }
 
     if (addType === 'running') {
-      const isNearBottom = bottomOffsetRef.current < BOTTOM_OFFSET_THRESHOLD;
+      const isNearBottom = bottomOffsetRef.current < AUTO_SCROLL_THRESHOLD;
       if (atBottom || isNearBottom) {
         requestAnimationFrame(() => {
           scrollToBottom('smooth');
@@ -163,7 +164,7 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
     }) => {
       if (bottomOffset !== undefined) {
         bottomOffsetRef.current = bottomOffset;
-        const isAtBottom = bottomOffset < BOTTOM_OFFSET_THRESHOLD;
+        const isAtBottom = bottomOffset < AUTO_SCROLL_THRESHOLD;
         setAtBottom(isAtBottom);
         if (isAtBottom) {
           setUnseenMessages(0);
@@ -189,7 +190,11 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
     const location = useVirtuosoLocation();
     const methods = useVirtuosoMethods();
 
-    if (location.bottomOffset < BOTTOM_OFFSET_THRESHOLD) {
+    const shouldShowButton =
+      unseenMessages > 0 ||
+      location.bottomOffset > BUTTON_VISIBILITY_THRESHOLD;
+
+    if (!shouldShowButton) {
       return null;
     }
 

@@ -517,8 +517,6 @@ export const tasksApi = {
 };
 
 // Task Dependencies APIs
-export type DependencyDirection = 'blocked_by' | 'blocking';
-
 export const taskDependenciesApi = {
   getDependencies: async (
     taskId: string,

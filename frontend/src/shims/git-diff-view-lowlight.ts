@@ -124,7 +124,7 @@ const processAST = (ast: LowlightRoot): SyntaxResult => {
 
 const _getAST = () => ({});
 
-const lowlight = createLowlight(common) as {
+const lowlight = createLowlight(common) as unknown as {
   highlight: (lang: string, raw: string) => LowlightRoot;
   highlightAuto: (raw: string) => LowlightRoot;
   registered: (lang: string) => boolean;

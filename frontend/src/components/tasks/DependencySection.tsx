@@ -76,8 +76,8 @@ export function DependencySection({
   const { tasks } = useProjectTasks(projectId);
   const [selectedTaskId, setSelectedTaskId] = useState('');
 
-  const blockedBy = deps?.blocked_by ?? [];
-  const blocking = deps?.blocking ?? [];
+  const blockedBy = useMemo(() => deps?.blocked_by ?? [], [deps?.blocked_by]);
+  const blocking = useMemo(() => deps?.blocking ?? [], [deps?.blocking]);
 
   const isBlocked = blockedBy.some((task) => task.status !== 'done');
 
