@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button.tsx';
 import {
   Calendar,
+  Circle,
   Edit,
   ExternalLink,
   FolderOpen,
@@ -29,6 +30,7 @@ import { projectsApi } from '@/lib/api';
 import { LinkProjectDialog } from '@/components/dialogs/projects/LinkProjectDialog';
 import { useTranslation } from 'react-i18next';
 import { useProjectMutations } from '@/hooks/useProjectMutations';
+import { useUnread } from '@/contexts/UnreadContext';
 
 type Props = {
   project: Project;
@@ -42,6 +44,9 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const handleOpenInEditor = useOpenProjectInEditor(project);
   const { t } = useTranslation('projects');
+  const { getProjectUnreadCount } = useUnread();
+  const unreadCount = getProjectUnreadCount(project.id);
+  const hasUnread = unreadCount !== undefined && unreadCount > 0;
 
   const { data: repos } = useProjectRepos(project.id);
   const isSingleRepoProject = repos?.length === 1;
@@ -113,7 +118,12 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
     >
       <CardHeader>
         <div className="flex items-start justify-between">
-          <CardTitle className="text-lg">{project.name}</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-lg">{project.name}</CardTitle>
+            {hasUnread && (
+              <Circle className="h-3 w-3 fill-amber-500 text-amber-500 shrink-0" />
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>

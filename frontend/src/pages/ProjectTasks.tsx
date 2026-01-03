@@ -50,6 +50,7 @@ import {
   useProjectTasks,
   type SharedTaskRecord,
 } from '@/hooks/useProjectTasks';
+import { useUnreadSync } from '@/hooks/useUnreadSync';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { TasksLayout, type LayoutMode } from '@/components/layout/TasksLayout';
@@ -179,6 +180,9 @@ export function ProjectTasks() {
     loadMore,
     error: tasksError,
   } = useProjectTasks(projectId || '');
+
+  // Sync unread state for this project
+  useUnreadSync({ projectId: projectId || '', tasks });
 
   const { data: selectedTaskFallback } = useTask(taskId, {
     enabled: !!taskId && !tasksById[taskId],

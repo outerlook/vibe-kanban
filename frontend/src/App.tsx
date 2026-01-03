@@ -14,6 +14,7 @@ import { SearchProvider } from '@/contexts/SearchContext';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 
 import { ProjectProvider } from '@/contexts/ProjectContext';
+import { UnreadProvider } from '@/contexts/UnreadContext';
 import { ThemeMode } from 'shared/types';
 import * as Sentry from '@sentry/react';
 import { Loader } from '@/components/ui/loader';
@@ -216,15 +217,17 @@ function App() {
   return (
     <BrowserRouter>
       <UserSystemProvider>
-        <ClickedElementsProvider>
-          <ProjectProvider>
-            <HotkeysProvider initiallyActiveScopes={['*', 'global', 'kanban']}>
-              <NiceModal.Provider>
-                <AppContent />
-              </NiceModal.Provider>
-            </HotkeysProvider>
-          </ProjectProvider>
-        </ClickedElementsProvider>
+        <UnreadProvider>
+          <ClickedElementsProvider>
+            <ProjectProvider>
+              <HotkeysProvider initiallyActiveScopes={['*', 'global', 'kanban']}>
+                <NiceModal.Provider>
+                  <AppContent />
+                </NiceModal.Provider>
+              </HotkeysProvider>
+            </ProjectProvider>
+          </ClickedElementsProvider>
+        </UnreadProvider>
       </UserSystemProvider>
     </BrowserRouter>
   );

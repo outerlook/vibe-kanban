@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
-import { Link, Loader2, Lock, XCircle } from 'lucide-react';
+import { Circle, Link, Loader2, Lock, XCircle } from 'lucide-react';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import { ActionsDropdown } from '@/components/ui/actions-dropdown';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +12,7 @@ import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { TaskCardHeader } from './TaskCardHeader';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/hooks';
+import { useUnread } from '@/contexts/UnreadContext';
 
 interface TaskCardProps {
   task: TaskWithAttemptStatus;
@@ -36,10 +37,15 @@ export function TaskCard({
   const navigate = useNavigateWithSearch();
   const [isNavigatingToParent, setIsNavigatingToParent] = useState(false);
   const { isSignedIn } = useAuth();
+  const { isTaskUnread, markTaskAsRead } = useUnread();
+  const isUnread = isTaskUnread(task);
 
   const handleClick = useCallback(() => {
+    if (task.status === 'inreview') {
+      markTaskAsRead(task.id);
+    }
     onViewDetails(task);
-  }, [task, onViewDetails]);
+  }, [task, onViewDetails, markTaskAsRead]);
 
   const handleParentClick = useCallback(
     async (e: React.MouseEvent) => {
@@ -109,6 +115,9 @@ export function TaskCard({
           }
           right={
             <>
+              {isUnread && (
+                <Circle className="h-3 w-3 fill-amber-500 text-amber-500" />
+              )}
               {task.has_in_progress_attempt && (
                 <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
               )}
