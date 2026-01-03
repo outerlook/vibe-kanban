@@ -30,11 +30,22 @@ cp target/release/mcp_task_server patched-bin/vibe-kanban-mcp
 
 ## MCP Configuration
 
+Claude Code defaults to the npm MCP (`npm exec vibe-kanban@latest --mcp`), which
+does not include dependency tools. Use the patched MCP to get the extra tools.
+
 ```bash
-# Update MCP to use patched version
+# One-time setup
+./scripts/setup-mcp.sh
+
+# Or manually:
 claude mcp remove vibe_kanban -s user
-claude mcp add vibe_kanban -s user -- /home/outerlook/.local/bin/vibe-kanban-mcp-patched
+claude mcp add vibe_kanban -s user -- ~/.local/bin/vibe-kanban-mcp-patched
+
+# Verify which MCP is configured
+claude mcp list | grep vibe_kanban
 ```
+
+Restart Claude Code for changes to take effect.
 
 ## Running
 
