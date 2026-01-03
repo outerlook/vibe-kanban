@@ -13,13 +13,11 @@ import { TaskCardHeader } from './TaskCardHeader';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/hooks';
 
-type Task = TaskWithAttemptStatus & { is_blocked?: boolean };
-
 interface TaskCardProps {
-  task: Task;
+  task: TaskWithAttemptStatus;
   index: number;
   status: string;
-  onViewDetails: (task: Task) => void;
+  onViewDetails: (task: TaskWithAttemptStatus) => void;
   isOpen?: boolean;
   projectId: string;
   sharedTask?: SharedTaskRecord;

@@ -48,11 +48,11 @@ export function ActionsDropdown({
   const navigate = useNavigate();
   const { userId, isSignedIn } = useAuth();
   const [isAddDependencyOpen, setIsAddDependencyOpen] = useState(false);
-  const dependencyQuery = useTaskDependencies(task?.id, 'blocked_by', {
+  const dependencyQuery = useTaskDependencies(task?.id, {
     enabled: isAddDependencyOpen && Boolean(task?.id),
   });
   const existingDependencyIds = useMemo(
-    () => dependencyQuery.data?.map((dep) => dep.id) ?? [],
+    () => dependencyQuery.data?.blocked_by?.map((dep) => dep.id) ?? [],
     [dependencyQuery.data]
   );
   const isDependenciesLoading = dependencyQuery.isLoading;

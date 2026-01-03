@@ -988,8 +988,13 @@ impl TaskServer {
             .map(TaskDetails::from_task)
             .collect();
 
+        // A task is blocked if any of its dependencies are not done
+        let is_blocked = blocked_by_details
+            .iter()
+            .any(|dep| dep.status != "done");
+
         let response = TaskDependencySummary {
-            is_blocked: !blocked_by_details.is_empty(),
+            is_blocked,
             blocked_by: blocked_by_details,
             blocking: blocking_details,
         };
