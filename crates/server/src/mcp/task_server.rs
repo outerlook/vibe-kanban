@@ -43,6 +43,31 @@ pub struct CreateTaskResponse {
     pub task_id: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct TaskDefinition {
+    #[schemars(description = "The title of the task")]
+    pub title: String,
+    #[schemars(description = "Optional description of the task")]
+    pub description: Option<String>,
+    #[schemars(
+        description = "Reference to another task in this batch by index (0-based)"
+    )]
+    pub depends_on_indices: Option<Vec<usize>>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BulkCreateTasksRequest {
+    #[schemars(description = "The ID of the project to create the tasks in")]
+    pub project_id: Uuid,
+    #[schemars(description = "Tasks to create in order")]
+    pub tasks: Vec<TaskDefinition>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct BulkCreateTasksResponse {
+    pub task_ids: Vec<String>,
+}
+
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ProjectSummary {
     #[schemars(description = "The unique identifier of the project")]
@@ -610,6 +635,61 @@ impl TaskServer {
 
         result.into_owned()
     }
+
+    async fn rollback_created_tasks(&self, tasks: &[Task]) {
+        for task in tasks {
+            let url = self.url(&format!("/api/tasks/{}", task.id));
+            let _ = self.client.delete(&url).send().await;
+        }
+    }
+}
+
+fn detect_dependency_cycle(dependencies: &[Vec<usize>]) -> Option<Vec<usize>> {
+    let mut state = vec![0_u8; dependencies.len()];
+    let mut stack: Vec<usize> = Vec::new();
+    let mut in_stack = vec![false; dependencies.len()];
+
+    fn visit(
+        node: usize,
+        dependencies: &[Vec<usize>],
+        state: &mut [u8],
+        stack: &mut Vec<usize>,
+        in_stack: &mut [bool],
+    ) -> Option<Vec<usize>> {
+        state[node] = 1;
+        in_stack[node] = true;
+        stack.push(node);
+
+        for &dep in &dependencies[node] {
+            if state[dep] == 0 {
+                if let Some(cycle) = visit(dep, dependencies, state, stack, in_stack) {
+                    return Some(cycle);
+                }
+            } else if in_stack[dep] {
+                if let Some(pos) = stack.iter().position(|&v| v == dep) {
+                    let mut cycle = stack[pos..].to_vec();
+                    cycle.push(dep);
+                    return Some(cycle);
+                }
+                return Some(vec![dep, node, dep]);
+            }
+        }
+
+        stack.pop();
+        in_stack[node] = false;
+        state[node] = 2;
+        None
+    }
+
+    for node in 0..dependencies.len() {
+        if state[node] == 0 {
+            if let Some(cycle) = visit(node, dependencies, &mut state, &mut stack, &mut in_stack) {
+                return Some(cycle);
+            }
+        }
+    }
+
+    None
 }
 
 #[tool_router]
@@ -662,6 +742,123 @@ impl TaskServer {
         TaskServer::success(&CreateTaskResponse {
             task_id: task.id.to_string(),
         })
+    }
+
+    #[tool(
+        description = "Create multiple tasks at once, optionally with dependencies between them. Use indices to reference other tasks in the same batch."
+    )]
+    async fn bulk_create_tasks(
+        &self,
+        Parameters(BulkCreateTasksRequest { project_id, tasks }): Parameters<
+            BulkCreateTasksRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        if tasks.is_empty() {
+            return Self::err(
+                "At least one task must be provided.".to_string(),
+                None::<String>,
+            );
+        }
+
+        let task_count = tasks.len();
+        let mut dependency_indices: Vec<Vec<usize>> = Vec::with_capacity(task_count);
+
+        for (index, task) in tasks.iter().enumerate() {
+            let mut indices = task.depends_on_indices.clone().unwrap_or_default();
+            indices.sort_unstable();
+            indices.dedup();
+            for &dep_index in &indices {
+                if dep_index >= task_count {
+                    return Self::err(
+                        format!(
+                            "depends_on_indices contains out-of-range index {dep_index} for task {index}."
+                        ),
+                        Some(format!("valid indices: 0..{}", task_count - 1)),
+                    );
+                }
+                if dep_index == index {
+                    return Self::err(
+                        format!("Task {index} cannot depend on itself."),
+                        None::<String>,
+                    );
+                }
+            }
+            dependency_indices.push(indices);
+        }
+
+        if let Some(cycle) = detect_dependency_cycle(&dependency_indices) {
+            let cycle_path = cycle
+                .into_iter()
+                .map(|idx| idx.to_string())
+                .collect::<Vec<_>>()
+                .join(" -> ");
+            return Self::err(
+                "Dependency cycle detected in batch.".to_string(),
+                Some(cycle_path),
+            );
+        }
+
+        let url = self.url("/api/tasks");
+        let mut created_tasks: Vec<Task> = Vec::with_capacity(task_count);
+
+        for task in tasks {
+            let expanded_description = match task.description {
+                Some(desc) => Some(self.expand_tags(&desc).await),
+                None => None,
+            };
+
+            let created_task: Task = match self
+                .send_json(
+                    self.client
+                        .post(&url)
+                        .json(&CreateTask::from_title_description(
+                            project_id,
+                            task.title,
+                            expanded_description,
+                        )),
+                )
+                .await
+            {
+                Ok(t) => t,
+                Err(e) => {
+                    self.rollback_created_tasks(&created_tasks).await;
+                    return Ok(e);
+                }
+            };
+            created_tasks.push(created_task);
+        }
+
+        for (task_index, deps) in dependency_indices.iter().enumerate() {
+            if deps.is_empty() {
+                continue;
+            }
+
+            let task_id = created_tasks[task_index].id;
+            for &dep_index in deps {
+                let depends_on_id = created_tasks[dep_index].id;
+                let url = self.url(&format!("/api/tasks/{}/dependencies", task_id));
+                let payload = serde_json::json!({ "depends_on_id": depends_on_id });
+                let _: TaskDependency = match self
+                    .send_json(self.client.post(&url).json(&payload))
+                    .await
+                {
+                    Ok(dep) => dep,
+                    Err(e) => {
+                        self.rollback_created_tasks(&created_tasks).await;
+                        return Ok(e);
+                    }
+                };
+            }
+        }
+
+        let response = BulkCreateTasksResponse {
+            task_ids: created_tasks
+                .into_iter()
+                .map(|task| task.id.to_string())
+                .collect(),
+        };
+
+        TaskServer::success(&response)
     }
 
     #[tool(description = "List all the available projects")]
@@ -1077,7 +1274,7 @@ impl TaskServer {
 #[tool_handler]
 impl ServerHandler for TaskServer {
     fn get_info(&self) -> ServerInfo {
-        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids.".to_string();
+        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'bulk_create_tasks', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids.".to_string();
         if self.context.is_some() {
             let context_instruction = "Use 'get_context' to fetch project/task/workspace metadata for the active Vibe Kanban workspace session when available.";
             instruction = format!("{} {}", context_instruction, instruction);
