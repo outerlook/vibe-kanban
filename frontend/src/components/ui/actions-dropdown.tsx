@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,12 +23,13 @@ import { ShareDialog } from '@/components/dialogs/tasks/ShareDialog';
 import { ReassignDialog } from '@/components/dialogs/tasks/ReassignDialog';
 import { StopShareTaskDialog } from '@/components/dialogs/tasks/StopShareTaskDialog';
 import { DependencyTreeDialog } from '@/components/dialogs/tasks/DependencyTreeDialog';
+import { AddDependencyDialog } from '@/components/dialogs/tasks/AddDependencyDialog';
 import { useProject } from '@/contexts/ProjectContext';
 import { openTaskForm } from '@/lib/openTaskForm';
 
 import { useNavigate } from 'react-router-dom';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
-import { useAuth } from '@/hooks';
+import { useAuth, useTaskDependencies } from '@/hooks';
 
 interface ActionsDropdownProps {
   task?: TaskWithAttemptStatus | null;
@@ -45,6 +47,15 @@ export function ActionsDropdown({
   const openInEditor = useOpenInEditor(attempt?.id);
   const navigate = useNavigate();
   const { userId, isSignedIn } = useAuth();
+  const [isAddDependencyOpen, setIsAddDependencyOpen] = useState(false);
+  const dependencyQuery = useTaskDependencies(task?.id, 'blocked_by', {
+    enabled: isAddDependencyOpen && Boolean(task?.id),
+  });
+  const existingDependencyIds = useMemo(
+    () => dependencyQuery.data?.map((dep) => dep.id) ?? [],
+    [dependencyQuery.data]
+  );
+  const isDependenciesLoading = dependencyQuery.isLoading;
 
   const hasAttemptActions = Boolean(attempt);
   const hasTaskActions = Boolean(task);
@@ -165,6 +176,12 @@ export function ActionsDropdown({
     StopShareTaskDialog.show({ sharedTask });
   };
 
+  const handleAddDependency = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!projectId || !task?.id) return;
+    setIsAddDependencyOpen(true);
+  };
+
   const canReassign =
     Boolean(task) &&
     Boolean(sharedTask) &&
@@ -244,6 +261,12 @@ export function ActionsDropdown({
                 {t('actionsMenu.viewDependencyTree')}
               </DropdownMenuItem>
               <DropdownMenuItem
+                disabled={!projectId || !task}
+                onClick={handleAddDependency}
+              >
+                {t('actionsMenu.addDependency')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 disabled={!task || isShared}
                 onClick={handleShare}
               >
@@ -283,6 +306,16 @@ export function ActionsDropdown({
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      {projectId && task?.id && (
+        <AddDependencyDialog
+          taskId={task.id}
+          projectId={projectId}
+          existingDependencyIds={existingDependencyIds}
+          dependenciesLoading={isDependenciesLoading}
+          open={isAddDependencyOpen}
+          onOpenChange={setIsAddDependencyOpen}
+        />
+      )}
     </>
   );
 }

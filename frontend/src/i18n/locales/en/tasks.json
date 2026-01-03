@@ -336,6 +336,7 @@
     "gitActions": "Git actions",
     "editBranchName": "Edit branch name",
     "task": "Task",
+    "addDependency": "Add dependency",
     "share": "Share",
     "reassign": "Reassign",
     "stopShare": "Stop share",

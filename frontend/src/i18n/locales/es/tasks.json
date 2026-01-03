@@ -18,6 +18,7 @@
     "gitActions": "Acciones de Git",
     "openInIde": "Open attempt in IDE",
     "task": "Task",
+    "addDependency": "Agregar dependencia",
     "viewProcesses": "View processes",
     "viewRelatedTasks": "View related tasks",
     "viewDependencyTree": "View dependency tree"
