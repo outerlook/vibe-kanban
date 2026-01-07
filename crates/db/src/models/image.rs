@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{FromRow, QueryBuilder, SqlitePool};
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -183,21 +183,20 @@ impl TaskImage {
         task_id: Uuid,
         image_ids: &[Uuid],
     ) -> Result<(), sqlx::Error> {
-        for &image_id in image_ids {
-            let id = Uuid::new_v4();
-            sqlx::query!(
-                r#"INSERT INTO task_images (id, task_id, image_id)
-                   SELECT $1, $2, $3
-                   WHERE NOT EXISTS (
-                       SELECT 1 FROM task_images WHERE task_id = $2 AND image_id = $3
-                   )"#,
-                id,
-                task_id,
-                image_id
-            )
-            .execute(pool)
-            .await?;
+        if image_ids.is_empty() {
+            return Ok(());
         }
+
+        let mut qb: QueryBuilder<sqlx::Sqlite> =
+            QueryBuilder::new("INSERT OR IGNORE INTO task_images (id, task_id, image_id) ");
+
+        qb.push_values(image_ids, |mut b, image_id| {
+            b.push_bind(Uuid::new_v4().to_string())
+                .push_bind(task_id.to_string())
+                .push_bind(image_id.to_string());
+        });
+
+        qb.build().execute(pool).await?;
         Ok(())
     }
 

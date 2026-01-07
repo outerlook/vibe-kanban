@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{FromRow, QueryBuilder, SqlitePool};
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -49,31 +49,27 @@ impl WorkspaceRepo {
         workspace_id: Uuid,
         repos: &[CreateWorkspaceRepo],
     ) -> Result<Vec<Self>, sqlx::Error> {
-        let mut results = Vec::with_capacity(repos.len());
-
-        for repo in repos {
-            let id = Uuid::new_v4();
-            let workspace_repo = sqlx::query_as!(
-                WorkspaceRepo,
-                r#"INSERT INTO workspace_repos (id, workspace_id, repo_id, target_branch)
-                   VALUES ($1, $2, $3, $4)
-                   RETURNING id as "id!: Uuid",
-                             workspace_id as "workspace_id!: Uuid",
-                             repo_id as "repo_id!: Uuid",
-                             target_branch,
-                             created_at as "created_at!: DateTime<Utc>",
-                             updated_at as "updated_at!: DateTime<Utc>""#,
-                id,
-                workspace_id,
-                repo.repo_id,
-                repo.target_branch
-            )
-            .fetch_one(pool)
-            .await?;
-            results.push(workspace_repo);
+        if repos.is_empty() {
+            return Ok(Vec::new());
         }
 
-        Ok(results)
+        let ids: Vec<Uuid> = repos.iter().map(|_| Uuid::new_v4()).collect();
+
+        let mut qb: QueryBuilder<sqlx::Sqlite> =
+            QueryBuilder::new("INSERT INTO workspace_repos (id, workspace_id, repo_id, target_branch) ");
+
+        qb.push_values(repos.iter().zip(&ids), |mut b, (repo, id)| {
+            b.push_bind(id.to_string())
+                .push_bind(workspace_id.to_string())
+                .push_bind(repo.repo_id.to_string())
+                .push_bind(&repo.target_branch);
+        });
+
+        qb.push(" RETURNING id, workspace_id, repo_id, target_branch, created_at, updated_at");
+
+        qb.build_query_as::<WorkspaceRepo>()
+            .fetch_all(pool)
+            .await
     }
 
     pub async fn find_by_workspace_id(
