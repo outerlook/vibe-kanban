@@ -62,7 +62,14 @@ impl SessionHandler {
 
     /// Fork a Codex rollout file by copying it to a temp location and assigning a new session id.
     /// Returns (new_rollout_path, new_session_id).
-    pub fn fork_rollout_file(session_id: &str) -> Result<(PathBuf, String), SessionError> {
+    pub async fn fork_rollout_file(session_id: &str) -> Result<(PathBuf, String), SessionError> {
+        let session_id = session_id.to_string();
+        tokio::task::spawn_blocking(move || Self::fork_rollout_file_sync(&session_id))
+            .await
+            .map_err(|e| SessionError::Io(format!("Task join error: {e}")))?
+    }
+
+    fn fork_rollout_file_sync(session_id: &str) -> Result<(PathBuf, String), SessionError> {
         let original = Self::find_rollout_file_path(session_id)?;
         tracing::debug!("Forking rollout file: {}", original.display());
         let file = File::open(&original).map_err(|e| {

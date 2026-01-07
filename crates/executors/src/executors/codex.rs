@@ -430,6 +430,7 @@ impl Codex {
             Some(session_id) => {
                 let (rollout_path, _forked_session_id) =
                     SessionHandler::fork_rollout_file(&session_id)
+                        .await
                         .map_err(|e| ExecutorError::FollowUpNotSupported(e.to_string()))?;
                 let overrides = conversation_params;
                 let response = client

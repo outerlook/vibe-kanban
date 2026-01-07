@@ -147,17 +147,19 @@ struct FileBackend {
 
 impl FileBackend {
     async fn load(&self) -> std::io::Result<Option<StoredCredentials>> {
-        if !self.path.exists() {
-            return Ok(None);
+        match tokio::fs::metadata(&self.path).await {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e),
         }
 
-        let bytes = std::fs::read(&self.path)?;
+        let bytes = tokio::fs::read(&self.path).await?;
         match Self::parse_credentials(&bytes) {
             Ok(creds) => Ok(Some(creds)),
             Err(e) => {
                 tracing::warn!(?e, "failed to parse credentials file, renaming to .bad");
                 let bad = self.path.with_extension("bad");
-                let _ = std::fs::rename(&self.path, bad);
+                let _ = tokio::fs::rename(&self.path, bad).await;
                 Ok(None)
             }
         }
@@ -169,31 +171,42 @@ impl FileBackend {
 
     async fn save(&self, creds: &StoredCredentials) -> std::io::Result<()> {
         let tmp = self.path.with_extension("tmp");
+        let final_path = self.path.clone();
+        let creds_json =
+            serde_json::to_vec_pretty(creds).map_err(std::io::Error::other)?;
 
-        let file = {
-            let mut opts = std::fs::OpenOptions::new();
-            opts.create(true).truncate(true).write(true);
+        tokio::task::spawn_blocking(move || {
+            let file = {
+                let mut opts = std::fs::OpenOptions::new();
+                opts.create(true).truncate(true).write(true);
 
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                opts.mode(0o600);
-            }
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    opts.mode(0o600);
+                }
 
-            opts.open(&tmp)?
-        };
+                opts.open(&tmp)?
+            };
 
-        serde_json::to_writer_pretty(&file, creds)?;
-        file.sync_all()?;
-        drop(file);
+            use std::io::Write;
+            let mut writer = std::io::BufWriter::new(file);
+            writer.write_all(&creds_json)?;
+            writer.into_inner()?.sync_all()?;
 
-        std::fs::rename(&tmp, &self.path)?;
-        Ok(())
+            std::fs::rename(&tmp, &final_path)?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| std::io::Error::other(e))?
     }
 
     async fn clear(&self) -> std::io::Result<()> {
-        let _ = std::fs::remove_file(&self.path);
-        Ok(())
+        match tokio::fs::remove_file(&self.path).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 }
 

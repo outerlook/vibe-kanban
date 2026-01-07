@@ -1,7 +1,4 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use db::models::image::{CreateImage, Image};
 use sha2::{Digest, Sha256};
@@ -37,9 +34,9 @@ pub struct ImageService {
 }
 
 impl ImageService {
-    pub fn new(pool: SqlitePool) -> Result<Self, ImageError> {
+    pub async fn new(pool: SqlitePool) -> Result<Self, ImageError> {
         let cache_dir = utils::cache_dir().join("images");
-        fs::create_dir_all(&cache_dir)?;
+        tokio::fs::create_dir_all(&cache_dir).await?;
         Ok(Self {
             cache_dir,
             pool,
@@ -89,7 +86,7 @@ impl ImageService {
 
         let new_filename = format!("{}.{}", Uuid::new_v4(), extension);
         let cached_path = self.cache_dir.join(&new_filename);
-        fs::write(&cached_path, data)?;
+        tokio::fs::write(&cached_path, data).await?;
 
         let image = Image::create(
             &self.pool,
@@ -153,7 +150,7 @@ impl ImageService {
         if let Some(image) = Image::find_by_id(&self.pool, id).await? {
             let file_path = self.cache_dir.join(&image.file_path);
             if file_path.exists() {
-                fs::remove_file(file_path)?;
+                tokio::fs::remove_file(file_path).await?;
             }
 
             Image::delete(&self.pool, id).await?;
@@ -168,7 +165,7 @@ impl ImageService {
         task_id: Uuid,
     ) -> Result<(), ImageError> {
         let images = Image::find_by_task_id(&self.pool, task_id).await?;
-        self.copy_images(worktree_path, images)
+        self.copy_images(worktree_path, images).await
     }
 
     pub async fn copy_images_by_ids_to_worktree(
@@ -182,11 +179,11 @@ impl ImageService {
                 images.push(image);
             }
         }
-        self.copy_images(worktree_path, images)
+        self.copy_images(worktree_path, images).await
     }
 
     /// Copy images to the worktree. Skips images that already exist at target.
-    fn copy_images(&self, worktree_path: &Path, images: Vec<Image>) -> Result<(), ImageError> {
+    async fn copy_images(&self, worktree_path: &Path, images: Vec<Image>) -> Result<(), ImageError> {
         if images.is_empty() {
             return Ok(());
         }
@@ -201,12 +198,12 @@ impl ImageService {
             return Ok(());
         }
 
-        std::fs::create_dir_all(&images_dir)?;
+        tokio::fs::create_dir_all(&images_dir).await?;
 
         // Create .gitignore to ignore all files in this directory
         let gitignore_path = images_dir.join(".gitignore");
         if !gitignore_path.exists() {
-            std::fs::write(&gitignore_path, "*\n")?;
+            tokio::fs::write(&gitignore_path, "*\n").await?;
         }
 
         for image in images {
@@ -218,7 +215,7 @@ impl ImageService {
             }
 
             if src.exists() {
-                if let Err(e) = std::fs::copy(&src, &dst) {
+                if let Err(e) = tokio::fs::copy(&src, &dst).await {
                     tracing::error!("Failed to copy {}: {}", image.file_path, e);
                 } else {
                     tracing::debug!("Copied {}", image.file_path);

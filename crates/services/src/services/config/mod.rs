@@ -29,7 +29,7 @@ pub type ShowcaseState = versions::v8::ShowcaseState;
 
 /// Will always return config, trying old schemas or eventually returning default
 pub async fn load_config_from_file(config_path: &PathBuf) -> Config {
-    match std::fs::read_to_string(config_path) {
+    match tokio::fs::read_to_string(config_path).await {
         Ok(raw_config) => Config::from(raw_config),
         Err(_) => {
             tracing::info!("No config file found, creating one");
@@ -44,6 +44,6 @@ pub async fn save_config_to_file(
     config_path: &PathBuf,
 ) -> Result<(), ConfigError> {
     let raw_config = serde_json::to_string_pretty(config)?;
-    std::fs::write(config_path, raw_config)?;
+    tokio::fs::write(config_path, raw_config).await?;
     Ok(())
 }
