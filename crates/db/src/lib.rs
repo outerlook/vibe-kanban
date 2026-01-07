@@ -3,7 +3,7 @@ use std::{str::FromStr, sync::Arc};
 use std::time::Duration;
 
 use sqlx::{
-    Error, Pool, Sqlite, SqlitePool,
+    Error, Pool, Sqlite,
     sqlite::{SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
 };
 use utils::assets::asset_dir;
@@ -16,17 +16,30 @@ pub struct DBService {
 }
 
 impl DBService {
-    pub async fn new() -> Result<DBService, Error> {
+    fn pool_options() -> SqlitePoolOptions {
+        SqlitePoolOptions::new()
+            .max_connections(20)
+            .min_connections(1)
+            .idle_timeout(Duration::from_secs(300))
+            .acquire_timeout(Duration::from_secs(30))
+    }
+
+    fn connect_options() -> Result<SqliteConnectOptions, Error> {
         let database_url = format!(
             "sqlite://{}",
             asset_dir().join("db.sqlite").to_string_lossy()
         );
-        let options = SqliteConnectOptions::from_str(&database_url)?
+        Ok(SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .busy_timeout(Duration::from_secs(30))
-            .synchronous(SqliteSynchronous::Normal);
-        let pool = SqlitePool::connect_with(options).await?;
+            .synchronous(SqliteSynchronous::Normal))
+    }
+
+    pub async fn new() -> Result<DBService, Error> {
+        let pool = Self::pool_options()
+            .connect_with(Self::connect_options()?)
+            .await?;
         sqlx::migrate!("./migrations").run(&pool).await?;
         Ok(DBService { pool })
     }
@@ -41,46 +54,18 @@ impl DBService {
             + Sync
             + 'static,
     {
-        let pool = Self::create_pool(Some(Arc::new(after_connect))).await?;
-        Ok(DBService { pool })
-    }
-
-    async fn create_pool<F>(after_connect: Option<Arc<F>>) -> Result<Pool<Sqlite>, Error>
-    where
-        F: for<'a> Fn(
-                &'a mut SqliteConnection,
-            ) -> std::pin::Pin<
-                Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>,
-            > + Send
-            + Sync
-            + 'static,
-    {
-        let database_url = format!(
-            "sqlite://{}",
-            asset_dir().join("db.sqlite").to_string_lossy()
-        );
-        let options = SqliteConnectOptions::from_str(&database_url)?
-            .create_if_missing(true)
-            .journal_mode(SqliteJournalMode::Wal)
-            .busy_timeout(Duration::from_secs(30))
-            .synchronous(SqliteSynchronous::Normal);
-
-        let pool = if let Some(hook) = after_connect {
-            SqlitePoolOptions::new()
-                .after_connect(move |conn, _meta| {
-                    let hook = hook.clone();
-                    Box::pin(async move {
-                        hook(conn).await?;
-                        Ok(())
-                    })
+        let after_connect = Arc::new(after_connect);
+        let pool = Self::pool_options()
+            .after_connect(move |conn, _meta| {
+                let hook = after_connect.clone();
+                Box::pin(async move {
+                    hook(conn).await?;
+                    Ok(())
                 })
-                .connect_with(options)
-                .await?
-        } else {
-            SqlitePool::connect_with(options).await?
-        };
-
+            })
+            .connect_with(Self::connect_options()?)
+            .await?;
         sqlx::migrate!("./migrations").run(&pool).await?;
-        Ok(pool)
+        Ok(DBService { pool })
     }
 }
