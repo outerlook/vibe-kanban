@@ -338,10 +338,7 @@ pub async fn merge_task_attempt(
         .parent_task(pool)
         .await?
         .ok_or(ApiError::Workspace(WorkspaceError::TaskNotFound))?;
-    let task_uuid_str = task.id.to_string();
-    let first_uuid_section = task_uuid_str.split('-').next().unwrap_or(&task_uuid_str);
-
-    let mut commit_message = format!("{} (vibe-kanban {})", task.title, first_uuid_section);
+    let mut commit_message = task.title.clone();
 
     // Add description on next line if it exists
     if let Some(description) = &task.description
