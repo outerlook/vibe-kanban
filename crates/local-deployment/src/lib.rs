@@ -10,7 +10,7 @@ use services::services::{
     auth::AuthContext,
     config::{Config, load_config_from_file, save_config_to_file},
     container::ContainerService,
-    events::EventService,
+    events::{EventService, EventWorkerHandle},
     file_search_cache::FileSearchCache,
     filesystem::FilesystemService,
     git::GitService,
@@ -22,7 +22,7 @@ use services::services::{
     repo::RepoService,
     share::{ShareConfig, SharePublisher},
 };
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use utils::{
     api::oauth::LoginStatus,
     assets::{config_path, credentials_path},
@@ -48,6 +48,7 @@ pub struct LocalDeployment {
     image: ImageService,
     filesystem: FilesystemService,
     events: EventService,
+    event_worker_handle: Arc<Mutex<Option<EventWorkerHandle>>>,
     file_search_cache: Arc<FileSearchCache>,
     approvals: Approvals,
     queued_message_service: QueuedMessageService,
@@ -104,12 +105,21 @@ impl Deployment for LocalDeployment {
         let events_msg_store = Arc::new(MsgStore::new());
         let events_entry_count = Arc::new(RwLock::new(0));
 
-        // Create DB with event hooks
+        // Create a temporary DB service for the event worker (before hooks are set up)
+        let temp_db = DBService::new().await?;
+
+        // Spawn the event worker which will process database change events
+        let event_worker_handle = EventService::spawn_event_worker(
+            events_msg_store.clone(),
+            events_entry_count.clone(),
+            temp_db,
+        );
+
+        // Create DB with event hooks that send to the worker
         let db = {
             let hook = EventService::create_hook(
                 events_msg_store.clone(),
-                events_entry_count.clone(),
-                DBService::new().await?, // Temporary DB service for the hook
+                event_worker_handle.sender(),
             );
             DBService::new_with_after_connect(hook).await?
         };
@@ -201,6 +211,7 @@ impl Deployment for LocalDeployment {
             image,
             filesystem,
             events,
+            event_worker_handle: Arc::new(Mutex::new(Some(event_worker_handle))),
             file_search_cache,
             approvals,
             queued_message_service,
@@ -339,5 +350,13 @@ impl LocalDeployment {
 
     pub fn share_config(&self) -> Option<&ShareConfig> {
         self.share_config.as_ref()
+    }
+
+    /// Shuts down the event worker, waiting for pending events to be processed.
+    /// This should be called during graceful shutdown.
+    pub async fn shutdown_event_worker(&self) {
+        if let Some(handle) = self.event_worker_handle.lock().await.take() {
+            handle.shutdown().await;
+        }
     }
 }

@@ -20,7 +20,7 @@ pub enum EventError {
     Other(#[from] AnyhowError), // Catches any unclassified errors
 }
 
-#[derive(EnumString, Display)]
+#[derive(Debug, EnumString, Display)]
 pub enum HookTables {
     #[strum(to_string = "tasks")]
     Tasks,
