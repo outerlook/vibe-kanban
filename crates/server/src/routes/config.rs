@@ -93,7 +93,7 @@ async fn get_user_system_info(
         config: config.clone(),
         analytics_user_id: deployment.user_id().to_string(),
         login_status,
-        profiles: ExecutorConfigs::get_cached(),
+        profiles: (*ExecutorConfigs::get_cached()).clone(),
         environment: Environment::new(),
         capabilities: {
             let mut caps: HashMap<String, Vec<BaseAgentCapability>> = HashMap::new();

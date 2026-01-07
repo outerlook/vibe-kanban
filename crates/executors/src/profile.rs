@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     fs,
     str::FromStr,
-    sync::{LazyLock, RwLock},
+    sync::{Arc, LazyLock, RwLock},
 };
 
 use convert_case::{Case, Casing};
@@ -51,8 +51,8 @@ pub enum ProfileError {
     NoAvailableExecutorProfile,
 }
 
-static EXECUTOR_PROFILES_CACHE: LazyLock<RwLock<ExecutorConfigs>> =
-    LazyLock::new(|| RwLock::new(ExecutorConfigs::load()));
+static EXECUTOR_PROFILES_CACHE: LazyLock<RwLock<Arc<ExecutorConfigs>>> =
+    LazyLock::new(|| RwLock::new(Arc::new(ExecutorConfigs::load())));
 
 // New format default profiles (v3 - flattened)
 const DEFAULT_PROFILES_JSON: &str = include_str!("../default_profiles.json");
@@ -196,14 +196,14 @@ impl ExecutorConfigs {
     }
 
     /// Get cached executor profiles
-    pub fn get_cached() -> ExecutorConfigs {
-        EXECUTOR_PROFILES_CACHE.read().unwrap().clone()
+    pub fn get_cached() -> Arc<ExecutorConfigs> {
+        Arc::clone(&EXECUTOR_PROFILES_CACHE.read().unwrap())
     }
 
     /// Reload executor profiles cache
     pub fn reload() {
         let mut cache = EXECUTOR_PROFILES_CACHE.write().unwrap();
-        *cache = Self::load();
+        *cache = Arc::new(Self::load());
     }
 
     /// Load executor profiles from file or defaults
