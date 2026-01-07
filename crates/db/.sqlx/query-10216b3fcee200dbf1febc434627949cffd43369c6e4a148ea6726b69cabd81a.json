@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT EXISTS (\n                SELECT 1 FROM execution_processes ep\n                JOIN sessions s ON ep.session_id = s.id\n                JOIN workspaces w ON s.workspace_id = w.id\n                WHERE w.task_id = $1\n                  AND ep.status = 'running'\n            ) AS \"exists!: bool\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "exists!: bool",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "10216b3fcee200dbf1febc434627949cffd43369c6e4a148ea6726b69cabd81a"
+}

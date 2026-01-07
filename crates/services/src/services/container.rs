@@ -236,24 +236,7 @@ pub trait ContainerService {
 
     /// Check if a task has any running execution processes
     async fn has_running_processes(&self, task_id: Uuid) -> Result<bool, ContainerError> {
-        let workspaces = Workspace::fetch_all(&self.db().pool, Some(task_id)).await?;
-
-        for workspace in workspaces {
-            let sessions = Session::find_by_workspace_id(&self.db().pool, workspace.id).await?;
-            for session in sessions {
-                if let Ok(processes) =
-                    ExecutionProcess::find_by_session_id(&self.db().pool, session.id, false).await
-                {
-                    for process in processes {
-                        if process.status == ExecutionProcessStatus::Running {
-                            return Ok(true);
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(false)
+        Ok(ExecutionProcess::has_running_processes_for_task(&self.db().pool, task_id).await?)
     }
 
     /// A context is finalized when

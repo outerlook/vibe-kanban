@@ -311,6 +311,26 @@ impl ExecutionProcess {
         Ok(count > 0)
     }
 
+    /// Check if there are any running processes for a task (across all workspaces and sessions)
+    pub async fn has_running_processes_for_task(
+        pool: &SqlitePool,
+        task_id: Uuid,
+    ) -> Result<bool, sqlx::Error> {
+        let exists: bool = sqlx::query_scalar!(
+            r#"SELECT EXISTS (
+                SELECT 1 FROM execution_processes ep
+                JOIN sessions s ON ep.session_id = s.id
+                JOIN workspaces w ON s.workspace_id = w.id
+                WHERE w.task_id = $1
+                  AND ep.status = 'running'
+            ) AS "exists!: bool""#,
+            task_id
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(exists)
+    }
+
     /// Find running dev servers for a specific workspace (across all sessions)
     pub async fn find_running_dev_servers_by_workspace(
         pool: &SqlitePool,
