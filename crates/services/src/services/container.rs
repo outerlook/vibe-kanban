@@ -53,6 +53,7 @@ use crate::services::{
     git::{GitService, GitServiceError},
     notification::NotificationService,
     share::SharePublisher,
+    watcher_manager::WatcherManager,
     workspace_manager::WorkspaceError as WorkspaceManagerError,
     worktree_manager::WorktreeError,
 };
@@ -225,6 +226,10 @@ pub trait ContainerService {
     fn share_publisher(&self) -> Option<&SharePublisher>;
 
     fn notification_service(&self) -> &NotificationService;
+
+    /// Get the shared watcher manager for filesystem watching.
+    /// Returns None if the implementation doesn't support shared watching.
+    fn watcher_manager(&self) -> Option<&WatcherManager>;
 
     fn workspace_to_current_dir(&self, workspace: &Workspace) -> PathBuf;
 

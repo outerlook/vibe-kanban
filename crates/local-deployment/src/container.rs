@@ -51,6 +51,7 @@ use services::services::{
     notification::NotificationService,
     queued_message::QueuedMessageService,
     share::SharePublisher,
+    watcher_manager::WatcherManager,
     workspace_manager::{RepoWorkspaceInput, WorkspaceManager},
 };
 use tokio::{sync::RwLock, task::JoinHandle};
@@ -78,6 +79,7 @@ pub struct LocalContainerService {
     queued_message_service: QueuedMessageService,
     publisher: Result<SharePublisher, RemoteClientNotConfigured>,
     notification_service: NotificationService,
+    watcher_manager: WatcherManager,
 }
 
 impl LocalContainerService {
@@ -110,6 +112,7 @@ impl LocalContainerService {
             queued_message_service,
             publisher,
             notification_service,
+            watcher_manager: WatcherManager::new(),
         };
 
         container.spawn_workspace_cleanup().await;
@@ -629,6 +632,8 @@ impl LocalContainerService {
 
     /// Create a live diff log stream for ongoing attempts for WebSocket
     /// Returns a stream that owns the filesystem watcher - when dropped, watcher is cleaned up
+    /// Uses shared watcher manager to avoid "too many open files" errors when multiple
+    /// browser tabs connect to the same workspace.
     async fn create_live_diff_stream(
         &self,
         worktree_path: &Path,
@@ -642,6 +647,7 @@ impl LocalContainerService {
             base_commit.clone(),
             stats_only,
             path_prefix,
+            Some(&self.watcher_manager),
         )
         .await
         .map_err(|e| ContainerError::Other(anyhow!("{e}")))
@@ -887,6 +893,10 @@ impl ContainerService for LocalContainerService {
 
     fn notification_service(&self) -> &NotificationService {
         &self.notification_service
+    }
+
+    fn watcher_manager(&self) -> Option<&WatcherManager> {
+        Some(&self.watcher_manager)
     }
 
     async fn git_branch_prefix(&self) -> String {

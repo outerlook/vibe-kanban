@@ -5369,6 +5369,7 @@ dependencies = [
  "once_cell",
  "openssl-sys",
  "os_info",
+ "parking_lot",
  "regex",
  "remote",
  "reqwest",

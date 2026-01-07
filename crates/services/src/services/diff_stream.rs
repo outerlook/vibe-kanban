@@ -10,7 +10,7 @@ use std::{
 
 use executors::logs::utils::{ConversationPatch, patch::escape_json_pointer_segment};
 use futures::StreamExt;
-use notify_debouncer_full::DebouncedEvent;
+use notify_debouncer_full::{DebounceEventResult, DebouncedEvent};
 use thiserror::Error;
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_stream::wrappers::ReceiverStream;
@@ -22,6 +22,7 @@ use utils::{
 use crate::services::{
     filesystem_watcher::{self, FilesystemWatcherError},
     git::{Commit, DiffTarget, GitService, GitServiceError},
+    watcher_manager::{WatcherManager, WatcherSubscribeError},
 };
 
 /// Maximum cumulative diff bytes to stream before omitting content (200MB)
@@ -38,6 +39,8 @@ pub enum DiffStreamError {
     FilesystemWatcher(#[from] FilesystemWatcherError),
     #[error("Task join error: {0}")]
     TaskJoin(#[from] tokio::task::JoinError),
+    #[error("Watcher subscribe error: {0}")]
+    WatcherSubscribe(#[from] WatcherSubscribeError),
 }
 
 /// Diff stream that owns the filesystem watcher task
@@ -143,9 +146,165 @@ impl DiffWatcherContext {
             }
         }
     }
+
+    async fn handle_shared_event(
+        &self,
+        result: Arc<DebounceEventResult>,
+        canonical_worktree_path: &Path,
+    ) -> bool {
+        match result.as_ref() {
+            Ok(events) => self.handle_events(events.clone(), canonical_worktree_path).await,
+            Err(errors) => {
+                let message = errors
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                tracing::error!("Filesystem watcher error: {message}");
+                send_error(&self.tx, message).await;
+                false
+            }
+        }
+    }
 }
 
+/// Create a diff stream with an optional shared watcher manager.
+/// If `watcher_manager` is Some, uses a shared watcher (recommended for WebSocket endpoints).
+/// If None, creates a dedicated watcher for this stream only.
 pub async fn create(
+    git_service: GitService,
+    worktree_path: PathBuf,
+    base_commit: Commit,
+    stats_only: bool,
+    path_prefix: Option<String>,
+    watcher_manager: Option<&WatcherManager>,
+) -> Result<DiffStreamHandle, DiffStreamError> {
+    match watcher_manager {
+        Some(manager) => create_with_shared_watcher(
+            git_service,
+            worktree_path,
+            base_commit,
+            stats_only,
+            path_prefix,
+            manager,
+        )
+        .await,
+        None => create_with_dedicated_watcher(
+            git_service,
+            worktree_path,
+            base_commit,
+            stats_only,
+            path_prefix,
+        )
+        .await,
+    }
+}
+
+/// Create a diff stream using a shared watcher from the manager.
+/// Multiple subscribers to the same worktree path share a single filesystem watcher.
+async fn create_with_shared_watcher(
+    git_service: GitService,
+    worktree_path: PathBuf,
+    base_commit: Commit,
+    stats_only: bool,
+    path_prefix: Option<String>,
+    watcher_manager: &WatcherManager,
+) -> Result<DiffStreamHandle, DiffStreamError> {
+    let (tx, rx) = mpsc::channel::<Result<LogMsg, io::Error>>(DIFF_STREAM_CHANNEL_CAPACITY);
+
+    let cumulative = Arc::new(AtomicUsize::new(0));
+    let full_sent = Arc::new(std::sync::RwLock::new(HashSet::<String>::new()));
+
+    // Subscribe to the shared watcher first (this creates it if needed)
+    let subscription = watcher_manager.subscribe(worktree_path.clone())?;
+    let canonical_worktree_path = subscription.canonical_path().clone();
+
+    let tx_clone = tx.clone();
+    let watcher_task = tokio::spawn(async move {
+        // Fetch initial diffs in a blocking task
+        let git_for_diff = git_service.clone();
+        let worktree_for_diff = worktree_path.clone();
+        let base_for_diff = base_commit.clone();
+        let path_prefix_clone = path_prefix.clone();
+
+        let initial_diffs_result = tokio::task::spawn_blocking(move || {
+            git_for_diff.get_diffs(
+                DiffTarget::Worktree {
+                    worktree_path: &worktree_for_diff,
+                    base_commit: &base_for_diff,
+                },
+                None,
+            )
+        })
+        .await;
+
+        let initial_diffs_raw = match initial_diffs_result {
+            Ok(Ok(diffs)) => diffs,
+            Ok(Err(e)) => {
+                tracing::error!("Failed to get initial diffs: {e}");
+                send_error(&tx_clone, e.to_string()).await;
+                return;
+            }
+            Err(join_err) => {
+                tracing::error!("Diff fetch task join error: {join_err}");
+                send_error(&tx_clone, format!("Diff fetch failed: {join_err}")).await;
+                return;
+            }
+        };
+
+        let mut initial_diffs = Vec::with_capacity(initial_diffs_raw.len());
+        for mut diff in initial_diffs_raw {
+            apply_stream_omit_policy(&mut diff, &cumulative, stats_only);
+            initial_diffs.push(diff);
+        }
+
+        {
+            let mut guard = full_sent.write().unwrap();
+            for diff in &initial_diffs {
+                if !diff.content_omitted {
+                    guard.insert(GitService::diff_path(diff));
+                }
+            }
+        }
+
+        if !send_initial_diffs(&tx_clone, initial_diffs, path_prefix_clone.as_deref()).await {
+            return;
+        }
+
+        let ctx = DiffWatcherContext {
+            git_service,
+            worktree_path,
+            base_commit,
+            cumulative,
+            full_sent,
+            stats_only,
+            path_prefix,
+            tx: tx_clone,
+        };
+
+        // Keep subscription alive and process events
+        let mut subscription = subscription;
+        while let Some(result) = subscription.recv().await {
+            if !ctx
+                .handle_shared_event(result, &canonical_worktree_path)
+                .await
+            {
+                return;
+            }
+        }
+    });
+
+    drop(tx);
+
+    Ok(DiffStreamHandle::new(
+        ReceiverStream::new(rx).boxed(),
+        Some(watcher_task),
+    ))
+}
+
+/// Create a diff stream with a dedicated filesystem watcher.
+/// Use this only when you need an isolated watcher (not for WebSocket endpoints).
+async fn create_with_dedicated_watcher(
     git_service: GitService,
     worktree_path: PathBuf,
     base_commit: Commit,
