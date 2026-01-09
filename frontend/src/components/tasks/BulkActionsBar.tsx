@@ -15,8 +15,7 @@ export function BulkActionsBar() {
   }
 
   const handleCreateAttempts = () => {
-    const taskIds = getSelectedIds();
-    BulkCreateAttemptsDialog.show({ taskIds });
+    BulkCreateAttemptsDialog.show({ taskIds: getSelectedIds() });
   };
 
   return createPortal(

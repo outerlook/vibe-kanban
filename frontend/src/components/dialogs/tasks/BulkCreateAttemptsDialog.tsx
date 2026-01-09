@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -78,10 +78,7 @@ const BulkCreateAttemptsDialogImpl =
       }
     }, [modal.visible, resetBranchSelection]);
 
-    const defaultProfile: ExecutorProfileId | null = useMemo(() => {
-      return config?.executor_profile ?? null;
-    }, [config?.executor_profile]);
-
+    const defaultProfile = config?.executor_profile ?? null;
     const effectiveProfile = userSelectedProfile ?? defaultProfile;
 
     const isLoadingInitial = isLoadingRepos || isLoadingBranches;
@@ -251,14 +248,12 @@ const BulkCreateAttemptsDialogImpl =
               ) : (
                 <>
                   {profiles && (
-                    <div className="space-y-2">
-                      <ExecutorProfileSelector
-                        profiles={profiles}
-                        selectedProfile={effectiveProfile}
-                        onProfileSelect={setUserSelectedProfile}
-                        showLabel={true}
-                      />
-                    </div>
+                    <ExecutorProfileSelector
+                      profiles={profiles}
+                      selectedProfile={effectiveProfile}
+                      onProfileSelect={setUserSelectedProfile}
+                      showLabel={true}
+                    />
                   )}
 
                   <RepoBranchSelector
