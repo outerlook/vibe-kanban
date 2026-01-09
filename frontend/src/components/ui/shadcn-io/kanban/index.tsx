@@ -69,7 +69,7 @@ export type KanbanCardProps = Pick<Feature, 'id' | 'name'> & {
   parent: string;
   children?: ReactNode;
   className?: string;
-  onClick?: () => void;
+  onClick?: (e: React.MouseEvent) => void;
   tabIndex?: number;
   forwardedRef?: Ref<HTMLDivElement>;
   onKeyDown?: (e: KeyboardEvent) => void;

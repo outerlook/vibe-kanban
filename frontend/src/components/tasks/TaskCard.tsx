@@ -13,6 +13,7 @@ import { TaskCardHeader } from './TaskCardHeader';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/hooks';
 import { useUnread } from '@/contexts/UnreadContext';
+import { useTaskSelection } from '@/contexts/TaskSelectionContext';
 
 interface TaskCardProps {
   task: TaskWithAttemptStatus;
@@ -20,6 +21,7 @@ interface TaskCardProps {
   status: string;
   onViewDetails: (task: TaskWithAttemptStatus) => void;
   isOpen?: boolean;
+  isSelected?: boolean;
   projectId: string;
   sharedTask?: SharedTaskRecord;
 }
@@ -30,6 +32,7 @@ export function TaskCard({
   status,
   onViewDetails,
   isOpen,
+  isSelected,
   projectId,
   sharedTask,
 }: TaskCardProps) {
@@ -38,14 +41,26 @@ export function TaskCard({
   const [isNavigatingToParent, setIsNavigatingToParent] = useState(false);
   const { isSignedIn } = useAuth();
   const { isTaskUnread, markTaskAsRead } = useUnread();
+  const { toggleTask } = useTaskSelection();
   const isUnread = isTaskUnread(task);
 
-  const handleClick = useCallback(() => {
-    if (task.status === 'inreview') {
-      markTaskAsRead(task.id);
-    }
-    onViewDetails(task);
-  }, [task, onViewDetails, markTaskAsRead]);
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      const isMultiSelect = e.ctrlKey || e.metaKey;
+
+      if (isMultiSelect) {
+        e.stopPropagation();
+        toggleTask(task.id);
+        return;
+      }
+
+      if (task.status === 'inreview') {
+        markTaskAsRead(task.id);
+      }
+      onViewDetails(task);
+    },
+    [task, onViewDetails, markTaskAsRead, toggleTask]
+  );
 
   const handleParentClick = useCallback(
     async (e: React.MouseEvent) => {
@@ -93,6 +108,7 @@ export function TaskCard({
       parent={status}
       onClick={handleClick}
       isOpen={isOpen}
+      isSelected={isSelected}
       forwardedRef={localRef}
       dragDisabled={(!!sharedTask || !!task.shared_task_id) && !isSignedIn}
       className={

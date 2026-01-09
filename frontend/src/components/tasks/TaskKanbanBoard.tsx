@@ -12,6 +12,7 @@ import type { TaskStatus, TaskWithAttemptStatus } from 'shared/types';
 import { statusBoardColors, statusLabels } from '@/utils/statusLabels';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { SharedTaskCard } from './SharedTaskCard';
+import { useTaskSelection } from '@/contexts/TaskSelectionContext';
 
 export type KanbanColumnItem =
   | {
@@ -48,6 +49,7 @@ function TaskKanbanBoard({
   projectId,
 }: TaskKanbanBoardProps) {
   const { userId } = useAuth();
+  const { isTaskSelected } = useTaskSelection();
 
   return (
     <KanbanProvider onDragEnd={onDragEnd}>
@@ -77,6 +79,7 @@ function TaskKanbanBoard({
                       status={statusKey}
                       onViewDetails={onViewTaskDetails}
                       isOpen={selectedTaskId === item.task.id}
+                      isSelected={isTaskSelected(item.task.id)}
                       projectId={projectId}
                       sharedTask={item.sharedTask}
                     />
