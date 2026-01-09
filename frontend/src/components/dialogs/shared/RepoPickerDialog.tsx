@@ -16,6 +16,7 @@ import {
   Folder,
   FolderGit,
   FolderPlus,
+  Github,
   Loader2,
   Search,
 } from 'lucide-react';
@@ -24,6 +25,7 @@ import { DirectoryEntry, Repo } from 'shared/types';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
 import { FolderPickerDialog } from './FolderPickerDialog';
+import { useUserSystem } from '@/components/ConfigProvider';
 
 export interface RepoPickerDialogProps {
   value?: string;
@@ -31,7 +33,7 @@ export interface RepoPickerDialogProps {
   description?: string;
 }
 
-type Stage = 'options' | 'existing' | 'new';
+type Stage = 'options' | 'existing' | 'new' | 'clone';
 
 const RepoPickerDialogImpl = NiceModal.create<RepoPickerDialogProps>(
   ({
@@ -39,6 +41,7 @@ const RepoPickerDialogImpl = NiceModal.create<RepoPickerDialogProps>(
     description = 'Choose or create a git repository',
   }) => {
     const modal = useModal();
+    const { config } = useUserSystem();
     const [stage, setStage] = useState<Stage>('options');
     const [error, setError] = useState('');
     const [isWorking, setIsWorking] = useState(false);
@@ -52,6 +55,10 @@ const RepoPickerDialogImpl = NiceModal.create<RepoPickerDialogProps>(
     const [repoName, setRepoName] = useState('');
     const [parentPath, setParentPath] = useState('');
 
+    // Stage: clone
+    const [cloneUrl, setCloneUrl] = useState('');
+    const [cloneDestination, setCloneDestination] = useState('');
+
     useEffect(() => {
       if (modal.visible) {
         setStage('options');
@@ -60,8 +67,10 @@ const RepoPickerDialogImpl = NiceModal.create<RepoPickerDialogProps>(
         setShowMoreRepos(false);
         setRepoName('');
         setParentPath('');
+        setCloneUrl('');
+        setCloneDestination(config?.default_clone_directory ?? '');
       }
-    }, [modal.visible]);
+    }, [modal.visible, config?.default_clone_directory]);
 
     const loadRecentRepos = useCallback(async () => {
       setReposLoading(true);
@@ -138,6 +147,30 @@ const RepoPickerDialogImpl = NiceModal.create<RepoPickerDialogProps>(
       }
     };
 
+    const handleClone = async () => {
+      if (!cloneUrl.trim()) {
+        setError('GitHub URL is required');
+        return;
+      }
+
+      setIsWorking(true);
+      setError('');
+      try {
+        const repo = await repoApi.clone({
+          url: cloneUrl.trim(),
+          destination: cloneDestination.trim() || undefined,
+        });
+        modal.resolve(repo);
+        modal.hide();
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : 'Failed to clone repository'
+        );
+      } finally {
+        setIsWorking(false);
+      }
+    };
+
     const handleCancel = () => {
       modal.resolve(null);
       modal.hide();
@@ -196,6 +229,23 @@ const RepoPickerDialogImpl = NiceModal.create<RepoPickerDialogProps>(
                         </div>
                         <div className="text-xs text-muted-foreground mt-1">
                           Initialize a new git repository
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    className="p-4 border cursor-pointer hover:shadow-md transition-shadow rounded-lg bg-card"
+                    onClick={() => setStage('clone')}
+                  >
+                    <div className="flex items-start gap-3">
+                      <Github className="h-5 w-5 mt-0.5 flex-shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-foreground">
+                          Clone from GitHub
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          Clone a repository from a GitHub URL
                         </div>
                       </div>
                     </div>
@@ -367,6 +417,93 @@ const RepoPickerDialogImpl = NiceModal.create<RepoPickerDialogProps>(
                         </>
                       ) : (
                         'Create Repository'
+                      )}
+                    </Button>
+                  </div>
+                </>
+              )}
+
+              {/* Stage: Clone */}
+              {stage === 'clone' && (
+                <>
+                  <button
+                    className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1"
+                    onClick={goBack}
+                    disabled={isWorking}
+                  >
+                    <ArrowLeft className="h-3 w-3" />
+                    Back to options
+                  </button>
+
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="clone-url">
+                        GitHub URL <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="clone-url"
+                        type="text"
+                        value={cloneUrl}
+                        onChange={(e) => setCloneUrl(e.target.value)}
+                        placeholder="https://github.com/owner/repo or owner/repo"
+                        disabled={isWorking}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Supports HTTPS, SSH, or owner/repo shorthand
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="clone-destination">
+                        Destination Directory
+                      </Label>
+                      <div className="flex space-x-2">
+                        <Input
+                          id="clone-destination"
+                          type="text"
+                          value={cloneDestination}
+                          onChange={(e) => setCloneDestination(e.target.value)}
+                          placeholder="Default location"
+                          className="flex-1"
+                          disabled={isWorking}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          disabled={isWorking}
+                          onClick={async () => {
+                            const selectedPath = await FolderPickerDialog.show({
+                              title: 'Select Clone Destination',
+                              description:
+                                'Choose where to clone the repository',
+                              value: cloneDestination,
+                            });
+                            if (selectedPath) {
+                              setCloneDestination(selectedPath);
+                            }
+                          }}
+                        >
+                          <Folder className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Leave empty to use default clone directory
+                      </p>
+                    </div>
+
+                    <Button
+                      onClick={handleClone}
+                      disabled={isWorking || !cloneUrl.trim()}
+                      className="w-full"
+                    >
+                      {isWorking ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Cloning...
+                        </>
+                      ) : (
+                        'Clone Repository'
                       )}
                     </Button>
                   </div>
