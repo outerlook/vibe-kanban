@@ -281,6 +281,17 @@
     "creating": "Creating...",
     "start": "Start"
   },
+  "bulkCreateAttemptsDialog": {
+    "title": "Create Attempts ({{count}} tasks)",
+    "description": "Start attempts for {{count}} selected tasks with a coding agent.",
+    "completedDescription": "Attempt creation completed.",
+    "progress": "Creating attempt {{current}} of {{total}}...",
+    "summary": "Created {{success}} of {{total}} attempts. {{failed}} failed.",
+    "someFailedHint": "Some attempts could not be created. You can retry those tasks individually.",
+    "creating": "Creating...",
+    "start": "Start {{count}} Attempts",
+    "goToFirst": "Go to First Attempt"
+  },
   "repoBranchSelector": {
     "label": "Base branch"
   },
