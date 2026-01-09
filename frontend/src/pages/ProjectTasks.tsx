@@ -72,6 +72,8 @@ import {
 } from '@/components/ui/breadcrumb';
 import { AttemptHeaderActions } from '@/components/panels/AttemptHeaderActions';
 import { TaskPanelHeaderActions } from '@/components/panels/TaskPanelHeaderActions';
+import { TaskSelectionProvider } from '@/contexts/TaskSelectionContext';
+import { BulkActionsBar } from '@/components/tasks/BulkActionsBar';
 
 import type { TaskWithAttemptStatus, TaskStatus } from 'shared/types';
 
@@ -1050,23 +1052,26 @@ export function ProjectTasks() {
   const effectiveMode: LayoutMode = selectedSharedTask ? null : mode;
 
   const attemptArea = (
-    <GitOperationsProvider attemptId={attempt?.id}>
-      <ClickedElementsProvider attempt={attempt}>
-        <ReviewProvider attemptId={attempt?.id}>
-          <ExecutionProcessesProvider attemptId={attempt?.id}>
-            <TasksLayout
-              kanban={kanbanContent}
-              attempt={attemptContent}
-              aux={auxContent}
-              isPanelOpen={isPanelOpen}
-              mode={effectiveMode}
-              isMobile={isMobile}
-              rightHeader={rightHeader}
-            />
-          </ExecutionProcessesProvider>
-        </ReviewProvider>
-      </ClickedElementsProvider>
-    </GitOperationsProvider>
+    <TaskSelectionProvider>
+      <GitOperationsProvider attemptId={attempt?.id}>
+        <ClickedElementsProvider attempt={attempt}>
+          <ReviewProvider attemptId={attempt?.id}>
+            <ExecutionProcessesProvider attemptId={attempt?.id}>
+              <TasksLayout
+                kanban={kanbanContent}
+                attempt={attemptContent}
+                aux={auxContent}
+                isPanelOpen={isPanelOpen}
+                mode={effectiveMode}
+                isMobile={isMobile}
+                rightHeader={rightHeader}
+              />
+            </ExecutionProcessesProvider>
+          </ReviewProvider>
+        </ClickedElementsProvider>
+      </GitOperationsProvider>
+      <BulkActionsBar />
+    </TaskSelectionProvider>
   );
 
   return (
