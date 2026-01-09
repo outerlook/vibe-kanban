@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useTaskSelection } from '@/contexts/TaskSelectionContext';
+import { BulkCreateAttemptsDialog } from '@/components/dialogs';
 import { X } from 'lucide-react';
 
 export function BulkActionsBar() {
@@ -14,9 +15,8 @@ export function BulkActionsBar() {
   }
 
   const handleCreateAttempts = () => {
-    const ids = getSelectedIds();
-    console.log('Create attempts for tasks:', ids);
-    // TODO: Open BulkCreateAttemptsDialog when implemented
+    const taskIds = getSelectedIds();
+    BulkCreateAttemptsDialog.show({ taskIds });
   };
 
   return createPortal(
