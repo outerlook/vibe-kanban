@@ -20,7 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Volume2 } from 'lucide-react';
+import { Folder, Loader2, Volume2 } from 'lucide-react';
 import {
   DEFAULT_PR_DESCRIPTION_PROMPT,
   EditorType,
@@ -36,6 +36,7 @@ import { EditorAvailabilityIndicator } from '@/components/EditorAvailabilityIndi
 import { useTheme } from '@/components/ThemeProvider';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { TagManager } from '@/components/TagManager';
+import { FolderPickerDialog } from '@/components/dialogs/shared/FolderPickerDialog';
 
 export function GeneralSettings() {
   const { t } = useTranslation(['settings', 'common']);
@@ -459,6 +460,50 @@ export function GeneralSettings() {
                   </code>
                 </>
               )}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="default-clone-directory">
+              {t('settings.general.git.defaultCloneDirectory.label')}
+            </Label>
+            <div className="flex space-x-2">
+              <Input
+                id="default-clone-directory"
+                type="text"
+                placeholder={t(
+                  'settings.general.git.defaultCloneDirectory.placeholder'
+                )}
+                value={draft?.default_clone_directory ?? ''}
+                onChange={(e) =>
+                  updateDraft({ default_clone_directory: e.target.value || null })
+                }
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={async () => {
+                  const result = await FolderPickerDialog.show({
+                    value: draft?.default_clone_directory ?? '',
+                    title: t(
+                      'settings.general.git.defaultCloneDirectory.browseTitle'
+                    ),
+                    description: t(
+                      'settings.general.git.defaultCloneDirectory.browseDescription'
+                    ),
+                  });
+                  if (result) {
+                    updateDraft({ default_clone_directory: result });
+                  }
+                }}
+              >
+                <Folder className="h-4 w-4" />
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {t('settings.general.git.defaultCloneDirectory.helper')}
             </p>
           </div>
         </CardContent>

@@ -133,6 +133,13 @@
             "invalidChars": "Contains invalid characters.",
             "controlChars": "Contains control characters."
           }
+        },
+        "defaultCloneDirectory": {
+          "label": "Default Clone Directory",
+          "placeholder": "Home Directory",
+          "helper": "Default directory when cloning repositories. Leave empty to use your home directory.",
+          "browseTitle": "Select Default Clone Directory",
+          "browseDescription": "Choose the default folder for cloning repositories"
         }
       },
       "pullRequests": {
