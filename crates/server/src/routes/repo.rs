@@ -28,6 +28,13 @@ pub struct InitRepoRequest {
     pub folder_name: String,
 }
 
+#[derive(Debug, Deserialize, TS)]
+#[ts(export)]
+pub struct CloneRepoRequest {
+    pub url: String,
+    pub destination: Option<String>,
+}
+
 pub async fn register_repo(
     State(deployment): State<DeploymentImpl>,
     ResponseJson(payload): ResponseJson<RegisterRepoRequest>,
@@ -61,6 +68,24 @@ pub async fn init_repo(
     Ok(ResponseJson(ApiResponse::success(repo)))
 }
 
+pub async fn clone_repo(
+    State(deployment): State<DeploymentImpl>,
+    ResponseJson(payload): ResponseJson<CloneRepoRequest>,
+) -> Result<ResponseJson<ApiResponse<Repo>>, ApiError> {
+    let config = deployment.config().read().await;
+    let repo = deployment
+        .repo()
+        .clone_repository(
+            &deployment.db().pool,
+            &payload.url,
+            payload.destination.as_deref(),
+            &config,
+        )
+        .await?;
+
+    Ok(ResponseJson(ApiResponse::success(repo)))
+}
+
 pub async fn get_repo_branches(
     State(deployment): State<DeploymentImpl>,
     Path(repo_id): Path<Uuid>,
@@ -78,5 +103,6 @@ pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/repos", post(register_repo))
         .route("/repos/init", post(init_repo))
+        .route("/repos/clone", post(clone_repo))
         .route("/repos/{repo_id}/branches", get(get_repo_branches))
 }

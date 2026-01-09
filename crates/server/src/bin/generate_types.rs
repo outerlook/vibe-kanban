@@ -94,6 +94,7 @@ fn generate_types_content() -> String {
         server::routes::projects::LinkToExistingRequest::decl(),
         server::routes::repo::RegisterRepoRequest::decl(),
         server::routes::repo::InitRepoRequest::decl(),
+        server::routes::repo::CloneRepoRequest::decl(),
         server::routes::tags::TagSearchParams::decl(),
         server::routes::oauth::TokenResponse::decl(),
         server::routes::config::UserSystemInfo::decl(),

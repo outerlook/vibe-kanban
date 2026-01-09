@@ -184,6 +184,8 @@ export type RegisterRepoRequest = { path: string, display_name: string | null, }
 
 export type InitRepoRequest = { parent_path: string, folder_name: string, };
 
+export type CloneRepoRequest = { url: string, destination: string | null, };
+
 export type TagSearchParams = { search: string | null, };
 
 export type TokenResponse = { access_token: string, expires_at: string | null, };

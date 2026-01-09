@@ -376,6 +376,15 @@ impl From<RepoServiceError> for ApiError {
             RepoServiceError::InvalidFolderName(name) => {
                 ApiError::BadRequest(format!("Invalid folder name: {}", name))
             }
+            RepoServiceError::GitCli(git_cli_err) => {
+                ApiError::BadRequest(format!("Git clone error: {}", git_cli_err))
+            }
+            RepoServiceError::InvalidUrl(msg) => {
+                ApiError::BadRequest(format!("Invalid repository URL: {}", msg))
+            }
+            RepoServiceError::NoCloneDirectory => ApiError::BadRequest(
+                "No clone directory configured and no destination specified".to_string(),
+            ),
         }
     }
 }

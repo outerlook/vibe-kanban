@@ -955,6 +955,17 @@ export const repoApi = {
     });
     return handleApiResponse<Repo>(response);
   },
+
+  clone: async (data: {
+    url: string;
+    destination?: string;
+  }): Promise<Repo> => {
+    const response = await makeRequest('/api/repos/clone', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<Repo>(response);
+  },
 };
 
 // Config APIs (backwards compatible)
