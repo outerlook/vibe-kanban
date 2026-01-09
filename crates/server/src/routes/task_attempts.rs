@@ -88,6 +88,12 @@ pub struct DiffStreamQuery {
     pub stats_only: bool,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct WorkspaceStreamQuery {
+    pub task_id: Uuid,
+    pub include_snapshot: Option<bool>,
+}
+
 pub async fn get_task_attempts(
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<TaskAttemptQuery>,
@@ -294,6 +300,55 @@ async fn handle_task_attempt_diff_ws(
                 if msg.is_none() {
                     break;
                 }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub async fn stream_workspaces_ws(
+    ws: WebSocketUpgrade,
+    State(deployment): State<DeploymentImpl>,
+    Query(query): Query<WorkspaceStreamQuery>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| async move {
+        let include_snapshot = query.include_snapshot.unwrap_or(true);
+        if let Err(e) = handle_workspaces_ws(socket, deployment, query.task_id, include_snapshot).await {
+            tracing::warn!("workspaces WS closed: {}", e);
+        }
+    })
+}
+
+async fn handle_workspaces_ws(
+    socket: WebSocket,
+    deployment: DeploymentImpl,
+    task_id: Uuid,
+    include_snapshot: bool,
+) -> anyhow::Result<()> {
+    use futures_util::{SinkExt, StreamExt, TryStreamExt};
+
+    let mut stream = deployment
+        .events()
+        .stream_workspaces_for_task_raw(task_id, include_snapshot)
+        .await?
+        .map_ok(|msg| msg.to_ws_message_unchecked());
+
+    let (mut sender, mut receiver) = socket.split();
+
+    // Drain (and ignore) any client->server messages so pings/pongs work
+    tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
+
+    // Forward server messages
+    while let Some(item) = stream.next().await {
+        match item {
+            Ok(msg) => {
+                if sender.send(msg).await.is_err() {
+                    break; // client disconnected
+                }
+            }
+            Err(e) => {
+                tracing::error!("stream error: {}", e);
+                break;
             }
         }
     }
@@ -1505,6 +1560,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 
     let task_attempts_router = Router::new()
         .route("/", get(get_task_attempts).post(create_task_attempt))
+        .route("/stream/ws", get(stream_workspaces_ws))
         .nest("/{id}", task_attempt_id_router)
         .nest("/{id}/images", images::router(deployment));
 
