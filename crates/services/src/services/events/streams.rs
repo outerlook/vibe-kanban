@@ -4,6 +4,7 @@ use db::models::{
     scratch::Scratch,
     session::Session,
     task::{Task, TaskWithAttemptStatus},
+    workspace::Workspace,
 };
 use futures::StreamExt;
 use moka::future::Cache;
@@ -476,6 +477,99 @@ impl EventService {
                     }
                 }
             });
+
+        // Start with initial snapshot, then live updates
+        let initial_stream = futures::stream::once(async move { Ok(initial_msg) });
+        let combined_stream = initial_stream.chain(filtered_stream).boxed();
+
+        Ok(combined_stream)
+    }
+
+    /// Stream workspaces for a specific task with optional initial snapshot (raw LogMsg format for WebSocket)
+    pub async fn stream_workspaces_for_task_raw(
+        &self,
+        task_id: Uuid,
+        include_snapshot: bool,
+    ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, EventError>
+    {
+        // Get filtered event stream
+        let filtered_stream =
+            BroadcastStream::new(self.msg_store.get_receiver()).filter_map(move |msg_result| {
+                async move {
+                    match msg_result {
+                        Ok(LogMsg::JsonPatch(patch)) => {
+                            if let Some(patch_op) = patch.0.first() {
+                                // Check if this is a workspace patch
+                                if patch_op.path().starts_with("/workspaces/") {
+                                    match patch_op {
+                                        json_patch::PatchOperation::Add(op) => {
+                                            // Parse workspace data directly from value
+                                            if let Ok(workspace) =
+                                                serde_json::from_value::<Workspace>(op.value.clone())
+                                                && workspace.task_id == task_id
+                                            {
+                                                return Some(Ok(LogMsg::JsonPatch(patch)));
+                                            }
+                                        }
+                                        json_patch::PatchOperation::Replace(op) => {
+                                            // Parse workspace data directly from value
+                                            if let Ok(workspace) =
+                                                serde_json::from_value::<Workspace>(op.value.clone())
+                                                && workspace.task_id == task_id
+                                            {
+                                                return Some(Ok(LogMsg::JsonPatch(patch)));
+                                            }
+                                        }
+                                        json_patch::PatchOperation::Remove(_) => {
+                                            // For remove operations, we can't verify task_id
+                                            // since we don't have the workspace data anymore.
+                                            // Pass through all removals and let the client handle filtering.
+                                            return Some(Ok(LogMsg::JsonPatch(patch)));
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            None
+                        }
+                        Ok(other) => Some(Ok(other)), // Pass through non-patch messages
+                        Err(BroadcastStreamRecvError::Lagged(skipped)) => {
+                            tracing::warn!(
+                                skipped = skipped,
+                                "workspaces stream lagged; dropping messages"
+                            );
+                            None
+                        }
+                    }
+                }
+            });
+
+        if !include_snapshot {
+            return Ok(filtered_stream.boxed());
+        }
+
+        // Get initial snapshot of workspaces for this task
+        let workspaces = Workspace::fetch_all(&self.db.pool, Some(task_id))
+            .await
+            .map_err(|e| EventError::Other(e.into()))?;
+
+        // Convert workspaces array to object keyed by workspace ID
+        let workspaces_map: serde_json::Map<String, serde_json::Value> = workspaces
+            .into_iter()
+            .map(|workspace| {
+                (
+                    workspace.id.to_string(),
+                    serde_json::to_value(workspace).unwrap(),
+                )
+            })
+            .collect();
+
+        let initial_patch = json!([{
+            "op": "replace",
+            "path": "/workspaces",
+            "value": workspaces_map
+        }]);
+        let initial_msg = LogMsg::JsonPatch(serde_json::from_value(initial_patch).unwrap());
 
         // Start with initial snapshot, then live updates
         let initial_stream = futures::stream::once(async move { Ok(initial_msg) });
