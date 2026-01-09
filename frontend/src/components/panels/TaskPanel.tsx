@@ -1,11 +1,15 @@
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQueries } from '@tanstack/react-query';
 import { useProject } from '@/contexts/ProjectContext';
-import { useTaskAttemptsWithSessions } from '@/hooks/useTaskAttempts';
+import { useTaskAttemptsStream } from '@/hooks/useTaskAttemptsStream';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { useNavigateWithSearch } from '@/hooks';
 import { paths } from '@/lib/paths';
-import type { TaskWithAttemptStatus } from 'shared/types';
+import { sessionsApi } from '@/lib/api';
+import type { TaskWithAttemptStatus, Session } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
+import { createWorkspaceWithSession } from '@/types/attempt';
 import { NewCardContent } from '../ui/new-card';
 import { Button } from '../ui/button';
 import { PlusIcon } from 'lucide-react';
@@ -22,11 +26,38 @@ const TaskPanel = ({ task }: TaskPanelProps) => {
   const navigate = useNavigateWithSearch();
   const { projectId } = useProject();
 
+  // Stream workspaces via WebSocket
   const {
-    data: attempts = [],
-    isLoading: isAttemptsLoading,
-    isError: isAttemptsError,
-  } = useTaskAttemptsWithSessions(task?.id);
+    attempts: workspaces,
+    isLoading: isStreamLoading,
+    error: streamError,
+  } = useTaskAttemptsStream(task?.id);
+
+  // Fetch sessions for each workspace (one-time fetch, sessions rarely change)
+  const sessionQueries = useQueries({
+    queries: workspaces.map((workspace) => ({
+      queryKey: ['session', 'byWorkspace', workspace.id],
+      queryFn: () => sessionsApi.getByWorkspace(workspace.id),
+      staleTime: Infinity, // Sessions rarely change
+    })),
+  });
+
+  // Combine workspaces with their sessions
+  const attemptsWithSessions: WorkspaceWithSession[] = useMemo(() => {
+    const sessionsById: Record<string, Session | undefined> = {};
+    sessionQueries.forEach((query, index) => {
+      if (query.data) {
+        sessionsById[workspaces[index].id] = query.data[0];
+      }
+    });
+    return workspaces.map((workspace) =>
+      createWorkspaceWithSession(workspace, sessionsById[workspace.id])
+    );
+  }, [workspaces, sessionQueries]);
+
+  const isAttemptsLoading =
+    isStreamLoading || sessionQueries.some((q) => q.isLoading);
+  const isAttemptsError = !!streamError;
 
   const { data: parentAttempt, isLoading: isParentLoading } =
     useTaskAttemptWithSession(task?.parent_workspace_id || undefined);
@@ -60,10 +91,8 @@ const TaskPanel = ({ task }: TaskPanelProps) => {
     return to(years, 'year');
   };
 
-  const displayedAttempts = [...attempts].sort(
-    (a, b) =>
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
+  // attemptsWithSessions already sorted by useTaskAttemptsStream
+  const displayedAttempts = attemptsWithSessions;
 
   if (!task) {
     return (
