@@ -290,7 +290,15 @@ impl EventService {
                 return;
             }
             RecordTypes::Workspace(workspace) => {
-                // Workspaces should update the parent task with fresh data
+                // First, broadcast workspace patch
+                let workspace_patch = match operation {
+                    SqliteOperation::Insert => workspace_patch::add(workspace),
+                    SqliteOperation::Update => workspace_patch::replace(workspace),
+                    _ => workspace_patch::replace(workspace), // fallback
+                };
+                msg_store.push_patch(workspace_patch);
+
+                // Then, update the parent task with fresh data
                 if let Ok(Some(task)) = Task::find_by_id(&db.pool, workspace.task_id).await
                     && let Ok(task_list) =
                         Task::find_by_project_id_with_attempt_status(&db.pool, task.project_id)
@@ -298,10 +306,11 @@ impl EventService {
                     && let Some(task_with_status) =
                         task_list.into_iter().find(|t| t.id == workspace.task_id)
                 {
-                    let patch = task_patch::replace(&task_with_status);
-                    msg_store.push_patch(patch);
-                    return;
+                    let task_patch = task_patch::replace(&task_with_status);
+                    msg_store.push_patch(task_patch);
                 }
+
+                return;
             }
             RecordTypes::DeletedWorkspace {
                 task_id: Some(task_id),
