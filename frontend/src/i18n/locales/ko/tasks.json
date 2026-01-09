@@ -2,6 +2,12 @@
   "actions": {
     "addTask": "작업 추가"
   },
+  "bulkActions": {
+    "selectedCount_one": "{{count}}개 작업 선택됨",
+    "selectedCount_other": "{{count}}개 작업 선택됨",
+    "createAttempts": "시도 생성",
+    "clearSelection": "지우기"
+  },
   "filters": {
     "sharedToggleAria": "공유 작업 전환",
     "sharedToggleTooltip": "공유 콘텐츠 표시/숨기기"

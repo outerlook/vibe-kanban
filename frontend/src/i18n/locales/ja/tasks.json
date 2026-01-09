@@ -2,6 +2,12 @@
   "actions": {
     "addTask": "タスクを追加"
   },
+  "bulkActions": {
+    "selectedCount_one": "{{count}}件のタスクを選択中",
+    "selectedCount_other": "{{count}}件のタスクを選択中",
+    "createAttempts": "アテンプトを作成",
+    "clearSelection": "クリア"
+  },
   "filters": {
     "sharedToggleAria": "共有タスクを切り替える",
     "sharedToggleTooltip": "共有コンテンツを表示/非表示"

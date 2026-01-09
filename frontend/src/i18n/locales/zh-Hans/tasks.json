@@ -8,6 +8,12 @@
   "actions": {
     "addTask": "添加任务"
   },
+  "bulkActions": {
+    "selectedCount_one": "已选择 {{count}} 个任务",
+    "selectedCount_other": "已选择 {{count}} 个任务",
+    "createAttempts": "创建尝试",
+    "clearSelection": "清除"
+  },
   "filters": {
     "sharedToggleAria": "切换共享任务",
     "sharedToggleTooltip": "显示/隐藏共享内容"

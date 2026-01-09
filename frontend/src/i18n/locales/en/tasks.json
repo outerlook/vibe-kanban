@@ -8,6 +8,12 @@
   "actions": {
     "addTask": "Add task"
   },
+  "bulkActions": {
+    "selectedCount_one": "{{count}} task selected",
+    "selectedCount_other": "{{count}} tasks selected",
+    "createAttempts": "Create Attempts",
+    "clearSelection": "Clear"
+  },
   "filters": {
     "sharedToggleAria": "Toggle shared tasks",
     "sharedToggleTooltip": "Show/hide shared content"

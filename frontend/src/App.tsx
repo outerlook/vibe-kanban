@@ -15,6 +15,8 @@ import { HotkeysProvider } from 'react-hotkeys-hook';
 
 import { ProjectProvider } from '@/contexts/ProjectContext';
 import { UnreadProvider } from '@/contexts/UnreadContext';
+import { TaskSelectionProvider } from '@/contexts/TaskSelectionContext';
+import { BulkActionsBar } from '@/components/tasks/BulkActionsBar';
 import { ThemeMode } from 'shared/types';
 import * as Sentry from '@sentry/react';
 import { Loader } from '@/components/ui/loader';
@@ -220,11 +222,14 @@ function App() {
         <UnreadProvider>
           <ClickedElementsProvider>
             <ProjectProvider>
-              <HotkeysProvider initiallyActiveScopes={['*', 'global', 'kanban']}>
-                <NiceModal.Provider>
-                  <AppContent />
-                </NiceModal.Provider>
-              </HotkeysProvider>
+              <TaskSelectionProvider>
+                <HotkeysProvider initiallyActiveScopes={['*', 'global', 'kanban']}>
+                  <NiceModal.Provider>
+                    <AppContent />
+                    <BulkActionsBar />
+                  </NiceModal.Provider>
+                </HotkeysProvider>
+              </TaskSelectionProvider>
             </ProjectProvider>
           </ClickedElementsProvider>
         </UnreadProvider>

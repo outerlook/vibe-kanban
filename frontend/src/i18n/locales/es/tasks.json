@@ -2,6 +2,12 @@
   "actions": {
     "addTask": "Agregar tarea"
   },
+  "bulkActions": {
+    "selectedCount_one": "{{count}} tarea seleccionada",
+    "selectedCount_other": "{{count}} tareas seleccionadas",
+    "createAttempts": "Crear intentos",
+    "clearSelection": "Limpiar"
+  },
   "filters": {
     "sharedToggleAria": "Alternar tareas compartidas",
     "sharedToggleTooltip": "Mostrar/ocultar contenido compartido"
