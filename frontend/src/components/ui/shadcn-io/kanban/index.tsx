@@ -74,6 +74,7 @@ export type KanbanCardProps = Pick<Feature, 'id' | 'name'> & {
   forwardedRef?: Ref<HTMLDivElement>;
   onKeyDown?: (e: KeyboardEvent) => void;
   isOpen?: boolean;
+  isSelected?: boolean;
   dragDisabled?: boolean;
 };
 
@@ -89,6 +90,7 @@ export const KanbanCard = ({
   forwardedRef,
   onKeyDown,
   isOpen,
+  isSelected,
   dragDisabled = false,
 }: KanbanCardProps) => {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
@@ -115,6 +117,7 @@ export const KanbanCard = ({
         'p-3 outline-none border-b flex-col space-y-2',
         isDragging && 'cursor-grabbing',
         isOpen && 'ring-2 ring-secondary-foreground ring-inset',
+        isSelected && 'ring-2 ring-primary bg-primary/5',
         className
       )}
       {...listeners}
