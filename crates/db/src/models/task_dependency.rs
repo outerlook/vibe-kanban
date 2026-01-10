@@ -89,6 +89,7 @@ impl TaskDependency {
                       t.status as "status!: TaskStatus",
                       t.parent_workspace_id as "parent_workspace_id: Uuid",
                       t.shared_task_id as "shared_task_id: Uuid",
+                      t.task_group_id as "task_group_id: Uuid",
                       t.created_at as "created_at!: DateTime<Utc>",
                       t.updated_at as "updated_at!: DateTime<Utc>"
                FROM task_dependencies td
@@ -114,6 +115,7 @@ impl TaskDependency {
                       t.status as "status!: TaskStatus",
                       t.parent_workspace_id as "parent_workspace_id: Uuid",
                       t.shared_task_id as "shared_task_id: Uuid",
+                      t.task_group_id as "task_group_id: Uuid",
                       t.created_at as "created_at!: DateTime<Utc>",
                       t.updated_at as "updated_at!: DateTime<Utc>"
                FROM task_dependencies td
