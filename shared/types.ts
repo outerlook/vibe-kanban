@@ -52,6 +52,12 @@ export type TaskRelationships = { parent_task: Task | null, current_workspace: W
 
 export type TaskDependency = { id: string, task_id: string, depends_on_id: string, created_at: string, };
 
+export type TaskGroup = { id: string, project_id: string, name: string, base_branch: string | null, created_at: string, updated_at: string, };
+
+export type CreateTaskGroup = { project_id: string, name: string, base_branch: string | null, };
+
+export type UpdateTaskGroup = { name: string | null, base_branch: string | null, };
+
 export type CreateTask = { project_id: string, title: string, description: string | null, status: TaskStatus | null, parent_workspace_id: string | null, image_ids: Array<string> | null, shared_task_id: string | null, };
 
 export type UpdateTask = { title: string | null, description: string | null, status: TaskStatus | null, parent_workspace_id: string | null, image_ids: Array<string> | null, };
