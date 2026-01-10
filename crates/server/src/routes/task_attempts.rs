@@ -358,6 +358,7 @@ async fn handle_workspaces_ws(
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct MergeTaskAttemptRequest {
     pub repo_id: Uuid,
+    pub commit_message: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -393,15 +394,19 @@ pub async fn merge_task_attempt(
         .parent_task(pool)
         .await?
         .ok_or(ApiError::Workspace(WorkspaceError::TaskNotFound))?;
-    let mut commit_message = task.title.clone();
 
-    // Add description on next line if it exists
-    if let Some(description) = &task.description
-        && !description.trim().is_empty()
-    {
-        commit_message.push_str("\n\n");
-        commit_message.push_str(description);
-    }
+    let commit_message = if let Some(msg) = request.commit_message {
+        msg
+    } else {
+        let mut msg = task.title.clone();
+        if let Some(description) = &task.description
+            && !description.trim().is_empty()
+        {
+            msg.push_str("\n\n");
+            msg.push_str(description);
+        }
+        msg
+    };
 
     let merge_commit_id = deployment.git().merge_changes(
         &repo.path,
