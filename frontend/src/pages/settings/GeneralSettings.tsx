@@ -38,6 +38,7 @@ import { useTheme } from '@/components/ThemeProvider';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { TagManager } from '@/components/TagManager';
 import { FolderPickerDialog } from '@/components/dialogs/shared/FolderPickerDialog';
+import ExecutorProfileSelector from '@/components/settings/ExecutorProfileSelector';
 
 export function GeneralSettings() {
   const { t } = useTranslation(['settings', 'common']);
@@ -52,6 +53,7 @@ export function GeneralSettings() {
   const {
     config,
     loading,
+    profiles,
     updateAndSaveConfig, // Use this on Save
   } = useUserSystem();
 
@@ -643,6 +645,20 @@ export function GeneralSettings() {
             />
             <p className="text-sm text-muted-foreground">
               {t('settings.general.commitMessage.customPrompt.helper')}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label>{t('settings.general.commitMessage.executorProfile.label')}</Label>
+            <ExecutorProfileSelector
+              profiles={profiles}
+              selectedProfile={draft?.commit_message_executor_profile ?? null}
+              onProfileSelect={(profile) =>
+                updateDraft({ commit_message_executor_profile: profile })
+              }
+              showLabel={false}
+            />
+            <p className="text-sm text-muted-foreground">
+              {t('settings.general.commitMessage.executorProfile.helper')}
             </p>
           </div>
         </CardContent>
