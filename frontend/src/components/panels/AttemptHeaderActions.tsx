@@ -14,6 +14,7 @@ import type { Workspace } from 'shared/types';
 import { ActionsDropdown } from '../ui/actions-dropdown';
 import { usePostHog } from 'posthog-js/react';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
+import { TaskStatusSelector } from '../tasks/TaskStatusSelector';
 
 interface AttemptHeaderActionsProps {
   onClose: () => void;
@@ -108,6 +109,8 @@ export const AttemptHeaderActions = ({
       {typeof mode !== 'undefined' && onModeChange && (
         <div className="h-4 w-px bg-border" />
       )}
+      <TaskStatusSelector task={task} />
+      <div className="h-4 w-px bg-border" />
       <ActionsDropdown task={task} attempt={attempt} sharedTask={sharedTask} />
       <Button variant="icon" aria-label="Close" onClick={onClose}>
         <X size={16} />
