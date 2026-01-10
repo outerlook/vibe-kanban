@@ -8,6 +8,7 @@ pub mod util;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use axum::{
@@ -23,6 +24,7 @@ use axum::{
 };
 use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
+    execution_process_normalized_entry::ExecutionProcessNormalizedEntry,
     merge::{Merge, MergeStatus, PrMerge, PullRequestInfo},
     project_repo::ProjectRepo,
     repo::{Repo, RepoError},
@@ -38,6 +40,7 @@ use executors::{
         script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
     },
     executors::{CodingAgent, ExecutorError},
+    logs::NormalizedEntryType,
     profile::{ExecutorConfigs, ExecutorProfileId},
 };
 use git2::BranchType;
@@ -495,7 +498,7 @@ pub async fn generate_commit_message(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
     Json(request): Json<GenerateCommitMessageRequest>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<GenerateCommitMessageResponse>>, ApiError> {
     let pool = &deployment.db().pool;
 
     let workspace_repo =
@@ -512,7 +515,7 @@ pub async fn generate_commit_message(
         .await?
         .ok_or(ApiError::Workspace(WorkspaceError::TaskNotFound))?;
 
-    pr::generate_commit_message_for_merge(
+    let execution_process = pr::generate_commit_message_for_merge(
         &deployment,
         &workspace,
         &task,
@@ -522,7 +525,32 @@ pub async fn generate_commit_message(
     )
     .await?;
 
-    Ok(ResponseJson(ApiResponse::success(())))
+    // Wait for the agent to complete (60s timeout)
+    deployment
+        .container()
+        .wait_for_execution_completion(execution_process.id, Duration::from_secs(60))
+        .await?;
+
+    // Fetch all normalized entries for this execution
+    let entries =
+        ExecutionProcessNormalizedEntry::fetch_all_for_execution(pool, execution_process.id)
+            .await
+            .map_err(|e| ApiError::BadRequest(format!("Failed to fetch agent output: {e}")))?;
+
+    // Find the last AssistantMessage entry and extract its content
+    let commit_message = entries
+        .iter()
+        .rev()
+        .find(|e| matches!(e.entry.entry_type, NormalizedEntryType::AssistantMessage))
+        .map(|e| e.entry.content.trim().to_string())
+        .filter(|s: &String| !s.is_empty())
+        .ok_or_else(|| {
+            ApiError::BadRequest("Agent did not produce a commit message".to_string())
+        })?;
+
+    Ok(ResponseJson(ApiResponse::success(
+        GenerateCommitMessageResponse { commit_message },
+    )))
 }
 
 pub async fn push_task_attempt_branch(
