@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use anyhow::{Error as AnyhowError, anyhow};
@@ -211,6 +212,12 @@ pub enum ContainerError {
     Io(#[from] std::io::Error),
     #[error("Failed to kill process: {0}")]
     KillFailed(std::io::Error),
+    #[error("Execution timed out after {0:?}")]
+    ExecutionTimeout(Duration),
+    #[error("Execution failed with status: {0:?}")]
+    ExecutionFailed(ExecutionProcessStatus),
+    #[error("Execution not found: {0}")]
+    ExecutionNotFound(Uuid),
     #[error(transparent)]
     Other(#[from] AnyhowError), // Catches any unclassified errors
 }
@@ -242,6 +249,48 @@ pub trait ContainerService {
     /// Check if a task has any running execution processes
     async fn has_running_processes(&self, task_id: Uuid) -> Result<bool, ContainerError> {
         Ok(ExecutionProcess::has_running_processes_for_task(&self.db().pool, task_id).await?)
+    }
+
+    /// Wait for an execution process to complete (status != Running).
+    ///
+    /// Polls `ExecutionProcess::find_by_id()` at regular intervals until the
+    /// execution finishes or the timeout is reached.
+    ///
+    /// Returns the completed `ExecutionProcess` on success, or an error if:
+    /// - The execution is not found
+    /// - The timeout is exceeded
+    /// - The execution failed (status == Failed)
+    async fn wait_for_execution_completion(
+        &self,
+        exec_id: Uuid,
+        timeout: Duration,
+    ) -> Result<ExecutionProcess, ContainerError> {
+        use tokio::time::{Instant, sleep};
+
+        const POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+        let deadline = Instant::now() + timeout;
+
+        loop {
+            let process = ExecutionProcess::find_by_id(&self.db().pool, exec_id)
+                .await?
+                .ok_or(ContainerError::ExecutionNotFound(exec_id))?;
+
+            match process.status {
+                ExecutionProcessStatus::Running => {
+                    if Instant::now() >= deadline {
+                        return Err(ContainerError::ExecutionTimeout(timeout));
+                    }
+                    sleep(POLL_INTERVAL).await;
+                }
+                ExecutionProcessStatus::Failed => {
+                    return Err(ContainerError::ExecutionFailed(process.status));
+                }
+                ExecutionProcessStatus::Completed | ExecutionProcessStatus::Killed => {
+                    return Ok(process);
+                }
+            }
+        }
     }
 
     /// A context is finalized when
