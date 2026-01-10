@@ -322,7 +322,7 @@ pub async fn generate_commit_message_for_merge(
             workspace,
             &session,
             &action,
-            &ExecutionProcessRunReason::CodingAgent,
+            &ExecutionProcessRunReason::InternalAgent,
         )
         .await?;
 
