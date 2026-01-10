@@ -153,4 +153,33 @@ impl ExecutionProcessNormalizedEntry {
             has_more,
         })
     }
+
+    pub async fn fetch_all_for_execution(
+        pool: &SqlitePool,
+        execution_id: Uuid,
+    ) -> Result<Vec<ExecutionProcessNormalizedEntry>, anyhow::Error> {
+        let rows: Vec<ExecutionProcessNormalizedEntryRow> = sqlx::query_as!(
+            ExecutionProcessNormalizedEntryRow,
+            r#"SELECT
+                    entry_index,
+                    entry_json
+               FROM execution_process_normalized_entries
+               WHERE execution_id = $1
+               ORDER BY entry_index ASC"#,
+            execution_id
+        )
+        .fetch_all(pool)
+        .await?;
+
+        let mut entries = Vec::with_capacity(rows.len());
+        for row in rows {
+            let entry = serde_json::from_str(&row.entry_json)?;
+            entries.push(ExecutionProcessNormalizedEntry {
+                entry_index: row.entry_index,
+                entry,
+            });
+        }
+
+        Ok(entries)
+    }
 }
