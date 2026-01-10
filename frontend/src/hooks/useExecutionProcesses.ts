@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { useJsonPatchWsStream } from './useJsonPatchWsStream';
 import type { ExecutionProcess } from 'shared/types';
+import { shouldShowInLogs } from '@/constants/processes';
 
 type ExecutionProcessState = {
   execution_processes: Record<string, ExecutionProcess>;
@@ -55,10 +56,7 @@ export const useExecutionProcesses = (
   );
   const isAttemptRunning = executionProcesses.some(
     (process) =>
-      (process.run_reason === 'codingagent' ||
-        process.run_reason === 'setupscript' ||
-        process.run_reason === 'cleanupscript') &&
-      process.status === 'running'
+      shouldShowInLogs(process.run_reason) && process.status === 'running'
   );
   const isLoading = !!taskAttemptId && !data && !error; // until first snapshot
 

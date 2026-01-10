@@ -9,6 +9,7 @@ import {
   ToolStatus,
   Workspace,
 } from 'shared/types';
+import { shouldShowInLogs } from '@/constants/processes';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import { executionProcessesApi } from '@/lib/api';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -162,11 +163,8 @@ export const useConversationHistory = ({
 
   // Keep executionProcesses up to date
   useEffect(() => {
-    executionProcesses.current = executionProcessesRaw.filter(
-      (ep) =>
-        ep.run_reason === 'setupscript' ||
-        ep.run_reason === 'cleanupscript' ||
-        ep.run_reason === 'codingagent'
+    executionProcesses.current = executionProcessesRaw.filter((ep) =>
+      shouldShowInLogs(ep.run_reason)
     );
   }, [executionProcessesRaw]);
 

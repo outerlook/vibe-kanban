@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useMemo } from 'react';
 import { useExecutionProcesses } from '@/hooks/useExecutionProcesses';
 import type { ExecutionProcess } from 'shared/types';
+import { shouldShowInLogs } from '@/constants/processes';
 
 type ExecutionProcessesContextType = {
   executionProcessesAll: ExecutionProcess[];
@@ -47,10 +48,7 @@ export const ExecutionProcessesProvider: React.FC<{
     () =>
       visible.some(
         (process) =>
-          (process.run_reason === 'codingagent' ||
-            process.run_reason === 'setupscript' ||
-            process.run_reason === 'cleanupscript') &&
-          process.status === 'running'
+          shouldShowInLogs(process.run_reason) && process.status === 'running'
       ),
     [visible]
   );
