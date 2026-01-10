@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Circle, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -19,36 +18,24 @@ type Props = {
   className?: string;
 };
 
-const allStatuses: TaskStatus[] = [
-  'todo',
-  'inprogress',
-  'inreview',
-  'done',
-  'cancelled',
-];
+const allStatuses = Object.keys(statusLabels) as TaskStatus[];
 
 export function TaskStatusSelector({ task, disabled, className }: Props) {
-  const [isUpdating, setIsUpdating] = useState(false);
   const { updateTask } = useTaskMutations();
 
-  const handleStatusChange = async (newStatus: string) => {
+  const handleStatusChange = (newStatus: string) => {
     if (newStatus === task.status) return;
 
-    setIsUpdating(true);
-    try {
-      await updateTask.mutateAsync({
-        taskId: task.id,
-        data: {
-          title: null,
-          description: null,
-          status: newStatus as TaskStatus,
-          parent_workspace_id: null,
-          image_ids: null,
-        },
-      });
-    } finally {
-      setIsUpdating(false);
-    }
+    updateTask.mutate({
+      taskId: task.id,
+      data: {
+        title: null,
+        description: null,
+        status: newStatus as TaskStatus,
+        parent_workspace_id: null,
+        image_ids: null,
+      },
+    });
   };
 
   return (
@@ -58,7 +45,7 @@ export function TaskStatusSelector({ task, disabled, className }: Props) {
           variant="secondary"
           size="sm"
           className={cn('px-2 flex items-center gap-1.5', className)}
-          disabled={disabled || isUpdating}
+          disabled={disabled || updateTask.isPending}
         >
           <Circle
             className="h-2.5 w-2.5 fill-current"

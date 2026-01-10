@@ -9,8 +9,7 @@ import {
   TooltipTrigger,
 } from '../ui/tooltip';
 import type { LayoutMode } from '../layout/TasksLayout';
-import type { TaskWithAttemptStatus } from 'shared/types';
-import type { Workspace } from 'shared/types';
+import type { TaskWithAttemptStatus, Workspace } from 'shared/types';
 import { ActionsDropdown } from '../ui/actions-dropdown';
 import { usePostHog } from 'posthog-js/react';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
