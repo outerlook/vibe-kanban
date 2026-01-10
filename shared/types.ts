@@ -513,3 +513,18 @@ Analyze the changes in this branch and write:
    - At the end, include a note: "This PR was written using [Vibe Kanban](https://vibekanban.com)"
 
 Use \`gh pr edit\` to update the PR.`;
+
+export const DEFAULT_COMMIT_MESSAGE_PROMPT = `Generate a concise git commit message for the following changes.
+
+Task: {task_title}
+Description: {task_description}
+
+Diff:
+{diff}
+
+Write a commit message following these guidelines:
+- First line: imperative mood summary (50 chars max)
+- Blank line
+- Body: explain what and why (wrap at 72 chars)
+
+Respond with ONLY the commit message, no other text.`;
