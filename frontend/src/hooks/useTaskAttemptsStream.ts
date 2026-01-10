@@ -34,7 +34,10 @@ export const useTaskAttemptsStream = (
     initialData
   );
 
-  const attemptsById = data?.workspaces ?? {};
+  const attemptsById = useMemo(
+    () => data?.workspaces ?? {},
+    [data?.workspaces]
+  );
 
   const attempts = useMemo(() => {
     return Object.values(attemptsById).sort((a, b) => {
