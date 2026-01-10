@@ -211,7 +211,7 @@ pub async fn generate_commit_message_for_merge(
     repo_path: &std::path::Path,
     task_branch: &str,
     base_branch: &str,
-) -> Result<(), ApiError> {
+) -> Result<ExecutionProcess, ApiError> {
     // Get diff between task branch and base branch
     let diffs = deployment.git().get_diffs(
         DiffTarget::Branch {
@@ -316,7 +316,7 @@ pub async fn generate_commit_message_for_merge(
 
     let action = ExecutorAction::new(action_type, None);
 
-    deployment
+    let execution_process = deployment
         .container()
         .start_execution(
             workspace,
@@ -326,7 +326,7 @@ pub async fn generate_commit_message_for_merge(
         )
         .await?;
 
-    Ok(())
+    Ok(execution_process)
 }
 
 pub async fn create_github_pr(
