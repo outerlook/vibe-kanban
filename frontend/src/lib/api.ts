@@ -88,6 +88,8 @@ import {
   NormalizedEntry,
   MergeTaskAttemptRequest,
   PushTaskAttemptRequest,
+  GenerateCommitMessageRequest,
+  GenerateCommitMessageResponse,
   RepoBranchStatus,
   AbortConflictsRequest,
   Session,
@@ -705,6 +707,20 @@ export const attemptsApi = {
       }
     );
     return handleApiResponse<void>(response);
+  },
+
+  generateCommitMessage: async (
+    attemptId: string,
+    data: GenerateCommitMessageRequest
+  ): Promise<GenerateCommitMessageResponse> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/generate-commit-message`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<GenerateCommitMessageResponse>(response);
   },
 
   push: async (

@@ -29,10 +29,11 @@ import { ChangeTargetBranchDialog } from '@/components/dialogs/tasks/ChangeTarge
 import RepoSelector from '@/components/tasks/RepoSelector';
 import { RebaseDialog } from '@/components/dialogs/tasks/RebaseDialog';
 import { CreatePRDialog } from '@/components/dialogs/tasks/CreatePRDialog';
+import { CommitMessagePreviewDialog } from '@/components/dialogs/tasks/CommitMessagePreviewDialog';
 import { useTranslation } from 'react-i18next';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useGitOperations } from '@/hooks/useGitOperations';
-import { useRepoBranches } from '@/hooks';
+import { useRepoBranches, useGenerateCommitMessage } from '@/hooks';
 import {
   SplitButton,
   type SplitButtonOption,
@@ -86,12 +87,14 @@ function GitOperations({
   );
   const git = useGitOperations(selectedAttempt.id, selectedRepoId ?? undefined);
   const { data: branches = [] } = useRepoBranches(selectedRepoId);
+  const generateCommitMessage = useGenerateCommitMessage(selectedAttempt.id);
   const isChangingTargetBranch = git.states.changeTargetBranchPending;
 
   // Local state for git operations
   const [merging, setMerging] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [rebasing, setRebasing] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [mergeSuccess, setMergeSuccess] = useState(false);
   const [pushSuccess, setPushSuccess] = useState(false);
 
@@ -209,16 +212,74 @@ function GitOperations({
   }, [mergeInfo.hasOpenPR, pushSuccess, pushing, t]);
 
   const handleMergeClick = async (action: MergeAction) => {
+    const repoId = getSelectedRepoId();
+    if (!repoId) return;
+
     switch (action) {
       case 'merge':
         await performMerge();
         break;
       case 'generate-preview':
-        // TODO: Open preview dialog (integration task)
+        await performGenerateAndPreview(repoId);
         break;
       case 'generate-merge':
-        // TODO: Generate and merge directly (integration task)
+        await performGenerateAndMerge(repoId);
         break;
+    }
+  };
+
+  const performGenerateAndPreview = async (repoId: string) => {
+    try {
+      setGenerating(true);
+      const response = await generateCommitMessage.mutateAsync({ repoId });
+      const initialMessage = response.commit_message;
+
+      await CommitMessagePreviewDialog.show({
+        initialMessage,
+        onConfirm: async (message: string) => {
+          await performMergeWithMessage(repoId, message);
+        },
+        onRegenerate: async () => {
+          const newResponse = await generateCommitMessage.mutateAsync({ repoId });
+          return newResponse.commit_message;
+        },
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const performGenerateAndMerge = async (repoId: string) => {
+    try {
+      setGenerating(true);
+      const response = await generateCommitMessage.mutateAsync({ repoId });
+
+      setGenerating(false);
+      setMerging(true);
+
+      await git.actions.merge({
+        repoId,
+        commitMessage: response.commit_message,
+      });
+      setMergeSuccess(true);
+      setTimeout(() => setMergeSuccess(false), 2000);
+    } finally {
+      setGenerating(false);
+      setMerging(false);
+    }
+  };
+
+  const performMergeWithMessage = async (repoId: string, commitMessage: string) => {
+    try {
+      setMerging(true);
+      await git.actions.merge({
+        repoId,
+        commitMessage,
+      });
+      setMergeSuccess(true);
+      setTimeout(() => setMergeSuccess(false), 2000);
+    } finally {
+      setMerging(false);
     }
   };
 
@@ -528,8 +589,8 @@ function GitOperations({
                   !pushSuccess &&
                   !mergeSuccess)
               }
-              loading={merging}
-              loadingLabel={t('git.states.merging')}
+              loading={merging || generating}
+              loadingLabel={generating ? t('git.states.generating', 'Generating...') : t('git.states.merging')}
               successLabel={t('git.states.merged')}
               showSuccess={mergeSuccess}
               variant="outline"
