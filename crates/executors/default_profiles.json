@@ -20,6 +20,11 @@
         "CLAUDE_CODE": {
           "approvals": true
         }
+      },
+      "HAIKU": {
+        "CLAUDE_CODE": {
+          "model": "haiku"
+        }
       }
     },
     "AMP": {

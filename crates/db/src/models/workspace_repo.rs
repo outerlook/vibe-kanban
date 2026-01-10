@@ -48,28 +48,23 @@ impl WorkspaceRepo {
         pool: &SqlitePool,
         workspace_id: Uuid,
         repos: &[CreateWorkspaceRepo],
-    ) -> Result<Vec<Self>, sqlx::Error> {
+    ) -> Result<(), sqlx::Error> {
         if repos.is_empty() {
-            return Ok(Vec::new());
+            return Ok(());
         }
-
-        let ids: Vec<Uuid> = repos.iter().map(|_| Uuid::new_v4()).collect();
 
         let mut qb: QueryBuilder<sqlx::Sqlite> =
             QueryBuilder::new("INSERT INTO workspace_repos (id, workspace_id, repo_id, target_branch) ");
 
-        qb.push_values(repos.iter().zip(&ids), |mut b, (repo, id)| {
-            b.push_bind(id.to_string())
-                .push_bind(workspace_id.to_string())
-                .push_bind(repo.repo_id.to_string())
+        qb.push_values(repos, |mut b, repo| {
+            b.push_bind(Uuid::new_v4())
+                .push_bind(workspace_id)
+                .push_bind(repo.repo_id)
                 .push_bind(&repo.target_branch);
         });
 
-        qb.push(" RETURNING id, workspace_id, repo_id, target_branch, created_at, updated_at");
-
-        qb.build_query_as::<WorkspaceRepo>()
-            .fetch_all(pool)
-            .await
+        qb.build().execute(pool).await?;
+        Ok(())
     }
 
     pub async fn find_by_workspace_id(

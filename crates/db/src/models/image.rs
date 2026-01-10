@@ -191,9 +191,9 @@ impl TaskImage {
             QueryBuilder::new("INSERT OR IGNORE INTO task_images (id, task_id, image_id) ");
 
         qb.push_values(image_ids, |mut b, image_id| {
-            b.push_bind(Uuid::new_v4().to_string())
-                .push_bind(task_id.to_string())
-                .push_bind(image_id.to_string());
+            b.push_bind(Uuid::new_v4())
+                .push_bind(task_id)
+                .push_bind(*image_id);
         });
 
         qb.build().execute(pool).await?;
