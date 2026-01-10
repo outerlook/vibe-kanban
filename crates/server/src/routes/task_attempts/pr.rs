@@ -23,9 +23,10 @@ use git2::BranchType;
 use serde::{Deserialize, Serialize};
 use services::services::{
     container::ContainerService,
-    git::{GitCliError, GitServiceError},
+    git::{DiffTarget, GitCliError, GitServiceError},
     github::{CreatePrRequest, GitHubService, GitHubServiceError, UnifiedPrComment},
 };
+use utils::diff::create_unified_diff;
 use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
@@ -99,6 +100,21 @@ Analyze the changes in this branch and write:
 
 Use `gh pr edit` to update the PR."#;
 
+pub const DEFAULT_COMMIT_MESSAGE_PROMPT: &str = r#"Generate a concise git commit message for the following changes.
+
+Task: {task_title}
+Description: {task_description}
+
+Diff:
+{diff}
+
+Write a commit message following these guidelines:
+- First line: imperative mood summary (50 chars max)
+- Blank line
+- Body: explain what and why (wrap at 72 chars)
+
+Respond with ONLY the commit message, no other text."#;
+
 async fn trigger_pr_description_follow_up(
     deployment: &DeploymentImpl,
     workspace: &Workspace,
@@ -138,6 +154,136 @@ async fn trigger_pr_description_follow_up(
     let executor_profile_id =
         ExecutionProcess::latest_executor_profile_for_session(&deployment.db().pool, session.id)
             .await?;
+
+    // Get latest agent session ID if one exists (for coding agent continuity)
+    let latest_agent_session_id = ExecutionProcess::find_latest_coding_agent_turn_session_id(
+        &deployment.db().pool,
+        session.id,
+    )
+    .await?;
+
+    let working_dir = workspace
+        .agent_working_dir
+        .as_ref()
+        .filter(|dir| !dir.is_empty())
+        .cloned();
+
+    // Build the action type (follow-up if session exists, otherwise initial)
+    let action_type = if let Some(agent_session_id) = latest_agent_session_id {
+        ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
+            prompt,
+            session_id: agent_session_id,
+            executor_profile_id: executor_profile_id.clone(),
+            working_dir: working_dir.clone(),
+        })
+    } else {
+        ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+            prompt,
+            executor_profile_id: executor_profile_id.clone(),
+            working_dir,
+        })
+    };
+
+    let action = ExecutorAction::new(action_type, None);
+
+    deployment
+        .container()
+        .start_execution(
+            workspace,
+            &session,
+            &action,
+            &ExecutionProcessRunReason::CodingAgent,
+        )
+        .await?;
+
+    Ok(())
+}
+
+/// Spawns an AI agent to generate a commit message for a merge operation.
+///
+/// This function gets the diff between the task branch and base branch,
+/// builds a prompt with task context, and spawns an agent to generate
+/// a commit message. The agent's response will be streamed to the frontend.
+pub async fn generate_commit_message_for_merge(
+    deployment: &DeploymentImpl,
+    workspace: &Workspace,
+    task: &Task,
+    repo_path: &std::path::Path,
+    task_branch: &str,
+    base_branch: &str,
+) -> Result<(), ApiError> {
+    // Get diff between task branch and base branch
+    let diffs = deployment.git().get_diffs(
+        DiffTarget::Branch {
+            repo_path,
+            branch_name: task_branch,
+            base_branch,
+        },
+        None,
+    )?;
+
+    // Convert diffs to a unified diff string
+    let diff_string = diffs
+        .iter()
+        .filter_map(|diff| {
+            let file_path = diff
+                .new_path
+                .as_ref()
+                .or(diff.old_path.as_ref())?
+                .as_str();
+            let old_content = diff.old_content.as_deref().unwrap_or("");
+            let new_content = diff.new_content.as_deref().unwrap_or("");
+
+            // Skip if content was omitted (too large)
+            if diff.content_omitted {
+                return Some(format!("--- a/{file_path}\n+++ b/{file_path}\n[Content too large, omitted]\n"));
+            }
+
+            Some(create_unified_diff(file_path, old_content, new_content))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // Get config values
+    let (prompt_template, executor_profile_from_config) = {
+        let config = deployment.config().read().await;
+        let template = config
+            .commit_message_prompt
+            .clone()
+            .unwrap_or_else(|| DEFAULT_COMMIT_MESSAGE_PROMPT.to_string());
+        let profile = config.commit_message_executor_profile.clone();
+        (template, profile)
+    }; // Lock released here
+
+    // Build the prompt with task context
+    let task_description = task.description.as_deref().unwrap_or("No description provided");
+    let prompt = prompt_template
+        .replace("{task_title}", &task.title)
+        .replace("{task_description}", task_description)
+        .replace("{diff}", &diff_string);
+
+    // Get or create a session for this operation
+    let session =
+        match Session::find_latest_by_workspace_id(&deployment.db().pool, workspace.id).await? {
+            Some(s) => s,
+            None => {
+                Session::create(
+                    &deployment.db().pool,
+                    &CreateSession { executor: None },
+                    Uuid::new_v4(),
+                    workspace.id,
+                )
+                .await?
+            }
+        };
+
+    // Determine executor profile: config override > latest from session > default
+    let executor_profile_id = if let Some(profile) = executor_profile_from_config {
+        profile
+    } else {
+        ExecutionProcess::latest_executor_profile_for_session(&deployment.db().pool, session.id)
+            .await?
+    };
 
     // Get latest agent session ID if one exists (for coding agent continuity)
     let latest_agent_session_id = ExecutionProcess::find_latest_coding_agent_turn_session_id(
