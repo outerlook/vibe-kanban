@@ -110,6 +110,14 @@
     "inProgress": "공유 중…",
     "closeButton": "닫기"
   },
+  "commitMessageDialog": {
+    "title": "커밋 메시지",
+    "placeholder": "커밋 메시지 입력...",
+    "regenerate": "다시 생성",
+    "regenerating": "다시 생성 중...",
+    "merge": "병합",
+    "merging": "병합 중..."
+  },
   "createPrDialog": {
     "title": "GitHub Pull Request 생성",
     "description": "이 작업 시도에 대한 Pull Request를 GitHub에서 생성합니다.",

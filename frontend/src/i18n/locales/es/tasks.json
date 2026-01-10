@@ -110,6 +110,14 @@
     "inProgress": "Compartiendo…",
     "closeButton": "Cerrar"
   },
+  "commitMessageDialog": {
+    "title": "Mensaje de Commit",
+    "placeholder": "Ingresar mensaje de commit...",
+    "regenerate": "Regenerar",
+    "regenerating": "Regenerando...",
+    "merge": "Fusionar",
+    "merging": "Fusionando..."
+  },
   "createPrDialog": {
     "title": "Crear Pull Request de GitHub",
     "description": "Crea un pull request para este intento de tarea en GitHub.",

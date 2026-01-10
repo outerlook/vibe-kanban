@@ -110,6 +110,14 @@
     "inProgress": "共有中…",
     "closeButton": "閉じる"
   },
+  "commitMessageDialog": {
+    "title": "コミットメッセージ",
+    "placeholder": "コミットメッセージを入力...",
+    "regenerate": "再生成",
+    "regenerating": "再生成中...",
+    "merge": "マージ",
+    "merging": "マージ中..."
+  },
   "createPrDialog": {
     "title": "GitHub プルリクエストを作成",
     "description": "このタスク試行のプルリクエストをGitHubで作成します。",

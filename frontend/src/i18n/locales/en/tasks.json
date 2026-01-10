@@ -404,6 +404,14 @@
     "inProgress": "Sharing...",
     "closeButton": "Close"
   },
+  "commitMessageDialog": {
+    "title": "Commit Message",
+    "placeholder": "Enter commit message...",
+    "regenerate": "Regenerate",
+    "regenerating": "Regenerating...",
+    "merge": "Merge",
+    "merging": "Merging..."
+  },
   "createPrDialog": {
     "title": "Create GitHub Pull Request",
     "description": "Create a pull request for this task attempt on GitHub.",

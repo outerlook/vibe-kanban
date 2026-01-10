@@ -393,6 +393,14 @@
     "inProgress": "共享中...",
     "closeButton": "关闭"
   },
+  "commitMessageDialog": {
+    "title": "提交信息",
+    "placeholder": "输入提交信息...",
+    "regenerate": "重新生成",
+    "regenerating": "重新生成中...",
+    "merge": "合并",
+    "merging": "合并中..."
+  },
   "createPrDialog": {
     "title": "创建 GitHub 拉取请求",
     "description": "在 GitHub 上为此任务尝试创建拉取请求。",
