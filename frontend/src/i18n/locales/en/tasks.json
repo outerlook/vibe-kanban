@@ -255,7 +255,8 @@
       "forcePush": "Force Push",
       "forcePushing": "Force Pushing...",
       "creating": "Creating...",
-      "createPr": "Create PR"
+      "createPr": "Create PR",
+      "generating": "Generating..."
     },
     "errors": {
       "changeTargetBranch": "Failed to change target branch",

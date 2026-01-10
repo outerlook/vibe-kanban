@@ -281,7 +281,8 @@
       "forcePush": "강제 푸시",
       "forcePushing": "강제 푸시 중...",
       "rebase": "리베이스",
-      "rebasing": "리베이스 중..."
+      "rebasing": "리베이스 중...",
+      "generating": "생성 중..."
     },
     "status": {
       "ahead": "앞서감",

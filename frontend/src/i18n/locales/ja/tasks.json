@@ -281,7 +281,8 @@
       "forcePush": "強制プッシュ",
       "forcePushing": "強制プッシュ中...",
       "rebase": "リベース",
-      "rebasing": "リベース中..."
+      "rebasing": "リベース中...",
+      "generating": "生成中..."
     },
     "status": {
       "ahead": "先行",

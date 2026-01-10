@@ -281,7 +281,8 @@
       "pushed": "¡Enviado!",
       "pushing": "Enviando...",
       "rebase": "Rebase",
-      "rebasing": "Rebaseando..."
+      "rebasing": "Rebaseando...",
+      "generating": "Generando..."
     },
     "status": {
       "ahead": "adelante",
