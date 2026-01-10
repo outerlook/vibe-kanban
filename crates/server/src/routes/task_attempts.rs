@@ -362,6 +362,16 @@ pub struct MergeTaskAttemptRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
+pub struct GenerateCommitMessageRequest {
+    pub repo_id: Uuid,
+}
+
+#[derive(Debug, Serialize, TS)]
+pub struct GenerateCommitMessageResponse {
+    pub commit_message: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, TS)]
 pub struct PushTaskAttemptRequest {
     pub repo_id: Uuid,
 }
@@ -476,6 +486,41 @@ pub async fn merge_task_attempt(
             }),
         )
         .await;
+
+    Ok(ResponseJson(ApiResponse::success(())))
+}
+
+#[axum::debug_handler]
+pub async fn generate_commit_message(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<GenerateCommitMessageRequest>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    let workspace_repo =
+        WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, request.repo_id)
+            .await?
+            .ok_or(RepoError::NotFound)?;
+
+    let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
+
+    let task = workspace
+        .parent_task(pool)
+        .await?
+        .ok_or(ApiError::Workspace(WorkspaceError::TaskNotFound))?;
+
+    pr::generate_commit_message_for_merge(
+        &deployment,
+        &workspace,
+        &task,
+        Path::new(&repo.path),
+        &workspace.branch,
+        &workspace_repo.target_branch,
+    )
+    .await?;
 
     Ok(ResponseJson(ApiResponse::success(())))
 }
@@ -1545,6 +1590,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/branch-status", get(get_task_attempt_branch_status))
         .route("/diff/ws", get(stream_task_attempt_diff_ws))
         .route("/merge", post(merge_task_attempt))
+        .route("/generate-commit-message", post(generate_commit_message))
         .route("/push", post(push_task_attempt_branch))
         .route("/push/force", post(force_push_task_attempt_branch))
         .route("/rebase", post(rebase_task_attempt))

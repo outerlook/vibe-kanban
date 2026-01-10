@@ -220,6 +220,10 @@ export type ChangeTargetBranchResponse = { repo_id: string, new_target_branch: s
 
 export type MergeTaskAttemptRequest = { repo_id: string, commit_message: string | null, };
 
+export type GenerateCommitMessageRequest = { repo_id: string, };
+
+export type GenerateCommitMessageResponse = { commit_message: string, };
+
 export type PushTaskAttemptRequest = { repo_id: string, };
 
 export type RenameBranchRequest = { new_branch_name: string, };
