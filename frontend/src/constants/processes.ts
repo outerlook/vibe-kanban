@@ -6,6 +6,7 @@ export const PROCESS_RUN_REASONS = {
   CLEANUP_SCRIPT: 'cleanupscript' as ExecutionProcessRunReason,
   CODING_AGENT: 'codingagent' as ExecutionProcessRunReason,
   DEV_SERVER: 'devserver' as ExecutionProcessRunReason,
+  INTERNAL_AGENT: 'internalagent' as ExecutionProcessRunReason,
 } as const;
 
 export const isCodingAgent = (
@@ -17,5 +18,8 @@ export const isCodingAgent = (
 export const shouldShowInLogs = (
   runReason: ExecutionProcessRunReason
 ): boolean => {
-  return runReason !== PROCESS_RUN_REASONS.DEV_SERVER;
+  return (
+    runReason !== PROCESS_RUN_REASONS.DEV_SERVER &&
+    runReason !== PROCESS_RUN_REASONS.INTERNAL_AGENT
+  );
 };
