@@ -154,6 +154,23 @@
           "helper": "Custom prompt for the AI agent when generating PR descriptions. Use {pr_number} and {pr_url} as placeholders."
         }
       },
+      "commitMessage": {
+        "title": "Commit Messages",
+        "description": "Configure automatic commit message generation",
+        "autoGenerate": {
+          "label": "Enable automatic commit message generation",
+          "helper": "Automatically generate commit messages when merging branches"
+        },
+        "customPrompt": {
+          "useCustom": "Use custom prompt template",
+          "helper": "Customize the prompt used to generate commit messages. Use {task_title}, {task_description}, and {diff} placeholders."
+        },
+        "executorProfile": {
+          "label": "AI Model",
+          "placeholder": "Use default model",
+          "helper": "Select which AI model to use for generating commit messages. If not set, uses your default agent model."
+        }
+      },
       "notifications": {
         "title": "Notifications",
         "description": "Control when and how you receive notifications.",
