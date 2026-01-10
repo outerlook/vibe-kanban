@@ -1,12 +1,15 @@
 import {
   ArrowRight,
   GitBranch as GitBranchIcon,
+  GitMerge,
   GitPullRequest,
   RefreshCw,
   Settings,
   AlertTriangle,
   CheckCircle,
   ExternalLink,
+  Eye,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button.tsx';
 import {
@@ -15,7 +18,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip.tsx';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   RepoBranchStatus,
   Merge,
@@ -30,6 +33,32 @@ import { useTranslation } from 'react-i18next';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useGitOperations } from '@/hooks/useGitOperations';
 import { useRepoBranches } from '@/hooks';
+import {
+  SplitButton,
+  type SplitButtonOption,
+} from '@/components/ui/split-button';
+
+const MERGE_ACTION_STORAGE_KEY = 'vk-merge-action-preference';
+
+type MergeAction = 'merge' | 'generate-preview' | 'generate-merge';
+
+const mergeActionOptions: SplitButtonOption<MergeAction>[] = [
+  {
+    value: 'merge',
+    label: 'Merge',
+    icon: <GitMerge className="h-3.5 w-3.5" />,
+  },
+  {
+    value: 'generate-preview',
+    label: 'Generate & Preview',
+    icon: <Eye className="h-3.5 w-3.5" />,
+  },
+  {
+    value: 'generate-merge',
+    label: 'Generate & Merge',
+    icon: <Sparkles className="h-3.5 w-3.5" />,
+  },
+];
 
 interface GitOperationsProps {
   selectedAttempt: Workspace;
@@ -65,6 +94,23 @@ function GitOperations({
   const [rebasing, setRebasing] = useState(false);
   const [mergeSuccess, setMergeSuccess] = useState(false);
   const [pushSuccess, setPushSuccess] = useState(false);
+
+  // Merge action preference state
+  const [selectedMergeAction, setSelectedMergeAction] =
+    useState<MergeAction>('merge');
+
+  // Load merge action preference from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem(MERGE_ACTION_STORAGE_KEY);
+    if (stored && ['merge', 'generate-preview', 'generate-merge'].includes(stored)) {
+      setSelectedMergeAction(stored as MergeAction);
+    }
+  }, []);
+
+  const handleMergeActionSelect = (action: MergeAction) => {
+    setSelectedMergeAction(action);
+    localStorage.setItem(MERGE_ACTION_STORAGE_KEY, action);
+  };
 
   // Target branch change handlers
   const handleChangeTargetBranchClick = async (newBranch: string) => {
@@ -146,12 +192,6 @@ function GitOperations({
     };
   }, [getSelectedRepoStatus]);
 
-  const mergeButtonLabel = useMemo(() => {
-    if (mergeSuccess) return t('git.states.merged');
-    if (merging) return t('git.states.merging');
-    return t('git.states.merge');
-  }, [mergeSuccess, merging, t]);
-
   const rebaseButtonLabel = useMemo(() => {
     if (rebasing) return t('git.states.rebasing');
     return t('git.states.rebase');
@@ -168,9 +208,18 @@ function GitOperations({
     return t('git.states.createPr');
   }, [mergeInfo.hasOpenPR, pushSuccess, pushing, t]);
 
-  const handleMergeClick = async () => {
-    // Directly perform merge without checking branch status
-    await performMerge();
+  const handleMergeClick = async (action: MergeAction) => {
+    switch (action) {
+      case 'merge':
+        await performMerge();
+        break;
+      case 'generate-preview':
+        // TODO: Open preview dialog (integration task)
+        break;
+      case 'generate-merge':
+        // TODO: Generate and merge directly (integration task)
+        break;
+    }
   };
 
   const handlePushClick = async () => {
@@ -465,26 +514,29 @@ function GitOperations({
         {/* Right: Actions */}
         {selectedRepoStatus && (
           <div className={actionsClasses}>
-            <Button
-              onClick={handleMergeClick}
+            <SplitButton
+              options={mergeActionOptions}
+              selectedValue={selectedMergeAction}
+              onSelect={handleMergeActionSelect}
+              onPrimaryClick={handleMergeClick}
               disabled={
                 mergeInfo.hasMergedPR ||
                 mergeInfo.hasOpenPR ||
-                merging ||
                 hasConflictsCalculated ||
                 isAttemptRunning ||
                 ((selectedRepoStatus?.commits_ahead ?? 0) === 0 &&
                   !pushSuccess &&
                   !mergeSuccess)
               }
+              loading={merging}
+              loadingLabel={t('git.states.merging')}
+              successLabel={t('git.states.merged')}
+              showSuccess={mergeSuccess}
               variant="outline"
               size="xs"
-              className="border-success text-success hover:bg-success gap-1 shrink-0"
-              aria-label={mergeButtonLabel}
-            >
-              <GitBranchIcon className="h-3.5 w-3.5" />
-              <span className="truncate max-w-[10ch]">{mergeButtonLabel}</span>
-            </Button>
+              className="shrink-0 border-success text-success [&_button]:border-success [&_button]:text-success [&_button:hover]:bg-success"
+              icon={<GitMerge className="h-3.5 w-3.5" />}
+            />
 
             <Button
               onClick={handlePRButtonClick}
