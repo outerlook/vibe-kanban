@@ -192,7 +192,7 @@ async fn trigger_pr_description_follow_up(
             workspace,
             &session,
             &action,
-            &ExecutionProcessRunReason::CodingAgent,
+            &ExecutionProcessRunReason::InternalAgent,
         )
         .await?;
 
