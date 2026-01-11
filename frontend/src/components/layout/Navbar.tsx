@@ -19,11 +19,13 @@ import {
   Plus,
   LogOut,
   LogIn,
+  BarChart3,
 } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { SearchBar } from '@/components/SearchBar';
 import { useSearch } from '@/contexts/SearchContext';
 import { openTaskForm } from '@/lib/openTaskForm';
+import { paths } from '@/lib/paths';
 import { useProject } from '@/contexts/ProjectContext';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { OpenInIdeButton } from '@/components/ide/OpenInIdeButton';
@@ -93,6 +95,7 @@ export function Navbar() {
   const { t } = useTranslation(['tasks', 'common']);
   // Navbar is global, but the share tasks toggle only makes sense on the tasks route
   const isTasksRoute = /^\/projects\/[^/]+\/tasks/.test(location.pathname);
+  const isGanttRoute = /^\/projects\/[^/]+\/gantt/.test(location.pathname);
   const showSharedTasks = searchParams.get('shared') !== 'off';
   const shouldShowSharedToggle =
     isTasksRoute && active && project?.remote_project_id != null;
@@ -220,6 +223,17 @@ export function Navbar() {
             {projectId ? (
               <>
                 <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={`h-9 w-9 ${isGanttRoute ? 'bg-accent' : ''}`}
+                    asChild
+                    aria-label="Gantt view"
+                  >
+                    <Link to={paths.projectGantt(projectId)}>
+                      <BarChart3 className="h-4 w-4" />
+                    </Link>
+                  </Button>
                   {isSingleRepoProject && (
                     <OpenInIdeButton
                       onClick={handleOpenInIDE}
