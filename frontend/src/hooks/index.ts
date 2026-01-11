@@ -48,3 +48,4 @@ export {
   useDeleteTaskGroup,
   useAssignTasksToGroup,
 } from './useTaskGroups';
+export { useGanttTasks } from './useGanttTasks';
