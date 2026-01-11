@@ -6,6 +6,7 @@ use db::models::{
     tag::Tag,
     task::{CreateTask, Task, TaskStatus, TaskWithAttemptStatus, UpdateTask},
     task_dependency::TaskDependency,
+    task_group::TaskGroup,
     workspace::{Workspace, WorkspaceContext},
 };
 use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
@@ -384,6 +385,79 @@ impl TaskDependencyTreeNode {
                 .into_iter()
                 .map(TaskDependencyTreeNode::from_api)
                 .collect(),
+        }
+    }
+}
+
+// ============================================================================
+// Task Group MCP Types
+// ============================================================================
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListTaskGroupsRequest {
+    #[schemars(description = "The ID of the project to list task groups from")]
+    pub project_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CreateTaskGroupRequest {
+    #[schemars(description = "The ID of the project to create the task group in")]
+    pub project_id: Uuid,
+    #[schemars(description = "The name of the task group")]
+    pub name: String,
+    #[schemars(description = "Optional base branch for tasks in this group")]
+    pub base_branch: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct UpdateTaskGroupRequest {
+    #[schemars(description = "The ID of the task group to update")]
+    pub group_id: Uuid,
+    #[schemars(description = "New name for the task group")]
+    pub name: Option<String>,
+    #[schemars(description = "New base branch for the task group")]
+    pub base_branch: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DeleteTaskGroupRequest {
+    #[schemars(description = "The ID of the task group to delete")]
+    pub group_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BulkAssignTasksToGroupRequest {
+    #[schemars(description = "The ID of the task group to assign tasks to")]
+    pub group_id: Uuid,
+    #[schemars(description = "The IDs of tasks to assign to this group")]
+    pub task_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TaskGroupSummary {
+    #[schemars(description = "The unique identifier of the task group")]
+    pub id: String,
+    #[schemars(description = "The ID of the project this group belongs to")]
+    pub project_id: String,
+    #[schemars(description = "The name of the task group")]
+    pub name: String,
+    #[schemars(description = "The base branch for tasks in this group")]
+    pub base_branch: Option<String>,
+    #[schemars(description = "When the task group was created")]
+    pub created_at: String,
+    #[schemars(description = "When the task group was last updated")]
+    pub updated_at: String,
+}
+
+impl TaskGroupSummary {
+    pub fn from_task_group(group: TaskGroup) -> Self {
+        Self {
+            id: group.id.to_string(),
+            project_id: group.project_id.to_string(),
+            name: group.name,
+            base_branch: group.base_branch,
+            created_at: group.created_at.to_rfc3339(),
+            updated_at: group.updated_at.to_rfc3339(),
         }
     }
 }
