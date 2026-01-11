@@ -131,6 +131,9 @@ importers:
       framer-motion:
         specifier: ^12.23.24
         version: 12.23.24(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      frappe-gantt:
+        specifier: ^0.6.1
+        version: 0.6.1
       i18next:
         specifier: ^25.5.2
         version: 25.6.0(typescript@5.9.2)
@@ -2458,6 +2461,9 @@ packages:
         optional: true
       react-dom:
         optional: true
+
+  frappe-gantt@0.6.1:
+    resolution: {integrity: sha512-1cSU9vLbwypjzaxnCfnEE03Xr3HlAV2S8dRtjxw62o+amkx1A8bBIFd2jp84mcDdTCM77Ij4LzZBslAKZB8oMg==}
 
   fs.realpath@1.0.0:
     resolution: {integrity: sha512-OO0pH2lK6a0hZnAdau5ItzHPI6pUlvI7jMVnxUQRtw4owF2wk8lOSabtGDCTP4Ggrg2MbGnWO9X8K1t4+fGMDw==}
@@ -5839,6 +5845,8 @@ snapshots:
     optionalDependencies:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
+
+  frappe-gantt@0.6.1: {}
 
   fs.realpath@1.0.0: {}
 
