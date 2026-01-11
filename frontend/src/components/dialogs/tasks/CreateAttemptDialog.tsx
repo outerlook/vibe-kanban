@@ -18,6 +18,7 @@ import {
   useAttempt,
   useRepoBranchSelection,
   useProjectRepos,
+  useTaskGroup,
 } from '@/hooks';
 import { useTaskAttemptsWithSessions } from '@/hooks/useTaskAttempts';
 import { useProject } from '@/contexts/ProjectContext';
@@ -67,6 +68,12 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
       { enabled: modal.visible && !!parentAttemptId }
     );
 
+    const taskGroupId = task?.task_group_id ?? undefined;
+    const { data: taskGroup, isLoading: isLoadingGroup } = useTaskGroup(
+      taskGroupId,
+      { enabled: modal.visible && !!taskGroupId }
+    );
+
     const { data: projectRepos = [], isLoading: isLoadingRepos } =
       useProjectRepos(projectId, { enabled: modal.visible });
 
@@ -78,7 +85,7 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
       reset: resetBranchSelection,
     } = useRepoBranchSelection({
       repos: projectRepos,
-      initialBranch: parentAttempt?.branch,
+      initialBranch: taskGroup?.base_branch ?? parentAttempt?.branch,
       enabled: modal.visible && projectRepos.length > 0,
     });
 
@@ -125,7 +132,8 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
       isLoadingBranches ||
       isLoadingAttempts ||
       isLoadingTask ||
-      isLoadingParent;
+      isLoadingParent ||
+      isLoadingGroup;
 
     const allBranchesSelected = repoBranchConfigs.every(
       (c) => c.targetBranch !== null
