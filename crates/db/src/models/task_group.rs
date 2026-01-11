@@ -126,4 +126,34 @@ impl TaskGroup {
             .await?;
         Ok(result.rows_affected())
     }
+
+    /// Bulk assign tasks to this task group.
+    /// Only updates tasks that belong to the same project as the task group.
+    pub async fn bulk_assign_tasks(
+        pool: &SqlitePool,
+        group_id: Uuid,
+        project_id: Uuid,
+        task_ids: &[Uuid],
+    ) -> Result<u64, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let mut query_builder = sqlx::QueryBuilder::new(
+            "UPDATE tasks SET task_group_id = ",
+        );
+        query_builder.push_bind(group_id);
+        query_builder.push(", updated_at = datetime('now', 'subsec') WHERE project_id = ");
+        query_builder.push_bind(project_id);
+        query_builder.push(" AND id IN (");
+
+        let mut separated = query_builder.separated(", ");
+        for id in task_ids {
+            separated.push_bind(id);
+        }
+        separated.push_unseparated(")");
+
+        let result = query_builder.build().execute(pool).await?;
+        Ok(result.rows_affected())
+    }
 }

@@ -6,7 +6,7 @@ use axum::{
 };
 use db::models::{
     execution_process::ExecutionProcess, project::Project, session::Session, tag::Tag, task::Task,
-    workspace::Workspace,
+    task_group::TaskGroup, workspace::Workspace,
 };
 use deployment::Deployment;
 use uuid::Uuid;
@@ -167,5 +167,27 @@ pub async fn load_session_middleware(
     };
 
     request.extensions_mut().insert(session);
+    Ok(next.run(request).await)
+}
+
+pub async fn load_task_group_middleware(
+    State(deployment): State<DeploymentImpl>,
+    Path(group_id): Path<Uuid>,
+    mut request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let task_group = match TaskGroup::find_by_id(&deployment.db().pool, group_id).await {
+        Ok(Some(group)) => group,
+        Ok(None) => {
+            tracing::warn!("TaskGroup {} not found", group_id);
+            return Err(StatusCode::NOT_FOUND);
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch task group {}: {}", group_id, e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    request.extensions_mut().insert(task_group);
     Ok(next.run(request).await)
 }
