@@ -4,7 +4,6 @@ use sqlx::SqlitePool;
 use ts_rs::TS;
 use uuid::Uuid;
 
-use super::execution_process::ExecutionProcessStatus;
 use super::task::TaskStatus;
 
 /// Represents a task for Gantt chart visualization
@@ -119,13 +118,4 @@ impl GanttTask {
 
         Ok(tasks)
     }
-}
-
-/// Represents execution overlay information for a Gantt task
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-pub struct GanttExecutionOverlay {
-    pub task_id: Uuid,
-    pub started_at: DateTime<Utc>,
-    pub completed_at: Option<DateTime<Utc>>,
-    pub status: ExecutionProcessStatus,
 }

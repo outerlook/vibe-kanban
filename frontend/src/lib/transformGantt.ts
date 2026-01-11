@@ -1,7 +1,5 @@
 import type { GanttTask, TaskStatus } from '../../../shared/types';
 
-export type { GanttTask };
-
 /**
  * Frappe-gantt expected task format
  */
