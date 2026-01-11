@@ -4,7 +4,7 @@ import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
 import { useDropzone } from 'react-dropzone';
 import { useForm, useStore } from '@tanstack/react-form';
-import { Image as ImageIcon } from 'lucide-react';
+import { Image as ImageIcon, Plus } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -37,7 +37,9 @@ import {
   useTaskMutations,
   useProjectRepos,
   useRepoBranchSelection,
+  useTaskGroups,
 } from '@/hooks';
+import { TaskGroupFormDialog } from './TaskGroupFormDialog';
 import {
   useKeySubmitTask,
   useKeySubmitTaskAlt,
@@ -58,6 +60,7 @@ interface Task {
   title: string;
   description: string | null;
   status: TaskStatus;
+  task_group_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -79,6 +82,7 @@ type TaskFormValues = {
   title: string;
   description: string;
   status: TaskStatus;
+  taskGroupId: string | null;
   executorProfileId: ExecutorProfileId | null;
   repoBranches: RepoBranch[];
   autoStart: boolean;
@@ -109,6 +113,9 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   const { data: projectRepos = [] } = useProjectRepos(projectId, {
     enabled: modal.visible,
   });
+  const { data: taskGroups = [] } = useTaskGroups(projectId, {
+    enabled: modal.visible,
+  });
   const initialBranch =
     mode === 'subtask' ? props.initialBaseBranch : undefined;
   const { configs: repoBranchConfigs, isLoading: branchesLoading } =
@@ -134,6 +141,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           title: props.task.title,
           description: props.task.description || '',
           status: props.task.status,
+          taskGroupId: props.task.task_group_id,
           executorProfileId: baseProfile,
           repoBranches: defaultRepoBranches,
           autoStart: false,
@@ -144,6 +152,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           title: props.initialTask.title,
           description: props.initialTask.description || '',
           status: 'todo',
+          taskGroupId: null,
           executorProfileId: baseProfile,
           repoBranches: defaultRepoBranches,
           autoStart: true,
@@ -156,6 +165,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           title: '',
           description: '',
           status: 'todo',
+          taskGroupId: null,
           executorProfileId: baseProfile,
           repoBranches: defaultRepoBranches,
           autoStart: true,
@@ -175,6 +185,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
             status: value.status,
             parent_workspace_id: null,
             image_ids: images.length > 0 ? images.map((img) => img.id) : null,
+            task_group_id: value.taskGroupId,
           },
         },
         { onSuccess: () => modal.remove() }
@@ -191,6 +202,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           mode === 'subtask' ? props.parentTaskAttemptId : null,
         image_ids: imageIds,
         shared_task_id: null,
+        task_group_id: value.taskGroupId,
       };
       const shouldAutoStart = value.autoStart && !forceCreateOnlyRef.current;
       if (shouldAutoStart) {
@@ -502,6 +514,60 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                 )}
               </form.Field>
             )}
+            {/* Task Group selector */}
+            <form.Field name="taskGroupId">
+              {(field) => (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">
+                    {t('taskFormDialog.groupLabel')}
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Select
+                      value={field.state.value ?? '__none__'}
+                      onValueChange={(value) =>
+                        field.handleChange(value === '__none__' ? null : value)
+                      }
+                      disabled={isSubmitting}
+                    >
+                      <SelectTrigger className="flex-1">
+                        <SelectValue
+                          placeholder={t('taskFormDialog.groupPlaceholder')}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">
+                          {t('taskFormDialog.noGroup')}
+                        </SelectItem>
+                        {taskGroups.map((group) => (
+                          <SelectItem key={group.id} value={group.id}>
+                            {group.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-9 w-9 shrink-0"
+                      onClick={async () => {
+                        const result = await TaskGroupFormDialog.show({
+                          mode: 'create',
+                          projectId,
+                        });
+                        if (result === 'saved') {
+                          // Group was created, the query will auto-refetch
+                        }
+                      }}
+                      disabled={isSubmitting}
+                      aria-label={t('taskFormDialog.createGroup')}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </form.Field>
             {editMode && (
               <div className="pt-4">
                 <DependencySection taskId={props.task.id} projectId={projectId} />

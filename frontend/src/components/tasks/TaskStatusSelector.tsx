@@ -34,6 +34,7 @@ export function TaskStatusSelector({ task, disabled, className }: Props) {
         status: newStatus as TaskStatus,
         parent_workspace_id: null,
         image_ids: null,
+        task_group_id: null,
       },
     });
   };

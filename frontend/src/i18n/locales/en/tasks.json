@@ -510,7 +510,11 @@
       "description": "You have unsaved changes. Are you sure you want to discard them?",
       "continueEditing": "Continue Editing",
       "discardChanges": "Discard Changes"
-    }
+    },
+    "groupLabel": "Group",
+    "groupPlaceholder": "Select a group...",
+    "noGroup": "No group",
+    "createGroup": "Create new group"
   },
   "taskGroupFormDialog": {
     "createTitle": "Create Task Group",
