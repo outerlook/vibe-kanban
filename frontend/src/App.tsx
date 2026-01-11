@@ -73,6 +73,11 @@ const McpSettings = lazy(() =>
     default: module.McpSettings,
   }))
 );
+const GanttView = lazy(() =>
+  import('@/pages/GanttView').then((module) => ({
+    default: module.GanttView,
+  }))
+);
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
@@ -181,6 +186,10 @@ function AppContent() {
                   <Route
                     path="/projects/:projectId/tasks"
                     element={<ProjectTasks />}
+                  />
+                  <Route
+                    path="/projects/:projectId/gantt"
+                    element={<GanttView />}
                   />
                   <Route path="/settings/*" element={<SettingsLayout />}>
                     <Route index element={<Navigate to="general" replace />} />
