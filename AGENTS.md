@@ -38,6 +38,34 @@ Do not manually edit shared/types.ts, instead edit crates/server/src/bin/generat
 - Rust: prefer unit tests alongside code (`#[cfg(test)]`), run `cargo test --workspace`. Add tests for new logic and edge cases.
 - Frontend: ensure `pnpm run check` and `pnpm run lint` pass. If adding runtime logic, include lightweight tests (e.g., Vitest) in the same directory.
 
+## E2E Testing Guidelines
+
+When running e2e tests locally, ensure proper isolation from any running development instances to avoid conflicts and data mixing:
+
+### Port Isolation
+- **Always use explicit PORT environment variables** for e2e tests to guarantee unique ports
+- Set `FRONTEND_PORT` and `BACKEND_PORT` to different values than your dev instance
+- Example: `FRONTEND_PORT=4000 BACKEND_PORT=4001 pnpm run dev`
+- The default dev ports are managed by `scripts/setup-dev-environment.js` and stored in `.dev-ports.json`
+
+### Database Isolation
+- Use a separate database file for e2e tests (e.g., `test_assets` instead of `dev_assets`)
+- Never use the same `dev_assets` database for both dev and testing
+- Set up a clean database state before each test run
+
+### Running E2E Tests Alongside Dev
+```bash
+# Terminal 1: Your dev instance (uses auto-assigned ports from .dev-ports.json)
+pnpm run dev
+
+# Terminal 2: E2E tests with explicit ports to avoid conflicts
+FRONTEND_PORT=4000 BACKEND_PORT=4001 TEST_DB_PATH=test_assets pnpm run test:e2e
+```
+
+### Cleanup
+- Clear saved ports before e2e tests if needed: `node scripts/setup-dev-environment.js clear`
+- This forces the e2e runner to allocate fresh ports
+
 ## Security & Config Tips
 - Use `.env` for local overrides; never commit secrets. Key envs: `FRONTEND_PORT`, `BACKEND_PORT`, `HOST` 
 - Dev ports and assets are managed by `scripts/setup-dev-environment.js`.
