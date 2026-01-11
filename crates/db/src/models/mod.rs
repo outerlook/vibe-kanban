@@ -3,6 +3,7 @@ pub mod execution_process;
 pub mod execution_process_logs;
 pub mod execution_process_normalized_entry;
 pub mod execution_process_repo_state;
+pub mod gantt;
 pub mod image;
 pub mod merge;
 pub mod project;
