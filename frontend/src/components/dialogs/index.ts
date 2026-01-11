@@ -97,6 +97,10 @@ export {
   BulkCreateAttemptsDialog,
   type BulkCreateAttemptsDialogProps,
 } from './tasks/BulkCreateAttemptsDialog';
+export {
+  TaskGroupFormDialog,
+  type TaskGroupFormDialogProps,
+} from './tasks/TaskGroupFormDialog';
 
 // Auth dialogs
 export { GhCliSetupDialog } from './auth/GhCliSetupDialog';

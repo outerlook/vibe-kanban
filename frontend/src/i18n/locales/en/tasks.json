@@ -512,6 +512,26 @@
       "discardChanges": "Discard Changes"
     }
   },
+  "taskGroupFormDialog": {
+    "createTitle": "Create Task Group",
+    "editTitle": "Edit Task Group",
+    "createDescription": "Create a group to organize related tasks with a shared base branch.",
+    "editDescription": "Update the task group name or base branch.",
+    "nameLabel": "Name",
+    "namePlaceholder": "Enter group name...",
+    "baseBranchLabel": "Base Branch (optional)",
+    "loadingBranches": "Loading branches...",
+    "selectBranch": "Select a branch",
+    "baseBranchHint": "Tasks in this group will use this branch as their default base.",
+    "saving": "Saving...",
+    "create": "Create Group",
+    "update": "Update Group",
+    "errors": {
+      "nameRequired": "Name is required",
+      "createFailed": "Failed to create task group. Please try again.",
+      "updateFailed": "Failed to update task group. Please try again."
+    }
+  },
   "restoreLogsDialog": {
     "title": "Confirm Retry",
     "historyChange": {
