@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -58,22 +58,11 @@ const BulkAssignGroupDialogImpl = NiceModal.create<BulkAssignGroupDialogProps>(
       }
     }, [modal.visible]);
 
-    const canSubmit = useMemo(() => {
-      if (isLoading || isLoadingGroups) return false;
-      if (!selectedGroupId) return false;
-      return true;
-    }, [selectedGroupId, isLoading, isLoadingGroups]);
+    const canSubmit = !!selectedGroupId && !isLoading && !isLoadingGroups;
 
     const handleSelectChange = async (value: string) => {
       if (value === CREATE_NEW_VALUE) {
-        const result = await TaskGroupFormDialog.show({
-          mode: 'create',
-          projectId,
-        });
-        if (result === 'saved') {
-          // The groups list will be refetched automatically via query invalidation
-          // Wait a bit for the new group to appear
-        }
+        await TaskGroupFormDialog.show({ mode: 'create', projectId });
         return;
       }
       setSelectedGroupId(value);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -68,12 +68,7 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
       }
     }, [modal.visible, group]);
 
-    const canSubmit = useMemo(() => {
-      const trimmedName = name.trim();
-      if (!trimmedName) return false;
-      if (isLoading || isLoadingInitial) return false;
-      return true;
-    }, [name, isLoading, isLoadingInitial]);
+    const canSubmit = !!name.trim() && !isLoading && !isLoadingInitial;
 
     const handleSubmit = async () => {
       const trimmedName = name.trim();

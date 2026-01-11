@@ -550,15 +550,9 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                       variant="outline"
                       size="icon"
                       className="h-9 w-9 shrink-0"
-                      onClick={async () => {
-                        const result = await TaskGroupFormDialog.show({
-                          mode: 'create',
-                          projectId,
-                        });
-                        if (result === 'saved') {
-                          // Group was created, the query will auto-refetch
-                        }
-                      }}
+                      onClick={() =>
+                        TaskGroupFormDialog.show({ mode: 'create', projectId })
+                      }
                       disabled={isSubmitting}
                       aria-label={t('taskFormDialog.createGroup')}
                     >

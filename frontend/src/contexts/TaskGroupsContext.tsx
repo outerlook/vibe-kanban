@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
 import { useTaskGroups } from '@/hooks/useTaskGroups';
 import { useProject } from '@/contexts/ProjectContext';
 import type { TaskGroup } from 'shared/types';
@@ -24,10 +24,13 @@ export function TaskGroupsProvider({ children }: { children: ReactNode }) {
     return map;
   }, [groups]);
 
-  const getGroupName = (groupId: string | null | undefined): string | undefined => {
-    if (!groupId) return undefined;
-    return groupsById[groupId]?.name;
-  };
+  const getGroupName = useCallback(
+    (groupId: string | null | undefined): string | undefined => {
+      if (!groupId) return undefined;
+      return groupsById[groupId]?.name;
+    },
+    [groupsById]
+  );
 
   const value = useMemo(
     () => ({
@@ -36,7 +39,7 @@ export function TaskGroupsProvider({ children }: { children: ReactNode }) {
       isLoading,
       getGroupName,
     }),
-    [groups, groupsById, isLoading]
+    [groups, groupsById, isLoading, getGroupName]
   );
 
   return (
