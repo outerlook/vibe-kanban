@@ -1,18 +1,6 @@
-import type { TaskStatus } from '../../../shared/types';
+import type { GanttTask, TaskStatus } from '../../../shared/types';
 
-/**
- * Backend GanttTask type - represents task data for Gantt chart visualization.
- * This will eventually be generated from Rust via ts-rs.
- */
-export interface GanttTask {
-  id: string;
-  name: string;
-  start: string;
-  end: string;
-  progress: number;
-  dependencies: string[];
-  task_status: TaskStatus;
-}
+export type { GanttTask };
 
 /**
  * Frappe-gantt expected task format

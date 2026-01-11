@@ -1,7 +1,7 @@
 use axum::{
     Extension, Router,
     extract::{
-        Query, State,
+        Path, State,
         ws::{WebSocket, WebSocketUpgrade},
     },
     middleware::from_fn_with_state,
@@ -11,7 +11,6 @@ use axum::{
 use db::models::{gantt::GanttTask, project::Project};
 use deployment::Deployment;
 use futures_util::{SinkExt, StreamExt};
-use serde::Deserialize;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
@@ -25,18 +24,13 @@ pub async fn get_gantt_data(
     Ok(ResponseJson(ApiResponse::success(tasks)))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct GanttStreamQuery {
-    pub project_id: Uuid,
-}
-
 pub async fn stream_gantt_ws(
     ws: WebSocketUpgrade,
     State(deployment): State<DeploymentImpl>,
-    Query(query): Query<GanttStreamQuery>,
+    Path(project_id): Path<Uuid>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| async move {
-        if let Err(e) = handle_gantt_ws(socket, deployment, query.project_id).await {
+        if let Err(e) = handle_gantt_ws(socket, deployment, project_id).await {
             tracing::warn!("gantt WS closed: {}", e);
         }
     })
@@ -84,5 +78,5 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 
     Router::new()
         .nest("/projects/{project_id}", project_gantt)
-        .route("/projects/gantt/stream/ws", get(stream_gantt_ws))
+        .route("/projects/{project_id}/gantt/stream/ws", get(stream_gantt_ws))
 }

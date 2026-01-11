@@ -10,10 +10,11 @@ import type {
 } from 'shared/types';
 
 /**
- * State shape for Gantt data received from the WebSocket stream
+ * State shape for Gantt data received from the WebSocket stream.
+ * Field names must match the JSON patch paths sent by the backend.
  */
 interface GanttStreamState {
-  tasks: Record<string, GanttTask>;
+  gantt_tasks: Record<string, GanttTask>;
   executions: Record<string, GanttExecutionOverlay>;
 }
 
@@ -43,7 +44,7 @@ export const useGanttTasks = (projectId: string | undefined): UseGanttTasksResul
 
   const initialData = useCallback(
     (): GanttStreamState => ({
-      tasks: {},
+      gantt_tasks: {},
       executions: {},
     }),
     []
@@ -55,7 +56,7 @@ export const useGanttTasks = (projectId: string | undefined): UseGanttTasksResul
     initialData
   );
 
-  const tasksById = data?.tasks ?? {};
+  const tasksById = data?.gantt_tasks ?? {};
   const executions = data?.executions ?? {};
 
   // Transform to frappe-gantt format, memoized to avoid re-renders
