@@ -532,6 +532,22 @@
       "updateFailed": "Failed to update task group. Please try again."
     }
   },
+  "bulkAssignGroupDialog": {
+    "title": "Assign to Group ({{count}} tasks)",
+    "description": "Select a group to assign {{count}} selected tasks to.",
+    "groupLabel": "Task Group",
+    "loadingGroups": "Loading groups...",
+    "selectPlaceholder": "Select a group",
+    "createNew": "Create new group",
+    "noGroupsHint": "No groups exist yet. Create one to get started.",
+    "assigningTo": "Assigning {{count}} tasks to \"{{groupName}}\"",
+    "assigning": "Assigning...",
+    "assign": "Assign {{count}} Tasks",
+    "errors": {
+      "selectGroup": "Please select a group",
+      "assignFailed": "Failed to assign tasks to group. Please try again."
+    }
+  },
   "restoreLogsDialog": {
     "title": "Confirm Retry",
     "historyChange": {
