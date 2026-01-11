@@ -39,3 +39,12 @@ export { useOrganizationInvitations } from './useOrganizationInvitations';
 export { useOrganizationMutations } from './useOrganizationMutations';
 export { useVariant } from './useVariant';
 export { useRetryProcess } from './useRetryProcess';
+export {
+  taskGroupKeys,
+  useTaskGroups,
+  useTaskGroup,
+  useCreateTaskGroup,
+  useUpdateTaskGroup,
+  useDeleteTaskGroup,
+  useAssignTasksToGroup,
+} from './useTaskGroups';
