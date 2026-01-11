@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQueries } from '@tanstack/react-query';
+import { AlertCircle } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -15,7 +17,11 @@ import {
   useNavigateWithSearch,
   useRepoBranchSelection,
   useProjectRepos,
+  useTask,
+  useTaskGroup,
 } from '@/hooks';
+import { tasksApi } from '@/lib/api';
+import type { Task } from 'shared/types';
 import { useProject } from '@/contexts/ProjectContext';
 import { useTaskSelection } from '@/contexts/TaskSelectionContext';
 import { useUserSystem } from '@/components/ConfigProvider';
@@ -59,6 +65,35 @@ const BulkCreateAttemptsDialogImpl =
     const { data: projectRepos = [], isLoading: isLoadingRepos } =
       useProjectRepos(projectId, { enabled: modal.visible });
 
+    const firstTaskId = taskIds[0];
+    const { data: firstTask } = useTask(firstTaskId, {
+      enabled: modal.visible && !!firstTaskId,
+    });
+    const firstTaskGroupId = firstTask?.task_group_id ?? undefined;
+    const { data: firstTaskGroup } = useTaskGroup(firstTaskGroupId, {
+      enabled: modal.visible && !!firstTaskGroupId,
+    });
+
+    const taskQueries = useQueries({
+      queries: taskIds.map((taskId) => ({
+        queryKey: ['task', taskId],
+        queryFn: () => tasksApi.getById(taskId),
+        enabled: modal.visible && !!taskId,
+      })),
+    });
+
+    const allTasks = taskQueries
+      .map((q) => q.data)
+      .filter((t): t is Task => t !== undefined);
+
+    const hasMixedGroups = useMemo(() => {
+      if (allTasks.length === 0) return false;
+      const uniqueGroupIds = new Set(
+        allTasks.map((t: Task) => t.task_group_id).filter(Boolean)
+      );
+      return uniqueGroupIds.size > 1;
+    }, [allTasks]);
+
     const {
       configs: repoBranchConfigs,
       isLoading: isLoadingBranches,
@@ -67,6 +102,7 @@ const BulkCreateAttemptsDialogImpl =
       reset: resetBranchSelection,
     } = useRepoBranchSelection({
       repos: projectRepos,
+      initialBranch: firstTaskGroup?.base_branch,
       enabled: modal.visible && projectRepos.length > 0,
     });
 
@@ -254,6 +290,15 @@ const BulkCreateAttemptsDialogImpl =
                       onProfileSelect={setUserSelectedProfile}
                       showLabel={true}
                     />
+                  )}
+
+                  {hasMixedGroups && (
+                    <div className="flex items-start gap-2 p-3 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-md">
+                      <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+                      <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                        {t('bulkCreateAttemptsDialog.mixedGroupsWarning')}
+                      </p>
+                    </div>
                   )}
 
                   <RepoBranchSelector

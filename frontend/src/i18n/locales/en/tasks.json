@@ -298,7 +298,8 @@
     "someFailedHint": "Some attempts could not be created. You can retry those tasks individually.",
     "creating": "Creating...",
     "start": "Start {{count}} Attempts",
-    "goToFirst": "Go to First Attempt"
+    "goToFirst": "Go to First Attempt",
+    "mixedGroupsWarning": "Selected tasks belong to different groups with potentially different base branches. Please verify the selected branches are correct for all tasks."
   },
   "repoBranchSelector": {
     "label": "Base branch"
