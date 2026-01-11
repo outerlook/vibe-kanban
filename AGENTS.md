@@ -38,33 +38,30 @@ Do not manually edit shared/types.ts, instead edit crates/server/src/bin/generat
 - Rust: prefer unit tests alongside code (`#[cfg(test)]`), run `cargo test --workspace`. Add tests for new logic and edge cases.
 - Frontend: ensure `pnpm run check` and `pnpm run lint` pass. If adding runtime logic, include lightweight tests (e.g., Vitest) in the same directory.
 
-## E2E Testing Guidelines
+## Dev Server Isolation Guidelines
 
-When running e2e tests locally, ensure proper isolation from any running development instances to avoid conflicts and data mixing:
+When AI agents start dev servers for testing user projects, they must be aware of existing running instances to avoid conflicts:
 
-### Port Isolation
-- **Always use explicit PORT environment variables** for e2e tests to guarantee unique ports
-- Set `FRONTEND_PORT` and `BACKEND_PORT` to different values than your dev instance
-- Example: `FRONTEND_PORT=4000 BACKEND_PORT=4001 pnpm run dev`
-- The default dev ports are managed by `scripts/setup-dev-environment.js` and stored in `.dev-ports.json`
+### Existing Behavior (Enforced)
+- The system **automatically stops** any existing dev servers for a project before starting a new one
+- This prevents port conflicts and resource contention
+- See `start_dev_server` endpoint in `crates/server/src/routes/task_attempts.rs`
+
+### Agent Awareness
+When an agent is about to start a dev server for testing:
+1. **Check for existing dev servers** - The system will stop them automatically
+2. **Use project-level dev_script** - Configure in project settings, not per-repo
+3. **Expect automatic cleanup** - Previous dev servers are terminated before new ones start
+
+### Port Management
+- Dev servers use ports configured in the project's dev script (e.g., `npm run dev`)
+- The system does not manage these ports - they're controlled by the user's application
+- If port conflicts occur, the user should configure their dev script to use different ports
 
 ### Database Isolation
-- Use a separate database file for e2e tests (e.g., `test_assets` instead of `dev_assets`)
-- Never use the same `dev_assets` database for both dev and testing
-- Set up a clean database state before each test run
-
-### Running E2E Tests Alongside Dev
-```bash
-# Terminal 1: Your dev instance (uses auto-assigned ports from .dev-ports.json)
-pnpm run dev
-
-# Terminal 2: E2E tests with explicit ports to avoid conflicts
-FRONTEND_PORT=4000 BACKEND_PORT=4001 TEST_DB_PATH=test_assets pnpm run test:e2e
-```
-
-### Cleanup
-- Clear saved ports before e2e tests if needed: `node scripts/setup-dev-environment.js clear`
-- This forces the e2e runner to allocate fresh ports
+- Each task attempt runs in an isolated git worktree
+- Dev servers run within the worktree context
+- No database isolation concerns - the dev server uses the project's normal database
 
 ## Security & Config Tips
 - Use `.env` for local overrides; never commit secrets. Key envs: `FRONTEND_PORT`, `BACKEND_PORT`, `HOST` 
