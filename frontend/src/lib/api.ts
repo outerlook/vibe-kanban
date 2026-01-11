@@ -11,6 +11,7 @@ import {
   CreateAndStartTaskRequest,
   CreateTaskAttemptBody,
   CreateTag,
+  CreateTaskGroup,
   DirectoryListResponse,
   DirectoryEntry,
   ExecutionProcess,
@@ -27,6 +28,7 @@ import {
   ShareTaskResponse,
   Task,
   TaskDependency,
+  TaskGroup,
   TaskRelationships,
   Tag,
   TagSearchParams,
@@ -35,6 +37,7 @@ import {
   UpdateProject,
   UpdateTask,
   UpdateTag,
+  UpdateTaskGroup,
   UserSystemInfo,
   McpServerQuery,
   UpdateMcpServersBody,
@@ -572,6 +575,52 @@ export const taskDependenciesApi = {
       `/api/tasks/${taskId}/dependency-tree${suffix ? `?${suffix}` : ''}`
     );
     return handleApiResponse<TaskDependencyTreeNode>(response);
+  },
+};
+
+// Task Groups API
+export const taskGroupsApi = {
+  getByProject: async (projectId: string): Promise<TaskGroup[]> => {
+    const response = await makeRequest(
+      `/api/task-groups?project_id=${encodeURIComponent(projectId)}`
+    );
+    return handleApiResponse<TaskGroup[]>(response);
+  },
+
+  getById: async (groupId: string): Promise<TaskGroup> => {
+    const response = await makeRequest(`/api/task-groups/${groupId}`);
+    return handleApiResponse<TaskGroup>(response);
+  },
+
+  create: async (data: CreateTaskGroup): Promise<TaskGroup> => {
+    const response = await makeRequest('/api/task-groups', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<TaskGroup>(response);
+  },
+
+  update: async (groupId: string, data: UpdateTaskGroup): Promise<TaskGroup> => {
+    const response = await makeRequest(`/api/task-groups/${groupId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<TaskGroup>(response);
+  },
+
+  delete: async (groupId: string): Promise<void> => {
+    const response = await makeRequest(`/api/task-groups/${groupId}`, {
+      method: 'DELETE',
+    });
+    return handleApiResponse<void>(response);
+  },
+
+  assignTasks: async (groupId: string, taskIds: string[]): Promise<void> => {
+    const response = await makeRequest(`/api/task-groups/${groupId}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ task_ids: taskIds }),
+    });
+    return handleApiResponse<void>(response);
   },
 };
 
