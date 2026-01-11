@@ -17,6 +17,7 @@ use db::models::{
     project::{Project, ProjectError},
     repo::Repo,
     task::{CreateTask, Task, TaskStatus, TaskWithAttemptStatus, UpdateTask},
+    task_group::TaskGroup,
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
@@ -149,6 +150,25 @@ pub async fn get_task(
     Ok(ResponseJson(ApiResponse::success(task)))
 }
 
+/// Validates that the provided task_group_id belongs to the specified project.
+/// Returns an error if the group doesn't exist or belongs to a different project.
+async fn validate_task_group_id(
+    pool: &sqlx::SqlitePool,
+    task_group_id: Uuid,
+    project_id: Uuid,
+) -> Result<(), ApiError> {
+    let group = TaskGroup::find_by_id(pool, task_group_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest(format!("Task group {} not found", task_group_id)))?;
+
+    if group.project_id != project_id {
+        return Err(ApiError::BadRequest(
+            "Task group belongs to a different project".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn create_task(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateTask>,
@@ -160,6 +180,11 @@ pub async fn create_task(
         payload.title,
         payload.project_id
     );
+
+    // Validate task_group_id if provided
+    if let Some(task_group_id) = payload.task_group_id {
+        validate_task_group_id(&deployment.db().pool, task_group_id, payload.project_id).await?;
+    }
 
     let task = Task::create(&deployment.db().pool, &payload, id).await?;
 
@@ -296,6 +321,12 @@ pub async fn update_task(
     Json(payload): Json<UpdateTask>,
 ) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
     ensure_shared_task_auth(&existing_task, &deployment).await?;
+
+    // Validate task_group_id if a new value is provided
+    if let Some(task_group_id) = payload.task_group_id {
+        validate_task_group_id(&deployment.db().pool, task_group_id, existing_task.project_id)
+            .await?;
+    }
 
     // Use existing values if not provided in update
     let title = payload.title.unwrap_or(existing_task.title);
