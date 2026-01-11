@@ -54,6 +54,10 @@ export type TaskDependency = { id: string, task_id: string, depends_on_id: strin
 
 export type TaskGroup = { id: string, project_id: string, name: string, base_branch: string | null, created_at: string, updated_at: string, };
 
+export type GanttTask = { id: string, name: string, start: string, end: string, progress: number, dependencies: Array<string>, task_status: TaskStatus, };
+
+export type GanttExecutionOverlay = { task_id: string, started_at: string, completed_at: string | null, status: ExecutionProcessStatus, };
+
 export type CreateTaskGroup = { project_id: string, name: string, base_branch: string | null, };
 
 export type UpdateTaskGroup = { name: string | null, base_branch: string | null, };

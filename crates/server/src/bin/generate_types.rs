@@ -36,6 +36,8 @@ fn generate_types_content() -> String {
         db::models::task::TaskRelationships::decl(),
         db::models::task_dependency::TaskDependency::decl(),
         db::models::task_group::TaskGroup::decl(),
+        db::models::gantt::GanttTask::decl(),
+        db::models::gantt::GanttExecutionOverlay::decl(),
         db::models::task_group::CreateTaskGroup::decl(),
         db::models::task_group::UpdateTaskGroup::decl(),
         db::models::task::CreateTask::decl(),
