@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE tasks SET task_group_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND task_group_id IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "2ffedebead1cdd0b00bf96340c17e264cba2c6ef2c2907bde35b2818daf4a3b5"
+}

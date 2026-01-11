@@ -543,6 +543,23 @@ LIMIT $3 OFFSET $4"#,
         Ok(())
     }
 
+    /// Inherit task_group_id from another task if the current task has no group.
+    /// Returns the number of rows affected (0 if task already has a group, 1 if inherited).
+    pub async fn inherit_group_if_none(
+        pool: &SqlitePool,
+        task_id: Uuid,
+        group_id: Uuid,
+    ) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!(
+            "UPDATE tasks SET task_group_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND task_group_id IS NULL",
+            group_id,
+            task_id
+        )
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn batch_unlink_shared_tasks<'e, E>(
         executor: E,
         shared_task_ids: &[Uuid],

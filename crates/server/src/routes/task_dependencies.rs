@@ -86,13 +86,21 @@ pub async fn add_dependency(
         ));
     }
 
-    let dependency = TaskDependency::create(
-        &deployment.db().pool,
-        task.id,
-        payload.depends_on_id,
-    )
+    let pool = &deployment.db().pool;
+
+    let dependency = TaskDependency::create(pool, task.id, payload.depends_on_id)
         .await
         .map_err(map_dependency_error)?;
+
+    // Auto-inherit group: if the depends_on task has a group and current task doesn't,
+    // inherit the group from depends_on
+    if task.task_group_id.is_none() {
+        if let Some(depends_on_task) = Task::find_by_id(pool, payload.depends_on_id).await? {
+            if let Some(group_id) = depends_on_task.task_group_id {
+                Task::inherit_group_if_none(pool, task.id, group_id).await?;
+            }
+        }
+    }
 
     Ok(ResponseJson(ApiResponse::success(dependency)))
 }
