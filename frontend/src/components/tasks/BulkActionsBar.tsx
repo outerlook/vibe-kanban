@@ -3,12 +3,14 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useTaskSelection } from '@/contexts/TaskSelectionContext';
-import { BulkCreateAttemptsDialog } from '@/components/dialogs';
-import { X } from 'lucide-react';
+import { useProject } from '@/contexts/ProjectContext';
+import { BulkCreateAttemptsDialog, BulkAssignGroupDialog } from '@/components/dialogs';
+import { Layers, X } from 'lucide-react';
 
 export function BulkActionsBar() {
   const { t } = useTranslation('tasks');
   const { selectedCount, clearSelection, getSelectedIds } = useTaskSelection();
+  const { projectId } = useProject();
 
   if (selectedCount === 0) {
     return null;
@@ -16,6 +18,11 @@ export function BulkActionsBar() {
 
   const handleCreateAttempts = () => {
     BulkCreateAttemptsDialog.show({ taskIds: getSelectedIds() });
+  };
+
+  const handleAssignToGroup = () => {
+    if (!projectId) return;
+    BulkAssignGroupDialog.show({ projectId, taskIds: getSelectedIds() });
   };
 
   return createPortal(
@@ -26,6 +33,10 @@ export function BulkActionsBar() {
       <div className="flex items-center gap-2">
         <Button variant="default" size="sm" onClick={handleCreateAttempts}>
           {t('bulkActions.createAttempts')}
+        </Button>
+        <Button variant="secondary" size="sm" onClick={handleAssignToGroup}>
+          <Layers className="h-4 w-4 mr-1" />
+          {t('bulkActions.assignToGroup')}
         </Button>
         <Button
           variant="ghost"

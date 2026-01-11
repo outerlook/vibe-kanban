@@ -12,6 +12,7 @@
     "selectedCount_one": "{{count}} task selected",
     "selectedCount_other": "{{count}} tasks selected",
     "createAttempts": "Create Attempts",
+    "assignToGroup": "Assign to Group",
     "clearSelection": "Clear"
   },
   "filters": {

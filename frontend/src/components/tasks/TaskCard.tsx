@@ -14,6 +14,8 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/hooks';
 import { useUnread } from '@/contexts/UnreadContext';
 import { useTaskSelection } from '@/contexts/TaskSelectionContext';
+import { useTaskGroupsContext } from '@/contexts/TaskGroupsContext';
+import { TaskGroupBadge } from './TaskGroupBadge';
 
 interface TaskCardProps {
   task: TaskWithAttemptStatus;
@@ -42,7 +44,9 @@ export function TaskCard({
   const { isSignedIn } = useAuth();
   const { isTaskUnread, markTaskAsRead } = useUnread();
   const { toggleTask } = useTaskSelection();
+  const { getGroupName } = useTaskGroupsContext();
   const isUnread = isTaskUnread(task);
+  const groupName = getGroupName(task.task_group_id);
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -162,6 +166,11 @@ export function TaskCard({
             Blocked
           </Badge>
         )}
+        <TaskGroupBadge
+          groupId={task.task_group_id}
+          groupName={groupName}
+          className="w-fit"
+        />
         {task.description && (
           <p className="text-sm text-secondary-foreground break-words">
             {task.description.length > 130
