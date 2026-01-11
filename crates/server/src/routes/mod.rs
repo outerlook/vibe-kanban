@@ -13,6 +13,7 @@ pub mod filesystem;
 pub mod events;
 pub mod execution_processes;
 pub mod frontend;
+pub mod gantt;
 pub mod health;
 pub mod images;
 pub mod oauth;
@@ -41,6 +42,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(task_dependencies::router(&deployment))
         .merge(task_groups::router(&deployment))
         .merge(execution_processes::router(&deployment))
+        .merge(gantt::router(&deployment))
         .merge(tags::router(&deployment))
         .merge(oauth::router())
         .merge(organizations::router())
