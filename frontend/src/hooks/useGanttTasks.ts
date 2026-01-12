@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  transformToFrappeFormat,
-  type FrappeGanttTask,
+  transformToSvarFormat,
+  type SvarGanttTask,
+  type SvarGanttLink,
 } from '@/lib/transformGantt';
 import { ganttApi } from '@/lib/api';
 import type { GanttTask } from 'shared/types';
@@ -18,8 +19,8 @@ const decodePointerSegment = (value: string) =>
   value.replace(/~1/g, '/').replace(/~0/g, '~');
 
 export interface UseGanttTasksResult {
-  ganttTasks: FrappeGanttTask[];
-  tasksById: Record<string, GanttTask>;
+  ganttTasks: SvarGanttTask[];
+  ganttLinks: SvarGanttLink[];
   isLoading: boolean;
   isLoadingMore: boolean;
   total: number;
@@ -252,14 +253,14 @@ export const useGanttTasks = (
     };
   }, [projectId, applyGanttPatches]);
 
-  const ganttTasks = useMemo(
-    () => transformToFrappeFormat(tasksById),
+  const { tasks: ganttTasks, links: ganttLinks } = useMemo(
+    () => transformToSvarFormat(tasksById),
     [tasksById]
   );
 
   return {
     ganttTasks,
-    tasksById,
+    ganttLinks,
     isLoading,
     isLoadingMore,
     total,

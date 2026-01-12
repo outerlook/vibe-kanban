@@ -1,0 +1,85 @@
+/* SVAR Gantt base styles */
+@import '@svar-ui/react-gantt/all.css';
+
+/* Gantt container with vibe-kanban theme integration */
+.gantt-container {
+  --wx-background: hsl(var(--background));
+  --wx-background-alt: hsl(var(--muted));
+  --wx-background-hover: hsl(var(--accent));
+  --wx-color-font: hsl(var(--foreground));
+  --wx-color-font-alt: hsl(var(--muted-foreground));
+  --wx-color-font-disabled: hsl(var(--muted-foreground) / 0.5);
+  --wx-color-primary: hsl(var(--info));
+  --wx-color-primary-font: hsl(var(--info-foreground));
+  --wx-color-danger: hsl(var(--destructive));
+  --wx-color-link: hsl(var(--info));
+  --wx-border: 1px solid hsl(var(--border));
+  --wx-popup-background: hsl(var(--popover));
+  --wx-popup-border: 1px solid hsl(var(--border));
+  --wx-popup-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+
+  /* Gantt-specific overrides */
+  --wx-gantt-border: 1px solid hsl(var(--border));
+  --wx-gantt-border-color: hsl(var(--border));
+  --wx-gantt-select-color: hsl(var(--accent));
+  --wx-gantt-holiday-background: hsl(var(--muted) / 0.5);
+  --wx-gantt-holiday-color: hsl(var(--muted-foreground));
+
+  /* Grid styling */
+  --wx-grid-body-font-color: hsl(var(--foreground));
+  --wx-grid-header-font-color: hsl(var(--muted-foreground));
+  --wx-grid-body-row-border: 1px solid hsl(var(--border));
+
+  /* Timescale styling */
+  --wx-timescale-font-color: hsl(var(--muted-foreground));
+  --wx-timescale-border: 1px solid hsl(var(--border));
+
+  /* Tooltip styling */
+  --wx-tooltip-background: hsl(var(--popover));
+  --wx-tooltip-font-color: hsl(var(--popover-foreground));
+
+  width: 100%;
+  height: 100%;
+  font-family: var(--font-chivo-mono, 'Chivo Mono', monospace);
+}
+
+/* Task status color classes */
+.gantt-task-todo {
+  --wx-gantt-task-color: hsl(var(--neutral));
+  --wx-gantt-task-fill-color: hsl(var(--neutral) / 0.7);
+  --wx-gantt-task-font-color: hsl(var(--neutral-foreground));
+  --wx-gantt-task-border-color: hsl(var(--neutral-foreground) / 0.3);
+}
+
+.gantt-task-inprogress {
+  --wx-gantt-task-color: hsl(var(--info));
+  --wx-gantt-task-fill-color: hsl(var(--info) / 0.7);
+  --wx-gantt-task-font-color: hsl(var(--info-foreground));
+  --wx-gantt-task-border-color: hsl(var(--info) / 0.8);
+}
+
+.gantt-task-inreview {
+  --wx-gantt-task-color: hsl(var(--warning));
+  --wx-gantt-task-fill-color: hsl(var(--warning) / 0.7);
+  --wx-gantt-task-font-color: hsl(var(--warning-foreground));
+  --wx-gantt-task-border-color: hsl(var(--warning) / 0.8);
+}
+
+.gantt-task-done {
+  --wx-gantt-task-color: hsl(var(--success));
+  --wx-gantt-task-fill-color: hsl(var(--success) / 0.7);
+  --wx-gantt-task-font-color: hsl(var(--success-foreground));
+  --wx-gantt-task-border-color: hsl(var(--success) / 0.8);
+}
+
+.gantt-task-cancelled {
+  --wx-gantt-task-color: hsl(var(--destructive) / 0.5);
+  --wx-gantt-task-fill-color: hsl(var(--destructive) / 0.3);
+  --wx-gantt-task-font-color: hsl(var(--destructive-foreground));
+  --wx-gantt-task-border-color: hsl(var(--destructive) / 0.5);
+}
+
+/* Dark mode adjustments */
+.dark .gantt-container {
+  --wx-gantt-link-marker-background: hsl(var(--muted));
+}

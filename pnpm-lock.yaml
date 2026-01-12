@@ -95,6 +95,9 @@ importers:
       '@sentry/vite-plugin':
         specifier: ^3.5.0
         version: 3.5.0
+      '@svar-ui/react-gantt':
+        specifier: ^2.4.4
+        version: 2.4.4(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@tanstack/electric-db-collection':
         specifier: ^0.2.6
         version: 0.2.6(typescript@5.9.2)
@@ -134,9 +137,6 @@ importers:
       framer-motion:
         specifier: ^12.23.24
         version: 12.23.24(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      frappe-gantt:
-        specifier: ^0.6.1
-        version: 0.6.1
       i18next:
         specifier: ^25.5.2
         version: 25.6.0(typescript@5.9.2)
@@ -2060,6 +2060,108 @@ packages:
   '@standard-schema/spec@1.0.0':
     resolution: {integrity: sha512-m2bOd0f2RT9k8QJx1JN85cZYyH1RqFBdlwtkSlf4tBDYLCiiZnv1fIIwacK6cqwXavOydf0NPToMQgpKq+dVlA==}
 
+  '@svar-ui/comments-locales@2.4.0':
+    resolution: {integrity: sha512-StcviQBWrfs4iulgNAb7rjycBe6fsv2/UvmeZpHNHSvSGCMF+q5Cx0FczwgCXd+dVQI6QPhfOPunmu64hzgIWg==}
+
+  '@svar-ui/core-locales@2.4.0':
+    resolution: {integrity: sha512-FXB4MtqbZw4TNdPfELsMum6y5Tgu0PRA7a6upJjLWDYJjlcYEcyT49iJONb30gPIL7HgJkUylJnz6iNuNA3Icw==}
+
+  '@svar-ui/editor-locales@2.4.0':
+    resolution: {integrity: sha512-ngo2vdAxdpYeEhCfIJstyKP6mY7uE3hDI7xpzkN8d92DJcrdgCquYTAkI7UV94FGlfGMfGM2DFnXYSuQwLYB9w==}
+
+  '@svar-ui/filter-locales@2.4.0':
+    resolution: {integrity: sha512-POV7u7xM9O84i5HnWKQ9LfWyfvmVgFOl0wDO+Ix6MfugPkj14pX6FLvuooyXwfUNMV6G6hS7AuKlNR5SlW94ZA==}
+
+  '@svar-ui/filter-store@2.4.0':
+    resolution: {integrity: sha512-xEnVZXuDFxduHfqq+r1YjditolB1FpHHFGK87WOjTrtIPmiiKCQF2vt5LKJuswUQPbG3kMW93EAvZWZVCnKeKA==}
+
+  '@svar-ui/gantt-data-provider@2.4.4':
+    resolution: {integrity: sha512-Jngj0P75STm6cdNqG3mHBcIBq4OWa4eqRLQjgv09xONhx9rYXn9xOOFIyPpyxaeKY9wKr2+H6Z+dhOrJfBg3pA==}
+
+  '@svar-ui/gantt-locales@2.4.4':
+    resolution: {integrity: sha512-cVXxoA+4cRMGuzKUC6TKM/A9RysxSlL2BJ6F5kx3VzLNzpKAytDWNRp5j+2QPLBqjtcc/KF5Ha2lEUOW2qc2EA==}
+
+  '@svar-ui/gantt-store@2.4.4':
+    resolution: {integrity: sha512-AioX4ndXz17xvK9nw4qlUJ4PWnHZ3mEylIxAE3KqQZtc1CG6HfjPdfZghMR6sGaYhztNNPaeRoEIiQOk0ageyQ==}
+
+  '@svar-ui/grid-data-provider@2.4.0':
+    resolution: {integrity: sha512-Rm0Zbwj3/ZZLTdpmJXX/lGKafL2sqZuikOh/8KXNty7RXjx6WqryjaAkX6t0cl8lnhPjV/awC4R4+uYRW4UbEQ==}
+
+  '@svar-ui/grid-locales@2.4.0':
+    resolution: {integrity: sha512-UnhsQYzDAplMES08QXupa7/1BdBXyCujnTuQaIKZcDf/PGRiSFo3I3iNCk6UdJ5Tnj4si9CqB8/wcIp2YyAHSg==}
+
+  '@svar-ui/grid-store@2.4.0':
+    resolution: {integrity: sha512-GJyVC+5G+aA8EfcoKMwrHVP2/OK7bUUbp9ofyZTGUAyuXO9tkxRnfquvk+nTA1ybOfbFCY8rSsJTEHYcgXQCTw==}
+
+  '@svar-ui/lib-data-provider@1.7.1':
+    resolution: {integrity: sha512-5Bi9ywngcMTKpGtan0s7q8ivd84Bp0ZnRP+5bLZg6oiRB7YMyN5D5X+apc3CWDAnG4zZn3en4YwS2qc/aHIIuQ==}
+
+  '@svar-ui/lib-dom@0.11.1':
+    resolution: {integrity: sha512-4wgerhDVttvrQ9t6OjHur34Of+VVr2VygA16HHGcWHytgdnOuGgfZb5PeBEhCJw/pO3RKfJvBHbaMIzL4IR//g==}
+
+  '@svar-ui/lib-react@1.2.2':
+    resolution: {integrity: sha512-bB+Vou2NM0JhMuFW03MsjjoV5Y3xcFfuuK48+7uzUC9Ui1oSWpCK+txOZ+dnUFJISSVjSsXuF34AzMw/2CA63w==}
+
+  '@svar-ui/lib-state@1.9.6':
+    resolution: {integrity: sha512-twoHa8wZvzdxtES68s6Wnp4Xi1WivScNaFFK6sJ6WDgqVYOzJw0ZhVVrdwHQgieLITTKl/DYh/U3nuqtMetKYw==}
+
+  '@svar-ui/react-comments@2.4.0':
+    resolution: {integrity: sha512-AYIyox5AboURnS+mQXWR+0egk/XGzcZivam9TaGvUh7+msq1Dr0SZXcDXImZDZDQzIFDfgRW6GrJb6i/P4AJkQ==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-core@2.4.0':
+    resolution: {integrity: sha512-65skFDBmQFedlwdMYZ/OF/U/D/IMrs+NqlgI+IUBATXjwshn2YNu6Mke08rfiatr4+Tc/RRowdfhkB0BgmT6Pw==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-editor@2.4.0':
+    resolution: {integrity: sha512-hbF5XWPmqrOwo4KTs51jyNyWyeE20n5oTUX0CkL814UiKjGu5LDd4POzpJAVUASeHe535TqS4Vr0SCY1AcrVdQ==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-filter@2.4.0':
+    resolution: {integrity: sha512-NaGf1M0uI4n6djpuqy9Lwv2g3YcvRwfwYHnVqLiTb8uspghWucTMM7QVy4ESkwl8CF09MxH4WaEwzpoN5M1+JQ==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-gantt@2.4.4':
+    resolution: {integrity: sha512-q3RsdYSbG+aRRn/RyYZtGinyC4Tu3aWOzsLs1YMqWSTeg6iqzPXSwZBVJq7WVkK+h8jW0p90xofx4G9J/fSFrQ==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-grid@2.4.0':
+    resolution: {integrity: sha512-N7G7QwBN/1KQliQNdN8xhnF0W+tkdoIDg5plTYr3NspwIZYMF6oQCO+r+jVRNZV2cxtb9WHlq7x2vm/x0twsrg==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-menu@2.4.0':
+    resolution: {integrity: sha512-v7hPw7T5RRBVEj9F7W35IF38l4SiMauzboDTw7pamcXpA7VJE88Pb3ctCC0TDAFbZPGxVevo+cHliDzfUygQsw==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-tasklist@2.4.0':
+    resolution: {integrity: sha512-kOTpot7ds+aEAD0OP8K98dyQKQmF7wLpn7BrEHDvcPlwzW6RtajR7mWnK8znw2Y+O0qo3b3uYxBVE1JoKB2ePw==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/react-toolbar@2.4.0':
+    resolution: {integrity: sha512-eBtUTftSosf0I7Y3r9TeHe3uVvg+YL77+NhGEGV9DnqFCvw2Zp2IrCViuBbcW9owsPLeXHtM7Eb8/U61EqRUYQ==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+
+  '@svar-ui/tasklist-locales@2.4.0':
+    resolution: {integrity: sha512-gcclKwfShkTiZaYCl9blfOiUqVwcEv8qtyNoKfEhli4FWjjG4sysue27CvHD2qFZAjoRYQi2hoQ4odLM1AO7tQ==}
+
   '@tailwindcss/container-queries@0.1.1':
     resolution: {integrity: sha512-p18dswChx6WnTSaJCSGx6lTmrGzNNvm2FtXmiO6AuA1V4U5REyoqwmT6kgAsIMdjo07QdAfYXHJ4hnMtfHzWgA==}
     peerDependencies:
@@ -2501,6 +2603,9 @@ packages:
     resolution: {integrity: sha512-fnULvOpxnC5/Vg3NCiWelDsLiUc9bRwAPs/+LfTLNvetFCtCTN+yQz15C/fs4AwX1R9K5GLtLfn8QW+dWisaAw==}
     engines: {node: '>=0.11'}
 
+  date-fns@3.6.0:
+    resolution: {integrity: sha512-fRHTG8g/Gif+kSh50gaGEdToemgfj74aRX3swtiouboip5JDLAyDE9F11nHMIcvOaXeOC6D7SpNhi7uFyB7Uww==}
+
   debug@4.4.1:
     resolution: {integrity: sha512-KcKCqiftBJcZr++7ykoDIEwSa3XWowTfNPo92BYxjXiyYEVrUQh2aLyhxBCwww+heortUFxEJYcRzosstTEBYQ==}
     engines: {node: '>=6.0'}
@@ -2801,9 +2906,6 @@ packages:
         optional: true
       react-dom:
         optional: true
-
-  frappe-gantt@0.6.1:
-    resolution: {integrity: sha512-1cSU9vLbwypjzaxnCfnEE03Xr3HlAV2S8dRtjxw62o+amkx1A8bBIFd2jp84mcDdTCM77Ij4LzZBslAKZB8oMg==}
 
   fs.realpath@1.0.0:
     resolution: {integrity: sha512-OO0pH2lK6a0hZnAdau5ItzHPI6pUlvI7jMVnxUQRtw4owF2wk8lOSabtGDCTP4Ggrg2MbGnWO9X8K1t4+fGMDw==}
@@ -5837,6 +5939,156 @@ snapshots:
 
   '@standard-schema/spec@1.0.0': {}
 
+  '@svar-ui/comments-locales@2.4.0': {}
+
+  '@svar-ui/core-locales@2.4.0': {}
+
+  '@svar-ui/editor-locales@2.4.0': {}
+
+  '@svar-ui/filter-locales@2.4.0': {}
+
+  '@svar-ui/filter-store@2.4.0':
+    dependencies:
+      '@svar-ui/lib-state': 1.9.6
+
+  '@svar-ui/gantt-data-provider@2.4.4':
+    dependencies:
+      '@svar-ui/lib-data-provider': 1.7.1
+
+  '@svar-ui/gantt-locales@2.4.4': {}
+
+  '@svar-ui/gantt-store@2.4.4':
+    dependencies:
+      '@svar-ui/lib-state': 1.9.6
+      date-fns: 3.6.0
+
+  '@svar-ui/grid-data-provider@2.4.0':
+    dependencies:
+      '@svar-ui/lib-data-provider': 1.7.1
+
+  '@svar-ui/grid-locales@2.4.0': {}
+
+  '@svar-ui/grid-store@2.4.0':
+    dependencies:
+      '@svar-ui/lib-dom': 0.11.1
+      '@svar-ui/lib-state': 1.9.6
+
+  '@svar-ui/lib-data-provider@1.7.1':
+    dependencies:
+      '@svar-ui/lib-state': 1.9.6
+
+  '@svar-ui/lib-dom@0.11.1': {}
+
+  '@svar-ui/lib-react@1.2.2':
+    dependencies:
+      '@svar-ui/lib-dom': 0.11.1
+
+  '@svar-ui/lib-state@1.9.6': {}
+
+  '@svar-ui/react-comments@2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+    dependencies:
+      '@svar-ui/comments-locales': 2.4.0
+      '@svar-ui/core-locales': 2.4.0
+      '@svar-ui/lib-data-provider': 1.7.1
+      '@svar-ui/lib-dom': 0.11.1
+      '@svar-ui/lib-state': 1.9.6
+      '@svar-ui/react-core': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@svar-ui/react-menu': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+
+  '@svar-ui/react-core@2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+    dependencies:
+      '@svar-ui/core-locales': 2.4.0
+      '@svar-ui/lib-dom': 0.11.1
+      '@svar-ui/lib-react': 1.2.2
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+
+  '@svar-ui/react-editor@2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+    dependencies:
+      '@svar-ui/editor-locales': 2.4.0
+      '@svar-ui/lib-dom': 0.11.1
+      '@svar-ui/lib-state': 1.9.6
+      '@svar-ui/react-comments': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@svar-ui/react-core': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@svar-ui/react-tasklist': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@svar-ui/react-toolbar': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+
+  '@svar-ui/react-filter@2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+    dependencies:
+      '@svar-ui/filter-locales': 2.4.0
+      '@svar-ui/filter-store': 2.4.0
+      '@svar-ui/lib-dom': 0.11.1
+      '@svar-ui/lib-react': 1.2.2
+      '@svar-ui/lib-state': 1.9.6
+      '@svar-ui/react-core': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@svar-ui/react-grid': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@svar-ui/react-menu': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+
+  '@svar-ui/react-gantt@2.4.4(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+    dependencies:
+      '@svar-ui/gantt-data-provider': 2.4.4
+      '@svar-ui/gantt-locales': 2.4.4
+      '@svar-ui/gantt-store': 2.4.4
+      '@svar-ui/lib-dom': 0.11.1
+      '@svar-ui/lib-react': 1.2.2
+      '@svar-ui/lib-state': 1.9.6
+      '@svar-ui/react-core': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@svar-ui/react-editor': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@svar-ui/react-grid': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@svar-ui/react-menu': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@svar-ui/react-toolbar': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+
+  '@svar-ui/react-grid@2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+    dependencies:
+      '@svar-ui/grid-data-provider': 2.4.0
+      '@svar-ui/grid-locales': 2.4.0
+      '@svar-ui/grid-store': 2.4.0
+      '@svar-ui/lib-dom': 0.11.1
+      '@svar-ui/lib-react': 1.2.2
+      '@svar-ui/lib-state': 1.9.6
+      '@svar-ui/react-core': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@svar-ui/react-editor': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@svar-ui/react-filter': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@svar-ui/react-menu': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+
+  '@svar-ui/react-menu@2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+    dependencies:
+      '@svar-ui/core-locales': 2.4.0
+      '@svar-ui/lib-dom': 0.11.1
+      '@svar-ui/react-core': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+
+  '@svar-ui/react-tasklist@2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+    dependencies:
+      '@svar-ui/lib-data-provider': 1.7.1
+      '@svar-ui/lib-dom': 0.11.1
+      '@svar-ui/lib-state': 1.9.6
+      '@svar-ui/react-core': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@svar-ui/tasklist-locales': 2.4.0
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+
+  '@svar-ui/react-toolbar@2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+    dependencies:
+      '@svar-ui/core-locales': 2.4.0
+      '@svar-ui/lib-dom': 0.11.1
+      '@svar-ui/react-core': 2.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+
+  '@svar-ui/tasklist-locales@2.4.0': {}
+
   '@tailwindcss/container-queries@0.1.1(tailwindcss@3.4.17)':
     dependencies:
       tailwindcss: 3.4.17
@@ -6359,6 +6611,8 @@ snapshots:
     dependencies:
       '@babel/runtime': 7.27.6
 
+  date-fns@3.6.0: {}
+
   debug@4.4.1:
     dependencies:
       ms: 2.1.3
@@ -6701,8 +6955,6 @@ snapshots:
     optionalDependencies:
       react: 19.2.3
       react-dom: 19.2.3(react@19.2.3)
-
-  frappe-gantt@0.6.1: {}
 
   fs.realpath@1.0.0: {}
 
