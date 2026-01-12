@@ -1,21 +1,14 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, RefreshCw, ArrowLeft, Loader2 } from 'lucide-react';
 
 import { useProject } from '@/contexts/ProjectContext';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
-import { GanttChart, type GanttViewMode } from '@/components/gantt/GanttChart';
+import { GanttChart } from '@/components/gantt/GanttChart';
 import { Loader } from '@/components/ui/loader';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -26,16 +19,9 @@ import {
 } from '@/components/ui/breadcrumb';
 import { paths } from '@/lib/paths';
 
-const VIEW_MODES: { value: GanttViewMode; label: string }[] = [
-  { value: 'Day', label: 'Day' },
-  { value: 'Week', label: 'Week' },
-  { value: 'Month', label: 'Month' },
-];
-
 export function GanttView() {
   const { t } = useTranslation(['tasks', 'common']);
   const navigate = useNavigate();
-  const [viewMode, setViewMode] = useState<GanttViewMode>('Week');
 
   const {
     projectId,
@@ -112,53 +98,32 @@ export function GanttView() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="shrink-0 border-b px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleBackToTasks}
-            className="gap-2"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            {t('common:buttons.back', { defaultValue: 'Back' })}
-          </Button>
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink
-                  className="cursor-pointer hover:underline"
-                  onClick={handleBackToTasks}
-                >
-                  {project?.name || 'Project'}
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>Gantt</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">View:</span>
-          <Select
-            value={viewMode}
-            onValueChange={(value) => setViewMode(value as GanttViewMode)}
-          >
-            <SelectTrigger className="w-[120px] h-8">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {VIEW_MODES.map((mode) => (
-                <SelectItem key={mode.value} value={mode.value}>
-                  {mode.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      <div className="shrink-0 border-b px-4 py-3 flex items-center">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleBackToTasks}
+          className="gap-2"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          {t('common:buttons.back', { defaultValue: 'Back' })}
+        </Button>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink
+                className="cursor-pointer hover:underline"
+                onClick={handleBackToTasks}
+              >
+                {project?.name || 'Project'}
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Gantt</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
       </div>
 
       {total > 0 && hasMore && (
@@ -188,7 +153,6 @@ export function GanttView() {
           projectId={projectId}
           tasks={ganttTasks}
           links={ganttLinks}
-          viewMode={viewMode}
         />
       </div>
     </div>

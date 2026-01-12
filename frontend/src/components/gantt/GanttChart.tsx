@@ -1,31 +1,31 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useRef, useCallback } from 'react';
 import { Gantt } from '@svar-ui/react-gantt';
 import type { IApi, ITask, TID } from '@svar-ui/react-gantt';
 import type { SvarGanttTask, SvarGanttLink } from '@/lib/transformGantt';
-import {
-  GANTT_ZOOM_CONFIG,
-  viewModeToZoomLevel,
-  type GanttViewMode,
-} from '@/lib/ganttConfig';
+import { GANTT_SCALES } from '@/lib/ganttConfig';
 import { useNavigateWithSearch } from '@/hooks';
 import { paths } from '@/lib/paths';
 import '@/styles/gantt.css';
 
-export type { GanttViewMode };
+/**
+ * Task type configuration for SVAR Gantt.
+ * Each type ID matches a TaskStatus value and defines bar colors.
+ */
+const TASK_TYPES = [
+  { id: 'todo', label: 'To Do' },
+  { id: 'inprogress', label: 'In Progress' },
+  { id: 'inreview', label: 'In Review' },
+  { id: 'done', label: 'Done' },
+  { id: 'cancelled', label: 'Cancelled' },
+];
 
 interface GanttChartProps {
   projectId: string;
   tasks: SvarGanttTask[];
   links: SvarGanttLink[];
-  viewMode?: GanttViewMode;
 }
 
-export function GanttChart({
-  projectId,
-  tasks,
-  links,
-  viewMode = 'Week',
-}: GanttChartProps) {
+export function GanttChart({ projectId, tasks, links }: GanttChartProps) {
   const apiRef = useRef<IApi | null>(null);
   const navigate = useNavigateWithSearch();
 
@@ -40,13 +40,6 @@ export function GanttChart({
     [navigate, projectId]
   );
 
-  useEffect(() => {
-    if (apiRef.current) {
-      const zoomLevel = viewModeToZoomLevel(viewMode);
-      apiRef.current.exec('set-zoom', { level: zoomLevel });
-    }
-  }, [viewMode]);
-
   const taskTemplate = useCallback(
     ({
       data,
@@ -55,13 +48,7 @@ export function GanttChart({
       api: IApi;
       onaction: (ev: { action: string; data: Record<string, unknown> }) => void;
     }) => {
-      const svarTask = data as unknown as SvarGanttTask;
-      const statusClass = `gantt-task-${svarTask.taskStatus}`;
-      return (
-        <div className={`wx-gantt-task-content ${statusClass}`}>
-          {svarTask.text}
-        </div>
-      );
+      return <span className="wx-gantt-task-text">{data.text}</span>;
     },
     []
   );
@@ -79,14 +66,11 @@ export function GanttChart({
       <Gantt
         tasks={tasks}
         links={links}
-        zoom={{
-          level: viewModeToZoomLevel(viewMode),
-          levels: GANTT_ZOOM_CONFIG,
-        }}
+        taskTypes={TASK_TYPES}
+        scales={GANTT_SCALES}
         init={handleInit}
         readonly={true}
-        durationUnit="day"
-        lengthUnit="hour"
+        lengthUnit="minute"
         columns={[]}
         taskTemplate={taskTemplate}
       />

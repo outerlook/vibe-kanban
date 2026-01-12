@@ -43,40 +43,48 @@
   font-family: var(--font-chivo-mono, 'Chivo Mono', monospace);
 }
 
-/* Task status color classes */
-.gantt-task-todo {
-  --wx-gantt-task-color: hsl(var(--neutral));
-  --wx-gantt-task-fill-color: hsl(var(--neutral) / 0.7);
-  --wx-gantt-task-font-color: hsl(var(--neutral-foreground));
-  --wx-gantt-task-border-color: hsl(var(--neutral-foreground) / 0.3);
+/* Task status color classes - SVAR applies type as class on .wx-bar elements */
+.gantt-container .wx-bar.todo {
+  --wx-gantt-task-color: #94a3b8;
+  --wx-gantt-task-fill-color: #64748b;
+  --wx-gantt-task-font-color: #000;
+  --wx-gantt-task-border-color: #475569;
 }
 
-.gantt-task-inprogress {
-  --wx-gantt-task-color: hsl(var(--info));
-  --wx-gantt-task-fill-color: hsl(var(--info) / 0.7);
-  --wx-gantt-task-font-color: hsl(var(--info-foreground));
-  --wx-gantt-task-border-color: hsl(var(--info) / 0.8);
+.gantt-container .wx-bar.inprogress {
+  --wx-gantt-task-color: #3b82f6;
+  --wx-gantt-task-fill-color: #2563eb;
+  --wx-gantt-task-font-color: #000;
+  --wx-gantt-task-border-color: #1d4ed8;
 }
 
-.gantt-task-inreview {
-  --wx-gantt-task-color: hsl(var(--warning));
-  --wx-gantt-task-fill-color: hsl(var(--warning) / 0.7);
-  --wx-gantt-task-font-color: hsl(var(--warning-foreground));
-  --wx-gantt-task-border-color: hsl(var(--warning) / 0.8);
+.gantt-container .wx-bar.inreview {
+  --wx-gantt-task-color: #f59e0b;
+  --wx-gantt-task-fill-color: #d97706;
+  --wx-gantt-task-font-color: #000;
+  --wx-gantt-task-border-color: #b45309;
 }
 
-.gantt-task-done {
-  --wx-gantt-task-color: hsl(var(--success));
-  --wx-gantt-task-fill-color: hsl(var(--success) / 0.7);
-  --wx-gantt-task-font-color: hsl(var(--success-foreground));
-  --wx-gantt-task-border-color: hsl(var(--success) / 0.8);
+.gantt-container .wx-bar.done {
+  --wx-gantt-task-color: #22c55e;
+  --wx-gantt-task-fill-color: #16a34a;
+  --wx-gantt-task-font-color: #000;
+  --wx-gantt-task-border-color: #15803d;
 }
 
-.gantt-task-cancelled {
-  --wx-gantt-task-color: hsl(var(--destructive) / 0.5);
-  --wx-gantt-task-fill-color: hsl(var(--destructive) / 0.3);
-  --wx-gantt-task-font-color: hsl(var(--destructive-foreground));
-  --wx-gantt-task-border-color: hsl(var(--destructive) / 0.5);
+.gantt-container .wx-bar.cancelled {
+  --wx-gantt-task-color: #ef4444;
+  --wx-gantt-task-fill-color: #dc2626;
+  --wx-gantt-task-font-color: #000;
+  --wx-gantt-task-border-color: #b91c1c;
+  opacity: 0.6;
+}
+
+/* Task text in front of the bar */
+.gantt-container .wx-gantt-task-text {
+  position: relative;
+  z-index: 10;
+  pointer-events: none;
 }
 
 /* Dark mode adjustments */
