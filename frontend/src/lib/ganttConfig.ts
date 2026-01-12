@@ -22,6 +22,10 @@ export interface GanttZoomLevel {
  * 0 - Day: day/month granularity
  * 1 - Week: week/month granularity
  * 2 - Month: month/year granularity
+ *
+ * Format strings use strftime syntax (SVAR Gantt standard):
+ * %B = full month name, %b = abbreviated month, %Y = 4-digit year
+ * %d = day of month, %V = ISO week number
  */
 export const GANTT_ZOOM_CONFIG: GanttZoomLevel[] = [
   // Level 0: Day view - shows days grouped by month
@@ -29,8 +33,8 @@ export const GANTT_ZOOM_CONFIG: GanttZoomLevel[] = [
     minCellWidth: 60,
     maxCellWidth: 120,
     scales: [
-      { unit: 'month', step: 1, format: 'MMMM yyyy' },
-      { unit: 'day', step: 1, format: 'd' },
+      { unit: 'month', step: 1, format: '%B %Y' },
+      { unit: 'day', step: 1, format: '%d' },
     ],
   },
   // Level 1: Week view - shows weeks grouped by month
@@ -38,8 +42,8 @@ export const GANTT_ZOOM_CONFIG: GanttZoomLevel[] = [
     minCellWidth: 80,
     maxCellWidth: 160,
     scales: [
-      { unit: 'month', step: 1, format: 'MMMM yyyy' },
-      { unit: 'week', step: 1, format: "'W'w" },
+      { unit: 'month', step: 1, format: '%B %Y' },
+      { unit: 'week', step: 1, format: 'W%V' },
     ],
   },
   // Level 2: Month view - shows months grouped by year
@@ -47,8 +51,8 @@ export const GANTT_ZOOM_CONFIG: GanttZoomLevel[] = [
     minCellWidth: 100,
     maxCellWidth: 200,
     scales: [
-      { unit: 'year', step: 1, format: 'yyyy' },
-      { unit: 'month', step: 1, format: 'MMM' },
+      { unit: 'year', step: 1, format: '%Y' },
+      { unit: 'month', step: 1, format: '%b' },
     ],
   },
 ];

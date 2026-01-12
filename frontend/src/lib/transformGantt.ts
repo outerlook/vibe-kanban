@@ -2,13 +2,14 @@ import type { GanttTask, TaskStatus } from '../../../shared/types';
 
 /**
  * SVAR Gantt task format
+ * Note: SVAR expects either end OR duration, not both.
+ * We use start+end since that's what the backend provides.
  */
 export interface SvarGanttTask {
   id: string;
   text: string;
   start: Date;
   end: Date;
-  duration: number;
   progress: number;
   type: 'task';
   taskStatus: TaskStatus;
@@ -24,8 +25,11 @@ export interface SvarGanttLink {
   type: 'e2s';
 }
 
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
 /**
- * Transform backend GanttTask records to SVAR Gantt format
+ * Transform backend GanttTask records to SVAR Gantt format.
+ * Ensures minimum 1-hour duration for visibility (tasks with start == end are invisible).
  */
 export function transformToSvarFormat(tasks: Record<string, GanttTask>): {
   tasks: SvarGanttTask[];
@@ -36,17 +40,18 @@ export function transformToSvarFormat(tasks: Record<string, GanttTask>): {
 
   for (const task of Object.values(tasks)) {
     const start = new Date(task.start);
-    const end = new Date(task.end);
-    const duration = Math.ceil(
-      (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
-    );
+    let end = new Date(task.end);
+
+    // Ensure minimum 1-hour duration for visibility (zero-duration tasks are invisible)
+    if (end.getTime() - start.getTime() < ONE_HOUR_MS) {
+      end = new Date(start.getTime() + ONE_HOUR_MS);
+    }
 
     svarTasks.push({
       id: task.id,
       text: task.name,
       start,
       end,
-      duration,
       progress: task.progress,
       type: 'task',
       taskStatus: task.task_status,
