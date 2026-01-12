@@ -641,6 +641,13 @@ impl GitCli {
         Ok(files)
     }
 
+    /// Create a new branch pointing to HEAD.
+    pub fn create_branch(&self, repo_path: &Path, branch_name: &str) -> Result<(), GitCliError> {
+        self.ensure_available()?;
+        self.git(repo_path, ["branch", branch_name])?;
+        Ok(())
+    }
+
     /// Clone a repository from a URL to a destination directory.
     pub fn clone(&self, url: &str, destination: &Path) -> Result<(), GitCliError> {
         self.ensure_available()?;

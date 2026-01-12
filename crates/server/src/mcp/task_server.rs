@@ -37,6 +37,8 @@ pub struct CreateTaskRequest {
     pub title: String,
     #[schemars(description = "Optional description of the task")]
     pub description: Option<String>,
+    #[schemars(description = "Optional task group ID to assign this task to")]
+    pub task_group_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -49,6 +51,8 @@ pub struct CreateTaskWithDepsRequest {
     pub description: Option<String>,
     #[schemars(description = "Task IDs this task is blocked by")]
     pub depends_on: Option<Vec<Uuid>>,
+    #[schemars(description = "Optional task group ID to assign this task to")]
+    pub task_group_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -66,6 +70,8 @@ pub struct TaskDefinition {
         description = "Reference to another task in this batch by index (0-based)"
     )]
     pub depends_on_indices: Option<Vec<usize>>,
+    #[schemars(description = "Optional task group ID to assign this task to")]
+    pub task_group_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -159,6 +165,8 @@ pub struct TaskSummary {
     pub has_in_progress_attempt: Option<bool>,
     #[schemars(description = "Whether the last execution attempt failed")]
     pub last_attempt_failed: Option<bool>,
+    #[schemars(description = "The task group this task belongs to, if any")]
+    pub task_group_id: Option<String>,
 }
 
 impl TaskSummary {
@@ -171,6 +179,7 @@ impl TaskSummary {
             updated_at: task.updated_at.to_rfc3339(),
             has_in_progress_attempt: Some(task.has_in_progress_attempt),
             last_attempt_failed: Some(task.last_attempt_failed),
+            task_group_id: task.task_group_id.map(|id| id.to_string()),
         }
     }
 }
@@ -193,6 +202,8 @@ pub struct TaskDetails {
     pub has_in_progress_attempt: Option<bool>,
     #[schemars(description = "Whether the last execution attempt failed")]
     pub last_attempt_failed: Option<bool>,
+    #[schemars(description = "The task group this task belongs to, if any")]
+    pub task_group_id: Option<String>,
 }
 
 impl TaskDetails {
@@ -206,6 +217,7 @@ impl TaskDetails {
             updated_at: task.updated_at.to_rfc3339(),
             has_in_progress_attempt: None,
             last_attempt_failed: None,
+            task_group_id: task.task_group_id.map(|id| id.to_string()),
         }
     }
 }
@@ -239,6 +251,10 @@ pub struct UpdateTaskRequest {
     pub description: Option<String>,
     #[schemars(description = "New status: 'todo', 'inprogress', 'inreview', 'done', 'cancelled'")]
     pub status: Option<String>,
+    #[schemars(
+        description = "Task group ID to assign this task to. Pass null to remove from group."
+    )]
+    pub task_group_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -399,6 +415,13 @@ pub struct ListTaskGroupsRequest {
     pub project_id: Uuid,
 }
 
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ListTaskGroupsResponse {
+    pub task_groups: Vec<TaskGroupSummary>,
+    pub count: usize,
+    pub project_id: String,
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CreateTaskGroupRequest {
     #[schemars(description = "The ID of the project to create the task group in")]
@@ -409,14 +432,37 @@ pub struct CreateTaskGroupRequest {
     pub base_branch: Option<String>,
 }
 
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct CreateTaskGroupResponse {
+    pub task_group: TaskGroupSummary,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetTaskGroupRequest {
+    #[schemars(description = "The ID of the task group to retrieve")]
+    pub group_id: Uuid,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct GetTaskGroupResponse {
+    pub task_group: TaskGroupSummary,
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct UpdateTaskGroupRequest {
     #[schemars(description = "The ID of the task group to update")]
     pub group_id: Uuid,
     #[schemars(description = "New name for the task group")]
     pub name: Option<String>,
-    #[schemars(description = "New base branch for the task group")]
+    #[schemars(
+        description = "New base branch for the task group (set to null to clear)"
+    )]
     pub base_branch: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct UpdateTaskGroupResponse {
+    pub task_group: TaskGroupSummary,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -425,12 +471,23 @@ pub struct DeleteTaskGroupRequest {
     pub group_id: Uuid,
 }
 
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct DeleteTaskGroupResponse {
+    pub deleted_group_id: Option<String>,
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct BulkAssignTasksToGroupRequest {
     #[schemars(description = "The ID of the task group to assign tasks to")]
     pub group_id: Uuid,
-    #[schemars(description = "The IDs of tasks to assign to this group")]
+    #[schemars(description = "List of task IDs to assign to the group")]
     pub task_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct BulkAssignTasksToGroupResponse {
+    pub group_id: String,
+    pub updated_count: u64,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -450,7 +507,7 @@ pub struct TaskGroupSummary {
 }
 
 impl TaskGroupSummary {
-    pub fn from_task_group(group: TaskGroup) -> Self {
+    fn from_task_group(group: TaskGroup) -> Self {
         Self {
             id: group.id.to_string(),
             project_id: group.project_id.to_string(),
@@ -799,6 +856,7 @@ impl TaskServer {
             project_id,
             title,
             description,
+            task_group_id,
         }): Parameters<CreateTaskRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         // Expand @tagname references in description
@@ -811,13 +869,16 @@ impl TaskServer {
 
         let task: Task = match self
             .send_json(
-                self.client
-                    .post(&url)
-                    .json(&CreateTask::from_title_description(
-                        project_id,
-                        title,
-                        expanded_description,
-                    )),
+                self.client.post(&url).json(&CreateTask {
+                    project_id,
+                    title,
+                    description: expanded_description,
+                    status: Some(TaskStatus::Todo),
+                    parent_workspace_id: None,
+                    image_ids: None,
+                    shared_task_id: None,
+                    task_group_id,
+                }),
             )
             .await
         {
@@ -895,13 +956,16 @@ impl TaskServer {
 
             let created_task: Task = match self
                 .send_json(
-                    self.client
-                        .post(&url)
-                        .json(&CreateTask::from_title_description(
-                            project_id,
-                            task.title,
-                            expanded_description,
-                        )),
+                    self.client.post(&url).json(&CreateTask {
+                        project_id,
+                        title: task.title,
+                        description: expanded_description,
+                        status: Some(TaskStatus::Todo),
+                        parent_workspace_id: None,
+                        image_ids: None,
+                        shared_task_id: None,
+                        task_group_id: task.task_group_id,
+                    }),
                 )
                 .await
             {
@@ -957,6 +1021,7 @@ impl TaskServer {
             title,
             description,
             depends_on,
+            task_group_id,
         }): Parameters<CreateTaskWithDepsRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let expanded_description = match description {
@@ -967,13 +1032,16 @@ impl TaskServer {
         let url = self.url("/api/tasks");
         let task: Task = match self
             .send_json(
-                self.client
-                    .post(&url)
-                    .json(&CreateTask::from_title_description(
-                        project_id,
-                        title,
-                        expanded_description,
-                    )),
+                self.client.post(&url).json(&CreateTask {
+                    project_id,
+                    title,
+                    description: expanded_description,
+                    status: None,
+                    parent_workspace_id: None,
+                    image_ids: None,
+                    shared_task_id: None,
+                    task_group_id,
+                }),
             )
             .await
         {
@@ -1195,6 +1263,7 @@ impl TaskServer {
             title,
             description,
             status,
+            task_group_id,
         }): Parameters<UpdateTaskRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let status = if let Some(ref status_str) = status {
@@ -1223,7 +1292,7 @@ impl TaskServer {
             status,
             parent_workspace_id: None,
             image_ids: None,
-            task_group_id: None,
+            task_group_id,
         };
         let url = self.url(&format!("/api/tasks/{}", task_id));
         let updated_task: Task = match self.send_json(self.client.put(&url).json(&payload)).await {
@@ -1232,8 +1301,8 @@ impl TaskServer {
         };
 
         let details = TaskDetails::from_task(updated_task);
-        let repsonse = UpdateTaskResponse { task: details };
-        TaskServer::success(&repsonse)
+        let response = UpdateTaskResponse { task: details };
+        TaskServer::success(&response)
     }
 
     #[tool(
@@ -1252,7 +1321,7 @@ impl TaskServer {
             Err(e) => return Ok(e),
         };
 
-        let repsonse = DeleteTaskResponse {
+        let response = DeleteTaskResponse {
             deleted_task_id: if deleted {
                 Some(task_id.to_string())
             } else {
@@ -1260,7 +1329,7 @@ impl TaskServer {
             },
         };
 
-        TaskServer::success(&repsonse)
+        TaskServer::success(&response)
     }
 
     #[tool(
@@ -1408,12 +1477,170 @@ impl TaskServer {
 
         TaskServer::success(&response)
     }
+
+    // ========================================================================
+    // Task Group Tools
+    // ========================================================================
+
+    #[tool(description = "List all task groups in a project. `project_id` is required!")]
+    async fn list_task_groups(
+        &self,
+        Parameters(ListTaskGroupsRequest { project_id }): Parameters<ListTaskGroupsRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/task-groups?project_id={}", project_id));
+        let groups: Vec<TaskGroup> = match self.send_json(self.client.get(&url)).await {
+            Ok(gs) => gs,
+            Err(e) => return Ok(e),
+        };
+
+        let group_summaries: Vec<TaskGroupSummary> = groups
+            .into_iter()
+            .map(TaskGroupSummary::from_task_group)
+            .collect();
+
+        let response = ListTaskGroupsResponse {
+            count: group_summaries.len(),
+            task_groups: group_summaries,
+            project_id: project_id.to_string(),
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(description = "Create a new task group in a project. `project_id` and `name` are required!")]
+    async fn create_task_group(
+        &self,
+        Parameters(CreateTaskGroupRequest {
+            project_id,
+            name,
+            base_branch,
+        }): Parameters<CreateTaskGroupRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url("/api/task-groups");
+        let payload = serde_json::json!({
+            "project_id": project_id,
+            "name": name,
+            "base_branch": base_branch
+        });
+
+        let group: TaskGroup = match self.send_json(self.client.post(&url).json(&payload)).await {
+            Ok(g) => g,
+            Err(e) => return Ok(e),
+        };
+
+        let response = CreateTaskGroupResponse {
+            task_group: TaskGroupSummary::from_task_group(group),
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(description = "Get details of a specific task group. `group_id` is required!")]
+    async fn get_task_group(
+        &self,
+        Parameters(GetTaskGroupRequest { group_id }): Parameters<GetTaskGroupRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/task-groups/{}", group_id));
+        let group: TaskGroup = match self.send_json(self.client.get(&url)).await {
+            Ok(g) => g,
+            Err(e) => return Ok(e),
+        };
+
+        let response = GetTaskGroupResponse {
+            task_group: TaskGroupSummary::from_task_group(group),
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(description = "Update a task group's name or base branch. `group_id` is required!")]
+    async fn update_task_group(
+        &self,
+        Parameters(UpdateTaskGroupRequest {
+            group_id,
+            name,
+            base_branch,
+        }): Parameters<UpdateTaskGroupRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/task-groups/{}", group_id));
+        let payload = serde_json::json!({
+            "name": name,
+            "base_branch": base_branch
+        });
+
+        let group: TaskGroup = match self.send_json(self.client.put(&url).json(&payload)).await {
+            Ok(g) => g,
+            Err(e) => return Ok(e),
+        };
+
+        let response = UpdateTaskGroupResponse {
+            task_group: TaskGroupSummary::from_task_group(group),
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(description = "Delete a task group. `group_id` is required!")]
+    async fn delete_task_group(
+        &self,
+        Parameters(DeleteTaskGroupRequest { group_id }): Parameters<DeleteTaskGroupRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/task-groups/{}", group_id));
+        let deleted = match self
+            .send_json_no_data(self.client.delete(&url), true)
+            .await
+        {
+            Ok(deleted) => deleted,
+            Err(e) => return Ok(e),
+        };
+
+        let response = DeleteTaskGroupResponse {
+            deleted_group_id: if deleted {
+                Some(group_id.to_string())
+            } else {
+                None
+            },
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(
+        description = "Assign multiple tasks to a task group. `group_id` and `task_ids` are required!"
+    )]
+    async fn bulk_assign_tasks_to_group(
+        &self,
+        Parameters(BulkAssignTasksToGroupRequest { group_id, task_ids }): Parameters<
+            BulkAssignTasksToGroupRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/task-groups/{}/assign", group_id));
+        let payload = serde_json::json!({ "task_ids": task_ids });
+
+        #[derive(Debug, Deserialize)]
+        struct BulkAssignResponse {
+            updated_count: u64,
+        }
+
+        let result: BulkAssignResponse =
+            match self.send_json(self.client.post(&url).json(&payload)).await {
+                Ok(r) => r,
+                Err(e) => return Ok(e),
+            };
+
+        let response = BulkAssignTasksToGroupResponse {
+            group_id: group_id.to_string(),
+            updated_count: result.updated_count,
+        };
+
+        TaskServer::success(&response)
+    }
 }
 
 #[tool_handler]
 impl ServerHandler for TaskServer {
     fn get_info(&self) -> ServerInfo {
-        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`.. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'bulk_create_tasks', 'create_task_with_dependencies', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree'. Make sure to pass `project_id` or `task_id` where required. You can use list tools to get the available ids.".to_string();
+        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'bulk_create_tasks', 'create_task_with_dependencies', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree', 'list_task_groups', 'create_task_group', 'get_task_group', 'update_task_group', 'delete_task_group', 'bulk_assign_tasks_to_group'. Make sure to pass `project_id`, `task_id`, or `group_id` where required. You can use list tools to get the available ids.".to_string();
         if self.context.is_some() {
             let context_instruction = "Use 'get_context' to fetch project/task/workspace metadata for the active Vibe Kanban workspace session when available.";
             instruction = format!("{} {}", context_instruction, instruction);
