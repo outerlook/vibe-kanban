@@ -39,6 +39,7 @@ pub struct CloneRepoRequest {
 #[ts(export)]
 pub struct CreateBranchRequest {
     pub name: String,
+    pub base_branch: Option<String>,
 }
 
 pub async fn register_repo(
@@ -134,7 +135,7 @@ pub async fn create_branch(
     }
 
     // Create the branch
-    git.create_branch(&repo.path, &payload.name, None)?;
+    git.create_branch(&repo.path, &payload.name, payload.base_branch.as_deref())?;
 
     // Get the created branch from the list
     let branches = git.get_all_branches(&repo.path)?;
