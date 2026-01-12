@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react';
+import { createElement, useMemo, type ReactNode } from 'react';
 import { AttemptHeaderActions } from '@/components/panels/AttemptHeaderActions';
 import { TaskPanelHeaderActions } from '@/components/panels/TaskPanelHeaderActions';
 import { useProject } from '@/contexts/ProjectContext';
@@ -95,25 +95,21 @@ export const useTaskPanelHeader = (
     if (!task) return null;
 
     if (isTaskView) {
-      return (
-        <TaskPanelHeaderActions
-          task={task}
-          sharedTask={sharedTask}
-          onClose={onClose}
-        />
-      );
+      return createElement(TaskPanelHeaderActions, {
+        task,
+        sharedTask,
+        onClose,
+      });
     }
 
-    return (
-      <AttemptHeaderActions
-        mode={mode}
-        onModeChange={onModeChange}
-        task={task}
-        sharedTask={sharedTask}
-        attempt={attempt ?? null}
-        onClose={onClose}
-      />
-    );
+    return createElement(AttemptHeaderActions, {
+      mode,
+      onModeChange,
+      task,
+      sharedTask,
+      attempt: attempt ?? null,
+      onClose,
+    });
   }, [
     attempt,
     isTaskView,

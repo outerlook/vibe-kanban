@@ -127,6 +127,17 @@ pub struct UpdateTask {
     pub task_group_id: Option<Uuid>,
 }
 
+#[derive(Debug)]
+pub struct TaskUpdateInput {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub title: String,
+    pub description: Option<String>,
+    pub status: TaskStatus,
+    pub parent_workspace_id: Option<Uuid>,
+    pub task_group_id: Option<Uuid>,
+}
+
 impl Task {
     pub fn to_prompt(&self) -> String {
         if let Some(description) = self.description.as_ref().filter(|d| !d.trim().is_empty()) {
@@ -418,13 +429,7 @@ LIMIT $3 OFFSET $4"#,
 
     pub async fn update(
         pool: &SqlitePool,
-        id: Uuid,
-        project_id: Uuid,
-        title: String,
-        description: Option<String>,
-        status: TaskStatus,
-        parent_workspace_id: Option<Uuid>,
-        task_group_id: Option<Uuid>,
+        update: TaskUpdateInput,
     ) -> Result<Self, sqlx::Error> {
         sqlx::query_as!(
             Task,
@@ -432,13 +437,13 @@ LIMIT $3 OFFSET $4"#,
                SET title = $3, description = $4, status = $5, parent_workspace_id = $6, task_group_id = $7
                WHERE id = $1 AND project_id = $2
                RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>""#,
-            id,
-            project_id,
-            title,
-            description,
-            status,
-            parent_workspace_id,
-            task_group_id
+            update.id,
+            update.project_id,
+            update.title,
+            update.description,
+            update.status,
+            update.parent_workspace_id,
+            update.task_group_id
         )
         .fetch_one(pool)
         .await

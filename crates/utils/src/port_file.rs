@@ -20,7 +20,7 @@ pub async fn write_port_file(port: u16) -> std::io::Result<PathBuf> {
     let path = port_file_path(DEFAULT_APP_NAME);
     let dir = path
         .parent()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "Missing port file dir"))?;
+        .ok_or_else(|| std::io::Error::other("Missing port file dir"))?;
     cleanup_stale_port_file(&path).await;
 
     tracing::debug!("Writing port {} to {:?}", port, path);

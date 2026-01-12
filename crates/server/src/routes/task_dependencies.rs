@@ -94,12 +94,11 @@ pub async fn add_dependency(
 
     // Auto-inherit group: if the depends_on task has a group and current task doesn't,
     // inherit the group from depends_on
-    if task.task_group_id.is_none() {
-        if let Some(depends_on_task) = Task::find_by_id(pool, payload.depends_on_id).await? {
-            if let Some(group_id) = depends_on_task.task_group_id {
-                Task::inherit_group_if_none(pool, task.id, group_id).await?;
-            }
-        }
+    if task.task_group_id.is_none()
+        && let Some(depends_on_task) = Task::find_by_id(pool, payload.depends_on_id).await?
+        && let Some(group_id) = depends_on_task.task_group_id
+    {
+        Task::inherit_group_if_none(pool, task.id, group_id).await?;
     }
 
     Ok(ResponseJson(ApiResponse::success(dependency)))

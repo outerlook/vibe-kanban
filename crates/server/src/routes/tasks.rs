@@ -16,7 +16,9 @@ use db::models::{
     image::TaskImage,
     project::{Project, ProjectError},
     repo::Repo,
-    task::{CreateTask, Task, TaskStatus, TaskWithAttemptStatus, UpdateTask},
+    task::{
+        CreateTask, Task, TaskStatus, TaskUpdateInput, TaskWithAttemptStatus, UpdateTask,
+    },
     task_group::TaskGroup,
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
@@ -343,13 +345,15 @@ pub async fn update_task(
 
     let task = Task::update(
         &deployment.db().pool,
-        existing_task.id,
-        existing_task.project_id,
-        title,
-        description,
-        status,
-        parent_workspace_id,
-        task_group_id,
+        TaskUpdateInput {
+            id: existing_task.id,
+            project_id: existing_task.project_id,
+            title,
+            description,
+            status,
+            parent_workspace_id,
+            task_group_id,
+        },
     )
     .await?;
 
