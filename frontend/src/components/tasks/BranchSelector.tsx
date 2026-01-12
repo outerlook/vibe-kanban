@@ -49,6 +49,14 @@ type RowProps = {
   disabledTooltip?: string;
 };
 
+type BaseBranchSelectorProps = {
+  branches: GitBranch[];
+  selectedBranch: string | null;
+  onBranchSelect: (branch: string) => void;
+  placeholder?: string;
+  className?: string;
+};
+
 const BranchRow = memo(function BranchRow({
   branch,
   isSelected,
@@ -110,6 +118,181 @@ const BranchRow = memo(function BranchRow({
   return item;
 });
 
+function BaseBranchSelector({
+  branches,
+  selectedBranch,
+  onBranchSelect,
+  placeholder,
+  className = '',
+}: BaseBranchSelectorProps) {
+  const { t } = useTranslation(['common']);
+  const [branchSearchTerm, setBranchSearchTerm] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
+  const [open, setOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+
+  const effectivePlaceholder = placeholder ?? t('branchSelector.placeholder');
+
+  const filteredBranches = useMemo(() => {
+    let filtered = branches;
+
+    if (branchSearchTerm.trim()) {
+      const q = branchSearchTerm.toLowerCase();
+      filtered = filtered.filter((b) => b.name.toLowerCase().includes(q));
+    }
+    return filtered;
+  }, [branches, branchSearchTerm]);
+
+  const handleBranchSelect = useCallback(
+    (branchName: string) => {
+      onBranchSelect(branchName);
+      setBranchSearchTerm('');
+      setHighlightedIndex(null);
+      setOpen(false);
+    },
+    [onBranchSelect]
+  );
+
+  useEffect(() => {
+    if (
+      highlightedIndex !== null &&
+      highlightedIndex >= filteredBranches.length
+    ) {
+      setHighlightedIndex(null);
+    }
+  }, [filteredBranches, highlightedIndex]);
+
+  useEffect(() => {
+    setHighlightedIndex(null);
+  }, [branchSearchTerm]);
+
+  const moveHighlight = useCallback(
+    (delta: 1 | -1) => {
+      if (filteredBranches.length === 0) return;
+
+      const start = highlightedIndex ?? -1;
+      const next =
+        (start + delta + filteredBranches.length) % filteredBranches.length;
+      setHighlightedIndex(next);
+      virtuosoRef.current?.scrollIntoView({
+        index: next,
+        behavior: 'auto',
+      });
+    },
+    [filteredBranches, highlightedIndex]
+  );
+
+  const attemptSelect = useCallback(() => {
+    if (highlightedIndex == null) return;
+    const branch = filteredBranches[highlightedIndex];
+    if (!branch) return;
+    handleBranchSelect(branch.name);
+  }, [highlightedIndex, filteredBranches, handleBranchSelect]);
+
+  return (
+    <DropdownMenu
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) {
+          setBranchSearchTerm('');
+          setHighlightedIndex(null);
+        }
+      }}
+    >
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className={`w-full justify-between text-xs ${className}`}
+        >
+          <div className="flex items-center gap-1.5 w-full min-w-0">
+            <GitBranchIcon className="h-3 w-3 flex-shrink-0" />
+            <span className="truncate">
+              {selectedBranch || effectivePlaceholder}
+            </span>
+          </div>
+          <ArrowDown className="h-3 w-3 flex-shrink-0" />
+        </Button>
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent className="w-72">
+        <div className="p-2">
+          <div className="relative">
+            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              ref={searchInputRef}
+              placeholder={t('branchSelector.searchPlaceholder')}
+              value={branchSearchTerm}
+              onChange={(e) => setBranchSearchTerm(e.target.value)}
+              onKeyDown={(e) => {
+                switch (e.key) {
+                  case 'ArrowDown':
+                    e.preventDefault();
+                    e.stopPropagation();
+                    moveHighlight(1);
+                    return;
+                  case 'ArrowUp':
+                    e.preventDefault();
+                    e.stopPropagation();
+                    moveHighlight(-1);
+                    return;
+                  case 'Enter':
+                    e.preventDefault();
+                    e.stopPropagation();
+                    attemptSelect();
+                    return;
+                  case 'Escape':
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setOpen(false);
+                    return;
+                  case 'Tab':
+                    return;
+                  default:
+                    e.stopPropagation();
+                }
+              }}
+              className="pl-8"
+            />
+          </div>
+        </div>
+        <DropdownMenuSeparator />
+
+        {filteredBranches.length === 0 ? (
+          <div className="p-2 text-sm text-muted-foreground text-center">
+            {t('branchSelector.empty')}
+          </div>
+        ) : (
+          <Virtuoso
+            ref={virtuosoRef}
+            style={{ height: '12rem' }}
+            totalCount={filteredBranches.length}
+            computeItemKey={(idx) => filteredBranches[idx]?.name ?? idx}
+            itemContent={(idx) => {
+              const branch = filteredBranches[idx];
+              const isHighlighted = idx === highlightedIndex;
+              const isSelected = selectedBranch === branch.name;
+
+              return (
+                <BranchRow
+                  branch={branch}
+                  isSelected={isSelected}
+                  isDisabled={false}
+                  isHighlighted={isHighlighted}
+                  onHover={() => setHighlightedIndex(idx)}
+                  onSelect={() => handleBranchSelect(branch.name)}
+                />
+              );
+            }}
+          />
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function BranchSelector({
   branches,
   selectedBranch,
@@ -126,6 +309,7 @@ function BranchSelector({
   const [open, setOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
+  const [baseBranch, setBaseBranch] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const createInputRef = useRef<HTMLInputElement>(null);
@@ -213,16 +397,20 @@ function BranchSelector({
   ]);
 
   const enterCreateMode = useCallback(() => {
+    const currentBranch =
+      branches.find((branch) => branch.is_current)?.name ?? null;
     setIsCreating(true);
     setNewBranchName('');
+    setBaseBranch(currentBranch);
     setCreateError(null);
     // Focus input after render
     setTimeout(() => createInputRef.current?.focus(), 0);
-  }, []);
+  }, [branches]);
 
   const exitCreateMode = useCallback(() => {
     setIsCreating(false);
     setNewBranchName('');
+    setBaseBranch(null);
     setCreateError(null);
   }, []);
 
@@ -232,12 +420,16 @@ function BranchSelector({
 
     setCreateError(null);
     try {
-      const newBranch = await createBranchMutation.mutateAsync(trimmedName);
+      const newBranch = await createBranchMutation.mutateAsync({
+        name: trimmedName,
+        baseBranch: baseBranch ?? undefined,
+      });
       onBranchSelect(newBranch.name);
       setBranchSearchTerm('');
       setHighlightedIndex(null);
       setIsCreating(false);
       setNewBranchName('');
+      setBaseBranch(null);
       setOpen(false);
     } catch (err) {
       const message =
@@ -246,6 +438,7 @@ function BranchSelector({
     }
   }, [
     newBranchName,
+    baseBranch,
     repoId,
     createBranchMutation,
     onBranchSelect,
@@ -262,6 +455,7 @@ function BranchSelector({
           setHighlightedIndex(null);
           setIsCreating(false);
           setNewBranchName('');
+          setBaseBranch(null);
           setCreateError(null);
         }
       }}
@@ -373,6 +567,17 @@ function BranchSelector({
                     disabled={createBranchMutation.isPending}
                     className="flex-1"
                   />
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] text-muted-foreground">
+                      {t('branchSelector.baseBranchLabel')}
+                    </span>
+                    <BaseBranchSelector
+                      branches={branches}
+                      selectedBranch={baseBranch}
+                      onBranchSelect={setBaseBranch}
+                      className="w-40"
+                    />
+                  </div>
                   <Button
                     size="sm"
                     variant="ghost"

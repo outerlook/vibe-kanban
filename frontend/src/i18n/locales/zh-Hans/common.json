@@ -56,7 +56,8 @@
       "current": "当前",
       "remote": "远程"
     },
-    "currentDisabled": "无法选择当前分支"
+    "currentDisabled": "无法选择当前分支",
+    "baseBranchLabel": "基于分支"
   },
   "breadcrumb": {
     "more": "更多"

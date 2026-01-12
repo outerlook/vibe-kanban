@@ -57,6 +57,7 @@
       "remote": "remote"
     },
     "currentDisabled": "Cannot select the current branch",
+    "baseBranchLabel": "Base branch",
     "createBranch": "Create branch...",
     "newBranchPlaceholder": "New branch name",
     "creating": "Creating branch...",
