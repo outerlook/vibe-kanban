@@ -232,7 +232,9 @@ function BranchSelector({
 
     setCreateError(null);
     try {
-      const newBranch = await createBranchMutation.mutateAsync(trimmedName);
+      const newBranch = await createBranchMutation.mutateAsync({
+        name: trimmedName,
+      });
       onBranchSelect(newBranch.name);
       setBranchSearchTerm('');
       setHighlightedIndex(null);
