@@ -161,7 +161,7 @@ impl GanttTask {
                 ) AS "exec_completed_at?: DateTime<Utc>",
                 IFNULL(
                     (
-                        SELECT GROUP_CONCAT(td.depends_on_id)
+                        SELECT GROUP_CONCAT(lower(hex(td.depends_on_id)))
                         FROM task_dependencies td
                         WHERE td.task_id = t.id
                     ),
@@ -226,7 +226,7 @@ impl GanttTask {
                 ) AS "exec_completed_at?: DateTime<Utc>",
                 IFNULL(
                     (
-                        SELECT GROUP_CONCAT(td.depends_on_id)
+                        SELECT GROUP_CONCAT(lower(hex(td.depends_on_id)))
                         FROM task_dependencies td
                         WHERE td.task_id = t.id
                     ),
