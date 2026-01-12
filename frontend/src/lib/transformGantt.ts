@@ -13,6 +13,8 @@ export interface SvarGanttTask {
   end: Date;
   progress: number;
   type: TaskStatus;
+  totalInputTokens: number | null;
+  totalOutputTokens: number | null;
 }
 
 /**
@@ -46,6 +48,14 @@ export function transformToSvarFormat(tasks: Record<string, GanttTask>): {
       end,
       progress: task.progress,
       type: task.task_status,
+      totalInputTokens:
+        task.total_input_tokens != null
+          ? Number(task.total_input_tokens)
+          : null,
+      totalOutputTokens:
+        task.total_output_tokens != null
+          ? Number(task.total_output_tokens)
+          : null,
     });
 
     task.dependencies.forEach((depId, index) => {

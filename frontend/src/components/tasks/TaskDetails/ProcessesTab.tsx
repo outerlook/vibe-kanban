@@ -10,6 +10,7 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { executionProcessesApi } from '@/lib/api.ts';
+import { formatTokenCount } from '@/lib/utils';
 import { ProfileVariantBadge } from '@/components/common/ProfileVariantBadge.tsx';
 import { useExecutionProcesses } from '@/hooks/useExecutionProcesses';
 import { useLogStream } from '@/hooks/useLogStream';
@@ -267,6 +268,15 @@ function ProcessesTab({ attemptId }: ProcessesTabProps) {
                         </span>
                       )}
                     </div>
+                    {(process.input_tokens !== null ||
+                      process.output_tokens !== null) && (
+                      <div className="mt-1">
+                        {t('processes.tokens', {
+                          input: formatTokenCount(process.input_tokens),
+                          output: formatTokenCount(process.output_tokens),
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
