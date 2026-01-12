@@ -87,7 +87,7 @@
   pointer-events: none;
 }
 
-/* Task group color classes - matches ganttColors.ts TASK_GROUP_PALETTE */
+/* Task group color classes (group-0 through group-9) */
 .gantt-container .wx-bar.ungrouped {
   --wx-gantt-task-color: #94a3b8;
   --wx-gantt-task-fill-color: #64748b;

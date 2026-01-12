@@ -58,15 +58,9 @@ export function GanttChart({
   );
 
   const taskTemplate = useCallback(
-    ({
-      data,
-    }: {
-      data: ITask;
-      api: IApi;
-      onaction: (ev: { action: string; data: Record<string, unknown> }) => void;
-    }) => {
-      return <span className="wx-gantt-task-text">{data.text}</span>;
-    },
+    ({ data }: { data: ITask }) => (
+      <span className="wx-gantt-task-text">{data.text}</span>
+    ),
     []
   );
 

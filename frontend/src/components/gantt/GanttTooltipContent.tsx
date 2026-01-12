@@ -4,7 +4,7 @@ import type { TaskStatus } from 'shared/types';
 import type { SvarGanttTask } from '@/lib/transformGantt';
 import { statusLabels, statusBoardColors } from '@/utils/statusLabels';
 
-export interface GanttTooltipContentProps {
+interface GanttTooltipContentProps {
   data: ITask;
 }
 
@@ -18,7 +18,7 @@ function isTaskStatus(value: string): value is TaskStatus {
  * Calculate duration between two dates, returning a human-readable string.
  * Formats as "X hours Y minutes" for durations >= 1 hour, or "X minutes" for shorter.
  */
-export function calculateDuration(start: Date, end: Date): string {
+function calculateDuration(start: Date, end: Date): string {
   const diffMs = end.getTime() - start.getTime();
   const totalMinutes = Math.round(diffMs / (1000 * 60));
 
@@ -44,7 +44,7 @@ export function calculateDuration(start: Date, end: Date): string {
  * Format a date as a human-readable date/time string.
  * Uses locale-aware formatting with medium date and short time.
  */
-export function formatDateTime(date: Date): string {
+function formatDateTime(date: Date): string {
   return date.toLocaleString(undefined, {
     dateStyle: 'medium',
     timeStyle: 'short',
