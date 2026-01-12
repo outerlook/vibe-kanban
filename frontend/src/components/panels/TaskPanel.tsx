@@ -19,9 +19,10 @@ import { DataTable, type ColumnDef } from '@/components/ui/table';
 
 interface TaskPanelProps {
   task: TaskWithAttemptStatus | null;
+  basePath?: 'tasks' | 'gantt';
 }
 
-const TaskPanel = ({ task }: TaskPanelProps) => {
+const TaskPanel = ({ task, basePath = 'tasks' }: TaskPanelProps) => {
   const { t } = useTranslation('tasks');
   const navigate = useNavigateWithSearch();
   const { projectId } = useProject();
@@ -146,7 +147,17 @@ const TaskPanel = ({ task }: TaskPanelProps) => {
                 onRowClick={(attempt) => {
                   if (projectId) {
                     navigate(
-                      paths.attempt(projectId, attempt.task_id, attempt.id)
+                      basePath === 'gantt'
+                        ? paths.ganttAttempt(
+                            projectId,
+                            attempt.task_id,
+                            attempt.id
+                          )
+                        : paths.attempt(
+                            projectId,
+                            attempt.task_id,
+                            attempt.id
+                          )
                     );
                   }
                 }}
@@ -170,7 +181,11 @@ const TaskPanel = ({ task }: TaskPanelProps) => {
                 keyExtractor={(attempt) => attempt.id}
                 onRowClick={(attempt) => {
                   if (projectId && task.id) {
-                    navigate(paths.attempt(projectId, task.id, attempt.id));
+                    navigate(
+                      basePath === 'gantt'
+                        ? paths.ganttAttempt(projectId, task.id, attempt.id)
+                        : paths.attempt(projectId, task.id, attempt.id)
+                    );
                   }
                 }}
                 emptyState={t('taskPanel.noAttempts')}

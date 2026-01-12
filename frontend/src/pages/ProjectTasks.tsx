@@ -6,7 +6,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { AlertTriangle, Loader2, Plus, X } from 'lucide-react';
 import { Loader } from '@/components/ui/loader';
 import { tasksApi } from '@/lib/api';
-import type { RepoBranchStatus, Workspace } from 'shared/types';
 import { openTaskForm } from '@/lib/openTaskForm';
 import { FeatureShowcaseDialog } from '@/components/dialogs/global/FeatureShowcaseDialog';
 import { showcases } from '@/config/showcases';
@@ -19,7 +18,7 @@ import { useTaskAttempts } from '@/hooks/useTaskAttempts';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { useTask } from '@/hooks/useTask';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { useBranchStatus, useAttemptExecution } from '@/hooks';
+import { useBranchStatus } from '@/hooks';
 import { paths } from '@/lib/paths';
 import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import { ClickedElementsProvider } from '@/contexts/ClickedElementsProvider';
@@ -55,7 +54,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { TasksLayout, type LayoutMode } from '@/components/layout/TasksLayout';
 import { PreviewPanel } from '@/components/panels/PreviewPanel';
-import { DiffsPanel } from '@/components/panels/DiffsPanel';
+import { DiffsPanelContainer } from '@/components/panels/DiffsPanelContainer';
 import TaskAttemptPanel from '@/components/panels/TaskAttemptPanel';
 import TaskPanel from '@/components/panels/TaskPanel';
 import SharedTaskPanel from '@/components/panels/SharedTaskPanel';
@@ -100,35 +99,6 @@ function GitErrorBanner() {
     <div className="mx-4 mt-4 p-3 border border-destructive rounded">
       <div className="text-destructive text-sm">{gitError}</div>
     </div>
-  );
-}
-
-function DiffsPanelContainer({
-  attempt,
-  selectedTask,
-  branchStatus,
-}: {
-  attempt: Workspace | null;
-  selectedTask: TaskWithAttemptStatus | null;
-  branchStatus: RepoBranchStatus[] | null;
-}) {
-  const { isAttemptRunning } = useAttemptExecution(attempt?.id);
-
-  return (
-    <DiffsPanel
-      key={attempt?.id}
-      selectedAttempt={attempt}
-      gitOps={
-        attempt && selectedTask
-          ? {
-              task: selectedTask,
-              branchStatus: branchStatus ?? null,
-              isAttemptRunning,
-              selectedBranch: branchStatus?.[0]?.target_branch_name ?? null,
-            }
-          : undefined
-      }
-    />
   );
 }
 

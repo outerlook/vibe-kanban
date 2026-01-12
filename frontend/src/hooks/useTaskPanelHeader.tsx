@@ -43,6 +43,7 @@ export const useTaskPanelHeader = (
     sharedTask,
     onClose,
     navigateWithSearch,
+    basePath,
   } = navigation;
 
   const truncatedTitle = useMemo(
@@ -66,7 +67,12 @@ export const useTaskPanelHeader = (
         label: truncatedTitle,
         isLink: true,
         onClick: canNavigateToTask
-          ? () => navigateWithSearch(paths.task(projectId, resolvedTaskId))
+          ? () =>
+              navigateWithSearch(
+                basePath === 'gantt'
+                  ? paths.ganttTask(projectId!, resolvedTaskId!)
+                  : paths.task(projectId!, resolvedTaskId!)
+              )
           : undefined,
       },
       {
@@ -76,6 +82,7 @@ export const useTaskPanelHeader = (
     ];
   }, [
     attempt?.branch,
+    basePath,
     isTaskView,
     navigateWithSearch,
     projectId,

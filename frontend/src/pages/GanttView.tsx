@@ -1,17 +1,31 @@
-import { useCallback, useState } from 'react';
+import { Fragment, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, RefreshCw, ArrowLeft, Loader2 } from 'lucide-react';
 
 import { useProject } from '@/contexts/ProjectContext';
+import { ClickedElementsProvider } from '@/contexts/ClickedElementsProvider';
+import { ReviewProvider } from '@/contexts/ReviewProvider';
+import {
+  GitOperationsProvider,
+  useGitOperationsError,
+} from '@/contexts/GitOperationsContext';
+import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
-import { useProjectTasks } from '@/hooks/useProjectTasks';
+import {
+  useBranchStatus,
+  useTaskDetailNavigation,
+  useTaskPanelHeader,
+} from '@/hooks';
 import { GanttChart } from '@/components/gantt/GanttChart';
 import { GanttToolbar } from '@/components/gantt/GanttToolbar';
 import { TasksLayout } from '@/components/layout/TasksLayout';
+import TaskAttemptPanel from '@/components/panels/TaskAttemptPanel';
+import { DiffsPanelContainer } from '@/components/panels/DiffsPanelContainer';
+import { PreviewPanel } from '@/components/panels/PreviewPanel';
 import TaskPanel from '@/components/panels/TaskPanel';
-import { TaskPanelHeaderActions } from '@/components/panels/TaskPanelHeaderActions';
-import { NewCardHeader } from '@/components/ui/new-card';
+import TodoPanel from '@/components/tasks/TodoPanel';
+import { NewCard, NewCardHeader } from '@/components/ui/new-card';
 import { Loader } from '@/components/ui/loader';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -25,12 +39,22 @@ import {
 } from '@/components/ui/breadcrumb';
 import { paths } from '@/lib/paths';
 
+function GitErrorBanner() {
+  const { error: gitError } = useGitOperationsError();
+
+  if (!gitError) return null;
+
+  return (
+    <div className="mx-4 mt-4 p-3 border border-destructive rounded">
+      <div className="text-destructive text-sm">{gitError}</div>
+    </div>
+  );
+}
+
 export function GanttView() {
   const { t } = useTranslation(['tasks', 'common']);
   const navigate = useNavigate();
 
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [colorMode, setColorMode] = useState<'status' | 'group'>('status');
 
   const {
@@ -39,6 +63,14 @@ export function GanttView() {
     isLoading: projectLoading,
     error: projectError,
   } = useProject();
+
+  const navigation = useTaskDetailNavigation({
+    projectId,
+    basePath: 'gantt',
+  });
+  const header = useTaskPanelHeader(navigation);
+  const { data: branchStatus } = useBranchStatus(navigation.attempt?.id);
+  const { openTask } = navigation;
 
   const {
     ganttTasks,
@@ -51,9 +83,6 @@ export function GanttView() {
     error: ganttError,
   } = useGanttTasks(projectId, { colorMode });
 
-  const { tasksById } = useProjectTasks(projectId ?? '');
-  const selectedTask = selectedTaskId ? tasksById[selectedTaskId] ?? null : null;
-
   const handleRetry = useCallback(() => {
     window.location.reload();
   }, []);
@@ -64,14 +93,12 @@ export function GanttView() {
     }
   }, [projectId, navigate]);
 
-  const handleSelectTask = useCallback((taskId: string) => {
-    setSelectedTaskId(taskId);
-    setIsPanelOpen(true);
-  }, []);
-
-  const handleClosePanel = useCallback(() => {
-    setIsPanelOpen(false);
-  }, []);
+  const handleSelectTask = useCallback(
+    (taskId: string) => {
+      openTask(taskId);
+    },
+    [openTask]
+  );
 
   if (projectError) {
     return (
@@ -151,17 +178,104 @@ export function GanttView() {
     </div>
   );
 
-  const rightHeader = selectedTask ? (
-    <NewCardHeader
-      className="shrink-0"
-      actions={
-        <TaskPanelHeaderActions
-          task={selectedTask}
-          onClose={handleClosePanel}
-        />
-      }
-    />
+  const rightHeader = navigation.task ? (
+    <NewCardHeader className="shrink-0" actions={header.headerActions}>
+      <div className="mx-auto w-full">
+        <Breadcrumb>
+          <BreadcrumbList>
+            {header.breadcrumbs.map((crumb, index) => (
+              <Fragment key={`${crumb.label}-${index}`}>
+                <BreadcrumbItem>
+                  {crumb.isLink ? (
+                    <BreadcrumbLink
+                      className="cursor-pointer hover:underline"
+                      onClick={crumb.onClick}
+                    >
+                      {crumb.label}
+                    </BreadcrumbLink>
+                  ) : (
+                    <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
+                  )}
+                </BreadcrumbItem>
+                {index < header.breadcrumbs.length - 1 && (
+                  <BreadcrumbSeparator />
+                )}
+              </Fragment>
+            ))}
+          </BreadcrumbList>
+        </Breadcrumb>
+      </div>
+    </NewCardHeader>
   ) : null;
+
+  const attemptContent = navigation.task ? (
+    <NewCard className="h-full min-h-0 flex flex-col bg-diagonal-lines bg-muted border-0">
+      {navigation.isTaskView ? (
+        <TaskPanel task={navigation.task} basePath="gantt" />
+      ) : (
+        <TaskAttemptPanel
+          attempt={navigation.attempt ?? undefined}
+          task={navigation.task}
+        >
+          {({ logs, followUp }) => (
+            <>
+              <GitErrorBanner />
+              <div className="flex-1 min-h-0 flex flex-col">
+                <div className="flex-1 min-h-0 flex flex-col">{logs}</div>
+
+                <div className="shrink-0 border-t">
+                  <div className="mx-auto w-full max-w-[50rem]">
+                    <TodoPanel />
+                  </div>
+                </div>
+
+                <div className="min-h-0 max-h-[50%] border-t overflow-hidden bg-background">
+                  <div className="mx-auto w-full max-w-[50rem] h-full min-h-0">
+                    {followUp}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </TaskAttemptPanel>
+      )}
+    </NewCard>
+  ) : null;
+
+  const auxContent =
+    navigation.task && navigation.attempt ? (
+      <div className="relative h-full w-full">
+        {navigation.mode === 'preview' && <PreviewPanel />}
+        {navigation.mode === 'diffs' && (
+          <DiffsPanelContainer
+            attempt={navigation.attempt}
+            selectedTask={navigation.task}
+            branchStatus={branchStatus ?? null}
+          />
+        )}
+      </div>
+    ) : (
+      <div className="relative h-full w-full" />
+    );
+
+  const attemptArea = (
+    <GitOperationsProvider attemptId={navigation.attempt?.id}>
+      <ClickedElementsProvider attempt={navigation.attempt ?? null}>
+        <ReviewProvider attemptId={navigation.attempt?.id}>
+          <ExecutionProcessesProvider attemptId={navigation.attempt?.id}>
+            <TasksLayout
+              kanban={ganttContent}
+              attempt={attemptContent}
+              aux={auxContent}
+              isPanelOpen={navigation.isPanelOpen}
+              mode={navigation.mode ?? null}
+              rightHeader={rightHeader}
+            />
+          </ExecutionProcessesProvider>
+        </ReviewProvider>
+      </ClickedElementsProvider>
+    </GitOperationsProvider>
+  );
 
   return (
     <div className="h-full flex flex-col">
@@ -196,16 +310,7 @@ export function GanttView() {
         <GanttToolbar colorMode={colorMode} onColorModeChange={setColorMode} />
       </div>
 
-      <div className="flex-1 min-h-0">
-        <TasksLayout
-          kanban={ganttContent}
-          attempt={<TaskPanel task={selectedTask} />}
-          aux={null}
-          isPanelOpen={isPanelOpen}
-          mode={null}
-          rightHeader={rightHeader}
-        />
-      </div>
+      <div className="flex-1 min-h-0">{attemptArea}</div>
     </div>
   );
 }
