@@ -69,7 +69,7 @@ export function GanttTooltipContent({ data }: GanttTooltipContentProps) {
     task.totalInputTokens != null || task.totalOutputTokens != null;
 
   return (
-    <div className="flex flex-col gap-2 p-1 min-w-[180px]">
+    <div className="flex flex-col gap-2 p-3 min-w-[180px] bg-popover text-popover-foreground border rounded-md shadow-md">
       <div className="font-semibold text-sm">{task.text}</div>
 
       {showStatusInfo && statusColor && statusLabel && (

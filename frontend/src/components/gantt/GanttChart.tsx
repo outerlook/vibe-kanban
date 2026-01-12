@@ -6,28 +6,6 @@ import type { SvarGanttTask, SvarGanttLink } from '@/lib/transformGantt';
 import { GANTT_SCALES } from '@/lib/ganttConfig';
 import '@/styles/gantt.css';
 
-function TooltipContent({ data }: { data: ITask }) {
-  const task = data as unknown as SvarGanttTask;
-  const hasTokens =
-    task.totalInputTokens != null || task.totalOutputTokens != null;
-
-  return (
-    <div className="p-2 text-sm">
-      <div className="font-semibold mb-1">{task.text}</div>
-      <div className="text-muted-foreground text-xs space-y-0.5">
-        <div>Status: {task.type}</div>
-        <div>Progress: {Math.round(task.progress * 100)}%</div>
-        {hasTokens && (
-          <div>
-            Tokens: {formatTokenCount(task.totalInputTokens) || '0'} /{' '}
-            {formatTokenCount(task.totalOutputTokens) || '0'}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /**
  * Task type configuration for SVAR Gantt.
  * Each type ID matches a TaskStatus value or group color class and defines bar colors.
