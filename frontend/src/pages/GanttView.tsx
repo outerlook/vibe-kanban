@@ -1,11 +1,16 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, RefreshCw, ArrowLeft, Loader2 } from 'lucide-react';
 
 import { useProject } from '@/contexts/ProjectContext';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
+import { useProjectTasks } from '@/hooks/useProjectTasks';
 import { GanttChart } from '@/components/gantt/GanttChart';
+import { TasksLayout } from '@/components/layout/TasksLayout';
+import TaskPanel from '@/components/panels/TaskPanel';
+import { TaskPanelHeaderActions } from '@/components/panels/TaskPanelHeaderActions';
+import { NewCardHeader } from '@/components/ui/new-card';
 import { Loader } from '@/components/ui/loader';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -22,6 +27,9 @@ import { paths } from '@/lib/paths';
 export function GanttView() {
   const { t } = useTranslation(['tasks', 'common']);
   const navigate = useNavigate();
+
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
 
   const {
     projectId,
@@ -41,6 +49,9 @@ export function GanttView() {
     error: ganttError,
   } = useGanttTasks(projectId);
 
+  const { tasksById } = useProjectTasks(projectId ?? '');
+  const selectedTask = selectedTaskId ? tasksById[selectedTaskId] ?? null : null;
+
   const handleRetry = useCallback(() => {
     window.location.reload();
   }, []);
@@ -50,6 +61,15 @@ export function GanttView() {
       navigate(paths.projectTasks(projectId));
     }
   }, [projectId, navigate]);
+
+  const handleSelectTask = useCallback((taskId: string) => {
+    setSelectedTaskId(taskId);
+    setIsPanelOpen(true);
+  }, []);
+
+  const handleClosePanel = useCallback(() => {
+    setIsPanelOpen(false);
+  }, []);
 
   if (projectError) {
     return (
@@ -96,6 +116,51 @@ export function GanttView() {
     );
   }
 
+  const ganttContent = (
+    <div className="h-full flex flex-col">
+      {total > 0 && hasMore && (
+        <div className="flex flex-col items-center gap-2 py-4 border-b">
+          <Button
+            onClick={loadMore}
+            disabled={isLoadingMore}
+            variant="secondary"
+          >
+            {isLoadingMore && (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            )}
+            {t('pagination.loadMore', { defaultValue: 'Load more' })}
+          </Button>
+          <div className="text-xs text-muted-foreground">
+            {t('pagination.showing', {
+              defaultValue: 'Showing {{count}} of {{total}} tasks',
+              count: ganttTasks.length,
+              total,
+            })}
+          </div>
+        </div>
+      )}
+      <div className="flex-1 min-h-0">
+        <GanttChart
+          tasks={ganttTasks}
+          links={ganttLinks}
+          onSelectTask={handleSelectTask}
+        />
+      </div>
+    </div>
+  );
+
+  const rightHeader = selectedTask ? (
+    <NewCardHeader
+      className="shrink-0"
+      actions={
+        <TaskPanelHeaderActions
+          task={selectedTask}
+          onClose={handleClosePanel}
+        />
+      }
+    />
+  ) : null;
+
   return (
     <div className="h-full flex flex-col">
       <div className="shrink-0 border-b px-4 py-3 flex items-center">
@@ -126,32 +191,14 @@ export function GanttView() {
         </Breadcrumb>
       </div>
 
-      {total > 0 && hasMore && (
-        <div className="flex flex-col items-center gap-2 py-4 border-b">
-          <Button
-            onClick={loadMore}
-            disabled={isLoadingMore}
-            variant="secondary"
-          >
-            {isLoadingMore && (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            )}
-            {t('pagination.loadMore', { defaultValue: 'Load more' })}
-          </Button>
-          <div className="text-xs text-muted-foreground">
-            {t('pagination.showing', {
-              defaultValue: 'Showing {{count}} of {{total}} tasks',
-              count: ganttTasks.length,
-              total,
-            })}
-          </div>
-        </div>
-      )}
-
       <div className="flex-1 min-h-0">
-        <GanttChart
-          tasks={ganttTasks}
-          links={ganttLinks}
+        <TasksLayout
+          kanban={ganttContent}
+          attempt={<TaskPanel task={selectedTask} />}
+          aux={null}
+          isPanelOpen={isPanelOpen}
+          mode={null}
+          rightHeader={rightHeader}
         />
       </div>
     </div>
