@@ -62,10 +62,10 @@ impl GanttTask {
                       AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')
                       AND ep.dropped = FALSE
                 ) AS "exec_completed_at?: DateTime<Utc>",
-                -- Aggregate dependencies as comma-separated UUIDs
+                -- Aggregate dependencies as comma-separated hex UUIDs (BLOBs must be converted to text)
                 IFNULL(
                     (
-                        SELECT GROUP_CONCAT(td.depends_on_id)
+                        SELECT GROUP_CONCAT(lower(hex(td.depends_on_id)))
                         FROM task_dependencies td
                         WHERE td.task_id = t.id
                     ),

@@ -9,7 +9,7 @@ declare module 'frappe-gantt' {
     custom_class?: string;
   }
 
-  export type ViewMode = 'Day' | 'Week' | 'Month' | 'Year';
+  export type ViewMode = 'Quarter Day' | 'Half Day' | 'Day' | 'Week' | 'Month' | 'Year';
 
   export interface GanttOptions {
     header_height?: number;

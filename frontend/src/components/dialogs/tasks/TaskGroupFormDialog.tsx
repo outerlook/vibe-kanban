@@ -165,6 +165,7 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
                     selectedBranch={baseBranch}
                     onBranchSelect={setBaseBranch}
                     placeholder={t('taskGroupFormDialog.selectBranch')}
+                    repoId={primaryRepo?.id}
                   />
                 )}
                 <p className="text-xs text-muted-foreground">

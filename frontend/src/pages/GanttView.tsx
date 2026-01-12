@@ -27,6 +27,8 @@ import {
 import { paths } from '@/lib/paths';
 
 const VIEW_MODES: { value: GanttViewMode; label: string }[] = [
+  { value: 'Quarter Day', label: '6 Hours' },
+  { value: 'Half Day', label: '12 Hours' },
   { value: 'Day', label: 'Day' },
   { value: 'Week', label: 'Week' },
   { value: 'Month', label: 'Month' },
@@ -142,7 +144,7 @@ export function GanttView() {
             value={viewMode}
             onValueChange={(value) => setViewMode(value as GanttViewMode)}
           >
-            <SelectTrigger className="w-[100px] h-8">
+            <SelectTrigger className="w-[120px] h-8">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

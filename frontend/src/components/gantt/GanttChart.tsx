@@ -4,7 +4,7 @@ import type { FrappeGanttTask } from '@/lib/transformGantt';
 import { useNavigateWithSearch } from '@/hooks';
 import { paths } from '@/lib/paths';
 
-export type GanttViewMode = 'Day' | 'Week' | 'Month';
+export type GanttViewMode = 'Quarter Day' | 'Half Day' | 'Day' | 'Week' | 'Month';
 
 interface GanttChartProps {
   projectId: string;
