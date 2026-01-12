@@ -26,8 +26,10 @@ import { Loader2, Plus, Trash2 } from 'lucide-react';
 import { useProjects } from '@/hooks/useProjects';
 import { useProjectMutations } from '@/hooks/useProjectMutations';
 import { useScriptPlaceholders } from '@/hooks/useScriptPlaceholders';
+import { useDeleteTaskGroup, useTaskGroups } from '@/hooks/useTaskGroups';
 import { CopyFilesField } from '@/components/projects/CopyFilesField';
 import { AutoExpandingTextarea } from '@/components/ui/auto-expanding-textarea';
+import { TaskGroupFormDialog } from '@/components/dialogs';
 import { RepoPickerDialog } from '@/components/dialogs/shared/RepoPickerDialog';
 import { projectsApi } from '@/lib/api';
 import { repoBranchKeys } from '@/hooks/useRepoBranches';
@@ -98,6 +100,16 @@ export function ProjectSettings() {
   const [repoError, setRepoError] = useState<string | null>(null);
   const [addingRepo, setAddingRepo] = useState(false);
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
+
+  // Task groups state
+  const {
+    data: taskGroups = [],
+    isLoading: loadingTaskGroups,
+    error: taskGroupsError,
+  } = useTaskGroups(selectedProjectId);
+  const deleteTaskGroup = useDeleteTaskGroup();
+  const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
+  const [taskGroupError, setTaskGroupError] = useState<string | null>(null);
 
   // Scripts repo state (per-repo scripts)
   const [selectedScriptsRepoId, setSelectedScriptsRepoId] = useState<
@@ -276,6 +288,7 @@ export function ProjectSettings() {
     setSelectedProjectRepo(null);
     setScriptsDraft(null);
     setScriptsError(null);
+    setTaskGroupError(null);
   }, [selectedProjectId]);
 
   // Fetch ProjectRepo scripts when selected scripts repo changes
@@ -363,6 +376,30 @@ export function ProjectSettings() {
       );
     } finally {
       setDeletingRepoId(null);
+    }
+  };
+
+  const handleDeleteTaskGroup = async (groupId: string, groupName: string) => {
+    if (!selectedProjectId) return;
+
+    const confirmed = window.confirm(
+      `Delete task group "${groupName}"? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeletingGroupId(groupId);
+    setTaskGroupError(null);
+    try {
+      await deleteTaskGroup.mutateAsync({
+        groupId,
+        projectId: selectedProjectId,
+      });
+    } catch (err) {
+      setTaskGroupError(
+        err instanceof Error ? err.message : 'Failed to delete task group'
+      );
+    } finally {
+      setDeletingGroupId(null);
     }
   };
 
@@ -747,6 +784,107 @@ export function ProjectSettings() {
                       <Plus className="h-4 w-4 mr-2" />
                     )}
                     Add Repository
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Task Groups Section */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Task Groups</CardTitle>
+              <CardDescription>
+                Manage groups used to organize tasks in this project
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {(taskGroupError || taskGroupsError) && (
+                <Alert variant="destructive">
+                  <AlertDescription>
+                    {taskGroupError ??
+                      (taskGroupsError instanceof Error
+                        ? taskGroupsError.message
+                        : 'Failed to load task groups')}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {loadingTaskGroups ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span className="ml-2 text-sm text-muted-foreground">
+                    Loading task groups...
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {taskGroups.map((group) => (
+                    <div
+                      key={group.id}
+                      className="flex items-center justify-between gap-3 p-3 border rounded-md"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium">{group.name}</div>
+                        <div className="text-sm text-muted-foreground">
+                          Base branch:{' '}
+                          {group.base_branch ? group.base_branch : 'None'}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            TaskGroupFormDialog.show({
+                              mode: 'edit',
+                              projectId: selectedProject.id,
+                              group,
+                            })
+                          }
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            handleDeleteTaskGroup(group.id, group.name)
+                          }
+                          disabled={deletingGroupId === group.id}
+                        >
+                          {deletingGroupId === group.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <>
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {taskGroups.length === 0 && !loadingTaskGroups && (
+                    <div className="text-center py-4 text-sm text-muted-foreground">
+                      No groups configured
+                    </div>
+                  )}
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      TaskGroupFormDialog.show({
+                        mode: 'create',
+                        projectId: selectedProject.id,
+                      })
+                    }
+                    className="w-full"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create Group
                   </Button>
                 </div>
               )}
