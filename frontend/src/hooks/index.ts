@@ -22,6 +22,11 @@ export { useAttemptConflicts } from './useAttemptConflicts';
 export { useNavigateWithSearch } from './useNavigateWithSearch';
 export { useGitOperations } from './useGitOperations';
 export { useTask } from './useTask';
+export {
+  useTaskDetailNavigation,
+  type TaskDetailNavigation,
+  type UseTaskDetailNavigationOptions,
+} from './useTaskDetailNavigation';
 export { useAttempt } from './useAttempt';
 export { useRepoBranches, useCreateBranch } from './useRepoBranches';
 export { useProjectRepos } from './useProjectRepos';
