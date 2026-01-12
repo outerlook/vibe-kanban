@@ -3,8 +3,6 @@ import { Gantt } from '@svar-ui/react-gantt';
 import type { IApi, ITask, TID } from '@svar-ui/react-gantt';
 import type { SvarGanttTask, SvarGanttLink } from '@/lib/transformGantt';
 import { GANTT_SCALES } from '@/lib/ganttConfig';
-import { useNavigateWithSearch } from '@/hooks';
-import { paths } from '@/lib/paths';
 import '@/styles/gantt.css';
 
 /**
@@ -20,24 +18,27 @@ const TASK_TYPES = [
 ];
 
 interface GanttChartProps {
-  projectId: string;
   tasks: SvarGanttTask[];
   links: SvarGanttLink[];
+  onSelectTask?: (taskId: string) => void;
 }
 
-export function GanttChart({ projectId, tasks, links }: GanttChartProps) {
+export function GanttChart({
+  tasks,
+  links,
+  onSelectTask,
+}: GanttChartProps) {
   const apiRef = useRef<IApi | null>(null);
-  const navigate = useNavigateWithSearch();
 
   const handleInit = useCallback(
     (api: IApi) => {
       apiRef.current = api;
 
       api.on('select-task', (ev: { id: TID }) => {
-        navigate(paths.task(projectId, String(ev.id)));
+        onSelectTask?.(String(ev.id));
       });
     },
-    [navigate, projectId]
+    [onSelectTask]
   );
 
   const taskTemplate = useCallback(

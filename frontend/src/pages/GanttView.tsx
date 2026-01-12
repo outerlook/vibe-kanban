@@ -150,7 +150,6 @@ export function GanttView() {
 
       <div className="flex-1 min-h-0">
         <GanttChart
-          projectId={projectId}
           tasks={ganttTasks}
           links={ganttLinks}
         />
