@@ -56,6 +56,8 @@ export type TaskGroup = { id: string, project_id: string, name: string, base_bra
 
 export type GanttTask = { id: string, name: string, start: string, end: string, progress: number, dependencies: Array<string>, task_status: TaskStatus, };
 
+export type PaginatedGanttTasks = { tasks: Array<GanttTask>, total: bigint, hasMore: boolean, };
+
 export type CreateTaskGroup = { project_id: string, name: string, base_branch: string | null, };
 
 export type UpdateTaskGroup = { name: string | null, base_branch: string | null, };

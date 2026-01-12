@@ -1,7 +1,7 @@
 use axum::{
     Extension, Router,
     extract::{
-        Path, State,
+        Path, Query, State,
         ws::{WebSocket, WebSocketUpgrade},
     },
     middleware::from_fn_with_state,
@@ -11,17 +11,51 @@ use axum::{
 use db::models::{gantt::GanttTask, project::Project};
 use deployment::Deployment;
 use futures_util::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
 use crate::{DeploymentImpl, error::ApiError, middleware::load_project_middleware};
 
+#[derive(Debug, Deserialize)]
+pub struct GanttQuery {
+    pub offset: Option<i32>,
+    pub limit: Option<i32>,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PaginatedGanttTasks {
+    pub tasks: Vec<GanttTask>,
+    pub total: i64,
+    pub has_more: bool,
+}
+
 pub async fn get_gantt_data(
     Extension(project): Extension<Project>,
     State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<Vec<GanttTask>>>, ApiError> {
-    let tasks = GanttTask::find_by_project_id(&deployment.db().pool, project.id).await?;
-    Ok(ResponseJson(ApiResponse::success(tasks)))
+    Query(query): Query<GanttQuery>,
+) -> Result<ResponseJson<ApiResponse<PaginatedGanttTasks>>, ApiError> {
+    const DEFAULT_LIMIT: i32 = 50;
+    const MAX_LIMIT: i32 = 200;
+    const DEFAULT_OFFSET: i32 = 0;
+
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(0, MAX_LIMIT) as i64;
+    let offset = query.offset.unwrap_or(DEFAULT_OFFSET).max(0) as i64;
+
+    let (tasks, total) =
+        GanttTask::find_paginated_by_project_id(&deployment.db().pool, project.id, limit, offset)
+            .await?;
+
+    let has_more = offset + (tasks.len() as i64) < total;
+
+    Ok(ResponseJson(ApiResponse::success(PaginatedGanttTasks {
+        tasks,
+        total,
+        has_more,
+    })))
 }
 
 pub async fn stream_gantt_ws(

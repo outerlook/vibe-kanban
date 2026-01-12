@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, RefreshCw, ArrowLeft } from 'lucide-react';
+import { AlertTriangle, RefreshCw, ArrowLeft, Loader2 } from 'lucide-react';
 
 import { useProject } from '@/contexts/ProjectContext';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
@@ -49,6 +49,10 @@ export function GanttView() {
   const {
     ganttTasks,
     isLoading: ganttLoading,
+    isLoadingMore,
+    hasMore,
+    total,
+    loadMore,
     error: ganttError,
   } = useGanttTasks(projectId);
 
@@ -157,6 +161,28 @@ export function GanttView() {
           </Select>
         </div>
       </div>
+
+      {total > 0 && hasMore && (
+        <div className="flex flex-col items-center gap-2 py-4 border-b">
+          <Button
+            onClick={loadMore}
+            disabled={isLoadingMore}
+            variant="secondary"
+          >
+            {isLoadingMore && (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            )}
+            {t('pagination.loadMore', { defaultValue: 'Load more' })}
+          </Button>
+          <div className="text-xs text-muted-foreground">
+            {t('pagination.showing', {
+              defaultValue: 'Showing {{count}} of {{total}} tasks',
+              count: ganttTasks.length,
+              total,
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0">
         <GanttChart

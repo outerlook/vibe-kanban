@@ -777,22 +777,17 @@ impl EventService {
 
                                     // If task belongs to this project, rebuild its GanttTask
                                     if let Some(task_id) = task_id {
-                                        if let Ok(gantt_tasks) =
-                                            GanttTask::find_by_project_id(&db_pool, project_id)
-                                                .await
+                                        if let Ok(Some(gantt_task)) =
+                                            GanttTask::find_by_id(&db_pool, task_id).await
                                         {
-                                            if let Some(gantt_task) =
-                                                gantt_tasks.into_iter().find(|t| t.id == task_id)
-                                            {
-                                                let patch = json!([{
-                                                    "op": "replace",
-                                                    "path": format!("/gantt_tasks/{}", task_id),
-                                                    "value": gantt_task
-                                                }]);
-                                                return Some(Ok(LogMsg::JsonPatch(
-                                                    serde_json::from_value(patch).unwrap(),
-                                                )));
-                                            }
+                                            let patch = json!([{
+                                                "op": "replace",
+                                                "path": format!("/gantt_tasks/{}", task_id),
+                                                "value": gantt_task
+                                            }]);
+                                            return Some(Ok(LogMsg::JsonPatch(
+                                                serde_json::from_value(patch).unwrap(),
+                                            )));
                                         }
                                     }
                                 }
@@ -839,25 +834,17 @@ impl EventService {
                                             get_project_for_task(&db_pool, task_id).await
                                         {
                                             if task_project_id == project_id {
-                                                if let Ok(gantt_tasks) =
-                                                    GanttTask::find_by_project_id(
-                                                        &db_pool, project_id,
-                                                    )
-                                                    .await
+                                                if let Ok(Some(gantt_task)) =
+                                                    GanttTask::find_by_id(&db_pool, task_id).await
                                                 {
-                                                    if let Some(gantt_task) = gantt_tasks
-                                                        .into_iter()
-                                                        .find(|t| t.id == task_id)
-                                                    {
-                                                        let patch = json!([{
-                                                            "op": "replace",
-                                                            "path": format!("/gantt_tasks/{}", task_id),
-                                                            "value": gantt_task
-                                                        }]);
-                                                        return Some(Ok(LogMsg::JsonPatch(
-                                                            serde_json::from_value(patch).unwrap(),
-                                                        )));
-                                                    }
+                                                    let patch = json!([{
+                                                        "op": "replace",
+                                                        "path": format!("/gantt_tasks/{}", task_id),
+                                                        "value": gantt_task
+                                                    }]);
+                                                    return Some(Ok(LogMsg::JsonPatch(
+                                                        serde_json::from_value(patch).unwrap(),
+                                                    )));
                                                 }
                                             }
                                         }
@@ -874,25 +861,17 @@ impl EventService {
                                             cache_project_for_task(task.id, task.project_id).await;
                                             if task.project_id == project_id {
                                                 // Rebuild the GanttTask for this task
-                                                if let Ok(gantt_tasks) =
-                                                    GanttTask::find_by_project_id(
-                                                        &db_pool, project_id,
-                                                    )
-                                                    .await
+                                                if let Ok(Some(gantt_task)) =
+                                                    GanttTask::find_by_id(&db_pool, task.id).await
                                                 {
-                                                    if let Some(gantt_task) = gantt_tasks
-                                                        .into_iter()
-                                                        .find(|t| t.id == task.id)
-                                                    {
-                                                        let patch = json!([{
-                                                            "op": "replace",
-                                                            "path": format!("/gantt_tasks/{}", task.id),
-                                                            "value": gantt_task
-                                                        }]);
-                                                        return Some(Ok(LogMsg::JsonPatch(
-                                                            serde_json::from_value(patch).unwrap(),
-                                                        )));
-                                                    }
+                                                    let patch = json!([{
+                                                        "op": "replace",
+                                                        "path": format!("/gantt_tasks/{}", task.id),
+                                                        "value": gantt_task
+                                                    }]);
+                                                    return Some(Ok(LogMsg::JsonPatch(
+                                                        serde_json::from_value(patch).unwrap(),
+                                                    )));
                                                 }
                                             }
                                         }
@@ -932,26 +911,19 @@ impl EventService {
                                                     get_project_for_task(&db_pool, task_id).await
                                                 {
                                                     if task_project_id == project_id {
-                                                        if let Ok(gantt_tasks) =
-                                                            GanttTask::find_by_project_id(
-                                                                &db_pool, project_id,
-                                                            )
-                                                            .await
+                                                        if let Ok(Some(gantt_task)) =
+                                                            GanttTask::find_by_id(&db_pool, task_id)
+                                                                .await
                                                         {
-                                                            if let Some(gantt_task) = gantt_tasks
-                                                                .into_iter()
-                                                                .find(|t| t.id == task_id)
-                                                            {
-                                                                let patch = json!([{
-                                                                    "op": "replace",
-                                                                    "path": format!("/gantt_tasks/{}", task_id),
-                                                                    "value": gantt_task
-                                                                }]);
-                                                                return Some(Ok(LogMsg::JsonPatch(
-                                                                    serde_json::from_value(patch)
-                                                                        .unwrap(),
-                                                                )));
-                                                            }
+                                                            let patch = json!([{
+                                                                "op": "replace",
+                                                                "path": format!("/gantt_tasks/{}", task_id),
+                                                                "value": gantt_task
+                                                            }]);
+                                                            return Some(Ok(LogMsg::JsonPatch(
+                                                                serde_json::from_value(patch)
+                                                                    .unwrap(),
+                                                            )));
                                                         }
                                                     }
                                                 }

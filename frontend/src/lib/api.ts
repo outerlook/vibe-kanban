@@ -16,6 +16,7 @@ import {
   DirectoryEntry,
   ExecutionProcess,
   ExecutionProcessRepoState,
+  GanttTask,
   GitBranch,
   Project,
   ProjectRepo,
@@ -131,6 +132,12 @@ export interface ExecutionProcessNormalizedEntriesPage {
 
 export interface PaginatedTasksResponse {
   tasks: TaskWithAttemptStatus[];
+  total: number;
+  hasMore: boolean;
+}
+
+export interface PaginatedGanttResponse {
+  tasks: GanttTask[];
   total: number;
   hasMore: boolean;
 }
@@ -414,6 +421,29 @@ export const projectsApi = {
       }
     );
     return handleApiResponse<ProjectRepo>(response);
+  },
+};
+
+// Gantt API
+export const ganttApi = {
+  list: async (
+    projectId: string,
+    params?: {
+      offset?: number;
+      limit?: number;
+    }
+  ): Promise<PaginatedGanttResponse> => {
+    const search = new URLSearchParams();
+    if (params?.offset !== undefined) {
+      search.set('offset', params.offset.toString());
+    }
+    if (params?.limit !== undefined) {
+      search.set('limit', params.limit.toString());
+    }
+    const queryString = search.toString();
+    const url = `/api/projects/${projectId}/gantt${queryString ? `?${queryString}` : ''}`;
+    const response = await makeRequest(url);
+    return handleApiResponse<PaginatedGanttResponse>(response);
   },
 };
 
