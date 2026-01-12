@@ -1040,11 +1040,19 @@ export const repoApi = {
     return handleApiResponse<GitBranch[]>(response);
   },
 
-  createBranch: async (repoId: string, name: string): Promise<GitBranch> => {
+  createBranch: async (
+    repoId: string,
+    name: string,
+    baseBranch?: string
+  ): Promise<GitBranch> => {
+    const payload =
+      baseBranch === undefined
+        ? { name }
+        : { name, base_branch: baseBranch };
     const response = await makeRequest(`/api/repos/${repoId}/branches`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(payload),
     });
     return handleApiResponse<GitBranch>(response);
   },

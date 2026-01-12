@@ -26,8 +26,9 @@ export function useRepoBranches(repoId?: string | null, opts?: Options) {
 export function useCreateBranch(repoId: string) {
   const queryClient = useQueryClient();
 
-  return useMutation<GitBranch, unknown, string>({
-    mutationFn: (name: string) => repoApi.createBranch(repoId, name),
+  return useMutation<GitBranch, unknown, { name: string; baseBranch?: string }>({
+    mutationFn: ({ name, baseBranch }) =>
+      repoApi.createBranch(repoId, name, baseBranch),
     onSuccess: () => {
       // Invalidating the parent key covers all child keys including byRepo(repoId)
       queryClient.invalidateQueries({
