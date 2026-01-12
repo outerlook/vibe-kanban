@@ -6,7 +6,7 @@ interface TaskGroupBadgeProps {
   groupId: string | null | undefined;
   groupName: string | null | undefined;
   className?: string;
-  onClick?: () => void;
+  onClick?: (e: React.MouseEvent) => void;
 }
 
 export function TaskGroupBadge({
