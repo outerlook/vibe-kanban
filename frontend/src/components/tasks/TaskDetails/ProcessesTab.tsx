@@ -99,6 +99,20 @@ function ProcessesTab({ attemptId }: ProcessesTabProps) {
     return date.toLocaleString();
   };
 
+  const formatTokens = (n: bigint | null): string => {
+    if (n === null) return '';
+    const num = Number(n);
+    if (num >= 1_000_000) {
+      const val = num / 1_000_000;
+      return val % 1 === 0 ? `${val}M` : `${val.toFixed(1)}M`;
+    }
+    if (num >= 1_000) {
+      const val = num / 1_000;
+      return val % 1 === 0 ? `${val}K` : `${val.toFixed(1)}K`;
+    }
+    return num.toString();
+  };
+
   const fetchProcessDetails = useCallback(async (processId: string) => {
     try {
       setLoadingProcessId(processId);
@@ -267,6 +281,15 @@ function ProcessesTab({ attemptId }: ProcessesTabProps) {
                         </span>
                       )}
                     </div>
+                    {(process.input_tokens !== null ||
+                      process.output_tokens !== null) && (
+                      <div className="mt-1">
+                        {t('processes.tokens', {
+                          input: formatTokens(process.input_tokens),
+                          output: formatTokens(process.output_tokens),
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
