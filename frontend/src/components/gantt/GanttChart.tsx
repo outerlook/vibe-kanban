@@ -1,11 +1,49 @@
 import { useRef, useCallback } from 'react';
-import { Gantt } from '@svar-ui/react-gantt';
+import { Gantt, Tooltip } from '@svar-ui/react-gantt';
 import type { IApi, ITask, TID } from '@svar-ui/react-gantt';
 import type { SvarGanttTask, SvarGanttLink } from '@/lib/transformGantt';
 import { GANTT_SCALES } from '@/lib/ganttConfig';
 import { useNavigateWithSearch } from '@/hooks';
 import { paths } from '@/lib/paths';
 import '@/styles/gantt.css';
+
+function formatTokenCount(count: number): string {
+  if (count >= 1_000_000) {
+    return `${(count / 1_000_000).toFixed(1)}M`;
+  }
+  if (count >= 1_000) {
+    return `${(count / 1_000).toFixed(1)}K`;
+  }
+  return count.toString();
+}
+
+function TooltipContent({ data }: { data: ITask }) {
+  const task = data as unknown as SvarGanttTask;
+  const hasTokens =
+    task.totalInputTokens != null || task.totalOutputTokens != null;
+
+  return (
+    <div className="p-2 text-sm">
+      <div className="font-semibold mb-1">{task.text}</div>
+      <div className="text-muted-foreground text-xs space-y-0.5">
+        <div>Status: {task.type}</div>
+        <div>Progress: {Math.round(task.progress * 100)}%</div>
+        {hasTokens && (
+          <div>
+            Tokens:{' '}
+            {task.totalInputTokens != null
+              ? formatTokenCount(task.totalInputTokens)
+              : '0'}{' '}
+            /{' '}
+            {task.totalOutputTokens != null
+              ? formatTokenCount(task.totalOutputTokens)
+              : '0'}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Task type configuration for SVAR Gantt.
@@ -63,17 +101,19 @@ export function GanttChart({ projectId, tasks, links }: GanttChartProps) {
 
   return (
     <div className="gantt-container w-full h-full overflow-auto">
-      <Gantt
-        tasks={tasks}
-        links={links}
-        taskTypes={TASK_TYPES}
-        scales={GANTT_SCALES}
-        init={handleInit}
-        readonly={true}
-        lengthUnit="minute"
-        columns={[]}
-        taskTemplate={taskTemplate}
-      />
+      <Tooltip api={apiRef.current ?? undefined} content={TooltipContent}>
+        <Gantt
+          tasks={tasks}
+          links={links}
+          taskTypes={TASK_TYPES}
+          scales={GANTT_SCALES}
+          init={handleInit}
+          readonly={true}
+          lengthUnit="minute"
+          columns={[]}
+          taskTemplate={taskTemplate}
+        />
+      </Tooltip>
     </div>
   );
 }
