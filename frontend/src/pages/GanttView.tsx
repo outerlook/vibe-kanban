@@ -1,11 +1,17 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, RefreshCw, ArrowLeft, Loader2 } from 'lucide-react';
 
 import { useProject } from '@/contexts/ProjectContext';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
+import { useProjectTasks } from '@/hooks/useProjectTasks';
 import { GanttChart } from '@/components/gantt/GanttChart';
+import { GanttToolbar } from '@/components/gantt/GanttToolbar';
+import { TasksLayout } from '@/components/layout/TasksLayout';
+import TaskPanel from '@/components/panels/TaskPanel';
+import { TaskPanelHeaderActions } from '@/components/panels/TaskPanelHeaderActions';
+import { NewCardHeader } from '@/components/ui/new-card';
 import { Loader } from '@/components/ui/loader';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -23,6 +29,10 @@ export function GanttView() {
   const { t } = useTranslation(['tasks', 'common']);
   const navigate = useNavigate();
 
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [colorMode, setColorMode] = useState<'status' | 'group'>('status');
+
   const {
     projectId,
     project,
@@ -39,7 +49,10 @@ export function GanttView() {
     total,
     loadMore,
     error: ganttError,
-  } = useGanttTasks(projectId);
+  } = useGanttTasks(projectId, { colorMode });
+
+  const { tasksById } = useProjectTasks(projectId ?? '');
+  const selectedTask = selectedTaskId ? tasksById[selectedTaskId] ?? null : null;
 
   const handleRetry = useCallback(() => {
     window.location.reload();
@@ -50,6 +63,15 @@ export function GanttView() {
       navigate(paths.projectTasks(projectId));
     }
   }, [projectId, navigate]);
+
+  const handleSelectTask = useCallback((taskId: string) => {
+    setSelectedTaskId(taskId);
+    setIsPanelOpen(true);
+  }, []);
+
+  const handleClosePanel = useCallback(() => {
+    setIsPanelOpen(false);
+  }, []);
 
   if (projectError) {
     return (
@@ -96,36 +118,8 @@ export function GanttView() {
     );
   }
 
-  return (
+  const ganttContent = (
     <div className="h-full flex flex-col">
-      <div className="shrink-0 border-b px-4 py-3 flex items-center">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleBackToTasks}
-          className="gap-2"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          {t('common:buttons.back', { defaultValue: 'Back' })}
-        </Button>
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink
-                className="cursor-pointer hover:underline"
-                onClick={handleBackToTasks}
-              >
-                {project?.name || 'Project'}
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage>Gantt</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-      </div>
-
       {total > 0 && hasMore && (
         <div className="flex flex-col items-center gap-2 py-4 border-b">
           <Button
@@ -147,12 +141,69 @@ export function GanttView() {
           </div>
         </div>
       )}
-
       <div className="flex-1 min-h-0">
         <GanttChart
-          projectId={projectId}
           tasks={ganttTasks}
           links={ganttLinks}
+          onSelectTask={handleSelectTask}
+        />
+      </div>
+    </div>
+  );
+
+  const rightHeader = selectedTask ? (
+    <NewCardHeader
+      className="shrink-0"
+      actions={
+        <TaskPanelHeaderActions
+          task={selectedTask}
+          onClose={handleClosePanel}
+        />
+      }
+    />
+  ) : null;
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="shrink-0 border-b px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleBackToTasks}
+            className="gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {t('common:buttons.back', { defaultValue: 'Back' })}
+          </Button>
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink
+                  className="cursor-pointer hover:underline"
+                  onClick={handleBackToTasks}
+                >
+                  {project?.name || 'Project'}
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>Gantt</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
+        <GanttToolbar colorMode={colorMode} onColorModeChange={setColorMode} />
+      </div>
+
+      <div className="flex-1 min-h-0">
+        <TasksLayout
+          kanban={ganttContent}
+          attempt={<TaskPanel task={selectedTask} />}
+          aux={null}
+          isPanelOpen={isPanelOpen}
+          mode={null}
+          rightHeader={rightHeader}
         />
       </div>
     </div>

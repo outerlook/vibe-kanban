@@ -1,11 +1,9 @@
 import { useRef, useCallback } from 'react';
 import { Gantt, Tooltip } from '@svar-ui/react-gantt';
 import type { IApi, ITask, TID } from '@svar-ui/react-gantt';
+import { GanttTooltipContent } from './GanttTooltipContent';
 import type { SvarGanttTask, SvarGanttLink } from '@/lib/transformGantt';
 import { GANTT_SCALES } from '@/lib/ganttConfig';
-import { formatTokenCount } from '@/lib/utils';
-import { useNavigateWithSearch } from '@/hooks';
-import { paths } from '@/lib/paths';
 import '@/styles/gantt.css';
 
 function TooltipContent({ data }: { data: ITask }) {
@@ -32,47 +30,59 @@ function TooltipContent({ data }: { data: ITask }) {
 
 /**
  * Task type configuration for SVAR Gantt.
- * Each type ID matches a TaskStatus value and defines bar colors.
+ * Each type ID matches a TaskStatus value or group color class and defines bar colors.
+ * Status types: todo, inprogress, inreview, done, cancelled
+ * Group types: ungrouped, group-0 through group-9
  */
 const TASK_TYPES = [
+  // Status-based types
   { id: 'todo', label: 'To Do' },
   { id: 'inprogress', label: 'In Progress' },
   { id: 'inreview', label: 'In Review' },
   { id: 'done', label: 'Done' },
   { id: 'cancelled', label: 'Cancelled' },
+  // Group-based types (colors applied via CSS classes in gantt.css)
+  { id: 'ungrouped', label: 'Ungrouped' },
+  { id: 'group-0', label: 'Group 1' },
+  { id: 'group-1', label: 'Group 2' },
+  { id: 'group-2', label: 'Group 3' },
+  { id: 'group-3', label: 'Group 4' },
+  { id: 'group-4', label: 'Group 5' },
+  { id: 'group-5', label: 'Group 6' },
+  { id: 'group-6', label: 'Group 7' },
+  { id: 'group-7', label: 'Group 8' },
+  { id: 'group-8', label: 'Group 9' },
+  { id: 'group-9', label: 'Group 10' },
 ];
 
 interface GanttChartProps {
-  projectId: string;
   tasks: SvarGanttTask[];
   links: SvarGanttLink[];
+  onSelectTask?: (taskId: string) => void;
 }
 
-export function GanttChart({ projectId, tasks, links }: GanttChartProps) {
+export function GanttChart({
+  tasks,
+  links,
+  onSelectTask,
+}: GanttChartProps) {
   const apiRef = useRef<IApi | null>(null);
-  const navigate = useNavigateWithSearch();
 
   const handleInit = useCallback(
     (api: IApi) => {
       apiRef.current = api;
 
       api.on('select-task', (ev: { id: TID }) => {
-        navigate(paths.task(projectId, String(ev.id)));
+        onSelectTask?.(String(ev.id));
       });
     },
-    [navigate, projectId]
+    [onSelectTask]
   );
 
   const taskTemplate = useCallback(
-    ({
-      data,
-    }: {
-      data: ITask;
-      api: IApi;
-      onaction: (ev: { action: string; data: Record<string, unknown> }) => void;
-    }) => {
-      return <span className="wx-gantt-task-text">{data.text}</span>;
-    },
+    ({ data }: { data: ITask }) => (
+      <span className="wx-gantt-task-text">{data.text}</span>
+    ),
     []
   );
 
@@ -86,7 +96,7 @@ export function GanttChart({ projectId, tasks, links }: GanttChartProps) {
 
   return (
     <div className="gantt-container w-full h-full overflow-auto">
-      <Tooltip api={apiRef.current ?? undefined} content={TooltipContent}>
+      <Tooltip api={apiRef.current ?? undefined} content={GanttTooltipContent}>
         <Gantt
           tasks={tasks}
           links={links}

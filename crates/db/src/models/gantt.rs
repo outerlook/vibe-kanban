@@ -16,6 +16,7 @@ pub struct GanttTask {
     pub progress: f32,
     pub dependencies: Vec<Uuid>,
     pub task_status: TaskStatus,
+    pub task_group_id: Option<Uuid>,
     pub total_input_tokens: Option<i64>,
     pub total_output_tokens: Option<i64>,
 }
@@ -25,6 +26,7 @@ struct GanttTaskRecord {
     id: Uuid,
     name: String,
     task_status: TaskStatus,
+    task_group_id: Option<Uuid>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     exec_started_at: Option<DateTime<Utc>>,
@@ -65,6 +67,7 @@ impl From<GanttTaskRecord> for GanttTask {
             progress,
             dependencies,
             task_status: rec.task_status,
+            task_group_id: rec.task_group_id,
             total_input_tokens: rec.total_input_tokens,
             total_output_tokens: rec.total_output_tokens,
         }
@@ -95,6 +98,7 @@ impl GanttTask {
                 t.id AS "id!: Uuid",
                 t.title AS "name!",
                 t.status AS "task_status!: TaskStatus",
+                t.task_group_id AS "task_group_id?: Uuid",
                 t.created_at AS "created_at!: DateTime<Utc>",
                 t.updated_at AS "updated_at!: DateTime<Utc>",
                 (
@@ -163,6 +167,7 @@ impl GanttTask {
                 t.id AS "id!: Uuid",
                 t.title AS "name!",
                 t.status AS "task_status!: TaskStatus",
+                t.task_group_id AS "task_group_id?: Uuid",
                 t.created_at AS "created_at!: DateTime<Utc>",
                 t.updated_at AS "updated_at!: DateTime<Utc>",
                 (
@@ -246,6 +251,7 @@ impl GanttTask {
                 t.id AS "id!: Uuid",
                 t.title AS "name!",
                 t.status AS "task_status!: TaskStatus",
+                t.task_group_id AS "task_group_id?: Uuid",
                 t.created_at AS "created_at!: DateTime<Utc>",
                 t.updated_at AS "updated_at!: DateTime<Utc>",
                 (
