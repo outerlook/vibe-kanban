@@ -1,11 +1,10 @@
-import type { ITask, IApi } from '@svar-ui/react-gantt';
+import type { ITask } from '@svar-ui/react-gantt';
 import { Circle } from 'lucide-react';
 import type { SvarGanttTask } from '@/lib/transformGantt';
 import { statusLabels, statusBoardColors } from '@/utils/statusLabels';
 
 export interface GanttTooltipContentProps {
   data: ITask;
-  api: IApi;
 }
 
 /**
@@ -47,7 +46,7 @@ export function formatDateTime(date: Date): string {
 
 export function GanttTooltipContent({ data }: GanttTooltipContentProps) {
   const task = data as unknown as SvarGanttTask;
-  const status = task.taskStatus;
+  const status = task.type;
   const statusColor = statusBoardColors[status];
   const statusLabel = statusLabels[status];
 

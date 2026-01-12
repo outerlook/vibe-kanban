@@ -1,6 +1,7 @@
 import { useRef, useCallback } from 'react';
-import { Gantt } from '@svar-ui/react-gantt';
+import { Gantt, Tooltip } from '@svar-ui/react-gantt';
 import type { IApi, ITask, TID } from '@svar-ui/react-gantt';
+import { GanttTooltipContent } from './GanttTooltipContent';
 import type { SvarGanttTask, SvarGanttLink } from '@/lib/transformGantt';
 import { GANTT_SCALES } from '@/lib/ganttConfig';
 import '@/styles/gantt.css';
@@ -64,17 +65,19 @@ export function GanttChart({
 
   return (
     <div className="gantt-container w-full h-full overflow-auto">
-      <Gantt
-        tasks={tasks}
-        links={links}
-        taskTypes={TASK_TYPES}
-        scales={GANTT_SCALES}
-        init={handleInit}
-        readonly={true}
-        lengthUnit="minute"
-        columns={[]}
-        taskTemplate={taskTemplate}
-      />
+      <Tooltip api={apiRef.current ?? undefined} content={GanttTooltipContent}>
+        <Gantt
+          tasks={tasks}
+          links={links}
+          taskTypes={TASK_TYPES}
+          scales={GANTT_SCALES}
+          init={handleInit}
+          readonly={true}
+          lengthUnit="minute"
+          columns={[]}
+          taskTemplate={taskTemplate}
+        />
+      </Tooltip>
     </div>
   );
 }
