@@ -52,6 +52,10 @@ export function formatDateTime(date: Date): string {
 }
 
 export function GanttTooltipContent({ data }: GanttTooltipContentProps) {
+  if (!data) {
+    return null;
+  }
+
   const task = data as unknown as SvarGanttTask;
   const type = task.type;
 
