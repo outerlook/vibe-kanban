@@ -87,6 +87,94 @@
   pointer-events: none;
 }
 
+/* Task group color classes - matches ganttColors.ts TASK_GROUP_PALETTE */
+.gantt-container .wx-bar.ungrouped {
+  --wx-gantt-task-color: #94a3b8;
+  --wx-gantt-task-fill-color: #64748b;
+  --wx-gantt-task-font-color: #000;
+  --wx-gantt-task-border-color: #475569;
+}
+
+.gantt-container .wx-bar.group-0 {
+  /* Indigo */
+  --wx-gantt-task-color: #a5b4fc;
+  --wx-gantt-task-fill-color: #6366f1;
+  --wx-gantt-task-font-color: #000;
+  --wx-gantt-task-border-color: #4338ca;
+}
+
+.gantt-container .wx-bar.group-1 {
+  /* Violet */
+  --wx-gantt-task-color: #c4b5fd;
+  --wx-gantt-task-fill-color: #8b5cf6;
+  --wx-gantt-task-font-color: #000;
+  --wx-gantt-task-border-color: #6d28d9;
+}
+
+.gantt-container .wx-bar.group-2 {
+  /* Pink */
+  --wx-gantt-task-color: #f9a8d4;
+  --wx-gantt-task-fill-color: #ec4899;
+  --wx-gantt-task-font-color: #000;
+  --wx-gantt-task-border-color: #be185d;
+}
+
+.gantt-container .wx-bar.group-3 {
+  /* Rose */
+  --wx-gantt-task-color: #fda4af;
+  --wx-gantt-task-fill-color: #f43f5e;
+  --wx-gantt-task-font-color: #000;
+  --wx-gantt-task-border-color: #be123c;
+}
+
+.gantt-container .wx-bar.group-4 {
+  /* Orange */
+  --wx-gantt-task-color: #fdba74;
+  --wx-gantt-task-fill-color: #f97316;
+  --wx-gantt-task-font-color: #000;
+  --wx-gantt-task-border-color: #c2410c;
+}
+
+.gantt-container .wx-bar.group-5 {
+  /* Amber */
+  --wx-gantt-task-color: #fcd34d;
+  --wx-gantt-task-fill-color: #f59e0b;
+  --wx-gantt-task-font-color: #000;
+  --wx-gantt-task-border-color: #b45309;
+}
+
+.gantt-container .wx-bar.group-6 {
+  /* Emerald */
+  --wx-gantt-task-color: #6ee7b7;
+  --wx-gantt-task-fill-color: #10b981;
+  --wx-gantt-task-font-color: #000;
+  --wx-gantt-task-border-color: #047857;
+}
+
+.gantt-container .wx-bar.group-7 {
+  /* Teal */
+  --wx-gantt-task-color: #5eead4;
+  --wx-gantt-task-fill-color: #14b8a6;
+  --wx-gantt-task-font-color: #000;
+  --wx-gantt-task-border-color: #0f766e;
+}
+
+.gantt-container .wx-bar.group-8 {
+  /* Cyan */
+  --wx-gantt-task-color: #67e8f9;
+  --wx-gantt-task-fill-color: #06b6d4;
+  --wx-gantt-task-font-color: #000;
+  --wx-gantt-task-border-color: #0e7490;
+}
+
+.gantt-container .wx-bar.group-9 {
+  /* Sky */
+  --wx-gantt-task-color: #7dd3fc;
+  --wx-gantt-task-fill-color: #0ea5e9;
+  --wx-gantt-task-font-color: #000;
+  --wx-gantt-task-border-color: #0369a1;
+}
+
 /* Dark mode adjustments */
 .dark .gantt-container {
   --wx-gantt-link-marker-background: hsl(var(--muted));
