@@ -17,6 +17,8 @@ pub struct GanttTask {
     pub dependencies: Vec<Uuid>,
     pub task_status: TaskStatus,
     pub task_group_id: Option<Uuid>,
+    pub total_input_tokens: Option<i64>,
+    pub total_output_tokens: Option<i64>,
 }
 
 /// Raw record from the gantt task query, used internally for mapping.
@@ -30,6 +32,8 @@ struct GanttTaskRecord {
     exec_started_at: Option<DateTime<Utc>>,
     exec_completed_at: Option<DateTime<Utc>>,
     dependencies_csv: String,
+    total_input_tokens: Option<i64>,
+    total_output_tokens: Option<i64>,
 }
 
 impl From<GanttTaskRecord> for GanttTask {
@@ -64,6 +68,8 @@ impl From<GanttTaskRecord> for GanttTask {
             dependencies,
             task_status: rec.task_status,
             task_group_id: rec.task_group_id,
+            total_input_tokens: rec.total_input_tokens,
+            total_output_tokens: rec.total_output_tokens,
         }
     }
 }
@@ -120,7 +126,25 @@ impl GanttTask {
                         WHERE td.task_id = t.id
                     ),
                     ''
-                ) AS "dependencies_csv!: String"
+                ) AS "dependencies_csv!: String",
+                (
+                    SELECT SUM(ep.input_tokens)
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    JOIN execution_processes ep ON ep.session_id = s.id
+                    WHERE w.task_id = t.id
+                      AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')
+                      AND ep.dropped = FALSE
+                ) AS "total_input_tokens?: i64",
+                (
+                    SELECT SUM(ep.output_tokens)
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    JOIN execution_processes ep ON ep.session_id = s.id
+                    WHERE w.task_id = t.id
+                      AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')
+                      AND ep.dropped = FALSE
+                ) AS "total_output_tokens?: i64"
             FROM tasks t
             WHERE t.project_id = $1
             ORDER BY t.created_at DESC
@@ -171,7 +195,25 @@ impl GanttTask {
                         WHERE td.task_id = t.id
                     ),
                     ''
-                ) AS "dependencies_csv!: String"
+                ) AS "dependencies_csv!: String",
+                (
+                    SELECT SUM(ep.input_tokens)
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    JOIN execution_processes ep ON ep.session_id = s.id
+                    WHERE w.task_id = t.id
+                      AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')
+                      AND ep.dropped = FALSE
+                ) AS "total_input_tokens?: i64",
+                (
+                    SELECT SUM(ep.output_tokens)
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    JOIN execution_processes ep ON ep.session_id = s.id
+                    WHERE w.task_id = t.id
+                      AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')
+                      AND ep.dropped = FALSE
+                ) AS "total_output_tokens?: i64"
             FROM tasks t
             WHERE t.id = $1
             "#,
@@ -237,7 +279,25 @@ impl GanttTask {
                         WHERE td.task_id = t.id
                     ),
                     ''
-                ) AS "dependencies_csv!: String"
+                ) AS "dependencies_csv!: String",
+                (
+                    SELECT SUM(ep.input_tokens)
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    JOIN execution_processes ep ON ep.session_id = s.id
+                    WHERE w.task_id = t.id
+                      AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')
+                      AND ep.dropped = FALSE
+                ) AS "total_input_tokens?: i64",
+                (
+                    SELECT SUM(ep.output_tokens)
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    JOIN execution_processes ep ON ep.session_id = s.id
+                    WHERE w.task_id = t.id
+                      AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')
+                      AND ep.dropped = FALSE
+                ) AS "total_output_tokens?: i64"
             FROM tasks t
             WHERE t.project_id = $1
             ORDER BY t.created_at DESC

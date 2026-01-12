@@ -23,6 +23,8 @@ export interface SvarGanttTask {
   end: Date;
   progress: number;
   type: TaskStatus | string;
+  totalInputTokens: number | null;
+  totalOutputTokens: number | null;
 }
 
 /**
@@ -171,6 +173,14 @@ export function transformToSvarFormat(
       end,
       progress: task.progress,
       type,
+      totalInputTokens:
+        task.total_input_tokens != null
+          ? Number(task.total_input_tokens)
+          : null,
+      totalOutputTokens:
+        task.total_output_tokens != null
+          ? Number(task.total_output_tokens)
+          : null,
     });
 
     task.dependencies.forEach((depId, index) => {

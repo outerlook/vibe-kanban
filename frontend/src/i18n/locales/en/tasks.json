@@ -145,6 +145,7 @@
     "exit": "Exit: {{code}}",
     "started": "Started: {{date}}",
     "completed": "Completed: {{date}}",
+    "tokens": "Input: {{input}} / Output: {{output}}",
     "detailsTitle": "Process Details",
     "backToList": "Back to list",
     "loadingDetails": "Loading process details...",

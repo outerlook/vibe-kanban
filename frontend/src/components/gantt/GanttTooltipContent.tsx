@@ -2,6 +2,7 @@ import type { ITask } from '@svar-ui/react-gantt';
 import { Circle } from 'lucide-react';
 import type { TaskStatus } from 'shared/types';
 import type { SvarGanttTask } from '@/lib/transformGantt';
+import { formatTokenCount } from '@/lib/utils';
 import { statusLabels, statusBoardColors } from '@/utils/statusLabels';
 
 interface GanttTooltipContentProps {
@@ -64,6 +65,9 @@ export function GanttTooltipContent({ data }: GanttTooltipContentProps) {
   const statusColor = showStatusInfo ? statusBoardColors[type] : undefined;
   const statusLabel = showStatusInfo ? statusLabels[type] : undefined;
 
+  const hasTokens =
+    task.totalInputTokens != null || task.totalOutputTokens != null;
+
   return (
     <div className="flex flex-col gap-2 p-1 min-w-[180px]">
       <div className="font-semibold text-sm">{task.text}</div>
@@ -90,6 +94,13 @@ export function GanttTooltipContent({ data }: GanttTooltipContentProps) {
         <div>
           <span className="font-medium">End:</span> {formatDateTime(task.end)}
         </div>
+        {hasTokens && (
+          <div>
+            <span className="font-medium">Tokens:</span>{' '}
+            {formatTokenCount(task.totalInputTokens) || '0'} /{' '}
+            {formatTokenCount(task.totalOutputTokens) || '0'}
+          </div>
+        )}
       </div>
     </div>
   );
