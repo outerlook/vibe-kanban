@@ -51,7 +51,7 @@ type RowProps = {
 
 type BaseBranchSelectorProps = {
   branches: GitBranch[];
-  selectedBranch: string | null;
+  selectedBranch?: string;
   onBranchSelect: (branch: string) => void;
   placeholder?: string;
   className?: string;
@@ -309,7 +309,7 @@ function BranchSelector({
   const [open, setOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
-  const [baseBranch, setBaseBranch] = useState<string | null>(null);
+  const [baseBranch, setBaseBranch] = useState<string | undefined>(undefined);
   const [createError, setCreateError] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const createInputRef = useRef<HTMLInputElement>(null);
@@ -345,6 +345,13 @@ function BranchSelector({
     (branch: GitBranch) => excludeCurrentBranch && branch.is_current,
     [excludeCurrentBranch]
   );
+
+  const resetCreateState = useCallback(() => {
+    setIsCreating(false);
+    setNewBranchName('');
+    setBaseBranch(undefined);
+    setCreateError(null);
+  }, []);
 
   useEffect(() => {
     if (
@@ -398,21 +405,17 @@ function BranchSelector({
 
   const enterCreateMode = useCallback(() => {
     const currentBranch =
-      branches.find((branch) => branch.is_current)?.name ?? null;
+      branches.find((branch) => branch.is_current)?.name;
     setIsCreating(true);
     setNewBranchName('');
     setBaseBranch(currentBranch);
     setCreateError(null);
-    // Focus input after render
     setTimeout(() => createInputRef.current?.focus(), 0);
   }, [branches]);
 
   const exitCreateMode = useCallback(() => {
-    setIsCreating(false);
-    setNewBranchName('');
-    setBaseBranch(null);
-    setCreateError(null);
-  }, []);
+    resetCreateState();
+  }, [resetCreateState]);
 
   const handleCreateBranch = useCallback(async () => {
     const trimmedName = newBranchName.trim();
@@ -422,14 +425,12 @@ function BranchSelector({
     try {
       const newBranch = await createBranchMutation.mutateAsync({
         name: trimmedName,
-        baseBranch: baseBranch ?? undefined,
+        baseBranch,
       });
       onBranchSelect(newBranch.name);
       setBranchSearchTerm('');
       setHighlightedIndex(null);
-      setIsCreating(false);
-      setNewBranchName('');
-      setBaseBranch(null);
+      resetCreateState();
       setOpen(false);
     } catch (err) {
       const message =
@@ -442,6 +443,7 @@ function BranchSelector({
     repoId,
     createBranchMutation,
     onBranchSelect,
+    resetCreateState,
     t,
   ]);
 
@@ -453,10 +455,7 @@ function BranchSelector({
         if (!next) {
           setBranchSearchTerm('');
           setHighlightedIndex(null);
-          setIsCreating(false);
-          setNewBranchName('');
-          setBaseBranch(null);
-          setCreateError(null);
+          resetCreateState();
         }
       }}
     >
@@ -520,7 +519,6 @@ function BranchSelector({
           </div>
           <DropdownMenuSeparator />
 
-          {/* Create branch option */}
           {canCreate && !isCreating && (
             <>
               <DropdownMenuItem
@@ -538,7 +536,6 @@ function BranchSelector({
             </>
           )}
 
-          {/* Inline create branch input */}
           {canCreate && isCreating && (
             <>
               <div className="p-2 space-y-2">

@@ -30,7 +30,6 @@ export function useCreateBranch(repoId: string) {
     mutationFn: ({ name, baseBranch }) =>
       repoApi.createBranch(repoId, name, baseBranch),
     onSuccess: () => {
-      // Invalidating the parent key covers all child keys including byRepo(repoId)
       queryClient.invalidateQueries({
         queryKey: repoBranchKeys.all,
       });
