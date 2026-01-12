@@ -156,14 +156,15 @@ impl GitService {
         git2::Branch::name_is_valid(name).unwrap_or(false)
     }
 
-    /// Create a new local branch from HEAD.
+    /// Create a new local branch from HEAD or a base branch.
     pub fn create_branch(
         &self,
         repo_path: &Path,
         branch_name: &str,
+        base_branch: Option<&str>,
     ) -> Result<(), GitServiceError> {
         let git = GitCli::new();
-        git.create_branch(repo_path, branch_name)?;
+        git.create_branch(repo_path, branch_name, base_branch)?;
         Ok(())
     }
 

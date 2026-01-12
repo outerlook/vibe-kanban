@@ -134,7 +134,7 @@ pub async fn create_branch(
     }
 
     // Create the branch
-    git.create_branch(&repo.path, &payload.name)?;
+    git.create_branch(&repo.path, &payload.name, None)?;
 
     // Get the created branch from the list
     let branches = git.get_all_branches(&repo.path)?;

@@ -641,10 +641,22 @@ impl GitCli {
         Ok(files)
     }
 
-    /// Create a new branch pointing to HEAD.
-    pub fn create_branch(&self, repo_path: &Path, branch_name: &str) -> Result<(), GitCliError> {
+    /// Create a new branch pointing to HEAD or a base branch.
+    pub fn create_branch(
+        &self,
+        repo_path: &Path,
+        branch_name: &str,
+        base_branch: Option<&str>,
+    ) -> Result<(), GitCliError> {
         self.ensure_available()?;
-        self.git(repo_path, ["branch", branch_name])?;
+        match base_branch {
+            Some(base) => {
+                self.git(repo_path, ["branch", branch_name, base])?;
+            }
+            None => {
+                self.git(repo_path, ["branch", branch_name])?;
+            }
+        }
         Ok(())
     }
 
