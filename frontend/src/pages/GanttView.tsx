@@ -9,7 +9,7 @@ import { useProjectTasks } from '@/hooks/useProjectTasks';
 import { useTask } from '@/hooks/useTask';
 import { useTaskAttempts } from '@/hooks/useTaskAttempts';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
-import { useBranchStatus, useAttemptExecution } from '@/hooks';
+import { useBranchStatus } from '@/hooks';
 import { GanttChart } from '@/components/gantt/GanttChart';
 import { GanttToolbar } from '@/components/gantt/GanttToolbar';
 import { TasksLayout, type LayoutMode } from '@/components/layout/TasksLayout';
@@ -18,7 +18,6 @@ import TaskAttemptPanel from '@/components/panels/TaskAttemptPanel';
 import { TaskPanelHeaderActions } from '@/components/panels/TaskPanelHeaderActions';
 import { AttemptHeaderActions } from '@/components/panels/AttemptHeaderActions';
 import { PreviewPanel } from '@/components/panels/PreviewPanel';
-import { DiffsPanel } from '@/components/panels/DiffsPanel';
 import TodoPanel from '@/components/tasks/TodoPanel';
 import { NewCard, NewCardHeader } from '@/components/ui/new-card';
 import { Loader } from '@/components/ui/loader';
@@ -33,59 +32,14 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { paths } from '@/lib/paths';
-import type {
-  RepoBranchStatus,
-  TaskWithAttemptStatus,
-  Workspace,
-} from 'shared/types';
 import { ClickedElementsProvider } from '@/contexts/ClickedElementsProvider';
 import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import { ReviewProvider } from '@/contexts/ReviewProvider';
+import { GitOperationsProvider } from '@/contexts/GitOperationsContext';
 import {
-  GitOperationsProvider,
-  useGitOperationsError,
-} from '@/contexts/GitOperationsContext';
-
-function GitErrorBanner() {
-  const { error: gitError } = useGitOperationsError();
-
-  if (!gitError) return null;
-
-  return (
-    <div className="mx-4 mt-4 p-3 border border-destructive rounded">
-      <div className="text-destructive text-sm">{gitError}</div>
-    </div>
-  );
-}
-
-function DiffsPanelContainer({
-  attempt,
-  selectedTask,
-  branchStatus,
-}: {
-  attempt: Workspace | null;
-  selectedTask: TaskWithAttemptStatus | null;
-  branchStatus: RepoBranchStatus[] | null;
-}) {
-  const { isAttemptRunning } = useAttemptExecution(attempt?.id);
-
-  return (
-    <DiffsPanel
-      key={attempt?.id}
-      selectedAttempt={attempt}
-      gitOps={
-        attempt && selectedTask
-          ? {
-              task: selectedTask,
-              branchStatus: branchStatus ?? null,
-              isAttemptRunning,
-              selectedBranch: branchStatus?.[0]?.target_branch_name ?? null,
-            }
-          : undefined
-      }
-    />
-  );
-}
+  DiffsPanelContainer,
+  GitErrorBanner,
+} from '@/components/panels/AttemptPanels';
 
 export function GanttView() {
   const { t } = useTranslation(['tasks', 'common']);
