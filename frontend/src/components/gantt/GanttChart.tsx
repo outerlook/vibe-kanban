@@ -3,19 +3,10 @@ import { Gantt, Tooltip } from '@svar-ui/react-gantt';
 import type { IApi, ITask, TID } from '@svar-ui/react-gantt';
 import type { SvarGanttTask, SvarGanttLink } from '@/lib/transformGantt';
 import { GANTT_SCALES } from '@/lib/ganttConfig';
+import { formatTokenCount } from '@/lib/utils';
 import { useNavigateWithSearch } from '@/hooks';
 import { paths } from '@/lib/paths';
 import '@/styles/gantt.css';
-
-function formatTokenCount(count: number): string {
-  if (count >= 1_000_000) {
-    return `${(count / 1_000_000).toFixed(1)}M`;
-  }
-  if (count >= 1_000) {
-    return `${(count / 1_000).toFixed(1)}K`;
-  }
-  return count.toString();
-}
 
 function TooltipContent({ data }: { data: ITask }) {
   const task = data as unknown as SvarGanttTask;
@@ -30,14 +21,8 @@ function TooltipContent({ data }: { data: ITask }) {
         <div>Progress: {Math.round(task.progress * 100)}%</div>
         {hasTokens && (
           <div>
-            Tokens:{' '}
-            {task.totalInputTokens != null
-              ? formatTokenCount(task.totalInputTokens)
-              : '0'}{' '}
-            /{' '}
-            {task.totalOutputTokens != null
-              ? formatTokenCount(task.totalOutputTokens)
-              : '0'}
+            Tokens: {formatTokenCount(task.totalInputTokens) || '0'} /{' '}
+            {formatTokenCount(task.totalOutputTokens) || '0'}
           </div>
         )}
       </div>

@@ -10,6 +10,7 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { executionProcessesApi } from '@/lib/api.ts';
+import { formatTokenCount } from '@/lib/utils';
 import { ProfileVariantBadge } from '@/components/common/ProfileVariantBadge.tsx';
 import { useExecutionProcesses } from '@/hooks/useExecutionProcesses';
 import { useLogStream } from '@/hooks/useLogStream';
@@ -97,20 +98,6 @@ function ProcessesTab({ attemptId }: ProcessesTabProps) {
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleString();
-  };
-
-  const formatTokens = (n: bigint | null): string => {
-    if (n === null) return '';
-    const num = Number(n);
-    if (num >= 1_000_000) {
-      const val = num / 1_000_000;
-      return val % 1 === 0 ? `${val}M` : `${val.toFixed(1)}M`;
-    }
-    if (num >= 1_000) {
-      const val = num / 1_000;
-      return val % 1 === 0 ? `${val}K` : `${val.toFixed(1)}K`;
-    }
-    return num.toString();
   };
 
   const fetchProcessDetails = useCallback(async (processId: string) => {
@@ -285,8 +272,8 @@ function ProcessesTab({ attemptId }: ProcessesTabProps) {
                       process.output_tokens !== null) && (
                       <div className="mt-1">
                         {t('processes.tokens', {
-                          input: formatTokens(process.input_tokens),
-                          output: formatTokens(process.output_tokens),
+                          input: formatTokenCount(process.input_tokens),
+                          output: formatTokenCount(process.output_tokens),
                         })}
                       </div>
                     )}
