@@ -54,7 +54,7 @@ export type TaskDependency = { id: string, task_id: string, depends_on_id: strin
 
 export type TaskGroup = { id: string, project_id: string, name: string, base_branch: string | null, created_at: string, updated_at: string, };
 
-export type GanttTask = { id: string, name: string, start: string, end: string, progress: number, dependencies: Array<string>, task_status: TaskStatus, };
+export type GanttTask = { id: string, name: string, start: string, end: string, progress: number, dependencies: Array<string>, task_status: TaskStatus, total_input_tokens: bigint | null, total_output_tokens: bigint | null, };
 
 export type PaginatedGanttTasks = { tasks: Array<GanttTask>, total: bigint, hasMore: boolean, };
 
