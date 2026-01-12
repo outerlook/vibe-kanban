@@ -147,7 +147,8 @@ export function TaskFollowUpSection({
   // Local message state for immediate UI feedback (before debounced save)
   const [localMessage, setLocalMessage] = useState('');
 
-  // Variant selection - derive default from latest process
+  // Variant selection - derive default from latest CodingAgent process
+  // Filter by run_reason to exclude InternalAgent processes (like commit message generation)
   const latestProfileId = useMemo<ExecutorProfileId | null>(() => {
     if (!processes?.length) return null;
 
@@ -172,6 +173,8 @@ export function TaskFollowUpSection({
       processes
         .slice()
         .reverse()
+        // Only consider CodingAgent processes, not InternalAgent (commit, PR description, etc.)
+        .filter((p) => p.run_reason === 'codingagent')
         .map((p) => extractProfile(p.executor_action ?? null))
         .find((pid) => pid !== null) ?? null
     );
