@@ -191,6 +191,14 @@ function AppContent() {
                     path="/projects/:projectId/gantt"
                     element={<GanttView />}
                   />
+                  <Route
+                    path="/projects/:projectId/gantt/:taskId"
+                    element={<GanttView />}
+                  />
+                  <Route
+                    path="/projects/:projectId/gantt/:taskId/attempts/:attemptId"
+                    element={<GanttView />}
+                  />
                   <Route path="/settings/*" element={<SettingsLayout />}>
                     <Route index element={<Navigate to="general" replace />} />
                     <Route path="general" element={<GeneralSettings />} />
