@@ -8,14 +8,29 @@ import '@/styles/gantt.css';
 
 /**
  * Task type configuration for SVAR Gantt.
- * Each type ID matches a TaskStatus value and defines bar colors.
+ * Each type ID matches a TaskStatus value or group color class and defines bar colors.
+ * Status types: todo, inprogress, inreview, done, cancelled
+ * Group types: ungrouped, group-0 through group-9
  */
 const TASK_TYPES = [
+  // Status-based types
   { id: 'todo', label: 'To Do' },
   { id: 'inprogress', label: 'In Progress' },
   { id: 'inreview', label: 'In Review' },
   { id: 'done', label: 'Done' },
   { id: 'cancelled', label: 'Cancelled' },
+  // Group-based types (colors applied via CSS classes in gantt.css)
+  { id: 'ungrouped', label: 'Ungrouped' },
+  { id: 'group-0', label: 'Group 1' },
+  { id: 'group-1', label: 'Group 2' },
+  { id: 'group-2', label: 'Group 3' },
+  { id: 'group-3', label: 'Group 4' },
+  { id: 'group-4', label: 'Group 5' },
+  { id: 'group-5', label: 'Group 6' },
+  { id: 'group-6', label: 'Group 7' },
+  { id: 'group-7', label: 'Group 8' },
+  { id: 'group-8', label: 'Group 9' },
+  { id: 'group-9', label: 'Group 10' },
 ];
 
 interface GanttChartProps {

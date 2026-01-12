@@ -1,4 +1,5 @@
 import type { GanttTask, TaskStatus } from '../../../shared/types';
+import { getTaskGroupColorClass } from './ganttColors';
 
 /**
  * Options for transforming Gantt tasks
@@ -13,6 +14,7 @@ export interface TransformOptions {
  * Note: SVAR expects either end OR duration, not both.
  * We use start+end since that's what the backend provides.
  * The `type` field controls bar color via taskTypes config.
+ * When colorMode is 'group', type will be a group color class (e.g., 'group-0', 'ungrouped').
  */
 export interface SvarGanttTask {
   id: string;
@@ -20,7 +22,7 @@ export interface SvarGanttTask {
   start: Date;
   end: Date;
   progress: number;
-  type: TaskStatus;
+  type: TaskStatus | string;
 }
 
 /**
@@ -146,7 +148,7 @@ export function transformToSvarFormat(
   tasks: SvarGanttTask[];
   links: SvarGanttLink[];
 } {
-  const { defaultDuration = DEFAULT_DURATION_MINUTES } = options;
+  const { colorMode = 'status', defaultDuration = DEFAULT_DURATION_MINUTES } = options;
   const svarTasks: SvarGanttTask[] = [];
   const links: SvarGanttLink[] = [];
 
@@ -158,13 +160,17 @@ export function transformToSvarFormat(
     const start = position?.start ?? new Date(task.start);
     const end = position?.end ?? new Date(task.end);
 
+    const type = colorMode === 'group'
+      ? getTaskGroupColorClass(task.task_group_id)
+      : task.task_status;
+
     svarTasks.push({
       id: task.id,
       text: task.name,
       start,
       end,
       progress: task.progress,
-      type: task.task_status,
+      type,
     });
 
     task.dependencies.forEach((depId, index) => {

@@ -3,6 +3,7 @@ import {
   transformToSvarFormat,
   type SvarGanttTask,
   type SvarGanttLink,
+  type TransformOptions,
 } from '@/lib/transformGantt';
 import { ganttApi } from '@/lib/api';
 import type { GanttTask } from 'shared/types';
@@ -17,6 +18,10 @@ type WsMsg = WsJsonPatchMsg | WsFinishedMsg;
 
 const decodePointerSegment = (value: string) =>
   value.replace(/~1/g, '/').replace(/~0/g, '~');
+
+export interface UseGanttTasksOptions {
+  colorMode?: TransformOptions['colorMode'];
+}
 
 export interface UseGanttTasksResult {
   ganttTasks: SvarGanttTask[];
@@ -34,8 +39,10 @@ export interface UseGanttTasksResult {
  * real-time updates via WebSocket (only for already-loaded tasks).
  */
 export const useGanttTasks = (
-  projectId: string | undefined
+  projectId: string | undefined,
+  options: UseGanttTasksOptions = {}
 ): UseGanttTasksResult => {
+  const { colorMode = 'status' } = options;
   const [tasksById, setTasksById] = useState<Record<string, GanttTask>>({});
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
@@ -254,8 +261,8 @@ export const useGanttTasks = (
   }, [projectId, applyGanttPatches]);
 
   const { tasks: ganttTasks, links: ganttLinks } = useMemo(
-    () => transformToSvarFormat(tasksById),
-    [tasksById]
+    () => transformToSvarFormat(tasksById, { colorMode }),
+    [tasksById, colorMode]
   );
 
   return {

@@ -7,6 +7,7 @@ import { useProject } from '@/contexts/ProjectContext';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
 import { useProjectTasks } from '@/hooks/useProjectTasks';
 import { GanttChart } from '@/components/gantt/GanttChart';
+import { GanttToolbar } from '@/components/gantt/GanttToolbar';
 import { TasksLayout } from '@/components/layout/TasksLayout';
 import TaskPanel from '@/components/panels/TaskPanel';
 import { TaskPanelHeaderActions } from '@/components/panels/TaskPanelHeaderActions';
@@ -30,6 +31,7 @@ export function GanttView() {
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [colorMode, setColorMode] = useState<'status' | 'group'>('status');
 
   const {
     projectId,
@@ -47,7 +49,7 @@ export function GanttView() {
     total,
     loadMore,
     error: ganttError,
-  } = useGanttTasks(projectId);
+  } = useGanttTasks(projectId, { colorMode });
 
   const { tasksById } = useProjectTasks(projectId ?? '');
   const selectedTask = selectedTaskId ? tasksById[selectedTaskId] ?? null : null;
@@ -163,32 +165,35 @@ export function GanttView() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="shrink-0 border-b px-4 py-3 flex items-center">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleBackToTasks}
-          className="gap-2"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          {t('common:buttons.back', { defaultValue: 'Back' })}
-        </Button>
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink
-                className="cursor-pointer hover:underline"
-                onClick={handleBackToTasks}
-              >
-                {project?.name || 'Project'}
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage>Gantt</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
+      <div className="shrink-0 border-b px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleBackToTasks}
+            className="gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {t('common:buttons.back', { defaultValue: 'Back' })}
+          </Button>
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink
+                  className="cursor-pointer hover:underline"
+                  onClick={handleBackToTasks}
+                >
+                  {project?.name || 'Project'}
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>Gantt</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
+        <GanttToolbar colorMode={colorMode} onColorModeChange={setColorMode} />
       </div>
 
       <div className="flex-1 min-h-0">

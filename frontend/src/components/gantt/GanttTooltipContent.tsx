@@ -1,10 +1,17 @@
 import type { ITask } from '@svar-ui/react-gantt';
 import { Circle } from 'lucide-react';
+import type { TaskStatus } from 'shared/types';
 import type { SvarGanttTask } from '@/lib/transformGantt';
 import { statusLabels, statusBoardColors } from '@/utils/statusLabels';
 
 export interface GanttTooltipContentProps {
   data: ITask;
+}
+
+const STATUS_VALUES = new Set<string>(['todo', 'inprogress', 'inreview', 'done', 'cancelled']);
+
+function isTaskStatus(value: string): value is TaskStatus {
+  return STATUS_VALUES.has(value);
 }
 
 /**
@@ -46,21 +53,26 @@ export function formatDateTime(date: Date): string {
 
 export function GanttTooltipContent({ data }: GanttTooltipContentProps) {
   const task = data as unknown as SvarGanttTask;
-  const status = task.type;
-  const statusColor = statusBoardColors[status];
-  const statusLabel = statusLabels[status];
+  const type = task.type;
+
+  // Status display only makes sense when type is a TaskStatus (not a group color class)
+  const showStatusInfo = isTaskStatus(type);
+  const statusColor = showStatusInfo ? statusBoardColors[type] : undefined;
+  const statusLabel = showStatusInfo ? statusLabels[type] : undefined;
 
   return (
     <div className="flex flex-col gap-2 p-1 min-w-[180px]">
       <div className="font-semibold text-sm">{task.text}</div>
 
-      <div className="flex items-center gap-1.5">
-        <Circle
-          className="h-2.5 w-2.5 fill-current"
-          style={{ color: `var(${statusColor})` }}
-        />
-        <span className="text-xs">{statusLabel}</span>
-      </div>
+      {showStatusInfo && statusColor && statusLabel && (
+        <div className="flex items-center gap-1.5">
+          <Circle
+            className="h-2.5 w-2.5 fill-current"
+            style={{ color: `var(${statusColor})` }}
+          />
+          <span className="text-xs">{statusLabel}</span>
+        </div>
+      )}
 
       <div className="flex flex-col gap-1 text-xs text-muted-foreground">
         <div>
