@@ -553,6 +553,27 @@ impl ExecutionProcess {
         Ok(())
     }
 
+    /// Update token usage for an execution process
+    pub async fn update_token_usage(
+        pool: &SqlitePool,
+        id: Uuid,
+        input_tokens: Option<i64>,
+        output_tokens: Option<i64>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"UPDATE execution_processes
+               SET input_tokens = $1, output_tokens = $2
+               WHERE id = $3"#,
+            input_tokens,
+            output_tokens,
+            id
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
     pub fn executor_action(&self) -> Result<&ExecutorAction, anyhow::Error> {
         match &self.executor_action.0 {
             ExecutorActionField::ExecutorAction(action) => Ok(action),

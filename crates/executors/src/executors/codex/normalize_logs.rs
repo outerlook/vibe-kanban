@@ -1014,6 +1014,27 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                 | EventMsg::TaskComplete(..) => {}
             }
         }
+
+        // Emit token usage entry if any tokens were used
+        if let Some(ref usage_info) = state.token_usage_info {
+            let input_tokens = usage_info.total_token_usage.input_tokens;
+            let output_tokens = usage_info.total_token_usage.output_tokens;
+            if input_tokens > 0 || output_tokens > 0 {
+                add_normalized_entry(
+                    &msg_store,
+                    &entry_index,
+                    NormalizedEntry {
+                        timestamp: None,
+                        entry_type: NormalizedEntryType::TokenUsage {
+                            input_tokens,
+                            output_tokens,
+                        },
+                        content: String::new(),
+                        metadata: None,
+                    },
+                );
+            }
+        }
     });
 }
 

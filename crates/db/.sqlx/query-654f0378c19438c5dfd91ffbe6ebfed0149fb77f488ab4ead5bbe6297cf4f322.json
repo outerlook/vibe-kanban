@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE execution_processes\n               SET input_tokens = $1, output_tokens = $2\n               WHERE id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "654f0378c19438c5dfd91ffbe6ebfed0149fb77f488ab4ead5bbe6297cf4f322"
+}

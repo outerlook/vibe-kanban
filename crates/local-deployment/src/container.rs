@@ -65,6 +65,28 @@ use uuid::Uuid;
 
 use crate::{command, copy};
 
+/// Extract token usage from a MsgStore by scanning history for TokenUsage entries
+fn extract_token_usage_from_msg_store(msg_store: &MsgStore) -> Option<(i64, i64)> {
+    let history = msg_store.get_history();
+
+    // Scan in reverse to find the most recent TokenUsage entry
+    for msg in history.iter().rev() {
+        if let LogMsg::JsonPatch(patch) = msg {
+            if let Some((_, entry)) = extract_normalized_entry_from_patch(patch) {
+                if let NormalizedEntryType::TokenUsage {
+                    input_tokens,
+                    output_tokens,
+                } = entry.entry_type
+                {
+                    return Some((input_tokens, output_tokens));
+                }
+            }
+        }
+    }
+
+    None
+}
+
 #[derive(Clone)]
 pub struct LocalContainerService {
     db: DBService,
@@ -547,6 +569,20 @@ impl LocalContainerService {
 
             // Cleanup msg store
             if let Some(msg_arc) = msg_stores.write().await.remove(&exec_id) {
+                // Extract and store token usage before cleaning up
+                if let Some((input_tokens, output_tokens)) = extract_token_usage_from_msg_store(&msg_arc) {
+                    if let Err(e) = ExecutionProcess::update_token_usage(
+                        &db.pool,
+                        exec_id,
+                        Some(input_tokens),
+                        Some(output_tokens),
+                    )
+                    .await
+                    {
+                        tracing::warn!("Failed to update token usage for {}: {}", exec_id, e);
+                    }
+                }
+
                 msg_arc.push_finished();
                 tokio::time::sleep(Duration::from_millis(50)).await; // Wait for the finish message to propogate
                 match Arc::try_unwrap(msg_arc) {

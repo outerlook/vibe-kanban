@@ -332,6 +332,9 @@ pub struct ClaudeLogProcessor {
     strategy: HistoryStrategy,
     streaming_messages: HashMap<String, StreamingMessageState>,
     streaming_message_id: Option<String>,
+    // Accumulated token usage from the session
+    total_input_tokens: i64,
+    total_output_tokens: i64,
 }
 
 impl ClaudeLogProcessor {
@@ -347,7 +350,14 @@ impl ClaudeLogProcessor {
             strategy,
             streaming_messages: HashMap::new(),
             streaming_message_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
         }
+    }
+
+    /// Get the accumulated token usage
+    pub fn token_usage(&self) -> (i64, i64) {
+        (self.total_input_tokens, self.total_output_tokens)
     }
 
     /// Process raw logs and convert them to normalized entries with patches
@@ -445,6 +455,23 @@ impl ClaudeLogProcessor {
                     metadata: None,
                 };
 
+                let patch_id = entry_index_provider.next();
+                let patch = ConversationPatch::add_normalized_entry(patch_id, entry);
+                msg_store.push_patch(patch);
+            }
+
+            // Emit token usage entry if any tokens were used
+            let (input_tokens, output_tokens) = processor.token_usage();
+            if input_tokens > 0 || output_tokens > 0 {
+                let entry = NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::TokenUsage {
+                        input_tokens,
+                        output_tokens,
+                    },
+                    content: String::new(),
+                    metadata: None,
+                };
                 let patch_id = entry_index_provider.next();
                 let patch = ConversationPatch::add_normalized_entry(patch_id, entry);
                 msg_store.push_patch(patch);
@@ -1112,7 +1139,17 @@ impl ClaudeLogProcessor {
                     }
                 }
                 ClaudeStreamEvent::ContentBlockStop { .. } => {}
-                ClaudeStreamEvent::MessageDelta { .. } => {}
+                ClaudeStreamEvent::MessageDelta { usage, .. } => {
+                    // Accumulate token usage from stream events
+                    if let Some(usage) = usage {
+                        if let Some(input) = usage.input_tokens {
+                            self.total_input_tokens += input as i64;
+                        }
+                        if let Some(output) = usage.output_tokens {
+                            self.total_output_tokens += output as i64;
+                        }
+                    }
+                }
                 ClaudeStreamEvent::MessageStop => {
                     if let Some(message_id) = self.streaming_message_id.take() {
                         let _ = self.streaming_messages.remove(&message_id);

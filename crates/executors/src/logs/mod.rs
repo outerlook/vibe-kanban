@@ -95,6 +95,10 @@ pub enum NormalizedEntryType {
         execution_processes: usize,
         needs_setup: bool,
     },
+    TokenUsage {
+        input_tokens: i64,
+        output_tokens: i64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
