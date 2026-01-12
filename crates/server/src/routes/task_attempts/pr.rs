@@ -155,10 +155,12 @@ async fn trigger_pr_description_follow_up(
         ExecutionProcess::latest_executor_profile_for_session(&deployment.db().pool, session.id)
             .await?;
 
-    // Get latest agent session ID if one exists (for coding agent continuity)
-    let latest_agent_session_id = ExecutionProcess::find_latest_coding_agent_turn_session_id(
+    // Get latest agent session ID for the SAME executor type (for coding agent continuity)
+    // This prevents using session IDs from different executors
+    let latest_agent_session_id = ExecutionProcess::find_latest_coding_agent_turn_session_id_by_executor(
         &deployment.db().pool,
         session.id,
+        &executor_profile_id,
     )
     .await?;
 
@@ -168,7 +170,7 @@ async fn trigger_pr_description_follow_up(
         .filter(|dir| !dir.is_empty())
         .cloned();
 
-    // Build the action type (follow-up if session exists, otherwise initial)
+    // Build the action type (follow-up if session exists with same executor, otherwise initial)
     let action_type = if let Some(agent_session_id) = latest_agent_session_id {
         ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
             prompt,
@@ -285,10 +287,12 @@ pub async fn generate_commit_message_for_merge(
             .await?
     };
 
-    // Get latest agent session ID if one exists (for coding agent continuity)
-    let latest_agent_session_id = ExecutionProcess::find_latest_coding_agent_turn_session_id(
+    // Get latest agent session ID for the SAME executor type (for coding agent continuity)
+    // This prevents using session IDs from different executors (e.g., Codecs session with Cloud executor)
+    let latest_agent_session_id = ExecutionProcess::find_latest_coding_agent_turn_session_id_by_executor(
         &deployment.db().pool,
         session.id,
+        &executor_profile_id,
     )
     .await?;
 
@@ -298,7 +302,7 @@ pub async fn generate_commit_message_for_merge(
         .filter(|dir| !dir.is_empty())
         .cloned();
 
-    // Build the action type (follow-up if session exists, otherwise initial)
+    // Build the action type (follow-up if session exists with same executor, otherwise initial)
     let action_type = if let Some(agent_session_id) = latest_agent_session_id {
         ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
             prompt,

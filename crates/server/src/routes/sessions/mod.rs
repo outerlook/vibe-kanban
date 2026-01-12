@@ -19,7 +19,7 @@ use executors::{
     actions::{
         ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
     },
-    profile::ExecutorProfileId,
+    profile::{ExecutorConfigs, ExecutorProfileId},
 };
 use serde::Deserialize;
 use services::services::container::ContainerService;
@@ -119,9 +119,30 @@ pub async fn follow_up(
     let initial_executor_profile_id =
         ExecutionProcess::latest_executor_profile_for_session(pool, session.id).await?;
 
-    let executor_profile_id = ExecutorProfileId {
-        executor: initial_executor_profile_id.executor,
-        variant: payload.variant,
+    // Validate that the requested variant is compatible with the current executor.
+    // If payload.variant is from a different executor (e.g., HAIKU for CLAUDE when using CODEX),
+    // fall back to the original profile to avoid invalid combinations like CODEX:HAIKU.
+    let executor_profile_id = if let Some(ref variant) = payload.variant {
+        let candidate = ExecutorProfileId {
+            executor: initial_executor_profile_id.executor,
+            variant: Some(variant.clone()),
+        };
+        if ExecutorConfigs::get_cached().get_coding_agent(&candidate).is_some() {
+            candidate
+        } else {
+            tracing::warn!(
+                "Variant '{}' is not valid for executor '{}', using original profile '{}'",
+                variant,
+                initial_executor_profile_id.executor,
+                initial_executor_profile_id
+            );
+            initial_executor_profile_id.clone()
+        }
+    } else {
+        ExecutorProfileId {
+            executor: initial_executor_profile_id.executor,
+            variant: None,
+        }
     };
 
     // Get parent task
