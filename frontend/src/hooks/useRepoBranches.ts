@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { repoApi } from '@/lib/api';
 import type { GitBranch } from 'shared/types';
 
@@ -20,5 +20,19 @@ export function useRepoBranches(repoId?: string | null, opts?: Options) {
     enabled,
     staleTime: 60_000,
     refetchOnWindowFocus: true,
+  });
+}
+
+export function useCreateBranch(repoId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<GitBranch, unknown, string>({
+    mutationFn: (name: string) => repoApi.createBranch(repoId, name),
+    onSuccess: () => {
+      // Invalidating the parent key covers all child keys including byRepo(repoId)
+      queryClient.invalidateQueries({
+        queryKey: repoBranchKeys.all,
+      });
+    },
   });
 }

@@ -648,6 +648,12 @@ impl GitCli {
         Ok(())
     }
 
+    /// Check if a branch name is valid according to git-check-ref-format rules.
+    pub fn is_branch_name_valid(&self, name: &str) -> bool {
+        git2::Branch::name_is_valid(name).unwrap_or(false)
+    }
+
+
     /// Clone a repository from a URL to a destination directory.
     pub fn clone(&self, url: &str, destination: &Path) -> Result<(), GitCliError> {
         self.ensure_available()?;

@@ -156,6 +156,17 @@ impl GitService {
         git2::Branch::name_is_valid(name).unwrap_or(false)
     }
 
+    /// Create a new local branch from HEAD.
+    pub fn create_branch(
+        &self,
+        repo_path: &Path,
+        branch_name: &str,
+    ) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+        git.create_branch(repo_path, branch_name)?;
+        Ok(())
+    }
+
     /// Open the repository
     fn open_repo(&self, repo_path: &Path) -> Result<Repository, GitServiceError> {
         Repository::open(repo_path).map_err(GitServiceError::from)

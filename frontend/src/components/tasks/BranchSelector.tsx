@@ -2,7 +2,14 @@ import { useState, useMemo, useRef, useEffect, useCallback, memo } from 'react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button.tsx';
-import { ArrowDown, GitBranch as GitBranchIcon, Search } from 'lucide-react';
+import {
+  ArrowDown,
+  GitBranch as GitBranchIcon,
+  Search,
+  Plus,
+  Loader2,
+  X,
+} from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,6 +24,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip.tsx';
 import { Input } from '@/components/ui/input.tsx';
+import { useCreateBranch } from '@/hooks/useRepoBranches';
 import type { GitBranch } from 'shared/types';
 
 type Props = {
@@ -27,6 +35,8 @@ type Props = {
   className?: string;
   excludeCurrentBranch?: boolean;
   disabledTooltip?: string;
+  /** When provided, enables inline branch creation */
+  repoId?: string;
 };
 
 type RowProps = {
@@ -108,13 +118,21 @@ function BranchSelector({
   className = '',
   excludeCurrentBranch = false,
   disabledTooltip,
+  repoId,
 }: Props) {
   const { t } = useTranslation(['common']);
   const [branchSearchTerm, setBranchSearchTerm] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [newBranchName, setNewBranchName] = useState('');
+  const [createError, setCreateError] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const createInputRef = useRef<HTMLInputElement>(null);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
+
+  const createBranchMutation = useCreateBranch(repoId ?? '');
+  const canCreate = !!repoId;
 
   const effectivePlaceholder = placeholder ?? t('branchSelector.placeholder');
   const defaultDisabledTooltip = t('branchSelector.currentDisabled');
@@ -194,6 +212,46 @@ function BranchSelector({
     handleBranchSelect,
   ]);
 
+  const enterCreateMode = useCallback(() => {
+    setIsCreating(true);
+    setNewBranchName('');
+    setCreateError(null);
+    // Focus input after render
+    setTimeout(() => createInputRef.current?.focus(), 0);
+  }, []);
+
+  const exitCreateMode = useCallback(() => {
+    setIsCreating(false);
+    setNewBranchName('');
+    setCreateError(null);
+  }, []);
+
+  const handleCreateBranch = useCallback(async () => {
+    const trimmedName = newBranchName.trim();
+    if (!trimmedName || !repoId) return;
+
+    setCreateError(null);
+    try {
+      const newBranch = await createBranchMutation.mutateAsync(trimmedName);
+      onBranchSelect(newBranch.name);
+      setBranchSearchTerm('');
+      setHighlightedIndex(null);
+      setIsCreating(false);
+      setNewBranchName('');
+      setOpen(false);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : t('branchSelector.createFailed');
+      setCreateError(message);
+    }
+  }, [
+    newBranchName,
+    repoId,
+    createBranchMutation,
+    onBranchSelect,
+    t,
+  ]);
+
   return (
     <DropdownMenu
       open={open}
@@ -202,6 +260,9 @@ function BranchSelector({
         if (!next) {
           setBranchSearchTerm('');
           setHighlightedIndex(null);
+          setIsCreating(false);
+          setNewBranchName('');
+          setCreateError(null);
         }
       }}
     >
@@ -264,6 +325,78 @@ function BranchSelector({
             </div>
           </div>
           <DropdownMenuSeparator />
+
+          {/* Create branch option */}
+          {canCreate && !isCreating && (
+            <>
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  enterCreateMode();
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <Plus className="h-4 w-4" />
+                  <span>{t('branchSelector.createBranch')}</span>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
+
+          {/* Inline create branch input */}
+          {canCreate && isCreating && (
+            <>
+              <div className="p-2 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Input
+                    ref={createInputRef}
+                    placeholder={t('branchSelector.newBranchPlaceholder')}
+                    value={newBranchName}
+                    onChange={(e) => {
+                      setNewBranchName(e.target.value);
+                      setCreateError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleCreateBranch();
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        exitCreateMode();
+                      } else {
+                        e.stopPropagation();
+                      }
+                    }}
+                    disabled={createBranchMutation.isPending}
+                    className="flex-1"
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={exitCreateMode}
+                    disabled={createBranchMutation.isPending}
+                    className="h-8 w-8 p-0"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+                {createBranchMutation.isPending && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <span>{t('branchSelector.creating')}</span>
+                  </div>
+                )}
+                {createError && (
+                  <div className="text-sm text-destructive">{createError}</div>
+                )}
+              </div>
+              <DropdownMenuSeparator />
+            </>
+          )}
+
           {filteredBranches.length === 0 ? (
             <div className="p-2 text-sm text-muted-foreground text-center">
               {t('branchSelector.empty')}

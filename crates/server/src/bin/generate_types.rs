@@ -99,6 +99,7 @@ fn generate_types_content() -> String {
         server::routes::repo::RegisterRepoRequest::decl(),
         server::routes::repo::InitRepoRequest::decl(),
         server::routes::repo::CloneRepoRequest::decl(),
+        server::routes::repo::CreateBranchRequest::decl(),
         server::routes::tags::TagSearchParams::decl(),
         server::routes::oauth::TokenResponse::decl(),
         server::routes::config::UserSystemInfo::decl(),

@@ -1010,6 +1010,15 @@ export const repoApi = {
     return handleApiResponse<GitBranch[]>(response);
   },
 
+  createBranch: async (repoId: string, name: string): Promise<GitBranch> => {
+    const response = await makeRequest(`/api/repos/${repoId}/branches`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    return handleApiResponse<GitBranch>(response);
+  },
+
   init: async (data: {
     parent_path: string;
     folder_name: string;

@@ -23,7 +23,7 @@ export { useNavigateWithSearch } from './useNavigateWithSearch';
 export { useGitOperations } from './useGitOperations';
 export { useTask } from './useTask';
 export { useAttempt } from './useAttempt';
-export { useRepoBranches } from './useRepoBranches';
+export { useRepoBranches, useCreateBranch } from './useRepoBranches';
 export { useProjectRepos } from './useProjectRepos';
 export { useRepoBranchSelection } from './useRepoBranchSelection';
 export type { RepoBranchConfig } from './useRepoBranchSelection';
