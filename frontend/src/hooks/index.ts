@@ -54,3 +54,4 @@ export {
   useAssignTasksToGroup,
 } from './useTaskGroups';
 export { useGanttTasks } from './useGanttTasks';
+export { useTaskPanelHeader } from './useTaskPanelHeader';

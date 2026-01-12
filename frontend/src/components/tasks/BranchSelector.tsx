@@ -234,6 +234,7 @@ function BranchSelector({
     try {
       const newBranch = await createBranchMutation.mutateAsync({
         name: trimmedName,
+        baseBranch: selectedBranch ?? undefined,
       });
       onBranchSelect(newBranch.name);
       setBranchSearchTerm('');
@@ -251,6 +252,7 @@ function BranchSelector({
     repoId,
     createBranchMutation,
     onBranchSelect,
+    selectedBranch,
     t,
   ]);
 
