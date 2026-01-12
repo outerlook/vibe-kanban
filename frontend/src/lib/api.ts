@@ -1045,10 +1045,10 @@ export const repoApi = {
     name: string,
     baseBranch?: string
   ): Promise<GitBranch> => {
-    const payload =
-      baseBranch === undefined
-        ? { name }
-        : { name, base_branch: baseBranch };
+    const payload: { name: string; base_branch?: string } = { name };
+    if (baseBranch !== undefined) {
+      payload.base_branch = baseBranch;
+    }
     const response = await makeRequest(`/api/repos/${repoId}/branches`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

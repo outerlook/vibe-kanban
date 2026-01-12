@@ -649,13 +649,10 @@ impl GitCli {
         base_branch: Option<&str>,
     ) -> Result<(), GitCliError> {
         self.ensure_available()?;
-        match base_branch {
-            Some(base) => {
-                self.git(repo_path, ["branch", branch_name, base])?;
-            }
-            None => {
-                self.git(repo_path, ["branch", branch_name])?;
-            }
+        if let Some(base) = base_branch {
+            self.git(repo_path, ["branch", branch_name, base])?;
+        } else {
+            self.git(repo_path, ["branch", branch_name])?;
         }
         Ok(())
     }
@@ -664,7 +661,6 @@ impl GitCli {
     pub fn is_branch_name_valid(&self, name: &str) -> bool {
         git2::Branch::name_is_valid(name).unwrap_or(false)
     }
-
 
     /// Clone a repository from a URL to a destination directory.
     pub fn clone(&self, url: &str, destination: &Path) -> Result<(), GitCliError> {

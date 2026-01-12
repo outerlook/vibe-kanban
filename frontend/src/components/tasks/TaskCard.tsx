@@ -16,6 +16,7 @@ import { useUnread } from '@/contexts/UnreadContext';
 import { useTaskSelection } from '@/contexts/TaskSelectionContext';
 import { useTaskGroupsContext } from '@/contexts/TaskGroupsContext';
 import { TaskGroupBadge } from './TaskGroupBadge';
+import { TaskGroupFormDialog } from '@/components/dialogs';
 
 interface TaskCardProps {
   task: TaskWithAttemptStatus;
@@ -44,7 +45,7 @@ export function TaskCard({
   const { isSignedIn } = useAuth();
   const { isTaskUnread, markTaskAsRead } = useUnread();
   const { toggleTask } = useTaskSelection();
-  const { getGroupName } = useTaskGroupsContext();
+  const { getGroupName, groupsById } = useTaskGroupsContext();
   const isUnread = isTaskUnread(task);
   const groupName = getGroupName(task.task_group_id);
 
@@ -90,6 +91,17 @@ export function TaskCard({
   );
 
   const localRef = useRef<HTMLDivElement>(null);
+
+  const handleGroupClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!task.task_group_id) return;
+      const group = groupsById[task.task_group_id];
+      if (!group) return;
+      TaskGroupFormDialog.show({ mode: 'edit', projectId, group });
+    },
+    [groupsById, projectId, task.task_group_id]
+  );
 
   useEffect(() => {
     if (!isOpen || !localRef.current) return;
@@ -170,6 +182,7 @@ export function TaskCard({
           groupId={task.task_group_id}
           groupName={groupName}
           className="w-fit"
+          onClick={handleGroupClick}
         />
         {task.description && (
           <p className="text-sm text-secondary-foreground break-words">

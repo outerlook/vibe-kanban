@@ -14,6 +14,7 @@
       "remote": "remota"
     },
     "currentDisabled": "No se puede seleccionar la rama actual",
+    "baseBranchLabel": "Rama base",
     "empty": "No se encontraron ramas",
     "placeholder": "Seleccionar una rama",
     "searchPlaceholder": "Buscar ramas..."

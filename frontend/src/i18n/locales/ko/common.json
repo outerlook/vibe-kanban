@@ -14,6 +14,7 @@
       "remote": "원격"
     },
     "currentDisabled": "현재 브랜치는 선택할 수 없습니다",
+    "baseBranchLabel": "기반 브랜치",
     "empty": "브랜치를 찾을 수 없습니다",
     "placeholder": "브랜치 선택",
     "searchPlaceholder": "브랜치 검색..."
