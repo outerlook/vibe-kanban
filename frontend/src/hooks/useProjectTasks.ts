@@ -118,6 +118,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
 
           let added = 0;
           let removed = 0;
+          let updated = 0;
 
           for (const op of patches) {
             if (!op.path.startsWith(TASK_PATH_PREFIX)) continue;
@@ -145,10 +146,11 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
             if (op.op === 'replace' && !exists) continue;
 
             if (!exists) added += 1;
+            else updated += 1;
             taskMap[task.id] = task;
           }
 
-          if (added === 0 && removed === 0) return oldData;
+          if (added === 0 && removed === 0 && updated === 0) return oldData;
 
           // Rebuild pages with updated tasks
           const allTasks = Object.values(taskMap);
