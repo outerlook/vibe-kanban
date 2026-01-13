@@ -792,40 +792,35 @@ pub async fn get_task_attempt_branch_status(
         let repo_merges = merges_by_repo.get(&repo.id).cloned().unwrap_or_default();
 
         let worktree_path = workspace_dir.join(&repo.name);
-
-        // Clone values for spawn_blocking closures
-        let git = deployment.git().clone();
-        let worktree_path_clone = worktree_path.clone();
-        let repo_path = repo.path.clone();
-        let target_branch_clone = target_branch.clone();
+        let git = deployment.git();
 
         // Run independent git operations in parallel using spawn_blocking
         let (head_result, rebase_result, conflicts_result, counts_result, branch_type_result) = tokio::join!(
             tokio::task::spawn_blocking({
                 let git = git.clone();
-                let path = worktree_path_clone.clone();
+                let path = worktree_path.clone();
                 move || git.get_head_info(&path)
             }),
             tokio::task::spawn_blocking({
                 let git = git.clone();
-                let path = worktree_path_clone.clone();
+                let path = worktree_path.clone();
                 move || git.is_rebase_in_progress(&path)
             }),
             tokio::task::spawn_blocking({
                 let git = git.clone();
-                let path = worktree_path_clone.clone();
+                let path = worktree_path.clone();
                 move || git.get_conflicted_files(&path)
             }),
             tokio::task::spawn_blocking({
                 let git = git.clone();
-                let path = worktree_path_clone.clone();
+                let path = worktree_path.clone();
                 move || git.get_worktree_change_counts(&path)
             }),
             tokio::task::spawn_blocking({
                 let git = git.clone();
-                let path = repo_path.clone();
-                let target = target_branch_clone.clone();
-                move || git.find_branch_type(&path, &target)
+                let repo_path = repo.path.clone();
+                let target = target_branch.clone();
+                move || git.find_branch_type(&repo_path, &target)
             }),
         );
 
@@ -880,21 +875,21 @@ pub async fn get_task_attempt_branch_status(
 
         let branch_status_future = tokio::task::spawn_blocking({
             let git = git.clone();
-            let path = repo_path.clone();
+            let repo_path = repo.path.clone();
             let branch = workspace.branch.clone();
             let target = target_branch.clone();
             move || match target_branch_type {
-                BranchType::Local => git.get_branch_status(&path, &branch, &target),
-                BranchType::Remote => git.get_remote_branch_status(&path, &branch, Some(&target)),
+                BranchType::Local => git.get_branch_status(&repo_path, &branch, &target),
+                BranchType::Remote => git.get_remote_branch_status(&repo_path, &branch, Some(&target)),
             }
         });
 
         let remote_status_future = if has_open_pr {
             Some(tokio::task::spawn_blocking({
                 let git = git.clone();
-                let path = repo_path.clone();
+                let repo_path = repo.path.clone();
                 let branch = workspace.branch.clone();
-                move || git.get_remote_branch_status(&path, &branch, None)
+                move || git.get_remote_branch_status(&repo_path, &branch, None)
             }))
         } else {
             None
