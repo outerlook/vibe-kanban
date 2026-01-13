@@ -1,19 +1,19 @@
 import { useCallback } from 'react';
 import { projectsApi } from '@/lib/api';
 import { ProjectEditorSelectionDialog } from '@/components/dialogs/projects/ProjectEditorSelectionDialog';
-import type { EditorType, Project } from 'shared/types';
+import type { Project } from 'shared/types';
 
 export function useOpenProjectInEditor(
   project: Project | null,
   onShowEditorDialog?: () => void
 ) {
   return useCallback(
-    async (editorType?: EditorType) => {
+    async (editorId?: string) => {
       if (!project) return;
 
       try {
         const response = await projectsApi.openEditor(project.id, {
-          editor_type: editorType ?? null,
+          editor_type: editorId ?? null,
           file_path: null,
         });
 
@@ -23,7 +23,7 @@ export function useOpenProjectInEditor(
         }
       } catch (err) {
         console.error('Failed to open project in editor:', err);
-        if (!editorType) {
+        if (!editorId) {
           if (onShowEditorDialog) {
             onShowEditorDialog();
           } else {
