@@ -220,6 +220,16 @@ export type CheckEditorAvailabilityQuery = { editor_type: EditorType, };
 
 export type CheckEditorAvailabilityResponse = { available: boolean, };
 
+export type CreateCustomEditorRequest = { name: string, command: string, };
+
+export type UpdateCustomEditorRequest = { name: string, command: string, };
+
+export type CustomEditorResponse = { id: string, name: string, command: string, icon: string | null, created_at: string, available: boolean, };
+
+export type ListCustomEditorsResponse = { editors: Array<CustomEditorResponse>, };
+
+export type CheckCustomEditorAvailabilityResponse = { available: boolean, };
+
 export type CheckAgentAvailabilityQuery = { executor: BaseCodingAgent, };
 
 export type CurrentUserResponse = { user_id: string, };
