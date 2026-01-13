@@ -60,9 +60,13 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                         };
                         msg_store.push_patch(ConversationPatch::add_normalized_entry(idx, entry));
                     }
-                    AcpEvent::Done(_) => {
+                    AcpEvent::Done { stop_reason: _, meta } => {
                         streaming.assistant_text = None;
                         streaming.thinking_text = None;
+
+                        if let Some(meta) = meta {
+                            extract_and_push_tokens(&meta, &entry_index, &msg_store);
+                        }
                     }
                     AcpEvent::Message(content) => {
                         streaming.thinking_text = None;
@@ -252,7 +256,47 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                                 .push_patch(ConversationPatch::add_normalized_entry(idx, entry));
                         }
                     }
-                    AcpEvent::User(_) | AcpEvent::Other(_) => (),
+                    AcpEvent::User(_) => (),
+                    AcpEvent::Other(notification) => {
+                        if let Some(meta) = notification.meta {
+                            extract_and_push_tokens(
+                                &serde_json::Value::Object(meta),
+                                &entry_index,
+                                &msg_store,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        fn extract_and_push_tokens(
+            meta: &serde_json::Value,
+            entry_index: &EntryIndexProvider,
+            msg_store: &Arc<MsgStore>,
+        ) {
+            if let Some(usage) = meta.get("usage") {
+                let input_tokens = usage
+                    .get("input_tokens")
+                    .or_else(|| usage.get("prompt_tokens"))
+                    .and_then(|v| v.as_i64());
+                let output_tokens = usage
+                    .get("output_tokens")
+                    .or_else(|| usage.get("completion_tokens"))
+                    .and_then(|v| v.as_i64());
+
+                if let (Some(input), Some(output)) = (input_tokens, output_tokens) {
+                    let idx = entry_index.next();
+                    let entry = NormalizedEntry {
+                        timestamp: None,
+                        entry_type: NormalizedEntryType::TokenUsage {
+                            input_tokens: input,
+                            output_tokens: output,
+                        },
+                        content: String::new(),
+                        metadata: Some(meta.clone()),
+                    };
+                    msg_store.push_patch(ConversationPatch::add_normalized_entry(idx, entry));
                 }
             }
         }

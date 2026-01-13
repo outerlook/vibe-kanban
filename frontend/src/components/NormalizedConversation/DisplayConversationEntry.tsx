@@ -13,6 +13,7 @@ import type { ProcessStartPayload } from '@/types/logs';
 import FileChangeRenderer from './FileChangeRenderer';
 import { useExpandable } from '@/stores/useExpandableStore';
 import {
+  Activity,
   AlertCircle,
   Bot,
   Brain,
@@ -32,7 +33,7 @@ import RawLogText from '../common/RawLogText';
 import UserMessage from './UserMessage';
 import PendingApprovalEntry from './PendingApprovalEntry';
 import { NextActionCard } from './NextActionCard';
-import { cn } from '@/lib/utils';
+import { cn, formatTokenCount } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 
 type Props = {
@@ -809,7 +810,42 @@ function DisplayConversationEntry({
           execution_processes={entry.entry_type.execution_processes}
           task={task}
           needsSetup={entry.entry_type.needs_setup}
+          setupHelpText={entry.entry_type.setup_help_text}
         />
+      </div>
+    );
+  }
+
+  if (entry.entry_type.type === 'token_usage') {
+    const { input_tokens, output_tokens } = entry.entry_type;
+    const metadata = isNormalizedEntry(entry) ? entry.metadata : null;
+    const { t: tTasks } = useTranslation('tasks');
+
+    return (
+      <div className="px-4 py-2 text-xs text-muted-foreground border-y border-dashed bg-muted/10 my-2">
+        <div className="flex items-center gap-2">
+          <Activity className="h-3 w-3" />
+          <span className="font-semibold">Token Usage:</span>
+          <span>
+            {tTasks('processes.tokens', {
+              input: formatTokenCount(input_tokens),
+              output: formatTokenCount(output_tokens),
+            })}
+          </span>
+        </div>
+        {metadata && typeof metadata === 'object' && !Array.isArray(metadata) && (
+          <div className="mt-1 ml-5 opacity-70">
+            {Object.entries(metadata).map(([key, value]) => {
+              if (key === 'usage') return null; // Already shown
+              return (
+                <div key={key}>
+                  <span className="font-medium">{key}:</span>{' '}
+                  {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   }
@@ -832,6 +868,7 @@ function DisplayConversationEntry({
       </div>
     </div>
   );
+
 }
 
 export default DisplayConversationEntryMaxWidth;

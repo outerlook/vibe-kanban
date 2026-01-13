@@ -95,10 +95,43 @@ export function GanttTooltipContent({ data }: GanttTooltipContentProps) {
           <span className="font-medium">End:</span> {formatDateTime(task.end)}
         </div>
         {hasTokens && (
-          <div>
-            <span className="font-medium">Tokens:</span>{' '}
-            {formatTokenCount(task.totalInputTokens) || '0'} /{' '}
-            {formatTokenCount(task.totalOutputTokens) || '0'}
+          <div className="border-t border-dashed mt-1 pt-1">
+            <div className="flex items-center gap-1 mb-0.5">
+              <span className="font-medium text-foreground">Tokens:</span>
+              <span>
+                {formatTokenCount(task.totalInputTokens) || '0'} /{' '}
+                {formatTokenCount(task.totalOutputTokens) || '0'}
+              </span>
+            </div>
+            {task.tokenUsageMetadata &&
+              Array.isArray(task.tokenUsageMetadata) &&
+              task.tokenUsageMetadata.length > 0 && (
+                <div className="pl-2 flex flex-col gap-0.5 opacity-80 scale-[0.95] origin-left">
+                  {Object.entries(
+                    task.tokenUsageMetadata.reduce(
+                      (acc: Record<string, number>, curr: any) => {
+                        if (curr && typeof curr === 'object') {
+                          Object.entries(curr).forEach(([k, v]) => {
+                            if (k === 'usage') return;
+                            if (typeof v === 'number') {
+                              acc[k] = (acc[k] || 0) + v;
+                            }
+                          });
+                        }
+                        return acc;
+                      },
+                      {}
+                    )
+                  ).map(([key, val]) => (
+                    <div key={key} className="flex justify-between gap-4">
+                      <span className="capitalize">
+                        {key.replace(/_/g, ' ')}:
+                      </span>
+                      <span>{formatTokenCount(val)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
           </div>
         )}
       </div>

@@ -19,6 +19,7 @@ pub struct GanttTask {
     pub task_group_id: Option<Uuid>,
     pub total_input_tokens: Option<i64>,
     pub total_output_tokens: Option<i64>,
+    pub token_usage_metadata: Option<serde_json::Value>,
 }
 
 /// Raw record from the gantt task query, used internally for mapping.
@@ -34,6 +35,7 @@ struct GanttTaskRecord {
     dependencies_csv: String,
     total_input_tokens: Option<i64>,
     total_output_tokens: Option<i64>,
+    token_usage_metadata: Option<serde_json::Value>,
 }
 
 impl From<GanttTaskRecord> for GanttTask {
@@ -70,6 +72,7 @@ impl From<GanttTaskRecord> for GanttTask {
             task_group_id: rec.task_group_id,
             total_input_tokens: rec.total_input_tokens,
             total_output_tokens: rec.total_output_tokens,
+            token_usage_metadata: rec.token_usage_metadata,
         }
     }
 }
@@ -144,7 +147,18 @@ impl GanttTask {
                     WHERE w.task_id = t.id
                       AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')
                       AND ep.dropped = FALSE
-                ) AS "total_output_tokens?: i64"
+                ) AS "total_output_tokens?: i64",
+                (
+                    SELECT '[' || GROUP_CONCAT(json_extract(epne.entry_json, '$.metadata')) || ']'
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    JOIN execution_processes ep ON ep.session_id = s.id
+                    JOIN execution_process_normalized_entries epne ON epne.execution_id = ep.id
+                    WHERE w.task_id = t.id
+                      AND epne.entry_json LIKE '%"token_usage"%'
+                      AND ep.dropped = FALSE
+                      AND json_extract(epne.entry_json, '$.metadata') IS NOT NULL
+                ) AS "token_usage_metadata?: serde_json::Value"
             FROM tasks t
             WHERE t.project_id = $1
             ORDER BY t.created_at DESC
@@ -213,7 +227,18 @@ impl GanttTask {
                     WHERE w.task_id = t.id
                       AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')
                       AND ep.dropped = FALSE
-                ) AS "total_output_tokens?: i64"
+                ) AS "total_output_tokens?: i64",
+                (
+                    SELECT '[' || GROUP_CONCAT(json_extract(epne.entry_json, '$.metadata')) || ']'
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    JOIN execution_processes ep ON ep.session_id = s.id
+                    JOIN execution_process_normalized_entries epne ON epne.execution_id = ep.id
+                    WHERE w.task_id = t.id
+                      AND epne.entry_json LIKE '%"token_usage"%'
+                      AND ep.dropped = FALSE
+                      AND json_extract(epne.entry_json, '$.metadata') IS NOT NULL
+                ) AS "token_usage_metadata?: serde_json::Value"
             FROM tasks t
             WHERE t.id = $1
             "#,
@@ -297,7 +322,18 @@ impl GanttTask {
                     WHERE w.task_id = t.id
                       AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')
                       AND ep.dropped = FALSE
-                ) AS "total_output_tokens?: i64"
+                ) AS "total_output_tokens?: i64",
+                (
+                    SELECT '[' || GROUP_CONCAT(json_extract(epne.entry_json, '$.metadata')) || ']'
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    JOIN execution_processes ep ON ep.session_id = s.id
+                    JOIN execution_process_normalized_entries epne ON epne.execution_id = ep.id
+                    WHERE w.task_id = t.id
+                      AND epne.entry_json LIKE '%"token_usage"%'
+                      AND ep.dropped = FALSE
+                      AND json_extract(epne.entry_json, '$.metadata') IS NOT NULL
+                ) AS "token_usage_metadata?: serde_json::Value"
             FROM tasks t
             WHERE t.project_id = $1
             ORDER BY t.created_at DESC

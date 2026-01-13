@@ -743,14 +743,40 @@ pub async fn get_task_attempt_branch_status(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<RepoBranchStatus>>>, ApiError> {
+    let start = std::time::Instant::now();
     let pool = &deployment.db().pool;
 
-    let repositories = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let workspace_repos = WorkspaceRepo::find_by_workspace_id(pool, workspace.id).await?;
+    let db_start = std::time::Instant::now();
+    let (repositories, workspace_repos, all_merges) = tokio::join!(
+        WorkspaceRepo::find_repos_for_workspace(pool, workspace.id),
+        WorkspaceRepo::find_by_workspace_id(pool, workspace.id),
+        Merge::find_by_workspace_id(pool, workspace.id),
+    );
+    let repositories = repositories?;
+    let workspace_repos = workspace_repos?;
+    let all_merges = all_merges?;
+    tracing::trace!(
+        workspace_id = %workspace.id,
+        duration_ms = db_start.elapsed().as_millis(),
+        "branch-status: DB queries completed"
+    );
     let target_branches: HashMap<_, _> = workspace_repos
         .iter()
         .map(|wr| (wr.repo_id, wr.target_branch.clone()))
         .collect();
+
+    // Group merges by repo_id to avoid N+1 queries
+    let merges_by_repo: HashMap<_, Vec<_>> = all_merges.into_iter().fold(
+        HashMap::new(),
+        |mut acc, merge| {
+            let repo_id = match &merge {
+                Merge::Direct(d) => d.repo_id,
+                Merge::Pr(p) => p.repo_id,
+            };
+            acc.entry(repo_id).or_default().push(merge);
+            acc
+        },
+    );
 
     let container_ref = deployment
         .container()
@@ -765,82 +791,129 @@ pub async fn get_task_attempt_branch_status(
             continue;
         };
 
-        let repo_merges = Merge::find_by_workspace_and_repo_id(pool, workspace.id, repo.id).await?;
+        let repo_merges = merges_by_repo.get(&repo.id).cloned().unwrap_or_default();
 
         let worktree_path = workspace_dir.join(&repo.name);
+        let git = deployment.git();
 
-        let head_oid = deployment
-            .git()
-            .get_head_info(&worktree_path)
+        // Run independent git operations in parallel using spawn_blocking
+        let (head_result, rebase_result, conflicts_result, counts_result, branch_type_result) = tokio::join!(
+            tokio::task::spawn_blocking({
+                let git = git.clone();
+                let path = worktree_path.clone();
+                move || git.get_head_info(&path)
+            }),
+            tokio::task::spawn_blocking({
+                let git = git.clone();
+                let path = worktree_path.clone();
+                move || git.is_rebase_in_progress(&path)
+            }),
+            tokio::task::spawn_blocking({
+                let git = git.clone();
+                let path = worktree_path.clone();
+                move || git.get_conflicted_files(&path)
+            }),
+            tokio::task::spawn_blocking({
+                let git = git.clone();
+                let path = worktree_path.clone();
+                move || git.get_worktree_change_counts(&path)
+            }),
+            tokio::task::spawn_blocking({
+                let git = git.clone();
+                let repo_path = repo.path.clone();
+                let target = target_branch.clone();
+                move || git.find_branch_type(&repo_path, &target)
+            }),
+        );
+
+        // Unwrap spawn_blocking results (JoinError would indicate thread panic)
+        let head_oid = head_result
+            .map_err(|e| ApiError::Internal(format!("spawn_blocking failed: {e}")))?
             .ok()
             .map(|h| h.oid);
-
-        let (is_rebase_in_progress, conflicted_files, conflict_op) = {
-            let in_rebase = deployment
-                .git()
-                .is_rebase_in_progress(&worktree_path)
-                .unwrap_or(false);
-            let conflicts = deployment
-                .git()
-                .get_conflicted_files(&worktree_path)
-                .unwrap_or_default();
-            let op = if conflicts.is_empty() {
-                None
-            } else {
-                deployment
-                    .git()
-                    .detect_conflict_op(&worktree_path)
-                    .unwrap_or(None)
-            };
-            (in_rebase, conflicts, op)
+        let is_rebase_in_progress = rebase_result
+            .map_err(|e| ApiError::Internal(format!("spawn_blocking failed: {e}")))?
+            .unwrap_or(false);
+        let conflicted_files = conflicts_result
+            .map_err(|e| ApiError::Internal(format!("spawn_blocking failed: {e}")))?
+            .unwrap_or_default();
+        let (uncommitted_count, untracked_count) = match counts_result
+            .map_err(|e| ApiError::Internal(format!("spawn_blocking failed: {e}")))?
+        {
+            Ok((a, b)) => (Some(a), Some(b)),
+            Err(_) => (None, None),
         };
-
-        let (uncommitted_count, untracked_count) =
-            match deployment.git().get_worktree_change_counts(&worktree_path) {
-                Ok((a, b)) => (Some(a), Some(b)),
-                Err(_) => (None, None),
-            };
+        let target_branch_type = branch_type_result
+            .map_err(|e| ApiError::Internal(format!("spawn_blocking failed: {e}")))?
+            .map_err(ApiError::from)?;
 
         let has_uncommitted_changes = uncommitted_count.map(|c| c > 0);
 
-        let target_branch_type = deployment
-            .git()
-            .find_branch_type(&repo.path, &target_branch)?;
-
-        let (commits_ahead, commits_behind) = match target_branch_type {
-            BranchType::Local => {
-                let (a, b) = deployment.git().get_branch_status(
-                    &repo.path,
-                    &workspace.branch,
-                    &target_branch,
-                )?;
-                (Some(a), Some(b))
-            }
-            BranchType::Remote => {
-                let (ahead, behind) = deployment.git().get_remote_branch_status(
-                    &repo.path,
-                    &workspace.branch,
-                    Some(&target_branch),
-                )?;
-                (Some(ahead), Some(behind))
-            }
-        };
-
-        let (remote_ahead, remote_behind) = if let Some(Merge::Pr(PrMerge {
-            pr_info:
-                PullRequestInfo {
+        // Run dependent operations in parallel
+        let has_open_pr = matches!(
+            repo_merges.first(),
+            Some(Merge::Pr(PrMerge {
+                pr_info: PullRequestInfo {
                     status: MergeStatus::Open,
                     ..
                 },
-            ..
-        })) = repo_merges.first()
-        {
-            match deployment
-                .git()
-                .get_remote_branch_status(&repo.path, &workspace.branch, None)
-            {
-                Ok((ahead, behind)) => (Some(ahead), Some(behind)),
-                Err(_) => (None, None),
+                ..
+            }))
+        );
+
+        // Prepare closures for dependent operations
+        let conflict_op_future = tokio::task::spawn_blocking({
+            let git = git.clone();
+            let path = worktree_path.clone();
+            let has_conflicts = !conflicted_files.is_empty();
+            move || {
+                if has_conflicts {
+                    git.detect_conflict_op(&path).unwrap_or(None)
+                } else {
+                    None
+                }
+            }
+        });
+
+        let branch_status_future = tokio::task::spawn_blocking({
+            let git = git.clone();
+            let repo_path = repo.path.clone();
+            let branch = workspace.branch.clone();
+            let target = target_branch.clone();
+            move || match target_branch_type {
+                BranchType::Local => git.get_branch_status(&repo_path, &branch, &target),
+                BranchType::Remote => git.get_remote_branch_status(&repo_path, &branch, Some(&target)),
+            }
+        });
+
+        let remote_status_future = if has_open_pr {
+            Some(tokio::task::spawn_blocking({
+                let git = git.clone();
+                let repo_path = repo.path.clone();
+                let branch = workspace.branch.clone();
+                move || git.get_remote_branch_status(&repo_path, &branch, None)
+            }))
+        } else {
+            None
+        };
+
+        // Await all dependent operations
+        let (conflict_op_result, branch_status_result) =
+            tokio::join!(conflict_op_future, branch_status_future);
+
+        let conflict_op = conflict_op_result
+            .map_err(|e| ApiError::Internal(format!("spawn_blocking failed: {e}")))?;
+        let (commits_ahead, commits_behind) = {
+            let (a, b) = branch_status_result
+                .map_err(|e| ApiError::Internal(format!("spawn_blocking failed: {e}")))?
+                .map_err(ApiError::from)?;
+            (Some(a), Some(b))
+        };
+
+        let (remote_ahead, remote_behind) = if let Some(fut) = remote_status_future {
+            match fut.await {
+                Ok(Ok((ahead, behind))) => (Some(ahead), Some(behind)),
+                _ => (None, None),
             }
         } else {
             (None, None)
@@ -867,6 +940,12 @@ pub async fn get_task_attempt_branch_status(
         });
     }
 
+    tracing::debug!(
+        workspace_id = %workspace.id,
+        repo_count = results.len(),
+        duration_ms = start.elapsed().as_millis(),
+        "branch-status completed"
+    );
     Ok(ResponseJson(ApiResponse::success(results)))
 }
 

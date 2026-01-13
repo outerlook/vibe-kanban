@@ -54,7 +54,7 @@ export type TaskDependency = { id: string, task_id: string, depends_on_id: strin
 
 export type TaskGroup = { id: string, project_id: string, name: string, base_branch: string | null, created_at: string, updated_at: string, };
 
-export type GanttTask = { id: string, name: string, start: string, end: string, progress: number, dependencies: Array<string>, task_status: TaskStatus, task_group_id: string | null, total_input_tokens: bigint | null, total_output_tokens: bigint | null, };
+export type GanttTask = { id: string, name: string, start: string, end: string, progress: number, dependencies: Array<string>, task_status: TaskStatus, task_group_id: string | null, total_input_tokens: bigint | null, total_output_tokens: bigint | null, token_usage_metadata: JsonValue | null, };
 
 export type PaginatedGanttTasks = { tasks: Array<GanttTask>, total: bigint, hasMore: boolean, };
 
@@ -495,9 +495,9 @@ export type CommandExitStatus = { "type": "exit_code", code: number, } | { "type
 
 export type CommandRunResult = { exit_status: CommandExitStatus | null, output: string | null, };
 
-export type NormalizedEntry = { timestamp: string | null, entry_type: NormalizedEntryType, content: string, };
+export type NormalizedEntry = { timestamp: string | null, entry_type: NormalizedEntryType, content: string, metadata: JsonValue | null, };
 
-export type NormalizedEntryType = { "type": "user_message" } | { "type": "user_feedback", denied_tool: string, } | { "type": "assistant_message" } | { "type": "tool_use", tool_name: string, action_type: ActionType, status: ToolStatus, } | { "type": "system_message" } | { "type": "error_message", error_type: NormalizedEntryError, } | { "type": "thinking" } | { "type": "loading" } | { "type": "next_action", failed: boolean, execution_processes: number, needs_setup: boolean, } | { "type": "token_usage", input_tokens: bigint, output_tokens: bigint, };
+export type NormalizedEntryType = { "type": "user_message" } | { "type": "user_feedback", denied_tool: string, } | { "type": "assistant_message" } | { "type": "tool_use", tool_name: string, action_type: ActionType, status: ToolStatus, } | { "type": "system_message" } | { "type": "error_message", error_type: NormalizedEntryError, } | { "type": "thinking" } | { "type": "loading" } | { "type": "next_action", failed: boolean, execution_processes: number, needs_setup: boolean, setup_help_text: string | null, } | { "type": "token_usage", input_tokens: bigint, output_tokens: bigint, };
 
 export type FileChange = { "action": "write", content: string, } | { "action": "delete" } | { "action": "rename", new_path: string, } | { "action": "edit", 
 /**

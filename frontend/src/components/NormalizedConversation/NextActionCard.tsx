@@ -43,6 +43,7 @@ type NextActionCardProps = {
   execution_processes: number;
   task?: TaskWithAttemptStatus;
   needsSetup?: boolean;
+  setupHelpText?: string | null;
 };
 
 export function NextActionCard({
@@ -52,6 +53,7 @@ export function NextActionCard({
   execution_processes,
   task,
   needsSetup,
+  setupHelpText: providedSetupHelpText,
 }: NextActionCardProps) {
   const { t } = useTranslation('tasks');
   const { config } = useUserSystem();
@@ -146,9 +148,11 @@ export function NextActionCard({
     )
   );
 
-  const setupHelpText = canAutoSetup
-    ? t('attempt.setupHelpText', { agent: attempt?.session?.executor })
-    : null;
+  const setupHelpText = providedSetupHelpText 
+    ? providedSetupHelpText
+    : (canAutoSetup
+      ? t('attempt.setupHelpText', { agent: attempt?.session?.executor })
+      : null);
 
   const editorName = getIdeName(config?.editor?.editor_type);
 
