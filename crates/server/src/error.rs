@@ -78,6 +78,8 @@ pub enum ApiError {
     Forbidden(String),
     #[error("Not found: {0}")]
     NotFound(String),
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 impl From<&'static str> for ApiError {
@@ -180,6 +182,7 @@ impl IntoResponse for ApiError {
             ApiError::Conflict(_) => (StatusCode::CONFLICT, "ConflictError"),
             ApiError::Forbidden(_) => (StatusCode::FORBIDDEN, "ForbiddenError"),
             ApiError::NotFound(_) => (StatusCode::NOT_FOUND, "NotFound"),
+            ApiError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "InternalError"),
         };
 
         let error_message = match &self {
