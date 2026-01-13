@@ -102,7 +102,10 @@ impl WatcherManager {
 
     /// Subscribe to filesystem events for a workspace path.
     /// Creates a new watcher if one doesn't exist, or returns a subscription to the existing one.
-    pub fn subscribe(&self, root_path: PathBuf) -> Result<WatcherSubscription, WatcherSubscribeError> {
+    pub fn subscribe(
+        &self,
+        root_path: PathBuf,
+    ) -> Result<WatcherSubscription, WatcherSubscribeError> {
         let canonical = dunce::canonicalize(&root_path).unwrap_or_else(|_| root_path.clone());
 
         // Fast path: check if watcher already exists
@@ -209,9 +212,11 @@ impl WatcherManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
     use tempfile::TempDir;
+
+    use super::*;
 
     #[test]
     fn test_manager_reuses_watcher() {
@@ -266,10 +271,7 @@ mod tests {
         fs::write(&test_file, "world").unwrap();
 
         // Wait for event with timeout
-        let result = tokio::time::timeout(
-            tokio::time::Duration::from_secs(2),
-            sub.recv()
-        ).await;
+        let result = tokio::time::timeout(tokio::time::Duration::from_secs(2), sub.recv()).await;
 
         // We should receive some event (the exact event depends on debouncing)
         assert!(result.is_ok(), "Should receive an event within timeout");

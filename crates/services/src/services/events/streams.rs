@@ -1,3 +1,8 @@
+use std::{
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
+
 use db::models::{
     execution_process::ExecutionProcess,
     gantt::GanttTask,
@@ -12,8 +17,6 @@ use moka::future::Cache;
 use once_cell::sync::Lazy;
 use serde_json::json;
 use sqlx::SqlitePool;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 use utils::log_msg::LogMsg;
 use uuid::Uuid;
@@ -128,11 +131,8 @@ impl EventService {
                                                     op.value.clone(),
                                                 )
                                             {
-                                                cache_project_for_task(
-                                                    task.id,
-                                                    task.project_id,
-                                                )
-                                                .await;
+                                                cache_project_for_task(task.id, task.project_id)
+                                                    .await;
                                                 if task.project_id == project_id {
                                                     return Some(Ok(LogMsg::JsonPatch(patch)));
                                                 }
@@ -145,11 +145,8 @@ impl EventService {
                                                     op.value.clone(),
                                                 )
                                             {
-                                                cache_project_for_task(
-                                                    task.id,
-                                                    task.project_id,
-                                                )
-                                                .await;
+                                                cache_project_for_task(task.id, task.project_id)
+                                                    .await;
                                                 if task.project_id == project_id {
                                                     return Some(Ok(LogMsg::JsonPatch(patch)));
                                                 }
@@ -757,7 +754,8 @@ impl EventService {
                                             extract_project_task_id(&op.value)
                                         }
                                         json_patch::PatchOperation::Remove(_) => {
-                                            if let Some(task_id) = task_id_from_path(patch_op.path())
+                                            if let Some(task_id) =
+                                                task_id_from_path(patch_op.path())
                                             {
                                                 invalidate_task_cache(task_id).await;
                                                 // Emit remove patch for deleted task

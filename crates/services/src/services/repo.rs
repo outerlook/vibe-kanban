@@ -6,8 +6,10 @@ use thiserror::Error;
 use utils::path::expand_tilde;
 use uuid::Uuid;
 
-use super::config::Config;
-use super::git::{GitCli, GitCliError, GitService, GitServiceError};
+use super::{
+    config::Config,
+    git::{GitCli, GitCliError, GitService, GitServiceError},
+};
 
 #[derive(Debug, Error)]
 pub enum RepoError {
@@ -53,8 +55,7 @@ pub fn normalize_github_url(url: &str) -> Result<String> {
     // Handle SSH format: git@github.com:org/repo[.git]
     if let Some(rest) = url.strip_prefix("git@github.com:") {
         let path = rest.strip_suffix(".git").unwrap_or(rest);
-        return validate_org_repo_format(path)
-            .map(|_| format!("https://github.com/{path}.git"));
+        return validate_org_repo_format(path).map(|_| format!("https://github.com/{path}.git"));
     }
 
     // Handle HTTPS format: https://github.com/org/repo[.git]
@@ -63,14 +64,12 @@ pub fn normalize_github_url(url: &str) -> Result<String> {
         .or_else(|| url.strip_prefix("http://github.com/"))
     {
         let path = rest.strip_suffix(".git").unwrap_or(rest);
-        return validate_org_repo_format(path)
-            .map(|_| format!("https://github.com/{path}.git"));
+        return validate_org_repo_format(path).map(|_| format!("https://github.com/{path}.git"));
     }
 
     // Handle shorthand format: org/repo
     if url.contains('/') && !url.contains(':') && !url.starts_with("http") {
-        return validate_org_repo_format(url)
-            .map(|_| format!("https://github.com/{url}.git"));
+        return validate_org_repo_format(url).map(|_| format!("https://github.com/{url}.git"));
     }
 
     Err(RepoError::InvalidUrl(format!(
@@ -211,8 +210,9 @@ impl RepoService {
         config: &Config,
     ) -> Result<RepoModel> {
         let normalized_url = normalize_github_url(url)?;
-        let repo_name = extract_repo_name(&normalized_url)
-            .ok_or_else(|| RepoError::InvalidUrl("Could not extract repository name".to_string()))?;
+        let repo_name = extract_repo_name(&normalized_url).ok_or_else(|| {
+            RepoError::InvalidUrl("Could not extract repository name".to_string())
+        })?;
 
         // Determine destination directory
         let dest_path = match destination {

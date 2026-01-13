@@ -265,7 +265,13 @@ async fn list_custom_editors(
 async fn create_custom_editor(
     State(_deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateCustomEditorRequest>,
-) -> Result<(http::StatusCode, ResponseJson<ApiResponse<CustomEditorResponse>>), ApiError> {
+) -> Result<
+    (
+        http::StatusCode,
+        ResponseJson<ApiResponse<CustomEditorResponse>>,
+    ),
+    ApiError,
+> {
     let id = CustomEditorsConfig::create(payload.name, payload.command)
         .await
         .map_err(map_custom_editor_error)?;

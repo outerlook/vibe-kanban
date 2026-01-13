@@ -139,9 +139,7 @@ impl TaskGroup {
             return Ok(0);
         }
 
-        let mut query_builder = sqlx::QueryBuilder::new(
-            "UPDATE tasks SET task_group_id = ",
-        );
+        let mut query_builder = sqlx::QueryBuilder::new("UPDATE tasks SET task_group_id = ");
         query_builder.push_bind(group_id);
         query_builder.push(", updated_at = datetime('now', 'subsec') WHERE project_id = ");
         query_builder.push_bind(project_id);

@@ -316,7 +316,9 @@ pub async fn stream_workspaces_ws(
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| async move {
         let include_snapshot = query.include_snapshot.unwrap_or(true);
-        if let Err(e) = handle_workspaces_ws(socket, deployment, query.task_id, include_snapshot).await {
+        if let Err(e) =
+            handle_workspaces_ws(socket, deployment, query.task_id, include_snapshot).await
+        {
             tracing::warn!("workspaces WS closed: {}", e);
         }
     })

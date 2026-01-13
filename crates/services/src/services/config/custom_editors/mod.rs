@@ -58,9 +58,7 @@ impl CustomEditorsConfig {
     pub async fn create(name: String, command: String) -> Result<Uuid, ConfigError> {
         let mut config = Self::get_cached().as_ref().clone();
         let id = config.create_in_memory(name, command)?;
-        config
-            .save_to_path(&utils::assets::editors_path())
-            .await?;
+        config.save_to_path(&utils::assets::editors_path()).await?;
         let mut cache = CUSTOM_EDITORS_CACHE.write().unwrap();
         *cache = Arc::new(config);
         Ok(id)
@@ -69,9 +67,7 @@ impl CustomEditorsConfig {
     pub async fn update(id: Uuid, name: String, command: String) -> Result<(), ConfigError> {
         let mut config = Self::get_cached().as_ref().clone();
         config.update_in_memory(id, name, command)?;
-        config
-            .save_to_path(&utils::assets::editors_path())
-            .await?;
+        config.save_to_path(&utils::assets::editors_path()).await?;
         let mut cache = CUSTOM_EDITORS_CACHE.write().unwrap();
         *cache = Arc::new(config);
         Ok(())
@@ -80,9 +76,7 @@ impl CustomEditorsConfig {
     pub async fn delete(id: Uuid) -> Result<(), ConfigError> {
         let mut config = Self::get_cached().as_ref().clone();
         config.delete_in_memory(id)?;
-        config
-            .save_to_path(&utils::assets::editors_path())
-            .await?;
+        config.save_to_path(&utils::assets::editors_path()).await?;
         let mut cache = CUSTOM_EDITORS_CACHE.write().unwrap();
         *cache = Arc::new(config);
         Ok(())
@@ -134,9 +128,10 @@ impl CustomEditorsConfig {
         name: &str,
         exclude_id: Option<Uuid>,
     ) -> Result<(), ConfigError> {
-        let duplicate = self.custom_editors.values().any(|editor| {
-            editor.name == name && Some(editor.id) != exclude_id
-        });
+        let duplicate = self
+            .custom_editors
+            .values()
+            .any(|editor| editor.name == name && Some(editor.id) != exclude_id);
         if duplicate {
             return Err(ConfigError::ValidationError(format!(
                 "Custom editor name '{name}' already exists"
@@ -196,8 +191,9 @@ impl CustomEditorsConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_crud_operations() {

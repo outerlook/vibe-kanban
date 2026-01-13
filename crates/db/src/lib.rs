@@ -1,10 +1,11 @@
-use std::{str::FromStr, sync::Arc};
-
-use std::time::Duration;
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use sqlx::{
     Error, Pool, Sqlite,
-    sqlite::{SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
+    sqlite::{
+        SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePoolOptions,
+        SqliteSynchronous,
+    },
 };
 use utils::assets::asset_dir;
 

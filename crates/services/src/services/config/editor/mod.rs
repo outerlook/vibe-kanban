@@ -206,10 +206,7 @@ impl EditorConfig {
         Ok(())
     }
 
-    pub fn with_override(
-        &self,
-        editor_type_str: Option<&str>,
-    ) -> Result<Self, EditorOpenError> {
+    pub fn with_override(&self, editor_type_str: Option<&str>) -> Result<Self, EditorOpenError> {
         if let Some(editor_type_str) = editor_type_str {
             let (editor_type, custom_editor_id) =
                 if let Some(custom_id_str) = editor_type_str.strip_prefix("custom:") {
@@ -222,8 +219,7 @@ impl EditorConfig {
                     (EditorType::Custom, Some(custom_id))
                 } else {
                     (
-                        EditorType::from_str(editor_type_str)
-                            .unwrap_or(self.editor_type.clone()),
+                        EditorType::from_str(editor_type_str).unwrap_or(self.editor_type.clone()),
                         None,
                     )
                 };
@@ -244,9 +240,10 @@ impl EditorConfig {
 mod tests {
     use std::sync::{LazyLock, Mutex};
 
+    use uuid::Uuid;
+
     use super::*;
     use crate::services::config::custom_editors::{CustomEditor, CustomEditorsConfig};
-    use uuid::Uuid;
 
     static EDITOR_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 

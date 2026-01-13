@@ -106,11 +106,18 @@ async fn handle_gantt_ws(
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
-    let project_gantt = Router::new()
-        .route("/gantt", get(get_gantt_data))
-        .layer(from_fn_with_state(deployment.clone(), load_project_middleware));
+    let project_gantt =
+        Router::new()
+            .route("/gantt", get(get_gantt_data))
+            .layer(from_fn_with_state(
+                deployment.clone(),
+                load_project_middleware,
+            ));
 
     Router::new()
         .nest("/projects/{project_id}", project_gantt)
-        .route("/projects/{project_id}/gantt/stream/ws", get(stream_gantt_ws))
+        .route(
+            "/projects/{project_id}/gantt/stream/ws",
+            get(stream_gantt_ws),
+        )
 }

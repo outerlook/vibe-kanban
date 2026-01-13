@@ -568,7 +568,8 @@ impl LocalContainerService {
             // Cleanup msg store
             if let Some(msg_arc) = msg_stores.write().await.remove(&exec_id) {
                 // Extract and store token usage before cleaning up
-                if let Some((input_tokens, output_tokens)) = extract_token_usage_from_msg_store(&msg_arc)
+                if let Some((input_tokens, output_tokens)) =
+                    extract_token_usage_from_msg_store(&msg_arc)
                     && let Err(e) = ExecutionProcess::update_token_usage(
                         &db.pool,
                         exec_id,

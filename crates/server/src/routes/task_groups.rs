@@ -108,9 +108,9 @@ pub async fn bulk_assign_tasks(
     Json(payload): Json<BulkAssignTasksRequest>,
 ) -> Result<ResponseJson<ApiResponse<BulkAssignTasksResponse>>, ApiError> {
     if payload.task_ids.is_empty() {
-        return Ok(ResponseJson(ApiResponse::success(BulkAssignTasksResponse {
-            updated_count: 0,
-        })));
+        return Ok(ResponseJson(ApiResponse::success(
+            BulkAssignTasksResponse { updated_count: 0 },
+        )));
     }
 
     let updated_count = TaskGroup::bulk_assign_tasks(
@@ -121,16 +121,24 @@ pub async fn bulk_assign_tasks(
     )
     .await?;
 
-    Ok(ResponseJson(ApiResponse::success(BulkAssignTasksResponse {
-        updated_count,
-    })))
+    Ok(ResponseJson(ApiResponse::success(
+        BulkAssignTasksResponse { updated_count },
+    )))
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let task_group_actions = Router::new()
-        .route("/", get(get_task_group).put(update_task_group).delete(delete_task_group))
+        .route(
+            "/",
+            get(get_task_group)
+                .put(update_task_group)
+                .delete(delete_task_group),
+        )
         .route("/assign", post(bulk_assign_tasks))
-        .layer(from_fn_with_state(deployment.clone(), load_task_group_middleware));
+        .layer(from_fn_with_state(
+            deployment.clone(),
+            load_task_group_middleware,
+        ));
 
     let inner = Router::new()
         .route("/", get(list_task_groups).post(create_task_group))

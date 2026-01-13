@@ -90,7 +90,8 @@ impl ExecutionProcessNormalizedEntry {
         let limit = limit.clamp(1, 500) as i64;
         let fetch_limit = limit + 1;
 
-        let rows: Vec<ExecutionProcessNormalizedEntryRow> = if let Some(before_index) = before_index {
+        let rows: Vec<ExecutionProcessNormalizedEntryRow> = if let Some(before_index) = before_index
+        {
             sqlx::query_as!(
                 ExecutionProcessNormalizedEntryRow,
                 r#"SELECT

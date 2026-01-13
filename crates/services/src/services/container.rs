@@ -65,7 +65,9 @@ enum NormalizedEntryPatchOp {
         index: i64,
         entry: Box<NormalizedEntry>,
     },
-    Remove { index: i64 },
+    Remove {
+        index: i64,
+    },
 }
 
 fn extract_normalized_entry_ops(patch: &json_patch::Patch) -> Vec<NormalizedEntryPatchOp> {
@@ -98,9 +100,7 @@ fn extract_normalized_entry_ops(patch: &json_patch::Patch) -> Vec<NormalizedEntr
                         entry: Box::new(entry),
                     })
                 }
-                "remove" => Some(NormalizedEntryPatchOp::Remove {
-                    index: entry_index,
-                }),
+                "remove" => Some(NormalizedEntryPatchOp::Remove { index: entry_index }),
                 _ => None,
             }
         })
@@ -115,12 +115,7 @@ async fn apply_normalized_entry_ops(
     for op in ops {
         match op {
             NormalizedEntryPatchOp::Upsert { index, entry } => {
-                ExecutionProcessNormalizedEntry::upsert(
-                    pool,
-                    execution_id,
-                    index,
-                    entry.as_ref(),
-                )
+                ExecutionProcessNormalizedEntry::upsert(pool, execution_id, index, entry.as_ref())
                     .await
                     .map_err(ContainerError::Other)?;
             }
@@ -842,16 +837,15 @@ pub trait ContainerService {
     }
 
     async fn build_normalized_store_from_db(&self, id: &Uuid) -> Option<Arc<MsgStore>> {
-        let log_records = match ExecutionProcessLogs::find_by_execution_id(&self.db().pool, *id)
-            .await
-        {
-            Ok(records) if !records.is_empty() => records,
-            Ok(_) => return None,
-            Err(e) => {
-                tracing::error!("Failed to fetch logs for execution {}: {}", id, e);
-                return None;
-            }
-        };
+        let log_records =
+            match ExecutionProcessLogs::find_by_execution_id(&self.db().pool, *id).await {
+                Ok(records) if !records.is_empty() => records,
+                Ok(_) => return None,
+                Err(e) => {
+                    tracing::error!("Failed to fetch logs for execution {}: {}", id, e);
+                    return None;
+                }
+            };
 
         let raw_messages = match ExecutionProcessLogs::parse_logs(&log_records) {
             Ok(msgs) => msgs,
@@ -976,10 +970,7 @@ pub trait ContainerService {
         }
     }
 
-    async fn backfill_normalized_entries(
-        &self,
-        execution_id: Uuid,
-    ) -> Result<(), ContainerError> {
+    async fn backfill_normalized_entries(&self, execution_id: Uuid) -> Result<(), ContainerError> {
         let store = if let Some(store) = self.get_msg_store_by_id(&execution_id).await {
             Some(store)
         } else {

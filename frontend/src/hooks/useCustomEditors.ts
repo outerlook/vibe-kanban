@@ -39,9 +39,6 @@ export function useCreateCustomEditor() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: customEditorsKey });
     },
-    onError: (err) => {
-      console.error('Failed to create custom editor:', err);
-    },
   });
 }
 
@@ -55,9 +52,6 @@ export function useUpdateCustomEditor() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: customEditorsKey });
     },
-    onError: (err) => {
-      console.error('Failed to update custom editor:', err);
-    },
   });
 }
 
@@ -68,9 +62,6 @@ export function useDeleteCustomEditor() {
     mutationFn: (editorId) => customEditorsApi.delete(editorId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: customEditorsKey });
-    },
-    onError: (err) => {
-      console.error('Failed to delete custom editor:', err);
     },
   });
 }

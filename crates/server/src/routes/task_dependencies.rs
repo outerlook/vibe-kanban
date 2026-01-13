@@ -1,6 +1,4 @@
-use std::collections::HashSet;
-use std::future::Future;
-use std::pin::Pin;
+use std::{collections::HashSet, future::Future, pin::Pin};
 
 use axum::{
     Extension, Json, Router,
@@ -124,8 +122,7 @@ pub async fn get_dependency_tree(
     let max_depth = query.max_depth.unwrap_or(DEFAULT_MAX_DEPTH) as usize;
     let mut path = HashSet::new();
 
-    let tree =
-        build_dependency_tree(&deployment.db().pool, task, max_depth, &mut path).await?;
+    let tree = build_dependency_tree(&deployment.db().pool, task, max_depth, &mut path).await?;
 
     Ok(ResponseJson(ApiResponse::success(tree)))
 }
@@ -164,15 +161,13 @@ fn build_dependency_tree<'a>(
 
 fn map_dependency_error(error: TaskDependencyError) -> ApiError {
     match error {
-        TaskDependencyError::TaskNotFound => {
-            ApiError::NotFound("Task not found".to_string())
+        TaskDependencyError::TaskNotFound => ApiError::NotFound("Task not found".to_string()),
+        TaskDependencyError::DifferentProjects => {
+            ApiError::BadRequest("Tasks must belong to the same project".to_string())
         }
-        TaskDependencyError::DifferentProjects => ApiError::BadRequest(
-            "Tasks must belong to the same project".to_string(),
-        ),
-        TaskDependencyError::CycleDetected => ApiError::BadRequest(
-            "Adding this dependency would create a cycle".to_string(),
-        ),
+        TaskDependencyError::CycleDetected => {
+            ApiError::BadRequest("Adding this dependency would create a cycle".to_string())
+        }
         TaskDependencyError::Database(err) => {
             if let Some(db_err) = err.as_database_error()
                 && db_err.is_unique_violation()

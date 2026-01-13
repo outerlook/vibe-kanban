@@ -54,11 +54,7 @@ export function CustomEditorsList() {
       return;
     }
 
-    try {
-      await deleteEditor.mutateAsync(editor.id);
-    } catch (err) {
-      console.error('Failed to delete custom editor:', err);
-    }
+    await deleteEditor.mutateAsync(editor.id);
   };
 
   return (
