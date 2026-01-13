@@ -52,6 +52,10 @@ import {
   RenameBranchRequest,
   RenameBranchResponse,
   CheckEditorAvailabilityResponse,
+  CreateCustomEditorRequest,
+  UpdateCustomEditorRequest,
+  CustomEditorResponse,
+  ListCustomEditorsResponse,
   AvailabilityInfo,
   BaseCodingAgent,
   RunAgentSetupRequest,
@@ -1108,6 +1112,45 @@ export const configApi = {
       `/api/agents/check-availability?executor=${encodeURIComponent(agent)}`
     );
     return handleApiResponse<AvailabilityInfo>(response);
+  },
+};
+
+// Custom Editors APIs
+export const customEditorsApi = {
+  list: async (): Promise<ListCustomEditorsResponse> => {
+    const response = await makeRequest('/api/config/custom-editors');
+    return handleApiResponse<ListCustomEditorsResponse>(response);
+  },
+  create: async (
+    data: CreateCustomEditorRequest
+  ): Promise<CustomEditorResponse> => {
+    const response = await makeRequest('/api/config/custom-editors', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<CustomEditorResponse>(response);
+  },
+  update: async (
+    editorId: string,
+    data: UpdateCustomEditorRequest
+  ): Promise<CustomEditorResponse> => {
+    const response = await makeRequest(
+      `/api/config/custom-editors/${editorId}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<CustomEditorResponse>(response);
+  },
+  delete: async (editorId: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/config/custom-editors/${editorId}`,
+      {
+        method: 'DELETE',
+      }
+    );
+    return handleApiResponse<void>(response);
   },
 };
 

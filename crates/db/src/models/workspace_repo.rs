@@ -53,8 +53,9 @@ impl WorkspaceRepo {
             return Ok(());
         }
 
-        let mut qb: QueryBuilder<sqlx::Sqlite> =
-            QueryBuilder::new("INSERT INTO workspace_repos (id, workspace_id, repo_id, target_branch) ");
+        let mut qb: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
+            "INSERT INTO workspace_repos (id, workspace_id, repo_id, target_branch) ",
+        );
 
         qb.push_values(repos, |mut b, repo| {
             b.push_bind(Uuid::new_v4())

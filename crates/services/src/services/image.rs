@@ -183,7 +183,11 @@ impl ImageService {
     }
 
     /// Copy images to the worktree. Skips images that already exist at target.
-    async fn copy_images(&self, worktree_path: &Path, images: Vec<Image>) -> Result<(), ImageError> {
+    async fn copy_images(
+        &self,
+        worktree_path: &Path,
+        images: Vec<Image>,
+    ) -> Result<(), ImageError> {
         if images.is_empty() {
             return Ok(());
         }

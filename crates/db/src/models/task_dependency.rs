@@ -102,10 +102,7 @@ impl TaskDependency {
         .await
     }
 
-    pub async fn find_blocking(
-        pool: &SqlitePool,
-        task_id: Uuid,
-    ) -> Result<Vec<Task>, sqlx::Error> {
+    pub async fn find_blocking(pool: &SqlitePool, task_id: Uuid) -> Result<Vec<Task>, sqlx::Error> {
         sqlx::query_as!(
             Task,
             r#"SELECT t.id as "id!: Uuid",

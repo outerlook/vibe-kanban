@@ -26,9 +26,8 @@ use services::services::{
     git::{DiffTarget, GitCliError, GitServiceError},
     github::{CreatePrRequest, GitHubService, GitHubServiceError, UnifiedPrComment},
 };
-use utils::diff::create_unified_diff;
 use ts_rs::TS;
-use utils::response::ApiResponse;
+use utils::{diff::create_unified_diff, response::ApiResponse};
 use uuid::Uuid;
 
 use crate::{DeploymentImpl, error::ApiError};
@@ -157,12 +156,13 @@ async fn trigger_pr_description_follow_up(
 
     // Get latest agent session ID for the SAME executor type (for coding agent continuity)
     // This prevents using session IDs from different executors
-    let latest_agent_session_id = ExecutionProcess::find_latest_coding_agent_turn_session_id_by_executor(
-        &deployment.db().pool,
-        session.id,
-        &executor_profile_id,
-    )
-    .await?;
+    let latest_agent_session_id =
+        ExecutionProcess::find_latest_coding_agent_turn_session_id_by_executor(
+            &deployment.db().pool,
+            session.id,
+            &executor_profile_id,
+        )
+        .await?;
 
     let working_dir = workspace
         .agent_working_dir
@@ -228,17 +228,15 @@ pub async fn generate_commit_message_for_merge(
     let diff_string = diffs
         .iter()
         .filter_map(|diff| {
-            let file_path = diff
-                .new_path
-                .as_ref()
-                .or(diff.old_path.as_ref())?
-                .as_str();
+            let file_path = diff.new_path.as_ref().or(diff.old_path.as_ref())?.as_str();
             let old_content = diff.old_content.as_deref().unwrap_or("");
             let new_content = diff.new_content.as_deref().unwrap_or("");
 
             // Skip if content was omitted (too large)
             if diff.content_omitted {
-                return Some(format!("--- a/{file_path}\n+++ b/{file_path}\n[Content too large, omitted]\n"));
+                return Some(format!(
+                    "--- a/{file_path}\n+++ b/{file_path}\n[Content too large, omitted]\n"
+                ));
             }
 
             Some(create_unified_diff(file_path, old_content, new_content))
@@ -258,7 +256,10 @@ pub async fn generate_commit_message_for_merge(
     }; // Lock released here
 
     // Build the prompt with task context
-    let task_description = task.description.as_deref().unwrap_or("No description provided");
+    let task_description = task
+        .description
+        .as_deref()
+        .unwrap_or("No description provided");
     let prompt = prompt_template
         .replace("{task_title}", &task.title)
         .replace("{task_description}", task_description)
@@ -289,12 +290,13 @@ pub async fn generate_commit_message_for_merge(
 
     // Get latest agent session ID for the SAME executor type (for coding agent continuity)
     // This prevents using session IDs from different executors (e.g., Codecs session with Cloud executor)
-    let latest_agent_session_id = ExecutionProcess::find_latest_coding_agent_turn_session_id_by_executor(
-        &deployment.db().pool,
-        session.id,
-        &executor_profile_id,
-    )
-    .await?;
+    let latest_agent_session_id =
+        ExecutionProcess::find_latest_coding_agent_turn_session_id_by_executor(
+            &deployment.db().pool,
+            session.id,
+            &executor_profile_id,
+        )
+        .await?;
 
     let working_dir = workspace
         .agent_working_dir

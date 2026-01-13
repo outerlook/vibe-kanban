@@ -1,6 +1,12 @@
 export { useBranchStatus } from './useBranchStatus';
 export { useAttemptExecution } from './useAttemptExecution';
 export { useOpenInEditor } from './useOpenInEditor';
+export {
+  useCustomEditors,
+  useCreateCustomEditor,
+  useUpdateCustomEditor,
+  useDeleteCustomEditor,
+} from './useCustomEditors';
 export { useTaskAttempt, useTaskAttemptWithSession } from './useTaskAttempt';
 export { useTaskImages } from './useTaskImages';
 export {

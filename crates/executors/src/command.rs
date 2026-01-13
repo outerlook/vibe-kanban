@@ -166,13 +166,15 @@ mod tests {
     #[test]
     #[cfg(not(windows))]
     fn build_preserves_param_with_spaces() {
-        let builder =
-            CommandBuilder::new("bash -lc").params([r#"mgrep --store "fiet-maker""#]);
+        let builder = CommandBuilder::new("bash -lc").params([r#"mgrep --store "fiet-maker""#]);
         let parts = builder.build_initial().unwrap();
         assert_eq!(parts.program, "bash");
         assert_eq!(
             parts.args,
-            vec!["-lc".to_string(), r#"mgrep --store "fiet-maker""#.to_string()]
+            vec![
+                "-lc".to_string(),
+                r#"mgrep --store "fiet-maker""#.to_string()
+            ]
         );
     }
 }

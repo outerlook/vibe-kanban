@@ -62,10 +62,7 @@ pub async fn get_tasks(
     const MAX_LIMIT: i32 = 200;
     const DEFAULT_OFFSET: i32 = 0;
 
-    let limit = query
-        .limit
-        .unwrap_or(DEFAULT_LIMIT)
-        .clamp(0, MAX_LIMIT) as i64;
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(0, MAX_LIMIT) as i64;
     let offset = query.offset.unwrap_or(DEFAULT_OFFSET).max(0) as i64;
 
     let (tasks, total) = Task::find_paginated_by_project_id_with_attempt_status(
@@ -324,8 +321,12 @@ pub async fn update_task(
 
     // Validate task_group_id if a new value is provided
     if let Some(task_group_id) = payload.task_group_id {
-        validate_task_group_id(&deployment.db().pool, task_group_id, existing_task.project_id)
-            .await?;
+        validate_task_group_id(
+            &deployment.db().pool,
+            task_group_id,
+            existing_task.project_id,
+        )
+        .await?;
     }
 
     // Use existing values if not provided in update

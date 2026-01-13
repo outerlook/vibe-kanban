@@ -316,7 +316,9 @@ pub async fn stream_workspaces_ws(
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| async move {
         let include_snapshot = query.include_snapshot.unwrap_or(true);
-        if let Err(e) = handle_workspaces_ws(socket, deployment, query.task_id, include_snapshot).await {
+        if let Err(e) =
+            handle_workspaces_ws(socket, deployment, query.task_id, include_snapshot).await
+        {
             tracing::warn!("workspaces WS closed: {}", e);
         }
     })
@@ -671,7 +673,7 @@ pub async fn open_task_attempt_in_editor(
     let editor_config = {
         let config = deployment.config().read().await;
         let editor_type_str = payload.editor_type.as_deref();
-        config.editor.with_override(editor_type_str)
+        config.editor.with_override(editor_type_str)?
     };
 
     match editor_config.open_file(path.as_path()).await {

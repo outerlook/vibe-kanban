@@ -320,9 +320,12 @@ impl EventService {
                 };
                 msg_store.push_patch(patch);
 
-                if let Err(err) =
-                    Self::push_task_update_for_session(&db.pool, msg_store.clone(), process.session_id)
-                        .await
+                if let Err(err) = Self::push_task_update_for_session(
+                    &db.pool,
+                    msg_store.clone(),
+                    process.session_id,
+                )
+                .await
                 {
                     tracing::error!(
                         "Failed to push task update after execution process change: {:?}",
@@ -464,7 +467,8 @@ impl EventService {
                         // Use try_send to avoid blocking the SQLite callback.
                         // If the channel is full, we log a warning and drop the event.
                         // This provides backpressure without blocking database operations.
-                        if let Err(mpsc::error::TrySendError::Full(_)) = event_sender.try_send(event)
+                        if let Err(mpsc::error::TrySendError::Full(_)) =
+                            event_sender.try_send(event)
                         {
                             tracing::warn!(
                                 "Event channel full, dropping event for table {} rowid {}",

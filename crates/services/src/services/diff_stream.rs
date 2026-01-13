@@ -153,7 +153,10 @@ impl DiffWatcherContext {
         canonical_worktree_path: &Path,
     ) -> bool {
         match result.as_ref() {
-            Ok(events) => self.handle_events(events.clone(), canonical_worktree_path).await,
+            Ok(events) => {
+                self.handle_events(events.clone(), canonical_worktree_path)
+                    .await
+            }
             Err(errors) => {
                 let message = errors
                     .iter()
@@ -180,23 +183,27 @@ pub async fn create(
     watcher_manager: Option<&WatcherManager>,
 ) -> Result<DiffStreamHandle, DiffStreamError> {
     match watcher_manager {
-        Some(manager) => create_with_shared_watcher(
-            git_service,
-            worktree_path,
-            base_commit,
-            stats_only,
-            path_prefix,
-            manager,
-        )
-        .await,
-        None => create_with_dedicated_watcher(
-            git_service,
-            worktree_path,
-            base_commit,
-            stats_only,
-            path_prefix,
-        )
-        .await,
+        Some(manager) => {
+            create_with_shared_watcher(
+                git_service,
+                worktree_path,
+                base_commit,
+                stats_only,
+                path_prefix,
+                manager,
+            )
+            .await
+        }
+        None => {
+            create_with_dedicated_watcher(
+                git_service,
+                worktree_path,
+                base_commit,
+                stats_only,
+                path_prefix,
+            )
+            .await
+        }
     }
 }
 

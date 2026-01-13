@@ -28,7 +28,7 @@ import { openTaskForm } from '@/lib/openTaskForm';
 import { paths } from '@/lib/paths';
 import { useProject } from '@/contexts/ProjectContext';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
-import { OpenInIdeButton } from '@/components/ide/OpenInIdeButton';
+import { OpenInIdeSplitButton } from '@/components/ide/OpenInIdeSplitButton';
 import { useProjectRepos } from '@/hooks';
 import { useDiscordOnlineCount } from '@/hooks/useDiscordOnlineCount';
 import { useTranslation } from 'react-i18next';
@@ -119,8 +119,8 @@ export function Navbar() {
     }
   };
 
-  const handleOpenInIDE = () => {
-    handleOpenInEditor();
+  const handleOpenInIDE = (editorId: string) => {
+    handleOpenInEditor(editorId);
   };
 
   const handleOpenOAuth = async () => {
@@ -235,9 +235,9 @@ export function Navbar() {
                     </Link>
                   </Button>
                   {isSingleRepoProject && (
-                    <OpenInIdeButton
+                    <OpenInIdeSplitButton
                       onClick={handleOpenInIDE}
-                      className="h-9 w-9"
+                      className="h-9"
                     />
                   )}
                   <Button

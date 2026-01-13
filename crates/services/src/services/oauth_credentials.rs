@@ -172,8 +172,7 @@ impl FileBackend {
     async fn save(&self, creds: &StoredCredentials) -> std::io::Result<()> {
         let tmp = self.path.with_extension("tmp");
         let final_path = self.path.clone();
-        let creds_json =
-            serde_json::to_vec_pretty(creds).map_err(std::io::Error::other)?;
+        let creds_json = serde_json::to_vec_pretty(creds).map_err(std::io::Error::other)?;
 
         tokio::task::spawn_blocking(move || {
             let file = {
@@ -198,7 +197,7 @@ impl FileBackend {
             Ok(())
         })
         .await
-        .map_err(|e| std::io::Error::other(e))?
+        .map_err(std::io::Error::other)?
     }
 
     async fn clear(&self) -> std::io::Result<()> {

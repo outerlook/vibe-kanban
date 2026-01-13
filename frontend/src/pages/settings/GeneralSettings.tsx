@@ -39,6 +39,7 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { TagManager } from '@/components/TagManager';
 import { FolderPickerDialog } from '@/components/dialogs/shared/FolderPickerDialog';
 import ExecutorProfileSelector from '@/components/settings/ExecutorProfileSelector';
+import { CustomEditorsList } from '@/components/settings/CustomEditorsList';
 
 export function GeneralSettings() {
   const { t } = useTranslation(['settings', 'common']);
@@ -413,6 +414,18 @@ export function GeneralSettings() {
               )}
             </>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('settings.general.customEditors.title')}</CardTitle>
+          <CardDescription>
+            {t('settings.general.customEditors.description')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <CustomEditorsList />
         </CardContent>
       </Card>
 
