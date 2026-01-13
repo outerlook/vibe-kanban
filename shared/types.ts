@@ -222,6 +222,12 @@ export type CheckEditorAvailabilityResponse = { available: boolean, };
 
 export type CheckAgentAvailabilityQuery = { executor: BaseCodingAgent, };
 
+export type AccountInfo = { claude: ClaudeAccountInfo | null, codex: CodexAccountInfo | null, };
+
+export type ClaudeAccountInfo = { subscriptionType: string, rateLimitTier: string | null, };
+
+export type CodexAccountInfo = { planType: string, subscriptionActiveUntil: string | null, };
+
 export type CurrentUserResponse = { user_id: string, };
 
 export type CreateFollowUpAttempt = { prompt: string, variant: string | null, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
