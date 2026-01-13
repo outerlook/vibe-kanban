@@ -44,6 +44,7 @@ pub struct TaskWithAttemptStatus {
     pub has_in_progress_attempt: bool,
     pub last_attempt_failed: bool,
     pub is_blocked: bool,
+    pub is_queued: bool,
     pub executor: String,
 }
 
@@ -188,6 +189,13 @@ impl Task {
   ) IN ('failed','killed') THEN 1 ELSE 0 END
                                  AS "last_attempt_failed!: i64",
 
+  CASE WHEN EXISTS (
+    SELECT 1 FROM workspaces w
+    JOIN execution_queue eq ON eq.workspace_id = w.id
+    WHERE w.task_id = t.id
+    LIMIT 1
+  ) THEN 1 ELSE 0 END            AS "is_queued!: i64",
+
   ( SELECT s.executor
       FROM workspaces w
       JOIN sessions s ON s.workspace_id = w.id
@@ -222,6 +230,7 @@ ORDER BY t.created_at DESC"#,
                 has_in_progress_attempt: rec.has_in_progress_attempt != 0,
                 last_attempt_failed: rec.last_attempt_failed != 0,
                 is_blocked: rec.is_blocked != 0,
+                is_queued: rec.is_queued != 0,
                 executor: rec.executor,
             })
             .collect();
@@ -277,6 +286,13 @@ ORDER BY t.created_at DESC"#,
   ) IN ('failed','killed') THEN 1 ELSE 0 END
                                  AS "last_attempt_failed!: i64",
 
+  CASE WHEN EXISTS (
+    SELECT 1 FROM workspaces w
+    JOIN execution_queue eq ON eq.workspace_id = w.id
+    WHERE w.task_id = t.id
+    LIMIT 1
+  ) THEN 1 ELSE 0 END            AS "is_queued!: i64",
+
   ( SELECT s.executor
       FROM workspaces w
       JOIN sessions s ON s.workspace_id = w.id
@@ -308,6 +324,7 @@ WHERE t.id = $1"#,
             has_in_progress_attempt: rec.has_in_progress_attempt != 0,
             last_attempt_failed: rec.last_attempt_failed != 0,
             is_blocked: rec.is_blocked != 0,
+            is_queued: rec.is_queued != 0,
             executor: rec.executor,
         }))
     }
@@ -375,6 +392,13 @@ WHERE t.id = $1"#,
   ) IN ('failed','killed') THEN 1 ELSE 0 END
                                  AS "last_attempt_failed!: i64",
 
+  CASE WHEN EXISTS (
+    SELECT 1 FROM workspaces w
+    JOIN execution_queue eq ON eq.workspace_id = w.id
+    WHERE w.task_id = t.id
+    LIMIT 1
+  ) THEN 1 ELSE 0 END            AS "is_queued!: i64",
+
   ( SELECT s.executor
       FROM workspaces w
       JOIN sessions s ON s.workspace_id = w.id
@@ -414,6 +438,7 @@ LIMIT $3 OFFSET $4"#,
                 has_in_progress_attempt: rec.has_in_progress_attempt != 0,
                 last_attempt_failed: rec.last_attempt_failed != 0,
                 is_blocked: rec.is_blocked != 0,
+                is_queued: rec.is_queued != 0,
                 executor: rec.executor,
             })
             .collect();

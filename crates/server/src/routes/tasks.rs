@@ -310,6 +310,7 @@ pub async fn create_task_and_start(
         has_in_progress_attempt: is_attempt_running,
         last_attempt_failed: false,
         is_blocked: false,
+        is_queued: !is_attempt_running,
         executor: payload.executor_profile_id.executor.to_string(),
     })))
 }
