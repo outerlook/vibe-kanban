@@ -340,11 +340,17 @@ export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean
 
 export enum ThemeMode { LIGHT = "LIGHT", DARK = "DARK", SYSTEM = "SYSTEM" }
 
-export type EditorConfig = { editor_type: EditorType, custom_command: string | null, remote_ssh_host: string | null, remote_ssh_user: string | null, };
+export type EditorConfig = { editor_type: EditorType, custom_command: string | null, custom_editor_id: string | null, remote_ssh_host: string | null, remote_ssh_user: string | null, };
 
 export enum EditorType { VS_CODE = "VS_CODE", CURSOR = "CURSOR", WINDSURF = "WINDSURF", INTELLI_J = "INTELLI_J", ZED = "ZED", XCODE = "XCODE", CUSTOM = "CUSTOM" }
 
 export type EditorOpenError = { "type": "executable_not_found", executable: string, editor_type: EditorType, } | { "type": "invalid_command", details: string, editor_type: EditorType, } | { "type": "launch_failed", executable: string, details: string, editor_type: EditorType, };
+
+export type EditorIdentifier = { "type": "built_in" } & EditorType | { "type": "custom" } & string;
+
+export type CustomEditor = { id: string, name: string, command: string, icon: string | null, created_at: string, };
+
+export type CustomEditorsConfig = { custom_editors: { [key in string]?: CustomEditor }, };
 
 export type GitHubConfig = { pat: string | null, oauth_token: string | null, username: string | null, primary_email: string | null, default_pr_base: string | null, };
 
