@@ -81,6 +81,29 @@
           "notFound": "Not found in PATH"
         }
       },
+      "customEditors": {
+        "title": "Custom Editors",
+        "description": "Manage custom editor commands available in the editor picker.",
+        "loading": "Loading custom editors...",
+        "loadError": "Failed to load custom editors.",
+        "empty": "No custom editors yet. Add one to appear in the editor picker.",
+        "table": {
+          "name": "Name",
+          "command": "Command",
+          "availability": "Availability",
+          "actions": "Actions"
+        },
+        "actions": {
+          "add": "Add Custom Editor",
+          "edit": "Edit",
+          "delete": "Delete"
+        },
+        "deleteConfirm": {
+          "title": "Delete Custom Editor",
+          "message": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone.",
+          "confirm": "Delete"
+        }
+      },
       "github": {
         "title": "GitHub Integration",
         "cliSetup": {

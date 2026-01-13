@@ -9,8 +9,10 @@ import type {
 
 const customEditorsKey = ['customEditors'] as const;
 
+export type CustomEditorWithAvailability = CustomEditor & { available: boolean };
+
 export function useCustomEditors() {
-  const { data, isLoading, error } = useQuery<CustomEditor[]>({
+  const { data, isLoading, error } = useQuery<CustomEditorWithAvailability[]>({
     queryKey: customEditorsKey,
     queryFn: async () => {
       const response = await customEditorsApi.list();
@@ -20,6 +22,7 @@ export function useCustomEditors() {
         command: editor.command,
         icon: editor.icon,
         created_at: editor.created_at,
+        available: editor.available,
       }));
     },
     staleTime: 30_000,
