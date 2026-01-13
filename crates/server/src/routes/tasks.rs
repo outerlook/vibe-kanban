@@ -16,7 +16,7 @@ use db::models::{
     image::TaskImage,
     project::{Project, ProjectError},
     repo::Repo,
-    task::{CreateTask, Task, TaskStatus, TaskWithAttemptStatus, UpdateTask},
+    task::{CreateTask, Task, TaskOrderBy, TaskStatus, TaskWithAttemptStatus, UpdateTask},
     task_group::TaskGroup,
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
@@ -72,6 +72,7 @@ pub async fn get_tasks(
         &deployment.db().pool,
         query.project_id,
         query.status,
+        TaskOrderBy::default(),
         limit,
         offset,
     )
