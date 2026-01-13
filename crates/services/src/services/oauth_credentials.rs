@@ -198,7 +198,7 @@ impl FileBackend {
             Ok(())
         })
         .await
-        .map_err(|e| std::io::Error::other(e))?
+        .map_err(std::io::Error::other)?
     }
 
     async fn clear(&self) -> std::io::Result<()> {

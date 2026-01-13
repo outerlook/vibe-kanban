@@ -825,10 +825,10 @@ fn detect_dependency_cycle(dependencies: &[Vec<usize>]) -> Option<Vec<usize>> {
     }
 
     for node in 0..dependencies.len() {
-        if state[node] == 0 {
-            if let Some(cycle) = visit(node, dependencies, &mut state, &mut stack, &mut in_stack) {
-                return Some(cycle);
-            }
+        if state[node] == 0
+            && let Some(cycle) = visit(node, dependencies, &mut state, &mut stack, &mut in_stack)
+        {
+            return Some(cycle);
         }
     }
 

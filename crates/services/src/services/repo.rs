@@ -233,10 +233,10 @@ impl RepoService {
         }
 
         // Ensure parent directory exists
-        if let Some(parent) = dest_path.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = dest_path.parent()
+            && !parent.exists()
+        {
+            std::fs::create_dir_all(parent)?;
         }
 
         // Clone the repository

@@ -710,6 +710,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // Test serialization via std::sync::Mutex is intentional
     async fn custom_editor_crud_and_availability() {
         let _lock = TEST_LOCK.lock().unwrap();
         let original = read_editors_file();

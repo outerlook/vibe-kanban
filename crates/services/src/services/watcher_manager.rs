@@ -108,24 +108,9 @@ impl WatcherManager {
         // Fast path: check if watcher already exists
         {
             let watchers = self.inner.watchers.read();
-            if let Some(weak) = watchers.get(&canonical) {
-                if let Some(watcher) = weak.upgrade() {
-                    return Ok(WatcherSubscription {
-                        rx: watcher.subscribe(),
-                        canonical_path: canonical,
-                        manager: self.clone(),
-                        _watcher: watcher,
-                    });
-                }
-            }
-        }
-
-        // Slow path: need to create a new watcher
-        let mut watchers = self.inner.watchers.write();
-
-        // Double-check after acquiring write lock
-        if let Some(weak) = watchers.get(&canonical) {
-            if let Some(watcher) = weak.upgrade() {
+            if let Some(weak) = watchers.get(&canonical)
+                && let Some(watcher) = weak.upgrade()
+            {
                 return Ok(WatcherSubscription {
                     rx: watcher.subscribe(),
                     canonical_path: canonical,
@@ -133,6 +118,21 @@ impl WatcherManager {
                     _watcher: watcher,
                 });
             }
+        }
+
+        // Slow path: need to create a new watcher
+        let mut watchers = self.inner.watchers.write();
+
+        // Double-check after acquiring write lock
+        if let Some(weak) = watchers.get(&canonical)
+            && let Some(watcher) = weak.upgrade()
+        {
+            return Ok(WatcherSubscription {
+                rx: watcher.subscribe(),
+                canonical_path: canonical,
+                manager: self.clone(),
+                _watcher: watcher,
+            });
         }
 
         // Create new watcher

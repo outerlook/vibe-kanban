@@ -71,16 +71,14 @@ fn extract_token_usage_from_msg_store(msg_store: &MsgStore) -> Option<(i64, i64)
 
     // Scan in reverse to find the most recent TokenUsage entry
     for msg in history.iter().rev() {
-        if let LogMsg::JsonPatch(patch) = msg {
-            if let Some((_, entry)) = extract_normalized_entry_from_patch(patch) {
-                if let NormalizedEntryType::TokenUsage {
-                    input_tokens,
-                    output_tokens,
-                } = entry.entry_type
-                {
-                    return Some((input_tokens, output_tokens));
-                }
-            }
+        if let LogMsg::JsonPatch(patch) = msg
+            && let Some((_, entry)) = extract_normalized_entry_from_patch(patch)
+            && let NormalizedEntryType::TokenUsage {
+                input_tokens,
+                output_tokens,
+            } = entry.entry_type
+        {
+            return Some((input_tokens, output_tokens));
         }
     }
 
@@ -570,17 +568,16 @@ impl LocalContainerService {
             // Cleanup msg store
             if let Some(msg_arc) = msg_stores.write().await.remove(&exec_id) {
                 // Extract and store token usage before cleaning up
-                if let Some((input_tokens, output_tokens)) = extract_token_usage_from_msg_store(&msg_arc) {
-                    if let Err(e) = ExecutionProcess::update_token_usage(
+                if let Some((input_tokens, output_tokens)) = extract_token_usage_from_msg_store(&msg_arc)
+                    && let Err(e) = ExecutionProcess::update_token_usage(
                         &db.pool,
                         exec_id,
                         Some(input_tokens),
                         Some(output_tokens),
                     )
                     .await
-                    {
-                        tracing::warn!("Failed to update token usage for {}: {}", exec_id, e);
-                    }
+                {
+                    tracing::warn!("Failed to update token usage for {}: {}", exec_id, e);
                 }
 
                 msg_arc.push_finished();

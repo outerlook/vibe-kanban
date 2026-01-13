@@ -24,19 +24,11 @@ pub struct CustomEditor {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, TS)]
 #[ts(export)]
 pub struct CustomEditorsConfig {
     #[serde(default)]
     pub custom_editors: HashMap<Uuid, CustomEditor>,
-}
-
-impl Default for CustomEditorsConfig {
-    fn default() -> Self {
-        Self {
-            custom_editors: HashMap::new(),
-        }
-    }
 }
 
 impl CustomEditorsConfig {
@@ -183,15 +175,17 @@ impl CustomEditorsConfig {
 
     fn load_sync() -> Self {
         let path = utils::assets::editors_path();
-        let runtime = match tokio::runtime::Runtime::new() {
-            Ok(runtime) => runtime,
-            Err(err) => {
-                tracing::error!("Failed to create runtime for loading editors: {}", err);
-                return Self::default();
+        match std::fs::read_to_string(&path) {
+            Ok(content) => {
+                if content.trim().is_empty() {
+                    return Self::default();
+                }
+                serde_json::from_str(&content).unwrap_or_else(|err| {
+                    tracing::error!("Failed to parse custom editors: {}", err);
+                    Self::default()
+                })
             }
-        };
-        match runtime.block_on(Self::load_from_path(&path)) {
-            Ok(config) => config,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Self::default(),
             Err(err) => {
                 tracing::error!("Failed to load custom editors: {}", err);
                 Self::default()
