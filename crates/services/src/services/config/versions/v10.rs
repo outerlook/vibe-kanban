@@ -53,6 +53,9 @@ pub struct Config {
     pub commit_message_prompt: Option<String>,
     #[serde(default)]
     pub commit_message_executor_profile: Option<ExecutorProfileId>,
+    /// Maximum concurrent agent executions (0 = unlimited)
+    #[serde(default)]
+    pub max_concurrent_agents: u32,
 }
 
 impl Config {
@@ -79,6 +82,7 @@ impl Config {
             commit_message_auto_generate_enabled: true,
             commit_message_prompt: None,
             commit_message_executor_profile: None,
+            max_concurrent_agents: 0,
         }
     }
 
@@ -133,6 +137,7 @@ impl Default for Config {
             commit_message_auto_generate_enabled: true,
             commit_message_prompt: None,
             commit_message_executor_profile: None,
+            max_concurrent_agents: 0,
         }
     }
 }
