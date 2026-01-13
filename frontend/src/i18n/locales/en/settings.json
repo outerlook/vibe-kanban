@@ -83,7 +83,7 @@
       },
       "customEditors": {
         "title": "Custom Editors",
-        "description": "Manage custom editor commands available in the editor picker.",
+        "description": "Add custom editors for opening projects and files",
         "loading": "Loading custom editors...",
         "loadError": "Failed to load custom editors.",
         "empty": "No custom editors yet. Add one to appear in the editor picker.",
