@@ -745,8 +745,14 @@ pub async fn get_task_attempt_branch_status(
     let pool = &deployment.db().pool;
 
     let db_start = std::time::Instant::now();
-    let repositories = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let workspace_repos = WorkspaceRepo::find_by_workspace_id(pool, workspace.id).await?;
+    let (repositories, workspace_repos, all_merges) = tokio::join!(
+        WorkspaceRepo::find_repos_for_workspace(pool, workspace.id),
+        WorkspaceRepo::find_by_workspace_id(pool, workspace.id),
+        Merge::find_by_workspace_id(pool, workspace.id),
+    );
+    let repositories = repositories?;
+    let workspace_repos = workspace_repos?;
+    let all_merges = all_merges?;
     tracing::trace!(
         workspace_id = %workspace.id,
         duration_ms = db_start.elapsed().as_millis(),
@@ -757,8 +763,7 @@ pub async fn get_task_attempt_branch_status(
         .map(|wr| (wr.repo_id, wr.target_branch.clone()))
         .collect();
 
-    // Fetch all merges once and group by repo_id to avoid N+1 queries
-    let all_merges = Merge::find_by_workspace_id(pool, workspace.id).await?;
+    // Group merges by repo_id to avoid N+1 queries
     let merges_by_repo: HashMap<_, Vec<_>> = all_merges.into_iter().fold(
         HashMap::new(),
         |mut acc, merge| {
