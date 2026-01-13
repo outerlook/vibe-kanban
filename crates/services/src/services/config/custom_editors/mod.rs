@@ -57,6 +57,12 @@ impl CustomEditorsConfig {
         self.custom_editors.get(&id)
     }
 
+    #[cfg(test)]
+    pub(super) fn set_cached_for_tests(config: CustomEditorsConfig) {
+        let mut cache = CUSTOM_EDITORS_CACHE.write().unwrap();
+        *cache = Arc::new(config);
+    }
+
     pub async fn create(name: String, command: String) -> Result<Uuid, ConfigError> {
         let mut config = Self::get_cached().as_ref().clone();
         let id = config.create_in_memory(name, command)?;

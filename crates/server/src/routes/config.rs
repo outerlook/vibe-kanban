@@ -456,6 +456,7 @@ async fn check_editor_availability(
     let editor_config = EditorConfig::new(
         query.editor_type,
         None, // custom_command
+        None, // custom_editor_id
         None, // remote_ssh_host
         None, // remote_ssh_user
     );
