@@ -27,7 +27,11 @@ pub enum AcpEvent {
     RequestPermission(agent_client_protocol::RequestPermissionRequest),
     ApprovalResponse(ApprovalResponse),
     Error(String),
-    Done(String),
+    Done {
+        stop_reason: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        meta: Option<serde_json::Value>,
+    },
     Other(agent_client_protocol::SessionNotification),
 }
 

@@ -94,6 +94,7 @@ pub enum NormalizedEntryType {
         failed: bool,
         execution_processes: usize,
         needs_setup: bool,
+        setup_help_text: Option<String>,
     },
     TokenUsage {
         input_tokens: i64,
@@ -106,7 +107,6 @@ pub struct NormalizedEntry {
     pub timestamp: Option<String>,
     pub entry_type: NormalizedEntryType,
     pub content: String,
-    #[ts(skip)]
     pub metadata: Option<serde_json::Value>,
 }
 

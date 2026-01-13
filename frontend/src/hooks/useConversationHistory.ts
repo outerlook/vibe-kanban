@@ -72,6 +72,7 @@ const makeLoadingPatch = (executionProcessId: string): PatchTypeWithKey => ({
     },
     content: '',
     timestamp: null,
+    metadata: null,
   },
   patchKey: `${executionProcessId}:loading`,
   executionProcessId,
@@ -99,6 +100,7 @@ const nextActionPatch: (
     },
     content: '',
     timestamp: null,
+    metadata: null,
   },
   patchKey: 'next_action',
   executionProcessId: '',
@@ -335,6 +337,7 @@ export const useConversationHistory = ({
               },
               content: p.executionProcess.executor_action.typ.prompt,
               timestamp: null,
+              metadata: null,
             };
             const userPatch: PatchType = {
               type: 'NORMALIZED_ENTRY',
@@ -480,6 +483,7 @@ export const useConversationHistory = ({
               },
               content: toolName,
               timestamp: null,
+              metadata: null,
             };
             const toolPatch: PatchType = {
               type: 'NORMALIZED_ENTRY',

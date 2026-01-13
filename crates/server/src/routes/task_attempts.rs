@@ -750,6 +750,20 @@ pub async fn get_task_attempt_branch_status(
         .map(|wr| (wr.repo_id, wr.target_branch.clone()))
         .collect();
 
+    // Fetch all merges once and group by repo_id to avoid N+1 queries
+    let all_merges = Merge::find_by_workspace_id(pool, workspace.id).await?;
+    let merges_by_repo: HashMap<_, Vec<_>> = all_merges.into_iter().fold(
+        HashMap::new(),
+        |mut acc, merge| {
+            let repo_id = match &merge {
+                Merge::Direct(d) => d.repo_id,
+                Merge::Pr(p) => p.repo_id,
+            };
+            acc.entry(repo_id).or_default().push(merge);
+            acc
+        },
+    );
+
     let container_ref = deployment
         .container()
         .ensure_container_exists(&workspace)
@@ -763,7 +777,7 @@ pub async fn get_task_attempt_branch_status(
             continue;
         };
 
-        let repo_merges = Merge::find_by_workspace_and_repo_id(pool, workspace.id, repo.id).await?;
+        let repo_merges = merges_by_repo.get(&repo.id).cloned().unwrap_or_default();
 
         let worktree_path = workspace_dir.join(&repo.name);
 
