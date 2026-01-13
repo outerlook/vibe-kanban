@@ -13,6 +13,14 @@ import type {
   TaskWithAttemptStatus,
 } from 'shared/types';
 
+export const projectTasksKeys = {
+  all: ['projectTasks'] as const,
+  byProject: (projectId: string | undefined) =>
+    ['projectTasks', projectId] as const,
+  byProjectInfinite: (projectId: string | undefined) =>
+    ['projectTasks', 'infinite', projectId] as const,
+};
+
 export type SharedTaskRecord = SharedTask & {
   remote_project_id: string;
   assignee_first_name?: string | null;
