@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 pub mod editor;
+pub mod custom_editors;
 mod versions;
 
 pub use editor::EditorOpenError;
