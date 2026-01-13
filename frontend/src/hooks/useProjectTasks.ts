@@ -29,10 +29,6 @@ export type SharedTaskRecord = SharedTask & {
   assignee_username?: string | null;
 };
 
-type TasksState = {
-  tasks: Record<string, TaskWithAttemptStatus>;
-};
-
 const PAGE_SIZE = 50;
 const TASK_PATH_PREFIX = '/tasks/';
 
@@ -77,7 +73,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
   // Derive tasksById from query pages
   const tasksById = useMemo(() => {
     if (!query.data?.pages) return {};
-    const map: TasksState['tasks'] = {};
+    const map: Record<string, TaskWithAttemptStatus> = {};
     for (const page of query.data.pages) {
       for (const task of page.tasks) {
         map[task.id] = task;
@@ -326,8 +322,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     return map;
   }, [sharedTasksList, assignees]);
 
-  const { tasks, tasksById: mergedTasksById, tasksByStatus } = useMemo(() => {
-    const merged: Record<string, TaskWithAttemptStatus> = { ...tasksById };
+  const { tasks, tasksByStatus } = useMemo(() => {
     const byStatus: Record<TaskStatus, TaskWithAttemptStatus[]> = {
       todo: [],
       inprogress: [],
@@ -336,11 +331,11 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
       cancelled: [],
     };
 
-    Object.values(merged).forEach((task) => {
+    Object.values(tasksById).forEach((task) => {
       byStatus[task.status]?.push(task);
     });
 
-    const sorted = Object.values(merged).sort(
+    const sorted = Object.values(tasksById).sort(
       (a, b) =>
         new Date(b.created_at as string).getTime() -
         new Date(a.created_at as string).getTime()
@@ -354,7 +349,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
       );
     });
 
-    return { tasks: sorted, tasksById: merged, tasksByStatus: byStatus };
+    return { tasks: sorted, tasksByStatus: byStatus };
   }, [tasksById]);
 
   const sharedOnlyByStatus = useMemo(() => {
@@ -401,7 +396,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
 
   return {
     tasks,
-    tasksById: mergedTasksById,
+    tasksById,
     tasksByStatus,
     sharedTasksById,
     sharedOnlyByStatus,
