@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { AlertTriangle, Loader2, Plus, X } from 'lucide-react';
+import { AlertTriangle, Plus, X } from 'lucide-react';
 import { Loader } from '@/components/ui/loader';
 import { tasksApi } from '@/lib/api';
 import { openTaskForm } from '@/lib/openTaskForm';
@@ -135,10 +135,10 @@ export function ProjectTasks() {
     sharedTasksById,
     sharedOnlyByStatus,
     isLoading,
-    isLoadingMore,
-    hasMore,
-    total,
-    loadMore,
+    loadMoreByStatus,
+    isLoadingMoreByStatus,
+    hasMoreByStatus,
+    totalByStatus,
     error: tasksError,
   } = useProjectTasks(projectId || '');
 
@@ -801,31 +801,6 @@ export function ProjectTasks() {
       : `${truncated}...`;
   };
 
-  const loadMoreSection =
-    total > 0 ? (
-      <div className="flex flex-col items-center gap-2 py-4">
-        {hasMore && (
-          <Button
-            onClick={loadMore}
-            disabled={isLoadingMore}
-            variant="secondary"
-          >
-            {isLoadingMore && (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            )}
-            {t('pagination.loadMore', { defaultValue: 'Load more' })}
-          </Button>
-        )}
-        <div className="text-xs text-muted-foreground">
-          {t('pagination.showing', {
-            defaultValue: 'Showing {{count}} of {{total}} tasks',
-            count: tasks.length,
-            total,
-          })}
-        </div>
-      </div>
-    ) : null;
-
   const kanbanContent =
     tasks.length === 0 && !hasSharedTasks ? (
       <div className="max-w-7xl mx-auto mt-8">
@@ -860,8 +835,11 @@ export function ProjectTasks() {
           selectedSharedTaskId={selectedSharedTaskId}
           onCreateTask={handleCreateNewTask}
           projectId={projectId!}
+          loadMoreByStatus={loadMoreByStatus}
+          hasMoreByStatus={hasMoreByStatus}
+          isLoadingMoreByStatus={isLoadingMoreByStatus}
+          totalByStatus={totalByStatus}
         />
-        {loadMoreSection}
       </div>
     );
 
