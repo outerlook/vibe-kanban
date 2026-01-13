@@ -1,3 +1,4 @@
+export { useAccountInfo } from './useAccountInfo';
 export { useBranchStatus } from './useBranchStatus';
 export { useAttemptExecution } from './useAttemptExecution';
 export { useOpenInEditor } from './useOpenInEditor';
