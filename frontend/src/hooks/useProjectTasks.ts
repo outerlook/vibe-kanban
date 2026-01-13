@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks';
 import { useProject } from '@/contexts/ProjectContext';
 import { useLiveQuery, eq, isNull } from '@tanstack/react-db';
@@ -32,6 +33,17 @@ type TasksState = {
   tasks: Record<string, TaskWithAttemptStatus>;
 };
 
+type TasksPage = {
+  tasks: TaskWithAttemptStatus[];
+  total: number;
+  hasMore: boolean;
+};
+
+type InfiniteTasksData = {
+  pages: TasksPage[];
+  pageParams: number[];
+};
+
 const PAGE_SIZE = 50;
 const TASK_PATH_PREFIX = '/tasks/';
 
@@ -57,6 +69,7 @@ export interface UseProjectTasksResult {
 }
 
 export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
+  const queryClient = useQueryClient();
   const { project } = useProject();
   const { isSignedIn } = useAuth();
   const remoteProjectId = project?.remote_project_id;
@@ -152,6 +165,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     (patches: Operation[]) => {
       if (!patches.length) return;
 
+      // Update local state for components that still use it
       setTasksById((prev) => {
         let next = prev;
         let added = 0;
@@ -196,8 +210,115 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
 
         return next;
       });
+
+      // Update React Query cache for infinite query
+      queryClient.setQueryData<InfiniteTasksData>(
+        projectTasksKeys.byProjectInfinite(projectId),
+        (old) => {
+          if (!old || !old.pages.length) return old;
+
+          // Build a set of all existing task IDs across all pages
+          const existingTaskIds = new Set<string>();
+          for (const page of old.pages) {
+            for (const task of page.tasks) {
+              existingTaskIds.add(task.id);
+            }
+          }
+
+          // Collect tasks to add (only for first page)
+          const tasksToAdd: TaskWithAttemptStatus[] = [];
+          // Track removed task IDs
+          const removedTaskIds = new Set<string>();
+          // Track replaced tasks by ID
+          const replacedTasks = new Map<string, TaskWithAttemptStatus>();
+
+          for (const op of patches) {
+            if (!op.path.startsWith(TASK_PATH_PREFIX)) continue;
+
+            const rawId = op.path.slice(TASK_PATH_PREFIX.length);
+            const taskId = decodePointerSegment(rawId);
+            if (!taskId) continue;
+
+            if (op.op === 'remove') {
+              if (existingTaskIds.has(taskId)) {
+                removedTaskIds.add(taskId);
+              }
+              continue;
+            }
+
+            if (op.op !== 'add' && op.op !== 'replace') continue;
+
+            const value = (op as { value?: unknown }).value;
+            if (!value) continue;
+
+            const task = value as TaskWithAttemptStatus;
+            if (task.project_id !== projectId) continue;
+
+            if (op.op === 'replace') {
+              if (existingTaskIds.has(task.id)) {
+                replacedTasks.set(task.id, task);
+              }
+            } else if (op.op === 'add') {
+              if (!existingTaskIds.has(task.id)) {
+                tasksToAdd.push(task);
+              }
+            }
+          }
+
+          // No changes needed
+          if (!tasksToAdd.length && !removedTaskIds.size && !replacedTasks.size) {
+            return old;
+          }
+
+          const totalDelta = tasksToAdd.length - removedTaskIds.size;
+
+          const updatedPages = old.pages.map((page, pageIndex) => {
+            let tasks = page.tasks;
+            let pageChanged = false;
+
+            // Apply removals
+            if (removedTaskIds.size) {
+              const filtered = tasks.filter((t) => !removedTaskIds.has(t.id));
+              if (filtered.length !== tasks.length) {
+                tasks = filtered;
+                pageChanged = true;
+              }
+            }
+
+            // Apply replacements
+            if (replacedTasks.size) {
+              tasks = tasks.map((t) => {
+                const replacement = replacedTasks.get(t.id);
+                if (replacement) {
+                  pageChanged = true;
+                  return replacement;
+                }
+                return t;
+              });
+            }
+
+            // Add new tasks only to first page
+            if (pageIndex === 0 && tasksToAdd.length) {
+              tasks = [...tasksToAdd, ...tasks];
+              pageChanged = true;
+            }
+
+            if (!pageChanged) return page;
+            return {
+              ...page,
+              tasks,
+              total: Math.max(0, page.total + totalDelta),
+            };
+          });
+
+          return {
+            ...old,
+            pages: updatedPages,
+          };
+        }
+      );
     },
-    [projectId]
+    [projectId, queryClient]
   );
 
   useEffect(() => {
