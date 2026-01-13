@@ -41,6 +41,7 @@ impl DBService {
             .connect_with(Self::connect_options()?)
             .await?;
         sqlx::migrate!("./migrations").run(&pool).await?;
+        sqlx::query("PRAGMA optimize").execute(&pool).await?;
         Ok(DBService { pool })
     }
 
@@ -66,6 +67,7 @@ impl DBService {
             .connect_with(Self::connect_options()?)
             .await?;
         sqlx::migrate!("./migrations").run(&pool).await?;
+        sqlx::query("PRAGMA optimize").execute(&pool).await?;
         Ok(DBService { pool })
     }
 }
