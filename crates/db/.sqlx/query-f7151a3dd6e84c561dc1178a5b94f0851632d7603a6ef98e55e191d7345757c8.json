@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM execution_queue WHERE workspace_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "f7151a3dd6e84c561dc1178a5b94f0851632d7603a6ef98e55e191d7345757c8"
+}
