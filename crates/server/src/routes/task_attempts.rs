@@ -741,10 +741,17 @@ pub async fn get_task_attempt_branch_status(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<RepoBranchStatus>>>, ApiError> {
+    let start = std::time::Instant::now();
     let pool = &deployment.db().pool;
 
+    let db_start = std::time::Instant::now();
     let repositories = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
     let workspace_repos = WorkspaceRepo::find_by_workspace_id(pool, workspace.id).await?;
+    tracing::trace!(
+        workspace_id = %workspace.id,
+        duration_ms = db_start.elapsed().as_millis(),
+        "branch-status: DB queries completed"
+    );
     let target_branches: HashMap<_, _> = workspace_repos
         .iter()
         .map(|wr| (wr.repo_id, wr.target_branch.clone()))
@@ -879,6 +886,12 @@ pub async fn get_task_attempt_branch_status(
         });
     }
 
+    tracing::debug!(
+        workspace_id = %workspace.id,
+        repo_count = results.len(),
+        duration_ms = start.elapsed().as_millis(),
+        "branch-status completed"
+    );
     Ok(ResponseJson(ApiResponse::success(results)))
 }
 
