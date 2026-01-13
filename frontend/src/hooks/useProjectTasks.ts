@@ -290,16 +290,14 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     [sharedTasksQuery.data]
   );
 
-  const localTasksById = useMemo(() => tasksById, [tasksById]);
-
   const referencedSharedIds = useMemo(
     () =>
       new Set(
-        Object.values(localTasksById)
+        Object.values(tasksById)
           .map((task) => task.shared_task_id)
           .filter((id): id is string => Boolean(id))
       ),
-    [localTasksById]
+    [tasksById]
   );
 
   const { assignees } = useAssigneeUserNames({
@@ -329,7 +327,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
   }, [sharedTasksList, assignees]);
 
   const { tasks, tasksById: mergedTasksById, tasksByStatus } = useMemo(() => {
-    const merged: Record<string, TaskWithAttemptStatus> = { ...localTasksById };
+    const merged: Record<string, TaskWithAttemptStatus> = { ...tasksById };
     const byStatus: Record<TaskStatus, TaskWithAttemptStatus[]> = {
       todo: [],
       inprogress: [],
@@ -357,7 +355,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     });
 
     return { tasks: sorted, tasksById: merged, tasksByStatus: byStatus };
-  }, [localTasksById]);
+  }, [tasksById]);
 
   const sharedOnlyByStatus = useMemo(() => {
     const grouped: Record<TaskStatus, SharedTaskRecord[]> = {
@@ -370,7 +368,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
 
     Object.values(sharedTasksById).forEach((sharedTask) => {
       const hasLocal =
-        Boolean(localTasksById[sharedTask.id]) ||
+        Boolean(tasksById[sharedTask.id]) ||
         referencedSharedIds.has(sharedTask.id);
 
       if (hasLocal) {
@@ -388,12 +386,12 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     });
 
     return grouped;
-  }, [localTasksById, sharedTasksById, referencedSharedIds]);
+  }, [tasksById, sharedTasksById, referencedSharedIds]);
 
   // Auto-link shared tasks assigned to current user
   useAutoLinkSharedTasks({
     sharedTasksById,
-    localTasksById,
+    localTasksById: tasksById,
     referencedSharedIds,
     isLoading,
     hasMore,
