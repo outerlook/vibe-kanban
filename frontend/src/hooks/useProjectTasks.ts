@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo } from 'react';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks';
 import { useProject } from '@/contexts/ProjectContext';
 import { useLiveQuery, eq, isNull } from '@tanstack/react-db';
 import { sharedTasksCollection } from '@/lib/electric/sharedTasksCollection';
 import { useAssigneeUserNames } from './useAssigneeUserName';
 import { useAutoLinkSharedTasks } from './useAutoLinkSharedTasks';
-import { tasksApi } from '@/lib/api';
+import { tasksApi, type PaginatedTasksResponse } from '@/lib/api';
 import type { Operation } from 'rfc6902';
 import type {
   SharedTask,
@@ -31,17 +31,6 @@ export type SharedTaskRecord = SharedTask & {
 
 type TasksState = {
   tasks: Record<string, TaskWithAttemptStatus>;
-};
-
-type TasksPage = {
-  tasks: TaskWithAttemptStatus[];
-  total: number;
-  hasMore: boolean;
-};
-
-type InfiniteTasksData = {
-  pages: TasksPage[];
-  pageParams: number[];
 };
 
 const PAGE_SIZE = 50;
@@ -69,168 +58,70 @@ export interface UseProjectTasksResult {
 }
 
 export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
-  const queryClient = useQueryClient();
   const { project } = useProject();
   const { isSignedIn } = useAuth();
   const remoteProjectId = project?.remote_project_id;
-  const [tasksById, setTasksById] = useState<TasksState['tasks']>({});
-  const [offset, setOffset] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const mergeTasks = useCallback(
-    (incoming: TaskWithAttemptStatus[], replace: boolean) => {
-      setTasksById((prev) => {
-        const next = replace ? {} : { ...prev };
-        incoming.forEach((task) => {
-          next[task.id] = task;
-        });
-        return next;
-      });
+  const query = useInfiniteQuery({
+    queryKey: projectTasksKeys.byProjectInfinite(projectId),
+    queryFn: async ({ pageParam = 0 }): Promise<PaginatedTasksResponse> => {
+      return tasksApi.list(projectId, { offset: pageParam, limit: PAGE_SIZE });
     },
-    []
-  );
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined,
+    initialPageParam: 0,
+    enabled: !!projectId,
+  });
 
-  useEffect(() => {
-    if (!projectId) {
-      setTasksById({});
-      setOffset(0);
-      setTotal(0);
-      setHasMore(false);
-      setIsLoading(false);
-      setIsLoadingMore(false);
-      setError(null);
-      return;
+  // Derive tasksById from query pages
+  const tasksById = useMemo(() => {
+    if (!query.data?.pages) return {};
+    const map: TasksState['tasks'] = {};
+    for (const page of query.data.pages) {
+      for (const task of page.tasks) {
+        map[task.id] = task;
+      }
     }
+    return map;
+  }, [query.data?.pages]);
 
-    let cancelled = false;
-    setIsLoading(true);
-    setIsLoadingMore(false);
-    setError(null);
-    setOffset(0);
-    setTotal(0);
-    setHasMore(false);
+  // Derive total from the last page (most recent data)
+  const total = useMemo(() => {
+    if (!query.data?.pages.length) return 0;
+    return query.data.pages[query.data.pages.length - 1].total;
+  }, [query.data?.pages]);
 
-    tasksApi
-      .list(projectId, { offset: 0, limit: PAGE_SIZE })
-      .then((page) => {
-        if (cancelled) return;
-        mergeTasks(page.tasks, true);
-        setOffset(page.tasks.length);
-        setTotal(page.total);
-        setHasMore(page.hasMore);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Failed to load tasks');
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setIsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId, mergeTasks]);
+  const isLoading = query.isLoading;
+  const isLoadingMore = query.isFetchingNextPage;
+  const hasMore = query.hasNextPage ?? false;
+  const error = query.error ? (query.error instanceof Error ? query.error.message : 'Failed to load tasks') : null;
 
   const loadMore = useCallback(() => {
-    if (!projectId || isLoading || isLoadingMore || !hasMore) {
-      return;
+    if (!query.isFetchingNextPage && query.hasNextPage) {
+      query.fetchNextPage();
     }
-
-    setIsLoadingMore(true);
-    setError(null);
-
-    tasksApi
-      .list(projectId, { offset, limit: PAGE_SIZE })
-      .then((page) => {
-        mergeTasks(page.tasks, false);
-        setOffset(offset + page.tasks.length);
-        setTotal(page.total);
-        setHasMore(page.hasMore);
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Failed to load tasks');
-      })
-      .finally(() => {
-        setIsLoadingMore(false);
-      });
-  }, [projectId, isLoading, isLoadingMore, hasMore, offset, mergeTasks]);
+  }, [query]);
 
   const applyTaskPatches = useCallback(
     (patches: Operation[]) => {
       if (!patches.length) return;
 
-      // Update local state for components that still use it
-      setTasksById((prev) => {
-        let next = prev;
-        let added = 0;
-        let removed = 0;
-
-        for (const op of patches) {
-          if (!op.path.startsWith(TASK_PATH_PREFIX)) continue;
-
-          const rawId = op.path.slice(TASK_PATH_PREFIX.length);
-          const taskId = decodePointerSegment(rawId);
-          if (!taskId) continue;
-
-          if (op.op === 'remove') {
-            if (!next[taskId]) continue;
-            if (next === prev) next = { ...prev };
-            delete next[taskId];
-            removed += 1;
-            continue;
-          }
-
-          if (op.op !== 'add' && op.op !== 'replace') continue;
-
-          const value = (op as { value?: unknown }).value;
-          if (!value) continue;
-
-          const task = value as TaskWithAttemptStatus;
-          if (task.project_id !== projectId) continue;
-
-          const exists = Boolean(next[task.id]);
-          if (op.op === 'replace' && !exists) continue;
-
-          if (next === prev) next = { ...prev };
-          if (!exists) added += 1;
-          next[task.id] = task;
-        }
-
-        if (added || removed) {
-          const delta = added - removed;
-          setTotal((current) => Math.max(0, current + delta));
-          setOffset((current) => Math.max(0, current + delta));
-        }
-
-        return next;
-      });
-
-      // Update React Query cache for infinite query
-      queryClient.setQueryData<InfiniteTasksData>(
+      queryClient.setQueryData<{ pages: PaginatedTasksResponse[]; pageParams: number[] }>(
         projectTasksKeys.byProjectInfinite(projectId),
-        (old) => {
-          if (!old || !old.pages.length) return old;
+        (oldData) => {
+          if (!oldData) return oldData;
 
-          // Build a set of all existing task IDs across all pages
-          const existingTaskIds = new Set<string>();
-          for (const page of old.pages) {
+          // Build a mutable map from all pages
+          const taskMap: Record<string, TaskWithAttemptStatus> = {};
+          for (const page of oldData.pages) {
             for (const task of page.tasks) {
-              existingTaskIds.add(task.id);
+              taskMap[task.id] = task;
             }
           }
 
-          // Collect tasks to add (only for first page)
-          const tasksToAdd: TaskWithAttemptStatus[] = [];
-          // Track removed task IDs
-          const removedTaskIds = new Set<string>();
-          // Track replaced tasks by ID
-          const replacedTasks = new Map<string, TaskWithAttemptStatus>();
+          let added = 0;
+          let removed = 0;
 
           for (const op of patches) {
             if (!op.path.startsWith(TASK_PATH_PREFIX)) continue;
@@ -240,9 +131,9 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
             if (!taskId) continue;
 
             if (op.op === 'remove') {
-              if (existingTaskIds.has(taskId)) {
-                removedTaskIds.add(taskId);
-              }
+              if (!taskMap[taskId]) continue;
+              delete taskMap[taskId];
+              removed += 1;
               continue;
             }
 
@@ -254,67 +145,44 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
             const task = value as TaskWithAttemptStatus;
             if (task.project_id !== projectId) continue;
 
-            if (op.op === 'replace') {
-              if (existingTaskIds.has(task.id)) {
-                replacedTasks.set(task.id, task);
-              }
-            } else if (op.op === 'add') {
-              if (!existingTaskIds.has(task.id)) {
-                tasksToAdd.push(task);
-              }
-            }
+            const exists = Boolean(taskMap[task.id]);
+            if (op.op === 'replace' && !exists) continue;
+
+            if (!exists) added += 1;
+            taskMap[task.id] = task;
           }
 
-          // No changes needed
-          if (!tasksToAdd.length && !removedTaskIds.size && !replacedTasks.size) {
-            return old;
-          }
+          if (added === 0 && removed === 0) return oldData;
 
-          const totalDelta = tasksToAdd.length - removedTaskIds.size;
+          // Rebuild pages with updated tasks
+          const allTasks = Object.values(taskMap);
+          const delta = added - removed;
+          const newTotal = Math.max(0, (oldData.pages[oldData.pages.length - 1]?.total ?? 0) + delta);
 
-          const updatedPages = old.pages.map((page, pageIndex) => {
-            let tasks = page.tasks;
-            let pageChanged = false;
-
-            // Apply removals
-            if (removedTaskIds.size) {
-              const filtered = tasks.filter((t) => !removedTaskIds.has(t.id));
-              if (filtered.length !== tasks.length) {
-                tasks = filtered;
-                pageChanged = true;
-              }
-            }
-
-            // Apply replacements
-            if (replacedTasks.size) {
-              tasks = tasks.map((t) => {
-                const replacement = replacedTasks.get(t.id);
-                if (replacement) {
-                  pageChanged = true;
-                  return replacement;
-                }
-                return t;
-              });
-            }
-
-            // Add new tasks only to first page
-            if (pageIndex === 0 && tasksToAdd.length) {
-              tasks = [...tasksToAdd, ...tasks];
-              pageChanged = true;
-            }
-
-            if (!pageChanged) return page;
+          // Redistribute tasks into pages
+          const newPages: PaginatedTasksResponse[] = oldData.pages.map((_, idx) => {
+            const start = idx * PAGE_SIZE;
+            const end = start + PAGE_SIZE;
+            const pageTasks = allTasks.slice(start, end);
             return {
-              ...page,
-              tasks,
-              total: Math.max(0, page.total + totalDelta),
+              tasks: pageTasks,
+              total: newTotal,
+              hasMore: end < allTasks.length,
             };
           });
 
-          return {
-            ...old,
-            pages: updatedPages,
-          };
+          // Handle case where we have more tasks than pages can hold (new task added)
+          const coveredTasks = oldData.pages.length * PAGE_SIZE;
+          if (allTasks.length > coveredTasks) {
+            // Add remaining tasks to the last page
+            const lastPage = newPages[newPages.length - 1];
+            if (lastPage) {
+              const remainingTasks = allTasks.slice(coveredTasks);
+              lastPage.tasks = [...lastPage.tasks, ...remainingTasks];
+            }
+          }
+
+          return { ...oldData, pages: newPages };
         }
       );
     },
