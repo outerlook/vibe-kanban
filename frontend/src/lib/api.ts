@@ -1120,14 +1120,6 @@ export const configApi = {
   },
 };
 
-// Account Info API
-export const accountInfoApi = {
-  get: async (): Promise<AccountInfo> => {
-    const response = await makeRequest('/api/account-info');
-    return handleApiResponse<AccountInfo>(response);
-  },
-};
-
 // Task Tags APIs (all tags are global)
 export const tagsApi = {
   list: async (params?: TagSearchParams): Promise<Tag[]> => {
