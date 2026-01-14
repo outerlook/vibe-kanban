@@ -1,6 +1,7 @@
 // Import all necessary types from shared types
 
 import {
+  AccountInfo,
   ApprovalStatus,
   ApiResponse,
   Config,
@@ -1081,6 +1082,14 @@ export const repoApi = {
       body: JSON.stringify(data),
     });
     return handleApiResponse<Repo>(response);
+  },
+};
+
+// Account Info API
+export const accountInfoApi = {
+  get: async (): Promise<AccountInfo> => {
+    const response = await makeRequest('/api/account-info');
+    return handleApiResponse<AccountInfo>(response);
   },
 };
 

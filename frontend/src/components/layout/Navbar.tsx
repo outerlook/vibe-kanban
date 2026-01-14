@@ -43,6 +43,7 @@ import { OAuthDialog } from '@/components/dialogs/global/OAuthDialog';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { oauthApi } from '@/lib/api';
 import { ProjectSwitcher } from '@/components/layout/ProjectSwitcher';
+import { AccountInfoIndicator } from '@/components/layout/AccountInfoIndicator';
 
 const INTERNAL_NAV = [{ label: 'Projects', icon: FolderOpen, to: '/projects' }];
 
@@ -255,6 +256,7 @@ export function Navbar() {
             ) : null}
 
             <div className="flex items-center gap-1">
+              <AccountInfoIndicator />
               <Button
                 variant="ghost"
                 size="icon"
