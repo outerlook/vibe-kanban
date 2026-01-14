@@ -10,6 +10,7 @@ import {
   Eye,
 } from 'lucide-react';
 import type { TaskStatus } from 'shared/types';
+import { TASK_STATUSES } from '@/constants/taskStatuses';
 import { useTaskFilters } from '@/hooks/useTaskFilters';
 import { useTaskGroupsContext } from '@/contexts/TaskGroupsContext';
 import { useSearch } from '@/contexts/SearchContext';
@@ -35,14 +36,6 @@ const STATUS_ICONS: Record<TaskStatus, React.ReactNode> = {
   done: <CheckCircle className="h-3.5 w-3.5" />,
   cancelled: <XCircle className="h-3.5 w-3.5" />,
 };
-
-const STATUS_ORDER: TaskStatus[] = [
-  'todo',
-  'inprogress',
-  'inreview',
-  'done',
-  'cancelled',
-];
 
 export function TaskFilterBar() {
   const { t } = useTranslation('tasks');
@@ -79,34 +72,11 @@ export function TaskFilterBar() {
     };
   }, [localSearch, filters.search, setSearch]);
 
-  // Register input ref for keyboard shortcut focus
+  // Register input ref for keyboard shortcut focus (via useKeyFocusSearch in ProjectTasks)
   useEffect(() => {
     registerInputRef(inputRef.current);
     return () => registerInputRef(null);
   }, [registerInputRef]);
-
-  // Keyboard shortcut: "/" to focus search
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.key === '/' &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        !(
-          e.target instanceof HTMLInputElement ||
-          e.target instanceof HTMLTextAreaElement ||
-          (e.target instanceof HTMLElement && e.target.isContentEditable)
-        )
-      ) {
-        e.preventDefault();
-        inputRef.current?.focus();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -171,7 +141,7 @@ export function TaskFilterBar() {
         onValueChange={handleStatusToggle}
         className="flex gap-1"
       >
-        {STATUS_ORDER.map((status) => {
+        {TASK_STATUSES.map((status) => {
           const isActive = filters.statuses.includes(status);
           return (
             <ToggleGroupItem

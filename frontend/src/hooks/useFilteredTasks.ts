@@ -3,6 +3,7 @@ import type { TaskStatus, TaskWithAttemptStatus } from 'shared/types';
 import type { SharedTaskRecord } from './useProjectTasks';
 import type { KanbanColumnItem } from '@/components/tasks/TaskKanbanBoard';
 import type { TaskFilters } from './useTaskFilters';
+import { TASK_STATUSES, normalizeStatus } from '@/constants/taskStatuses';
 
 export interface UseFilteredTasksResult {
   kanbanColumns: Record<TaskStatus, KanbanColumnItem[]>;
@@ -19,17 +20,6 @@ interface UseFilteredTasksParams {
   showSharedTasks: boolean;
   userId: string | null;
 }
-
-const TASK_STATUSES: TaskStatus[] = [
-  'todo',
-  'inprogress',
-  'inreview',
-  'done',
-  'cancelled',
-];
-
-const normalizeStatus = (status: string): TaskStatus =>
-  status.toLowerCase() as TaskStatus;
 
 export function useFilteredTasks({
   tasks,
@@ -136,14 +126,12 @@ export function useFilteredTasks({
       });
     });
 
-    const getTimestamp = (item: KanbanColumnItem) => {
-      const createdAt =
-        item.type === 'task' ? item.task.created_at : item.task.created_at;
-      return new Date(createdAt).getTime();
-    };
-
     TASK_STATUSES.forEach((status) => {
-      columns[status].sort((a, b) => getTimestamp(b) - getTimestamp(a));
+      columns[status].sort((a, b) => {
+        const aTime = new Date(a.task.created_at).getTime();
+        const bTime = new Date(b.task.created_at).getTime();
+        return bTime - aTime;
+      });
     });
 
     return columns;

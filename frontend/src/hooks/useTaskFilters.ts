@@ -1,14 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { TaskStatus } from 'shared/types';
-
-const VALID_STATUSES: TaskStatus[] = [
-  'todo',
-  'inprogress',
-  'inreview',
-  'done',
-  'cancelled',
-];
+import { TASK_STATUSES } from '@/constants/taskStatuses';
 
 const PARAM_KEYS = {
   search: 'q',
@@ -37,7 +30,7 @@ function parseStatuses(value: string | null): TaskStatus[] {
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter((s): s is TaskStatus =>
-      VALID_STATUSES.includes(s as TaskStatus)
+      TASK_STATUSES.includes(s as TaskStatus)
     );
 }
 
@@ -98,7 +91,7 @@ export function useTaskFilters(): TaskFiltersHook {
         (prev) => {
           const next = new URLSearchParams(prev);
           const validStatuses = statuses.filter((s) =>
-            VALID_STATUSES.includes(s)
+            TASK_STATUSES.includes(s)
           );
           if (validStatuses.length > 0) {
             next.set(PARAM_KEYS.status, serializeStatuses(validStatuses));

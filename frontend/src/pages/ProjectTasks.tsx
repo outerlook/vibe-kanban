@@ -76,20 +76,10 @@ import { TaskSelectionProvider } from '@/contexts/TaskSelectionContext';
 import { TaskGroupsProvider } from '@/contexts/TaskGroupsContext';
 import { BulkActionsBar } from '@/components/tasks/BulkActionsBar';
 
-import type { TaskWithAttemptStatus, TaskStatus } from 'shared/types';
+import type { TaskWithAttemptStatus } from 'shared/types';
+import { TASK_STATUSES, normalizeStatus } from '@/constants/taskStatuses';
 
 type Task = TaskWithAttemptStatus;
-
-const TASK_STATUSES = [
-  'todo',
-  'inprogress',
-  'inreview',
-  'done',
-  'cancelled',
-] as const;
-
-const normalizeStatus = (status: string): TaskStatus =>
-  status.toLowerCase() as TaskStatus;
 
 export function ProjectTasks() {
   const { t } = useTranslation(['tasks', 'common']);
