@@ -281,6 +281,20 @@ impl ExecutionProcess {
         .await
     }
 
+    /// Count running agents that count towards concurrency limit.
+    /// Only counts 'setupscript', 'cleanupscript', and 'codingagent'.
+    /// Excludes 'devserver' and 'internalagent' as they don't count towards the limit.
+    pub async fn count_running_agents(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!: i64"
+               FROM execution_processes
+               WHERE status = 'running'
+                 AND run_reason IN ('setupscript', 'cleanupscript', 'codingagent')"#
+        )
+        .fetch_one(pool)
+        .await
+    }
+
     /// Find running dev servers for a specific project
     pub async fn find_running_dev_servers_by_project(
         pool: &SqlitePool,

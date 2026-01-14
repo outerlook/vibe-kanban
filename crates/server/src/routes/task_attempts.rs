@@ -46,7 +46,7 @@ use executors::{
 use git2::BranchType;
 use serde::{Deserialize, Serialize};
 use services::services::{
-    container::ContainerService,
+    container::{ContainerService, StartWorkspaceResult},
     git::{ConflictOp, GitCliError, GitServiceError},
     github::GitHubService,
 };
@@ -189,12 +189,28 @@ pub async fn create_task_attempt(
         .collect();
 
     WorkspaceRepo::create_many(pool, workspace.id, &workspace_repos).await?;
-    if let Err(err) = deployment
+    match deployment
         .container()
         .start_workspace(&workspace, executor_profile_id.clone())
         .await
     {
-        tracing::error!("Failed to start task attempt: {}", err);
+        Ok(StartWorkspaceResult::Started(execution_process)) => {
+            tracing::info!(
+                "Task attempt {} started immediately, execution process {}",
+                workspace.id,
+                execution_process.id
+            );
+        }
+        Ok(StartWorkspaceResult::Queued(queue_entry)) => {
+            tracing::info!(
+                "Task attempt {} queued for execution (queue entry {})",
+                workspace.id,
+                queue_entry.id
+            );
+        }
+        Err(err) => {
+            tracing::error!("Failed to start task attempt {}: {}", workspace.id, err);
+        }
     }
 
     deployment

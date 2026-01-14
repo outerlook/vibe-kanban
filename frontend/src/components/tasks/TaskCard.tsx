@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
-import { Circle, Link, Loader2, Lock, XCircle } from 'lucide-react';
+import { Circle, Clock, Link, Loader2, Lock, XCircle } from 'lucide-react';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import { ActionsDropdown } from '@/components/ui/actions-dropdown';
 import { Badge } from '@/components/ui/badge';
@@ -176,6 +176,12 @@ export function TaskCard({
           <Badge variant="outline" className="w-fit text-orange-500">
             <Lock className="mr-1 h-3 w-3" />
             Blocked
+          </Badge>
+        )}
+        {task.is_queued && (
+          <Badge variant="outline" className="w-fit text-amber-500">
+            <Clock className="mr-1 h-3 w-3" />
+            Queued
           </Badge>
         )}
         <TaskGroupBadge

@@ -26,7 +26,9 @@ use executors::profile::ExecutorProfileId;
 use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use services::services::{
-    container::ContainerService, share::ShareError, workspace_manager::WorkspaceManager,
+    container::{ContainerService, StartWorkspaceResult},
+    share::ShareError,
+    workspace_manager::WorkspaceManager,
 };
 use sqlx::Error as SqlxError;
 use ts_rs::TS;
@@ -279,12 +281,21 @@ pub async fn create_task_and_start(
         .collect();
     WorkspaceRepo::create_many(&deployment.db().pool, workspace.id, &workspace_repos).await?;
 
-    let is_attempt_running = deployment
+    let is_attempt_running = match deployment
         .container()
         .start_workspace(&workspace, payload.executor_profile_id.clone())
         .await
-        .inspect_err(|err| tracing::error!("Failed to start task attempt: {}", err))
-        .is_ok();
+    {
+        Ok(StartWorkspaceResult::Started(_)) => true,
+        Ok(StartWorkspaceResult::Queued(_)) => {
+            tracing::info!("Task attempt queued for workspace {}", workspace.id);
+            false
+        }
+        Err(err) => {
+            tracing::error!("Failed to start task attempt: {}", err);
+            false
+        }
+    };
     deployment
         .track_if_analytics_allowed(
             "task_attempt_started",
@@ -307,6 +318,7 @@ pub async fn create_task_and_start(
         has_in_progress_attempt: is_attempt_running,
         last_attempt_failed: false,
         is_blocked: false,
+        is_queued: !is_attempt_running,
         executor: payload.executor_profile_id.executor.to_string(),
     })))
 }

@@ -565,6 +565,15 @@ impl LocalContainerService {
             // capture the HEAD OID as the definitive "after" state (best-effort).
             container.update_after_head_commits(exec_id).await;
 
+            // Process the execution queue in case there are waiting tasks
+            // Use tokio::spawn so queue processing doesn't block cleanup
+            let container_clone = container.clone();
+            tokio::spawn(async move {
+                if let Err(e) = container_clone.process_queue().await {
+                    tracing::error!("Failed to process execution queue: {}", e);
+                }
+            });
+
             // Cleanup msg store
             if let Some(msg_arc) = msg_stores.write().await.remove(&exec_id) {
                 // Extract and store token usage before cleaning up
@@ -931,6 +940,10 @@ impl ContainerService for LocalContainerService {
 
     fn watcher_manager(&self) -> Option<&WatcherManager> {
         Some(&self.watcher_manager)
+    }
+
+    fn config(&self) -> &Arc<RwLock<Config>> {
+        &self.config
     }
 
     async fn git_branch_prefix(&self) -> String {
