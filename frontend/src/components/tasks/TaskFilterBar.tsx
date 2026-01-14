@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
+import { KanbanViewSettingsMenu } from './KanbanViewSettingsMenu';
 
 const ALL_GROUPS_VALUE = '__all__';
 
@@ -118,6 +119,9 @@ export function TaskFilterBar() {
           <X className="h-4 w-4" />
         </Button>
       )}
+
+      {/* View Settings */}
+      <KanbanViewSettingsMenu />
     </div>
   );
 }

@@ -22,7 +22,9 @@
   "taskFilterBar": {
     "allGroups": "All Groups",
     "searchPlaceholder": "Search tasks...",
-    "clearFilters": "Clear filters"
+    "clearFilters": "Clear filters",
+    "viewSettings": "View settings",
+    "compactView": "Compact view"
   },
   "rebase": {
     "common": {

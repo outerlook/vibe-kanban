@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { TaskCardHeader } from './TaskCardHeader';
+import { useIsCompactView } from '@/stores/useKanbanViewStore';
 
 interface SharedTaskCardProps {
   task: SharedTaskRecord;
@@ -19,6 +20,7 @@ export function SharedTaskCard({
   isSelected,
 }: SharedTaskCardProps) {
   const localRef = useRef<HTMLDivElement>(null);
+  const isCompact = useIsCompactView();
 
   const handleClick = useCallback(() => {
     onViewDetails?.(task);
@@ -57,7 +59,7 @@ export function SharedTaskCard({
             username: task.assignee_username ?? undefined,
           }}
         />
-        {task.description && (
+        {!isCompact && task.description && (
           <p className="text-sm text-secondary-foreground break-words">
             {task.description.length > 130
               ? `${task.description.substring(0, 130)}...`

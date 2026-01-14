@@ -22,6 +22,7 @@ import { useTaskSelection } from '@/contexts/TaskSelectionContext';
 import { useTaskGroupsContext } from '@/contexts/TaskGroupsContext';
 import { TaskGroupBadge } from './TaskGroupBadge';
 import { TaskGroupFormDialog } from '@/components/dialogs';
+import { useIsCompactView } from '@/stores/useKanbanViewStore';
 
 interface TaskCardProps {
   task: TaskWithAttemptStatus;
@@ -52,6 +53,7 @@ export function TaskCard({
   const { toggleTask } = useTaskSelection();
   const { getGroupName, groupsById } = useTaskGroupsContext();
   const { setGroupId } = useTaskFilters();
+  const isCompact = useIsCompactView();
   const isUnread = isTaskUnread(task);
   const groupName = getGroupName(task.task_group_id);
 
@@ -254,7 +256,7 @@ export function TaskCard({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        {task.description && (
+        {!isCompact && task.description && (
           <p className="text-sm text-secondary-foreground break-words">
             {task.description.length > 130
               ? `${task.description.substring(0, 130)}...`
