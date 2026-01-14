@@ -780,6 +780,36 @@ export function GeneralSettings() {
 
       <Card>
         <CardHeader>
+          <CardTitle>{t('settings.general.concurrency.title')}</CardTitle>
+          <CardDescription>
+            {t('settings.general.concurrency.description')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="max-concurrent-agents">
+              {t('settings.general.concurrency.maxAgents.label')}
+            </Label>
+            <Input
+              id="max-concurrent-agents"
+              type="number"
+              min="0"
+              placeholder={t('settings.general.concurrency.maxAgents.placeholder')}
+              value={draft?.max_concurrent_agents ?? 0}
+              onChange={(e) => {
+                const value = parseInt(e.target.value, 10) || 0;
+                updateDraft({ max_concurrent_agents: Math.max(0, value) });
+              }}
+            />
+            <p className="text-sm text-muted-foreground">
+              {t('settings.general.concurrency.maxAgents.helper')}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>{t('settings.general.privacy.title')}</CardTitle>
           <CardDescription>
             {t('settings.general.privacy.description')}
