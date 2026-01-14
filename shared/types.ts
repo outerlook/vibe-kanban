@@ -236,6 +236,18 @@ export type CheckCustomEditorAvailabilityResponse = { available: boolean, };
 
 export type CheckAgentAvailabilityQuery = { executor: BaseCodingAgent, };
 
+export type BundledSoundInfo = { 
+/**
+ * Identifier for API paths (e.g., "bundled:COW_MOOING")
+ */
+identifier: string, 
+/**
+ * Human-readable name (e.g., "Cow Mooing")
+ */
+display_name: string, };
+
+export type AvailableSoundsResponse = { bundled: Array<BundledSoundInfo>, custom: Array<CustomSoundInfo>, };
+
 export type AccountInfo = { claude: ClaudeAccountInfo | null, codex: CodexAccountInfo | null, };
 
 export type ClaudeAccountInfo = { subscriptionType: string, rateLimitTier: string | null, };

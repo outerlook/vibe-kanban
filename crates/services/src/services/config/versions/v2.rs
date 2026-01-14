@@ -224,7 +224,7 @@ impl GitHubConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, EnumString)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, EnumString, strum_macros::EnumIter)]
 #[ts(use_ts_enum)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
@@ -249,6 +249,23 @@ impl SoundFile {
             SoundFile::PhoneVibration => "phone-vibration.wav",
             SoundFile::Rooster => "rooster.wav",
         }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            SoundFile::AbstractSound1 => "Abstract Sound 1",
+            SoundFile::AbstractSound2 => "Abstract Sound 2",
+            SoundFile::AbstractSound3 => "Abstract Sound 3",
+            SoundFile::AbstractSound4 => "Abstract Sound 4",
+            SoundFile::CowMooing => "Cow Mooing",
+            SoundFile::PhoneVibration => "Phone Vibration",
+            SoundFile::Rooster => "Rooster",
+        }
+    }
+
+    /// Returns the identifier used in API paths (e.g., "bundled:COW_MOOING")
+    pub fn to_identifier(&self) -> String {
+        format!("bundled:{}", serde_json::to_value(self).unwrap().as_str().unwrap())
     }
 
     // load the sound file from the embedded assets or cache

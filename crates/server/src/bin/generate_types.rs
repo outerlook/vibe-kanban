@@ -120,6 +120,8 @@ fn generate_types_content() -> String {
         server::routes::config::ListCustomEditorsResponse::decl(),
         server::routes::config::CheckCustomEditorAvailabilityResponse::decl(),
         server::routes::config::CheckAgentAvailabilityQuery::decl(),
+        server::routes::config::BundledSoundInfo::decl(),
+        server::routes::config::AvailableSoundsResponse::decl(),
         server::routes::account_info::AccountInfo::decl(),
         server::routes::account_info::ClaudeAccountInfo::decl(),
         server::routes::account_info::CodexAccountInfo::decl(),
