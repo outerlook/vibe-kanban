@@ -1808,6 +1808,33 @@ impl GitService {
         Ok(repo)
     }
 
+    /// Check if a branch is an ancestor of HEAD.
+    /// Returns Ok(true) if the branch is an ancestor, Ok(false) if not.
+    /// Returns an error if the branch doesn't exist or other git errors occur.
+    pub fn is_branch_ancestor_of_head(
+        &self,
+        repo_path: &Path,
+        branch_name: &str,
+    ) -> Result<bool, GitServiceError> {
+        let repo = self.open_repo(repo_path)?;
+
+        // Get HEAD commit
+        let head = repo.head()?;
+        let head_commit = head.peel_to_commit()?;
+
+        // Find the branch
+        let branch = Self::find_branch(&repo, branch_name)?;
+        let branch_commit = branch.get().peel_to_commit()?;
+
+        // Check if branch commit is an ancestor of HEAD
+        // graph_descendant_of returns true if commit (first arg) is a descendant of ancestor (second arg)
+        // We want to check if branch_commit is an ancestor of head_commit
+        // i.e., head_commit is a descendant of branch_commit
+        let is_ancestor = repo.graph_descendant_of(head_commit.id(), branch_commit.id())?;
+
+        Ok(is_ancestor)
+    }
+
     /// Collect file statistics from recent commits for ranking purposes
     pub fn collect_recent_file_stats(
         &self,

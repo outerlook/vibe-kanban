@@ -198,6 +198,10 @@ export type CloneRepoRequest = { url: string, destination: string | null, };
 
 export type CreateBranchRequest = { name: string, base_branch: string | null, };
 
+export type CheckBranchAncestorRequest = { branch_name: string, };
+
+export type BranchAncestorStatus = { is_ancestor: boolean, error: string | null, };
+
 export type TagSearchParams = { search: string | null, };
 
 export type TokenResponse = { access_token: string, expires_at: string | null, };
