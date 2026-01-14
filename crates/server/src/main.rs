@@ -7,7 +7,7 @@ use strip_ansi_escapes::strip;
 use thiserror::Error;
 use tracing_subscriber::{EnvFilter, prelude::*};
 use utils::{
-    assets::asset_dir,
+    assets::{alerts_dir, asset_dir},
     browser::open_browser,
     port_file::write_port_file,
     sentry::{self as sentry_utils, SentrySource, sentry_layer},
@@ -43,6 +43,15 @@ async fn main() -> Result<(), VibeKanbanError> {
     // Create asset directory if it doesn't exist
     if !asset_dir().exists() {
         std::fs::create_dir_all(asset_dir())?;
+    }
+    let alerts_dir = alerts_dir();
+    tracing::info!("Alerts directory: {}", alerts_dir.display());
+    if let Err(e) = std::fs::create_dir_all(&alerts_dir) {
+        tracing::warn!(
+            "Failed to create alerts directory {}: {}",
+            alerts_dir.display(),
+            e
+        );
     }
 
     let deployment = DeploymentImpl::new().await?;
