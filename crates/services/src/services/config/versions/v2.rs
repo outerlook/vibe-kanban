@@ -157,6 +157,7 @@ pub struct NotificationConfig {
     pub sound_enabled: bool,
     pub push_enabled: bool,
     pub sound_file: SoundFile,
+    pub error_sound_file: SoundFile,
 }
 
 impl From<v1::Config> for NotificationConfig {
@@ -165,6 +166,7 @@ impl From<v1::Config> for NotificationConfig {
             sound_enabled: old.sound_alerts,
             push_enabled: old.push_notifications,
             sound_file: SoundFile::from(old.sound_file), // Now SCREAMING_SNAKE_CASE
+            error_sound_file: SoundFile::ErrorBuzzer,
         }
     }
 }
@@ -175,6 +177,7 @@ impl Default for NotificationConfig {
             sound_enabled: true,
             push_enabled: true,
             sound_file: SoundFile::CowMooing,
+            error_sound_file: SoundFile::ErrorBuzzer,
         }
     }
 }
@@ -210,6 +213,7 @@ pub enum SoundFile {
     AbstractSound3,
     AbstractSound4,
     CowMooing,
+    ErrorBuzzer,
     PhoneVibration,
     Rooster,
 }
@@ -222,6 +226,7 @@ impl SoundFile {
             SoundFile::AbstractSound3 => "abstract-sound3.wav",
             SoundFile::AbstractSound4 => "abstract-sound4.wav",
             SoundFile::CowMooing => "cow-mooing.wav",
+            SoundFile::ErrorBuzzer => "error-buzzer.wav",
             SoundFile::PhoneVibration => "phone-vibration.wav",
             SoundFile::Rooster => "rooster.wav",
         }
