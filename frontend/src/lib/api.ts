@@ -460,6 +460,7 @@ export const tasksApi = {
       offset?: number;
       limit?: number;
       status?: TaskStatus;
+      order_by?: 'created_at_asc' | 'created_at_desc' | 'updated_at_asc' | 'updated_at_desc';
     }
   ): Promise<PaginatedTasksResponse> => {
     const search = new URLSearchParams({ project_id: projectId });
@@ -471,6 +472,9 @@ export const tasksApi = {
     }
     if (params?.status) {
       search.set('status', params.status);
+    }
+    if (params?.order_by) {
+      search.set('order_by', params.order_by);
     }
 
     const response = await makeRequest(`/api/tasks?${search.toString()}`);

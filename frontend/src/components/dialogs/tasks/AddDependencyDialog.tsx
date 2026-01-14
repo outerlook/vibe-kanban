@@ -16,7 +16,7 @@ import { useAddDependency } from '@/hooks';
 import { useProjectTasks } from '@/hooks/useProjectTasks';
 import { statusLabels } from '@/utils/statusLabels';
 import { ApiError } from '@/lib/api';
-import { Loader2, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import type { TaskWithAttemptStatus } from 'shared/types';
 
 export interface AddDependencyDialogProps {
@@ -63,9 +63,6 @@ export function AddDependencyDialog({
   const {
     tasks,
     isLoading,
-    isLoadingMore,
-    hasMore,
-    loadMore,
     error: tasksError,
   } = useProjectTasks(projectId);
 
@@ -190,22 +187,6 @@ export function AddDependencyDialog({
               emptyState={emptyState}
             />
           </div>
-
-          {hasMore && (
-            <div className="flex justify-center">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={loadMore}
-                disabled={isLoadingMore || isMutating}
-              >
-                {isLoadingMore && (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                )}
-                Load more
-              </Button>
-            </div>
-          )}
         </div>
 
         <DialogFooter className="px-4 pb-4">

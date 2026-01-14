@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/hooks';
 import {
   type DragEndEvent,
@@ -13,6 +14,8 @@ import { statusBoardColors, statusLabels } from '@/utils/statusLabels';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { SharedTaskCard } from './SharedTaskCard';
 import { useTaskSelection } from '@/contexts/TaskSelectionContext';
+import { Button } from '@/components/ui/button';
+import { Loader2 } from 'lucide-react';
 
 export type KanbanColumnItem =
   | {
@@ -36,6 +39,10 @@ interface TaskKanbanBoardProps {
   selectedSharedTaskId?: string | null;
   onCreateTask?: () => void;
   projectId: string;
+  loadMoreByStatus: Record<TaskStatus, () => void>;
+  hasMoreByStatus: Record<TaskStatus, boolean>;
+  isLoadingMoreByStatus: Record<TaskStatus, boolean>;
+  totalByStatus: Record<TaskStatus, number>;
 }
 
 function TaskKanbanBoard({
@@ -47,7 +54,12 @@ function TaskKanbanBoard({
   selectedSharedTaskId,
   onCreateTask,
   projectId,
+  loadMoreByStatus,
+  hasMoreByStatus,
+  isLoadingMoreByStatus,
+  totalByStatus,
 }: TaskKanbanBoardProps) {
+  const { t } = useTranslation(['tasks']);
   const { userId } = useAuth();
   const { isTaskSelected } = useTaskSelection();
 
@@ -55,6 +67,11 @@ function TaskKanbanBoard({
     <KanbanProvider onDragEnd={onDragEnd}>
       {Object.entries(columns).map(([status, items]) => {
         const statusKey = status as TaskStatus;
+        const hasMore = hasMoreByStatus[statusKey];
+        const isLoadingMore = isLoadingMoreByStatus[statusKey];
+        const total = totalByStatus[statusKey];
+        const loadMore = loadMoreByStatus[statusKey];
+
         return (
           <KanbanBoard key={status} id={statusKey}>
             <KanbanHeader
@@ -100,6 +117,29 @@ function TaskKanbanBoard({
                   />
                 );
               })}
+              {hasMore && (
+                <div className="flex flex-col items-center gap-1 py-2 px-2">
+                  <Button
+                    onClick={loadMore}
+                    disabled={isLoadingMore}
+                    variant="ghost"
+                    size="sm"
+                    className="w-full text-xs"
+                  >
+                    {isLoadingMore && (
+                      <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                    )}
+                    {t('pagination.showMore', { defaultValue: 'Show more' })}
+                  </Button>
+                  <span className="text-[10px] text-muted-foreground">
+                    {t('pagination.showingOfTotal', {
+                      defaultValue: '{{count}} of {{total}}',
+                      count: items.length,
+                      total,
+                    })}
+                  </span>
+                </div>
+              )}
             </KanbanCards>
           </KanbanBoard>
         );

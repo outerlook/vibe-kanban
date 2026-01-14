@@ -22,6 +22,26 @@ pub enum TaskStatus {
     Cancelled,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+pub enum TaskOrderBy {
+    CreatedAtAsc,
+    #[default]
+    CreatedAtDesc,
+    UpdatedAtAsc,
+    UpdatedAtDesc,
+}
+
+impl TaskOrderBy {
+    pub fn to_sql(&self) -> &'static str {
+        match self {
+            TaskOrderBy::CreatedAtAsc => "t.created_at ASC",
+            TaskOrderBy::CreatedAtDesc => "t.created_at DESC",
+            TaskOrderBy::UpdatedAtAsc => "t.updated_at ASC",
+            TaskOrderBy::UpdatedAtDesc => "t.updated_at DESC",
+        }
+    }
+}
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct Task {
     pub id: Uuid,
@@ -333,6 +353,7 @@ WHERE t.id = $1"#,
         pool: &SqlitePool,
         project_id: Uuid,
         status: Option<TaskStatus>,
+        order_by: TaskOrderBy,
         limit: i64,
         offset: i64,
     ) -> Result<(Vec<TaskWithAttemptStatus>, i64), sqlx::Error> {
@@ -348,18 +369,20 @@ WHERE t.id = $1"#,
         .await?
         .count;
 
-        let records = sqlx::query!(
+        let status_str = status.as_ref().map(|s| s.to_string().to_lowercase());
+
+        let query = format!(
             r#"SELECT
-  t.id                            AS "id!: Uuid",
-  t.project_id                    AS "project_id!: Uuid",
+  t.id,
+  t.project_id,
   t.title,
   t.description,
-  t.status                        AS "status!: TaskStatus",
-  t.parent_workspace_id           AS "parent_workspace_id: Uuid",
-  t.shared_task_id                AS "shared_task_id: Uuid",
-  t.task_group_id                 AS "task_group_id: Uuid",
-  t.created_at                    AS "created_at!: DateTime<Utc>",
-  t.updated_at                    AS "updated_at!: DateTime<Utc>",
+  t.status,
+  t.parent_workspace_id,
+  t.shared_task_id,
+  t.task_group_id,
+  t.created_at,
+  t.updated_at,
 
   CASE WHEN EXISTS (
     SELECT 1
@@ -367,7 +390,7 @@ WHERE t.id = $1"#,
       JOIN tasks dep ON dep.id = td.depends_on_id
      WHERE td.task_id = t.id
        AND dep.status != 'done'
-  ) THEN 1 ELSE 0 END            AS "is_blocked!: i64",
+  ) THEN 1 ELSE 0 END AS is_blocked,
 
   CASE WHEN EXISTS (
     SELECT 1
@@ -378,7 +401,7 @@ WHERE t.id = $1"#,
        AND ep.status        = 'running'
        AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
      LIMIT 1
-  ) THEN 1 ELSE 0 END            AS "has_in_progress_attempt!: i64",
+  ) THEN 1 ELSE 0 END AS has_in_progress_attempt,
 
   CASE WHEN (
     SELECT ep.status
@@ -389,36 +412,57 @@ WHERE t.id = $1"#,
      AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
      ORDER BY ep.created_at DESC
      LIMIT 1
-  ) IN ('failed','killed') THEN 1 ELSE 0 END
-                                 AS "last_attempt_failed!: i64",
+  ) IN ('failed','killed') THEN 1 ELSE 0 END AS last_attempt_failed,
 
   CASE WHEN EXISTS (
     SELECT 1 FROM workspaces w
     JOIN execution_queue eq ON eq.workspace_id = w.id
     WHERE w.task_id = t.id
     LIMIT 1
-  ) THEN 1 ELSE 0 END            AS "is_queued!: i64",
+  ) THEN 1 ELSE 0 END AS is_queued,
 
-  ( SELECT s.executor
+  COALESCE(( SELECT s.executor
       FROM workspaces w
       JOIN sessions s ON s.workspace_id = w.id
       WHERE w.task_id = t.id
      ORDER BY s.created_at DESC
       LIMIT 1
-    )                               AS "executor!: String"
+    ), '') AS executor
 
 FROM tasks t
-WHERE t.project_id = $1
-  AND ($2 IS NULL OR t.status = $2)
-ORDER BY t.created_at DESC
-LIMIT $3 OFFSET $4"#,
-            project_id,
-            status,
-            limit,
-            offset
-        )
-        .fetch_all(pool)
-        .await?;
+WHERE t.project_id = ?1
+  AND (?2 IS NULL OR t.status = ?2)
+ORDER BY {}
+LIMIT ?3 OFFSET ?4"#,
+            order_by.to_sql()
+        );
+
+        #[derive(FromRow)]
+        struct TaskWithAttemptStatusRow {
+            id: Uuid,
+            project_id: Uuid,
+            title: String,
+            description: Option<String>,
+            status: TaskStatus,
+            parent_workspace_id: Option<Uuid>,
+            shared_task_id: Option<Uuid>,
+            task_group_id: Option<Uuid>,
+            created_at: DateTime<Utc>,
+            updated_at: DateTime<Utc>,
+            is_blocked: i64,
+            has_in_progress_attempt: i64,
+            last_attempt_failed: i64,
+            is_queued: i64,
+            executor: String,
+        }
+
+        let records: Vec<TaskWithAttemptStatusRow> = sqlx::query_as(&query)
+            .bind(project_id)
+            .bind(status_str)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(pool)
+            .await?;
 
         let tasks = records
             .into_iter()

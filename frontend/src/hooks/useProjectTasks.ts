@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo } from 'react';
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks';
 import { useProject } from '@/contexts/ProjectContext';
 import { useLiveQuery, eq, isNull } from '@tanstack/react-db';
@@ -29,7 +29,49 @@ export type SharedTaskRecord = SharedTask & {
   assignee_username?: string | null;
 };
 
-const PAGE_SIZE = 50;
+type TasksState = {
+  tasks: Record<string, TaskWithAttemptStatus>;
+};
+
+const PAGE_SIZE = 25;
+
+const ALL_STATUSES: TaskStatus[] = ['todo', 'inprogress', 'inreview', 'done', 'cancelled'];
+
+type StatusPaginationState = {
+  offset: number;
+  total: number;
+  hasMore: boolean;
+  isLoading: boolean;
+};
+
+type PerStatusPagination = Record<TaskStatus, StatusPaginationState>;
+
+const getOrderByForStatus = (status: TaskStatus): 'created_at_asc' | 'updated_at_desc' => {
+  // Done/cancelled: newest completed first (updated_at desc)
+  // Others: oldest pending first (created_at asc)
+  return status === 'done' || status === 'cancelled' ? 'updated_at_desc' : 'created_at_asc';
+};
+
+const sortTasksForStatus = <T extends { created_at: string | Date; updated_at: string | Date }>(
+  tasks: T[],
+  status: TaskStatus
+): void => {
+  const orderBy = getOrderByForStatus(status);
+  if (orderBy === 'updated_at_desc') {
+    tasks.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+  } else {
+    tasks.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  }
+};
+
+const createInitialPaginationState = (): PerStatusPagination => ({
+  todo: { offset: 0, total: 0, hasMore: false, isLoading: false },
+  inprogress: { offset: 0, total: 0, hasMore: false, isLoading: false },
+  inreview: { offset: 0, total: 0, hasMore: false, isLoading: false },
+  done: { offset: 0, total: 0, hasMore: false, isLoading: false },
+  cancelled: { offset: 0, total: 0, hasMore: false, isLoading: false },
+});
+
 const TASK_PATH_PREFIX = '/tasks/';
 
 type WsJsonPatchMsg = { JsonPatch: Operation[] };
@@ -46,18 +88,23 @@ export interface UseProjectTasksResult {
   sharedTasksById: Record<string, SharedTaskRecord>;
   sharedOnlyByStatus: Record<TaskStatus, SharedTaskRecord[]>;
   isLoading: boolean;
-  isLoadingMore: boolean;
-  total: number;
-  hasMore: boolean;
-  loadMore: () => void;
   error: string | null;
+  // Per-status pagination controls
+  loadMoreByStatus: Record<TaskStatus, () => void>;
+  isLoadingMoreByStatus: Record<TaskStatus, boolean>;
+  hasMoreByStatus: Record<TaskStatus, boolean>;
+  totalByStatus: Record<TaskStatus, number>;
 }
 
 export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
+  const queryClient = useQueryClient();
   const { project } = useProject();
   const { isSignedIn } = useAuth();
   const remoteProjectId = project?.remote_project_id;
-  const queryClient = useQueryClient();
+  const [tasksById, setTasksById] = useState<TasksState['tasks']>({});
+  const [paginationByStatus, setPaginationByStatus] = useState<PerStatusPagination>(createInitialPaginationState);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const query = useInfiniteQuery({
     queryKey: projectTasksKeys.byProjectInfinite(projectId),
@@ -70,43 +117,118 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     enabled: !!projectId,
   });
 
-  // Derive tasksById from query pages
-  const tasksById = useMemo(() => {
-    if (!query.data?.pages) return {};
-    const map: Record<string, TaskWithAttemptStatus> = {};
-    for (const page of query.data.pages) {
-      for (const task of page.tasks) {
-        map[task.id] = task;
-      }
+  useEffect(() => {
+    if (!projectId) {
+      setTasksById({});
+      setPaginationByStatus(createInitialPaginationState());
+      setIsLoading(false);
+      setError(null);
+      return;
     }
     return map;
   }, [query.data?.pages]);
 
-  // Derive total from the last page (most recent data)
-  const total = useMemo(() => {
-    if (!query.data?.pages.length) return 0;
-    return query.data.pages[query.data.pages.length - 1].total;
-  }, [query.data?.pages]);
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
+    setPaginationByStatus(createInitialPaginationState());
 
-  const isLoading = query.isLoading;
-  const isLoadingMore = query.isFetchingNextPage;
-  const hasMore = query.hasNextPage ?? false;
-  const error = query.error ? (query.error instanceof Error ? query.error.message : 'Failed to load tasks') : null;
+    // Fetch all statuses in parallel
+    const fetchPromises = ALL_STATUSES.map((status) =>
+      tasksApi.list(projectId, {
+        offset: 0,
+        limit: PAGE_SIZE,
+        status,
+        order_by: getOrderByForStatus(status),
+      }).then((page) => ({ status, page }))
+    );
 
-  const loadMore = useCallback(() => {
-    if (!query.isFetchingNextPage && query.hasNextPage) {
-      query.fetchNextPage();
+    Promise.all(fetchPromises)
+      .then((results) => {
+        if (cancelled) return;
+
+        // Merge all tasks
+        const allTasks: TaskWithAttemptStatus[] = [];
+        const newPagination = createInitialPaginationState();
+
+        for (const { status, page } of results) {
+          allTasks.push(...page.tasks);
+          newPagination[status] = {
+            offset: page.tasks.length,
+            total: page.total,
+            hasMore: page.hasMore,
+            isLoading: false,
+          };
+        }
+
+        mergeTasks(allTasks, true);
+        setPaginationByStatus(newPagination);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'Failed to load tasks');
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, mergeTasks]);
+
+  const loadMoreForStatus = useCallback((status: TaskStatus) => {
+    const statusPagination = paginationByStatus[status];
+    if (!projectId || isLoading || statusPagination.isLoading || !statusPagination.hasMore) {
+      return;
     }
   }, [query]);
+
+    // Set loading state for this status
+    setPaginationByStatus((prev) => ({
+      ...prev,
+      [status]: { ...prev[status], isLoading: true },
+    }));
+    setError(null);
+
+    tasksApi
+      .list(projectId, {
+        offset: statusPagination.offset,
+        limit: PAGE_SIZE,
+        status,
+        order_by: getOrderByForStatus(status),
+      })
+      .then((page) => {
+        mergeTasks(page.tasks, false);
+        setPaginationByStatus((prev) => ({
+          ...prev,
+          [status]: {
+            offset: prev[status].offset + page.tasks.length,
+            total: page.total,
+            hasMore: page.hasMore,
+            isLoading: false,
+          },
+        }));
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : 'Failed to load tasks');
+        setPaginationByStatus((prev) => ({
+          ...prev,
+          [status]: { ...prev[status], isLoading: false },
+        }));
+      });
+  }, [projectId, isLoading, paginationByStatus, mergeTasks]);
 
   const applyTaskPatches = useCallback(
     (patches: Operation[]) => {
       if (!patches.length) return;
 
-      queryClient.setQueryData<{ pages: PaginatedTasksResponse[]; pageParams: number[] }>(
-        projectTasksKeys.byProjectInfinite(projectId),
-        (oldData) => {
-          if (!oldData) return oldData;
+      // Track changes per status for pagination updates
+      const statusDeltas: Partial<Record<TaskStatus, { added: number; removed: number }>> = {};
+
+      setTasksById((prev) => {
+        let next = prev;
 
           // Build a mutable map from all pages
           const taskMap: Record<string, TaskWithAttemptStatus> = {};
@@ -120,8 +242,17 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
           let removed = 0;
           let updated = 0;
 
-          for (const op of patches) {
-            if (!op.path.startsWith(TASK_PATH_PREFIX)) continue;
+          if (op.op === 'remove') {
+            const existingTask = next[taskId];
+            if (!existingTask) continue;
+            if (next === prev) next = { ...prev };
+            // Track removal for the task's status
+            const status = existingTask.status;
+            if (!statusDeltas[status]) statusDeltas[status] = { added: 0, removed: 0 };
+            statusDeltas[status]!.removed += 1;
+            delete next[taskId];
+            continue;
+          }
 
             const rawId = op.path.slice(TASK_PATH_PREFIX.length);
             const taskId = decodePointerSegment(rawId);
@@ -136,53 +267,50 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
 
             if (op.op !== 'add' && op.op !== 'replace') continue;
 
-            const value = (op as { value?: unknown }).value;
-            if (!value) continue;
+          const existingTask = next[task.id];
+          if (op.op === 'replace' && !existingTask) continue;
 
-            const task = value as TaskWithAttemptStatus;
-            if (task.project_id !== projectId) continue;
+          if (next === prev) next = { ...prev };
 
-            const exists = Boolean(taskMap[task.id]);
-            if (op.op === 'replace' && !exists) continue;
-
-            if (!exists) added += 1;
-            else updated += 1;
-            taskMap[task.id] = task;
+          // Track status changes
+          if (!existingTask) {
+            // New task added
+            if (!statusDeltas[task.status]) statusDeltas[task.status] = { added: 0, removed: 0 };
+            statusDeltas[task.status]!.added += 1;
+          } else if (existingTask.status !== task.status) {
+            // Task moved between statuses
+            if (!statusDeltas[existingTask.status]) statusDeltas[existingTask.status] = { added: 0, removed: 0 };
+            statusDeltas[existingTask.status]!.removed += 1;
+            if (!statusDeltas[task.status]) statusDeltas[task.status] = { added: 0, removed: 0 };
+            statusDeltas[task.status]!.added += 1;
           }
 
-          if (added === 0 && removed === 0 && updated === 0) return oldData;
-
-          // Rebuild pages with updated tasks
-          const allTasks = Object.values(taskMap);
-          const delta = added - removed;
-          const newTotal = Math.max(0, (oldData.pages[oldData.pages.length - 1]?.total ?? 0) + delta);
-
-          // Redistribute tasks into pages
-          const newPages: PaginatedTasksResponse[] = oldData.pages.map((_, idx) => {
-            const start = idx * PAGE_SIZE;
-            const end = start + PAGE_SIZE;
-            const pageTasks = allTasks.slice(start, end);
-            return {
-              tasks: pageTasks,
-              total: newTotal,
-              hasMore: end < allTasks.length,
-            };
-          });
-
-          // Handle case where we have more tasks than pages can hold (new task added)
-          const coveredTasks = oldData.pages.length * PAGE_SIZE;
-          if (allTasks.length > coveredTasks) {
-            // Add remaining tasks to the last page
-            const lastPage = newPages[newPages.length - 1];
-            if (lastPage) {
-              const remainingTasks = allTasks.slice(coveredTasks);
-              lastPage.tasks = [...lastPage.tasks, ...remainingTasks];
-            }
-          }
-
-          return { ...oldData, pages: newPages };
+          next[task.id] = task;
         }
-      );
+
+        return next;
+      });
+
+      // Update per-status pagination
+      const affectedStatuses = Object.keys(statusDeltas) as TaskStatus[];
+      if (affectedStatuses.length > 0) {
+        setPaginationByStatus((prev) => {
+          const next = { ...prev };
+          for (const status of affectedStatuses) {
+            const delta = statusDeltas[status]!;
+            const netChange = delta.added - delta.removed;
+            next[status] = {
+              ...prev[status],
+              total: Math.max(0, prev[status].total + netChange),
+              offset: Math.max(0, prev[status].offset + netChange),
+            };
+          }
+          return next;
+        });
+      }
+
+      // Invalidate React Query cache to keep it in sync
+      queryClient.invalidateQueries({ queryKey: projectTasksKeys.byProject(projectId) });
     },
     [projectId, queryClient]
   );
@@ -324,7 +452,8 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     return map;
   }, [sharedTasksList, assignees]);
 
-  const { tasks, tasksByStatus } = useMemo(() => {
+  const { tasks, tasksById: mergedTasksById, tasksByStatus } = useMemo(() => {
+    const merged: Record<string, TaskWithAttemptStatus> = { ...tasksById };
     const byStatus: Record<TaskStatus, TaskWithAttemptStatus[]> = {
       todo: [],
       inprogress: [],
@@ -337,21 +466,17 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
       byStatus[task.status]?.push(task);
     });
 
-    const sorted = Object.values(tasksById).sort(
-      (a, b) =>
-        new Date(b.created_at as string).getTime() -
-        new Date(a.created_at as string).getTime()
+    // Sort each status list according to its order_by preference
+    for (const status of ALL_STATUSES) {
+      sortTasksForStatus(byStatus[status], status);
+    }
+
+    // Flat list sorted by created_at desc (most recent first)
+    const sorted = Object.values(merged).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
 
-    (Object.values(byStatus) as TaskWithAttemptStatus[][]).forEach((list) => {
-      list.sort(
-        (a, b) =>
-          new Date(b.created_at as string).getTime() -
-          new Date(a.created_at as string).getTime()
-      );
-    });
-
-    return { tasks: sorted, tasksByStatus: byStatus };
+    return { tasks: sorted, tasksById: merged, tasksByStatus: byStatus };
   }, [tasksById]);
 
   const sharedOnlyByStatus = useMemo(() => {
@@ -385,13 +510,60 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     return grouped;
   }, [tasksById, sharedTasksById, referencedSharedIds]);
 
+  // Derive per-status pagination helpers for the return value
+  const loadMoreByStatus = useMemo(() => {
+    return ALL_STATUSES.reduce(
+      (acc, status) => {
+        acc[status] = () => loadMoreForStatus(status);
+        return acc;
+      },
+      {} as Record<TaskStatus, () => void>
+    );
+  }, [loadMoreForStatus]);
+
+  const isLoadingMoreByStatus = useMemo(() => {
+    return ALL_STATUSES.reduce(
+      (acc, status) => {
+        acc[status] = paginationByStatus[status].isLoading;
+        return acc;
+      },
+      {} as Record<TaskStatus, boolean>
+    );
+  }, [paginationByStatus]);
+
+  const hasMoreByStatus = useMemo(() => {
+    return ALL_STATUSES.reduce(
+      (acc, status) => {
+        acc[status] = paginationByStatus[status].hasMore;
+        return acc;
+      },
+      {} as Record<TaskStatus, boolean>
+    );
+  }, [paginationByStatus]);
+
+  const totalByStatus = useMemo(() => {
+    return ALL_STATUSES.reduce(
+      (acc, status) => {
+        acc[status] = paginationByStatus[status].total;
+        return acc;
+      },
+      {} as Record<TaskStatus, number>
+    );
+  }, [paginationByStatus]);
+
+  // For auto-link, we want to check if ANY status still has more to load
+  const anyStatusHasMore = useMemo(
+    () => ALL_STATUSES.some((status) => paginationByStatus[status].hasMore),
+    [paginationByStatus]
+  );
+
   // Auto-link shared tasks assigned to current user
   useAutoLinkSharedTasks({
     sharedTasksById,
     localTasksById: tasksById,
     referencedSharedIds,
     isLoading,
-    hasMore,
+    hasMore: anyStatusHasMore,
     remoteProjectId: project?.remote_project_id || undefined,
     projectId,
   });
@@ -403,10 +575,10 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     sharedTasksById,
     sharedOnlyByStatus,
     isLoading,
-    isLoadingMore,
-    total,
-    hasMore,
-    loadMore,
     error,
+    loadMoreByStatus,
+    isLoadingMoreByStatus,
+    hasMoreByStatus,
+    totalByStatus,
   };
 };

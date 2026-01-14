@@ -16,7 +16,7 @@ use db::models::{
     image::TaskImage,
     project::{Project, ProjectError},
     repo::Repo,
-    task::{CreateTask, Task, TaskStatus, TaskWithAttemptStatus, UpdateTask},
+    task::{CreateTask, Task, TaskOrderBy, TaskStatus, TaskWithAttemptStatus, UpdateTask},
     task_group::TaskGroup,
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
@@ -46,6 +46,7 @@ pub struct ListTasksQuery {
     pub limit: Option<i32>,
     pub offset: Option<i32>,
     pub status: Option<TaskStatus>,
+    pub order_by: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -67,10 +68,25 @@ pub async fn get_tasks(
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(0, MAX_LIMIT) as i64;
     let offset = query.offset.unwrap_or(DEFAULT_OFFSET).max(0) as i64;
 
+    let order_by = match query.order_by.as_deref() {
+        None => TaskOrderBy::default(),
+        Some("created_at_asc") => TaskOrderBy::CreatedAtAsc,
+        Some("created_at_desc") => TaskOrderBy::CreatedAtDesc,
+        Some("updated_at_asc") => TaskOrderBy::UpdatedAtAsc,
+        Some("updated_at_desc") => TaskOrderBy::UpdatedAtDesc,
+        Some(invalid) => {
+            return Err(ApiError::BadRequest(format!(
+                "Invalid order_by value '{}'. Valid values are: created_at_asc, created_at_desc, updated_at_asc, updated_at_desc",
+                invalid
+            )));
+        }
+    };
+
     let (tasks, total) = Task::find_paginated_by_project_id_with_attempt_status(
         &deployment.db().pool,
         query.project_id,
         query.status,
+        order_by,
         limit,
         offset,
     )
