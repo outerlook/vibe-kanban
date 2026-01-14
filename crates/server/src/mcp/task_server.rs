@@ -493,6 +493,20 @@ pub struct BulkAssignTasksToGroupResponse {
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct HealthCheckResponse {
+    #[schemars(description = "Overall health status: 'healthy', 'degraded', or 'unhealthy'")]
+    pub status: String,
+    #[schemars(description = "Status of the API connection: 'ok' or 'failed'")]
+    pub api_connection: String,
+    #[schemars(description = "Latency in milliseconds for the health check request")]
+    pub latency_ms: u64,
+    #[schemars(description = "Timestamp of the health check")]
+    pub timestamp: String,
+    #[schemars(description = "Base URL of the kanban server")]
+    pub server_url: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct TaskGroupSummary {
     #[schemars(description = "The unique identifier of the task group")]
     pub id: String,
@@ -850,6 +864,36 @@ impl TaskServer {
         // This tool is only registered if context exists, so unwrap is safe
         let context = self.context.as_ref().expect("VK context should exist");
         TaskServer::success(context)
+    }
+
+    #[tool(
+        description = "Check the health status of the MCP server and its connection to the kanban backend API."
+    )]
+    async fn health_check(&self) -> Result<CallToolResult, ErrorData> {
+        let start = std::time::Instant::now();
+        let health_url = self.url("/health");
+
+        let (status, api_connection) = match self.client.get(&health_url).send().await {
+            Ok(resp) if resp.status().is_success() => ("healthy".to_string(), "ok".to_string()),
+            Ok(resp) => (
+                "unhealthy".to_string(),
+                format!("failed: HTTP {}", resp.status()),
+            ),
+            Err(e) => ("unhealthy".to_string(), format!("failed: {}", e)),
+        };
+
+        let latency_ms = start.elapsed().as_millis() as u64;
+        let timestamp = chrono::Utc::now().to_rfc3339();
+
+        let response = HealthCheckResponse {
+            status,
+            api_connection,
+            latency_ms,
+            timestamp,
+            server_url: self.base_url.clone(),
+        };
+
+        TaskServer::success(&response)
     }
 
     #[tool(
@@ -1632,7 +1676,7 @@ impl TaskServer {
 #[tool_handler]
 impl ServerHandler for TaskServer {
     fn get_info(&self) -> ServerInfo {
-        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`. TOOLS: 'list_projects', 'list_tasks', 'create_task', 'bulk_create_tasks', 'create_task_with_dependencies', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree', 'list_task_groups', 'create_task_group', 'get_task_group', 'update_task_group', 'delete_task_group', 'bulk_assign_tasks_to_group'. Make sure to pass `project_id`, `task_id`, or `group_id` where required. You can use list tools to get the available ids.".to_string();
+        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`. TOOLS: 'health_check', 'list_projects', 'list_tasks', 'create_task', 'bulk_create_tasks', 'create_task_with_dependencies', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree', 'list_task_groups', 'create_task_group', 'get_task_group', 'update_task_group', 'delete_task_group', 'bulk_assign_tasks_to_group'. Make sure to pass `project_id`, `task_id`, or `group_id` where required. You can use list tools to get the available ids.".to_string();
         if self.context.is_some() {
             let context_instruction = "Use 'get_context' to fetch project/task/workspace metadata for the active Vibe Kanban workspace session when available.";
             instruction = format!("{} {}", context_instruction, instruction);
