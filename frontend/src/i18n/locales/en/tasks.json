@@ -19,6 +19,11 @@
     "sharedToggleAria": "Toggle shared tasks",
     "sharedToggleTooltip": "Show/hide shared content"
   },
+  "taskFilterBar": {
+    "allGroups": "All Groups",
+    "searchPlaceholder": "Search tasks...",
+    "clearFilters": "Clear filters"
+  },
   "rebase": {
     "common": {
       "action": "Rebase",
