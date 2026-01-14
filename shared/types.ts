@@ -350,7 +350,7 @@ export type Config = { config_version: string, theme: ThemeMode, executor_profil
  */
 max_concurrent_agents: number, };
 
-export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, };
+export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, custom_sound_path: string | null, };
 
 export enum ThemeMode { LIGHT = "LIGHT", DARK = "DARK", SYSTEM = "SYSTEM" }
 

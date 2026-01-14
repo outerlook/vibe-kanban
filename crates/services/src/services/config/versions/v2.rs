@@ -157,6 +157,8 @@ pub struct NotificationConfig {
     pub sound_enabled: bool,
     pub push_enabled: bool,
     pub sound_file: SoundFile,
+    #[serde(default)]
+    pub custom_sound_path: Option<String>,
 }
 
 impl From<v1::Config> for NotificationConfig {
@@ -165,6 +167,7 @@ impl From<v1::Config> for NotificationConfig {
             sound_enabled: old.sound_alerts,
             push_enabled: old.push_notifications,
             sound_file: SoundFile::from(old.sound_file), // Now SCREAMING_SNAKE_CASE
+            custom_sound_path: None,
         }
     }
 }
@@ -175,6 +178,27 @@ impl Default for NotificationConfig {
             sound_enabled: true,
             push_enabled: true,
             sound_file: SoundFile::CowMooing,
+            custom_sound_path: None,
+        }
+    }
+}
+
+/// Represents the sound to play for notifications
+#[derive(Debug, Clone, PartialEq)]
+pub enum EffectiveSound {
+    /// A bundled sound file
+    Bundled(SoundFile),
+    /// A custom sound file (filename only, e.g., "mysound.wav")
+    Custom(String),
+}
+
+impl NotificationConfig {
+    /// Returns the effective sound to play.
+    /// If `custom_sound_path` is set, returns `Custom`, otherwise returns `Bundled`.
+    pub fn effective_sound(&self) -> EffectiveSound {
+        match &self.custom_sound_path {
+            Some(path) => EffectiveSound::Custom(path.clone()),
+            None => EffectiveSound::Bundled(self.sound_file.clone()),
         }
     }
 }
@@ -200,7 +224,7 @@ impl GitHubConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, EnumString)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, EnumString)]
 #[ts(use_ts_enum)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
@@ -320,5 +344,82 @@ impl From<v1::ThemeMode> for ThemeMode {
             v1::ThemeMode::Orange => ThemeMode::Orange,
             v1::ThemeMode::Red => ThemeMode::Red,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notification_config_without_custom_sound_path_deserializes() {
+        // Simulate old config without custom_sound_path field (backward compat)
+        let json = r#"{
+            "sound_enabled": true,
+            "push_enabled": false,
+            "sound_file": "COW_MOOING"
+        }"#;
+
+        let config: NotificationConfig = serde_json::from_str(json).unwrap();
+        assert!(config.sound_enabled);
+        assert!(!config.push_enabled);
+        assert_eq!(config.sound_file, SoundFile::CowMooing);
+        assert!(config.custom_sound_path.is_none());
+    }
+
+    #[test]
+    fn notification_config_with_custom_sound_path_deserializes() {
+        let json = r#"{
+            "sound_enabled": true,
+            "push_enabled": true,
+            "sound_file": "ROOSTER",
+            "custom_sound_path": "mysound.wav"
+        }"#;
+
+        let config: NotificationConfig = serde_json::from_str(json).unwrap();
+        assert!(config.sound_enabled);
+        assert!(config.push_enabled);
+        assert_eq!(config.sound_file, SoundFile::Rooster);
+        assert_eq!(config.custom_sound_path, Some("mysound.wav".to_string()));
+    }
+
+    #[test]
+    fn effective_sound_returns_custom_when_set() {
+        let config = NotificationConfig {
+            sound_enabled: true,
+            push_enabled: true,
+            sound_file: SoundFile::CowMooing,
+            custom_sound_path: Some("custom.wav".to_string()),
+        };
+
+        assert_eq!(
+            config.effective_sound(),
+            EffectiveSound::Custom("custom.wav".to_string())
+        );
+    }
+
+    #[test]
+    fn effective_sound_returns_bundled_when_custom_not_set() {
+        let config = NotificationConfig {
+            sound_enabled: true,
+            push_enabled: true,
+            sound_file: SoundFile::Rooster,
+            custom_sound_path: None,
+        };
+
+        assert_eq!(
+            config.effective_sound(),
+            EffectiveSound::Bundled(SoundFile::Rooster)
+        );
+    }
+
+    #[test]
+    fn default_notification_config_has_no_custom_sound() {
+        let config = NotificationConfig::default();
+        assert!(config.custom_sound_path.is_none());
+        assert_eq!(
+            config.effective_sound(),
+            EffectiveSound::Bundled(SoundFile::CowMooing)
+        );
     }
 }
