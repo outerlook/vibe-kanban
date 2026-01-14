@@ -43,6 +43,18 @@ const getOrderByForStatus = (status: TaskStatus): 'created_at_asc' | 'updated_at
   return status === 'done' || status === 'cancelled' ? 'updated_at_desc' : 'created_at_asc';
 };
 
+const sortTasksForStatus = <T extends { created_at: string | Date; updated_at: string | Date }>(
+  tasks: T[],
+  status: TaskStatus
+): void => {
+  const orderBy = getOrderByForStatus(status);
+  if (orderBy === 'updated_at_desc') {
+    tasks.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+  } else {
+    tasks.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  }
+};
+
 const createInitialPaginationState = (): PerStatusPagination => ({
   todo: { offset: 0, total: 0, hasMore: false, isLoading: false },
   inprogress: { offset: 0, total: 0, hasMore: false, isLoading: false },
@@ -431,31 +443,15 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
       byStatus[task.status]?.push(task);
     });
 
-    const sorted = Object.values(merged).sort(
-      (a, b) =>
-        new Date(b.created_at as string).getTime() -
-        new Date(a.created_at as string).getTime()
-    );
-
     // Sort each status list according to its order_by preference
     for (const status of ALL_STATUSES) {
-      const list = byStatus[status];
-      if (status === 'done' || status === 'cancelled') {
-        // Newest completed first (updated_at desc)
-        list.sort(
-          (a, b) =>
-            new Date(b.updated_at as string).getTime() -
-            new Date(a.updated_at as string).getTime()
-        );
-      } else {
-        // Oldest pending first (created_at asc)
-        list.sort(
-          (a, b) =>
-            new Date(a.created_at as string).getTime() -
-            new Date(b.created_at as string).getTime()
-        );
-      }
+      sortTasksForStatus(byStatus[status], status);
     }
+
+    // Flat list sorted by created_at desc (most recent first)
+    const sorted = Object.values(merged).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
 
     return { tasks: sorted, tasksById: merged, tasksByStatus: byStatus };
   }, [localTasksById]);
