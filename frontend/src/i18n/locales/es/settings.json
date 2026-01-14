@@ -170,6 +170,15 @@
           "helper": "Habilita el seguimiento anónimo para ayudar a mejorar la aplicación. No se recopilan prompts ni información del proyecto."
         }
       },
+      "concurrency": {
+        "title": "Concurrencia",
+        "description": "Controla cuántos agentes de código pueden ejecutarse simultáneamente.",
+        "maxAgents": {
+          "label": "Máximo de Agentes Simultáneos",
+          "placeholder": "0",
+          "helper": "Número máximo de agentes que pueden ejecutarse a la vez. Establece 0 para ilimitado."
+        }
+      },
       "taskTemplates": {
         "title": "Etiquetas",
         "description": "Crea fragmentos de texto reutilizables que se pueden insertar en descripciones de tareas usando @nombre_etiqueta."

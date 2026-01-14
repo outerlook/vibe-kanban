@@ -217,6 +217,15 @@
           "helper": "Enables anonymous usage events tracking to help improve the application. No prompts or project information are collected."
         }
       },
+      "concurrency": {
+        "title": "Concurrency",
+        "description": "Control how many coding agents can run simultaneously.",
+        "maxAgents": {
+          "label": "Maximum Concurrent Agents",
+          "placeholder": "0",
+          "helper": "Maximum number of agents that can run at once. Set to 0 for unlimited."
+        }
+      },
       "taskTemplates": {
         "title": "Tags",
         "description": "Create reusable text snippets that can be inserted into task descriptions using @tag_name."

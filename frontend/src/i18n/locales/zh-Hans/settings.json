@@ -170,6 +170,15 @@
           "helper": "启用匿名使用事件跟踪以帮助改进应用程序。不会收集提示或项目信息。"
         }
       },
+      "concurrency": {
+        "title": "并发",
+        "description": "控制可以同时运行的编码代理数量。",
+        "maxAgents": {
+          "label": "最大并发代理数",
+          "placeholder": "0",
+          "helper": "可同时运行的最大代理数量。设置为 0 表示无限制。"
+        }
+      },
       "taskTemplates": {
         "title": "标签",
         "description": "创建可使用 @tag_name 插入到任务描述中的可重用文本片段。"
