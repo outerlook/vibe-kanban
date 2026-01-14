@@ -123,19 +123,24 @@ export function TaskCard({
     [task.task_group_id]
   );
 
+  const closeGroupContextMenu = useCallback(() => {
+    setGroupContextMenu({ open: false, x: 0, y: 0 });
+  }, []);
+
   const handleFilterByGroup = useCallback(() => {
-    if (!task.task_group_id) return;
-    setGroupId(task.task_group_id);
-    setGroupContextMenu((prev) => ({ ...prev, open: false }));
-  }, [setGroupId, task.task_group_id]);
+    if (task.task_group_id) {
+      setGroupId(task.task_group_id);
+    }
+    closeGroupContextMenu();
+  }, [setGroupId, task.task_group_id, closeGroupContextMenu]);
 
   const handleEditGroup = useCallback(() => {
     if (!task.task_group_id) return;
     const group = groupsById[task.task_group_id];
     if (!group) return;
     TaskGroupFormDialog.show({ mode: 'edit', projectId, group });
-    setGroupContextMenu((prev) => ({ ...prev, open: false }));
-  }, [groupsById, projectId, task.task_group_id]);
+    closeGroupContextMenu();
+  }, [groupsById, projectId, task.task_group_id, closeGroupContextMenu]);
 
   useEffect(() => {
     if (!isOpen || !localRef.current) return;
@@ -227,9 +232,9 @@ export function TaskCard({
         />
         <DropdownMenu
           open={groupContextMenu.open}
-          onOpenChange={(open) =>
-            setGroupContextMenu((prev) => ({ ...prev, open }))
-          }
+          onOpenChange={(open) => {
+            if (!open) closeGroupContextMenu();
+          }}
         >
           <DropdownMenuContent
             style={{
