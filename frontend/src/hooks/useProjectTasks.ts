@@ -106,19 +106,24 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const mergeTasks = useCallback(
-    (incoming: TaskWithAttemptStatus[], replace: boolean) => {
-      setTasksById((prev) => {
-        const next = replace ? {} : { ...prev };
-        incoming.forEach((task) => {
-          next[task.id] = task;
-        });
-        return next;
-      });
-    },
-    []
-  );
+  const mergeTasks = useCallback((newTasks: TaskWithAttemptStatus[], replace: boolean) => {
+    setTasksById((prev) => {
+      if (replace) {
+        const map: Record<string, TaskWithAttemptStatus> = {};
+        for (const task of newTasks) {
+          map[task.id] = task;
+        }
+        return map;
+      }
+      const next = { ...prev };
+      for (const task of newTasks) {
+        next[task.id] = task;
+      }
+      return next;
+    });
+  }, []);
 
+  // Initial fetch - load all statuses in parallel
   useEffect(() => {
     if (!projectId) {
       setTasksById({});
@@ -250,10 +255,8 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
 
           if (op.op !== 'add' && op.op !== 'replace') continue;
 
-          const value = (op as { value?: unknown }).value;
-          if (!value) continue;
-
-          const task = value as TaskWithAttemptStatus;
+          const task = op.value as TaskWithAttemptStatus;
+          if (!task || typeof task !== 'object' || !task.id) continue;
           if (task.project_id !== projectId) continue;
 
           const existingTask = next[task.id];
@@ -441,7 +444,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     return map;
   }, [sharedTasksList, assignees]);
 
-  const { tasks, tasksById: mergedTasksById, tasksByStatus } = useMemo(() => {
+  const { tasks, tasksByStatus } = useMemo(() => {
     const merged: Record<string, TaskWithAttemptStatus> = { ...tasksById };
     const byStatus: Record<TaskStatus, TaskWithAttemptStatus[]> = {
       todo: [],
@@ -465,7 +468,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
 
-    return { tasks: sorted, tasksById: merged, tasksByStatus: byStatus };
+    return { tasks: sorted, tasksByStatus: byStatus };
   }, [tasksById]);
 
   const sharedOnlyByStatus = useMemo(() => {
@@ -559,7 +562,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
 
   return {
     tasks,
-    tasksById: mergedTasksById,
+    tasksById,
     tasksByStatus,
     sharedTasksById,
     sharedOnlyByStatus,
