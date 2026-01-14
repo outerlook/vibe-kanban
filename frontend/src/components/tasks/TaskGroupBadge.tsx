@@ -7,6 +7,7 @@ interface TaskGroupBadgeProps {
   groupName: string | null | undefined;
   className?: string;
   onClick?: (e: React.MouseEvent) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }
 
 export function TaskGroupBadge({
@@ -14,6 +15,7 @@ export function TaskGroupBadge({
   groupName,
   className,
   onClick,
+  onContextMenu,
 }: TaskGroupBadgeProps) {
   if (!groupId || !groupName) {
     return null;
@@ -28,6 +30,7 @@ export function TaskGroupBadge({
         className
       )}
       onClick={onClick}
+      onContextMenu={onContextMenu}
     >
       <Layers className="h-3 w-3" />
       {groupName}
