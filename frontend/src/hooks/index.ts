@@ -56,3 +56,8 @@ export {
   useAssignTasksToGroup,
 } from './useTaskGroups';
 export { useGanttTasks } from './useGanttTasks';
+export {
+  useTaskFilters,
+  type TaskFilters,
+  type TaskFiltersHook,
+} from './useTaskFilters';
