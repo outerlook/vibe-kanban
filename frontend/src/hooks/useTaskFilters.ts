@@ -120,12 +120,8 @@ export function useTaskFilters(): TaskFiltersHook {
   }, [setSearchParams]);
 
   const hasActiveFilters = useMemo(() => {
-    return (
-      filters.search.trim().length > 0 ||
-      filters.groupId !== null ||
-      filters.statuses.length > 0
-    );
-  }, [filters]);
+    return filters.search.trim().length > 0 || filters.groupId !== null;
+  }, [filters.search, filters.groupId]);
 
   return {
     filters,

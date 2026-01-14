@@ -1,16 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  Circle,
-  Clock,
-  CheckCircle,
-  XCircle,
-  Search,
-  X,
-  Eye,
-} from 'lucide-react';
-import type { TaskStatus } from 'shared/types';
-import { TASK_STATUSES } from '@/constants/taskStatuses';
+import { Search, X } from 'lucide-react';
 import { useTaskFilters } from '@/hooks/useTaskFilters';
 import { useTaskGroupsContext } from '@/contexts/TaskGroupsContext';
 import { useSearch } from '@/contexts/SearchContext';
@@ -22,24 +12,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import { statusLabels } from '@/utils/statusLabels';
 
 const ALL_GROUPS_VALUE = '__all__';
 
-const STATUS_ICONS: Record<TaskStatus, React.ReactNode> = {
-  todo: <Circle className="h-3.5 w-3.5" />,
-  inprogress: <Clock className="h-3.5 w-3.5" />,
-  inreview: <Eye className="h-3.5 w-3.5" />,
-  done: <CheckCircle className="h-3.5 w-3.5" />,
-  cancelled: <XCircle className="h-3.5 w-3.5" />,
-};
-
 export function TaskFilterBar() {
   const { t } = useTranslation('tasks');
-  const { filters, setSearch, setGroupId, setStatuses, clearFilters, hasActiveFilters } =
+  const { filters, setSearch, setGroupId, clearFilters, hasActiveFilters } =
     useTaskFilters();
   const { groups } = useTaskGroupsContext();
   const { registerInputRef } = useSearch();
@@ -92,13 +71,6 @@ export function TaskFilterBar() {
     [setGroupId]
   );
 
-  const handleStatusToggle = useCallback(
-    (values: string[]) => {
-      setStatuses(values as TaskStatus[]);
-    },
-    [setStatuses]
-  );
-
   return (
     <div className="flex flex-wrap items-center gap-3 py-2">
       {/* Group Dropdown */}
@@ -133,34 +105,6 @@ export function TaskFilterBar() {
           className="pl-9 h-9 rounded-md"
         />
       </div>
-
-      {/* Status Toggles */}
-      <ToggleGroup
-        type="multiple"
-        value={filters.statuses}
-        onValueChange={handleStatusToggle}
-        className="flex gap-1"
-      >
-        {TASK_STATUSES.map((status) => {
-          const isActive = filters.statuses.includes(status);
-          return (
-            <ToggleGroupItem
-              key={status}
-              value={status}
-              active={isActive}
-              title={statusLabels[status]}
-              className={cn(
-                'h-9 w-9 p-0 rounded-md border',
-                isActive
-                  ? 'bg-primary text-primary-foreground border-primary'
-                  : 'bg-background text-muted-foreground border-input hover:bg-accent hover:text-accent-foreground'
-              )}
-            >
-              {STATUS_ICONS[status]}
-            </ToggleGroupItem>
-          );
-        })}
-      </ToggleGroup>
 
       {/* Clear Filters Button */}
       {hasActiveFilters && (
