@@ -25,6 +25,17 @@ impl NotificationService {
         Self::send_notification(&config, title, message).await;
     }
 
+    /// Send error notification with error sound file
+    pub async fn notify_error(&self, title: &str, message: &str) {
+        let config = self.config.read().await.notifications.clone();
+        if config.sound_enabled {
+            Self::play_sound_notification(&config.error_sound_file).await;
+        }
+        if config.push_enabled {
+            Self::send_push_notification(title, message).await;
+        }
+    }
+
     /// Internal method to send notifications with a given config
     async fn send_notification(config: &NotificationConfig, title: &str, message: &str) {
         if config.sound_enabled {
