@@ -9,6 +9,7 @@ use axum::{
 };
 use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessRunReason},
+    execution_queue::ExecutionQueue,
     project_repo::ProjectRepo,
     scratch::{Scratch, ScratchType},
     session::{CreateSession, Session},
@@ -21,7 +22,7 @@ use executors::{
     },
     profile::{ExecutorConfigs, ExecutorProfileId},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use services::services::container::ContainerService;
 use sqlx::Error as SqlxError;
 use ts_rs::TS;
@@ -32,6 +33,17 @@ use crate::{
     DeploymentImpl, error::ApiError, middleware::load_session_middleware,
     routes::task_attempts::util::restore_worktrees_to_process,
 };
+
+/// Result of a follow-up request - can be started immediately or queued
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "status", rename_all = "snake_case")]
+#[ts(export)]
+pub enum FollowUpResult {
+    /// Execution started immediately
+    Started { execution_process: ExecutionProcess },
+    /// Execution was queued due to concurrency limit
+    Queued { queue_entry: ExecutionQueue },
+}
 
 #[derive(Debug, Deserialize)]
 pub struct SessionQuery {
@@ -98,7 +110,7 @@ pub async fn follow_up(
     Extension(session): Extension<Session>,
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateFollowUpAttempt>,
-) -> Result<ResponseJson<ApiResponse<ExecutionProcess>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<FollowUpResult>>, ApiError> {
     let pool = &deployment.db().pool;
 
     // Load workspace from session
@@ -230,6 +242,20 @@ pub async fn follow_up(
 
     let action = ExecutorAction::new(action_type, cleanup_action.map(Box::new));
 
+    // Check if we should queue this execution due to concurrency limit
+    if deployment.container().should_queue_execution().await? {
+        tracing::info!(
+            "At concurrency limit, queueing follow-up for session {} workspace {}",
+            session.id,
+            workspace.id
+        );
+        let queue_entry =
+            ExecutionQueue::create_follow_up(pool, workspace.id, session.id, &action).await?;
+        return Ok(ResponseJson(ApiResponse::success(FollowUpResult::Queued {
+            queue_entry,
+        })));
+    }
+
     let execution_process = deployment
         .container()
         .start_execution(
@@ -251,7 +277,9 @@ pub async fn follow_up(
         );
     }
 
-    Ok(ResponseJson(ApiResponse::success(execution_process)))
+    Ok(ResponseJson(ApiResponse::success(FollowUpResult::Started {
+        execution_process,
+    })))
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {

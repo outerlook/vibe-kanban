@@ -275,8 +275,10 @@ pub trait ContainerService {
         Ok(running_count >= max_concurrent as i64)
     }
 
-    /// Process the execution queue - start queued workspaces when slots are available.
+    /// Process the execution queue - start queued workspaces/follow-ups when slots are available.
     /// Pops entries from the queue and starts execution until at capacity or queue empty.
+    /// Handles both initial workspace starts (session_id is None) and follow-up executions
+    /// (session_id and executor_action are populated).
     async fn process_queue(&self) -> Result<(), ContainerError> {
         loop {
             // Check if we can start more executions
@@ -298,7 +300,7 @@ pub trait ContainerService {
                 }
             };
 
-            // Load workspace and start execution
+            // Load workspace
             let workspace = match Workspace::find_by_id(&self.db().pool, entry.workspace_id).await {
                 Ok(Some(w)) => w,
                 Ok(None) => {
@@ -318,23 +320,82 @@ pub trait ContainerService {
                 }
             };
 
-            tracing::info!(
-                "Starting queued workspace {} with executor {:?}",
-                workspace.id,
-                entry.executor_profile_id.0
-            );
+            // Check if this is a follow-up or initial start
+            if entry.is_follow_up() {
+                // Follow-up execution
+                let session_id = entry.session_id.unwrap();
+                let executor_action = match entry.parsed_executor_action() {
+                    Some(action) => action,
+                    None => {
+                        tracing::error!(
+                            "Failed to parse executor action for queued follow-up, skipping"
+                        );
+                        continue;
+                    }
+                };
 
-            // Start the workspace execution (inner call that bypasses queue check)
-            if let Err(e) = self
-                .start_workspace_inner(&workspace, entry.executor_profile_id.0.clone())
-                .await
-            {
-                tracing::error!(
-                    "Failed to start queued workspace {}: {}",
+                let session = match Session::find_by_id(&self.db().pool, session_id).await {
+                    Ok(Some(s)) => s,
+                    Ok(None) => {
+                        tracing::warn!(
+                            "Session {} not found when processing queue, skipping",
+                            session_id
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to load session {} from queue: {}",
+                            session_id,
+                            e
+                        );
+                        continue;
+                    }
+                };
+
+                tracing::info!(
+                    "Starting queued follow-up for workspace {} session {} with executor {:?}",
                     workspace.id,
-                    e
+                    session_id,
+                    entry.executor_profile_id.0
                 );
-                // Continue processing other queue entries even if one fails
+
+                // Start the follow-up execution directly
+                if let Err(e) = self
+                    .start_execution(
+                        &workspace,
+                        &session,
+                        &executor_action,
+                        &ExecutionProcessRunReason::CodingAgent,
+                    )
+                    .await
+                {
+                    tracing::error!(
+                        "Failed to start queued follow-up for workspace {}: {}",
+                        workspace.id,
+                        e
+                    );
+                }
+            } else {
+                // Initial workspace start
+                tracing::info!(
+                    "Starting queued workspace {} with executor {:?}",
+                    workspace.id,
+                    entry.executor_profile_id.0
+                );
+
+                // Start the workspace execution (inner call that bypasses queue check)
+                if let Err(e) = self
+                    .start_workspace_inner(&workspace, entry.executor_profile_id.0.clone())
+                    .await
+                {
+                    tracing::error!(
+                        "Failed to start queued workspace {}: {}",
+                        workspace.id,
+                        e
+                    );
+                    // Continue processing other queue entries even if one fails
+                }
             }
         }
 

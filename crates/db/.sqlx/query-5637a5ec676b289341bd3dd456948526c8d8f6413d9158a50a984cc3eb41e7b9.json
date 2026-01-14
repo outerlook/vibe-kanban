@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                id AS \"id!: Uuid\",\n                workspace_id AS \"workspace_id!: Uuid\",\n                executor_profile_id AS \"executor_profile_id!: sqlx::types::Json<ExecutorProfileId>\",\n                queued_at AS \"queued_at!: DateTime<Utc>\",\n                session_id AS \"session_id: Uuid\",\n                executor_action AS \"executor_action: String\"\n            FROM execution_queue\n            WHERE workspace_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "workspace_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "executor_profile_id!: sqlx::types::Json<ExecutorProfileId>",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "queued_at!: DateTime<Utc>",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "session_id: Uuid",
+        "ordinal": 4,
+        "type_info": "Blob"
+      },
+      {
+        "name": "executor_action: String",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "5637a5ec676b289341bd3dd456948526c8d8f6413d9158a50a984cc3eb41e7b9"
+}

@@ -319,22 +319,38 @@ export function TaskFollowUpSection({
   }, [entries]);
 
   // Send follow-up action
-  const { isSendingFollowUp, followUpError, setFollowUpError, onSendFollowUp } =
-    useFollowUpSend({
-      sessionId,
-      message: localMessage,
-      conflictMarkdown: conflictResolutionInstructions,
-      reviewMarkdown,
-      clickedMarkdown,
-      selectedVariant,
-      clearComments,
-      clearClickedElements,
-      onAfterSendCleanup: () => {
-        cancelDebouncedSave(); // Cancel any pending debounced save to avoid race condition
-        setLocalMessage(''); // Clear local state immediately
-        // Scratch deletion is handled by the backend when the queued message is consumed
-      },
-    });
+  const {
+    isSendingFollowUp,
+    followUpError,
+    setFollowUpError,
+    onSendFollowUp,
+    isGloballyQueued,
+    setIsGloballyQueued,
+  } = useFollowUpSend({
+    sessionId,
+    message: localMessage,
+    conflictMarkdown: conflictResolutionInstructions,
+    reviewMarkdown,
+    clickedMarkdown,
+    selectedVariant,
+    clearComments,
+    clearClickedElements,
+    onAfterSendCleanup: () => {
+      cancelDebouncedSave(); // Cancel any pending debounced save to avoid race condition
+      setLocalMessage(''); // Clear local state immediately
+      // Scratch deletion is handled by the backend when the queued message is consumed
+    },
+  });
+
+  // Clear global queue indicator when a new process starts
+  const prevProcessCountForGlobalQueueRef = useRef(processes.length);
+  useEffect(() => {
+    const prevCount = prevProcessCountForGlobalQueueRef.current;
+    prevProcessCountForGlobalQueueRef.current = processes.length;
+    if (processes.length > prevCount && isGloballyQueued) {
+      setIsGloballyQueued(false);
+    }
+  }, [processes.length, isGloballyQueued, setIsGloballyQueued]);
 
   // Separate logic for when textarea should be disabled vs when send button should be disabled
   const canTypeFollowUp = useMemo(() => {
@@ -710,7 +726,7 @@ export function TaskFollowUpSection({
             {/* Clicked elements notice and actions */}
             <ClickedElementsBanner />
 
-            {/* Queued message indicator */}
+            {/* Queued message indicator (session-level, while agent is running) */}
             {isQueued && queuedMessage && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted p-3 rounded-md border">
                 <Clock className="h-4 w-4 flex-shrink-0" />
@@ -721,6 +737,19 @@ export function TaskFollowUpSection({
                   )}
                 </div>
               </div>
+            )}
+
+            {/* Global queue indicator (when concurrency limit reached) */}
+            {isGloballyQueued && (
+              <Alert>
+                <Clock className="h-4 w-4" />
+                <AlertDescription>
+                  {t(
+                    'followUp.globallyQueued',
+                    'Your follow-up has been queued and will start when capacity is available.'
+                  )}
+                </AlertDescription>
+              </Alert>
             )}
 
             <div

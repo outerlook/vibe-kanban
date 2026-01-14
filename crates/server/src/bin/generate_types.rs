@@ -123,6 +123,8 @@ fn generate_types_content() -> String {
         server::routes::account_info::CodexAccountInfo::decl(),
         server::routes::oauth::CurrentUserResponse::decl(),
         server::routes::sessions::CreateFollowUpAttempt::decl(),
+        server::routes::sessions::FollowUpResult::decl(),
+        db::models::execution_queue::ExecutionQueue::decl(),
         server::routes::task_attempts::ChangeTargetBranchRequest::decl(),
         server::routes::task_attempts::ChangeTargetBranchResponse::decl(),
         server::routes::task_attempts::MergeTaskAttemptRequest::decl(),

@@ -27,6 +27,8 @@ export function useFollowUpSend({
 }: Args) {
   const [isSendingFollowUp, setIsSendingFollowUp] = useState(false);
   const [followUpError, setFollowUpError] = useState<string | null>(null);
+  // True when follow-up was queued due to global concurrency limit
+  const [isGloballyQueued, setIsGloballyQueued] = useState(false);
 
   const onSendFollowUp = useCallback(async () => {
     if (!sessionId) return;
@@ -43,6 +45,7 @@ export function useFollowUpSend({
     try {
       setIsSendingFollowUp(true);
       setFollowUpError(null);
+      setIsGloballyQueued(false);
       const body: CreateFollowUpAttempt = {
         prompt: finalPrompt,
         variant: selectedVariant,
@@ -50,7 +53,11 @@ export function useFollowUpSend({
         force_when_dirty: null,
         perform_git_reset: null,
       };
-      await sessionsApi.followUp(sessionId, body);
+      const result = await sessionsApi.followUp(sessionId, body);
+      if (result.status === 'queued') {
+        // Follow-up was queued due to global concurrency limit
+        setIsGloballyQueued(true);
+      }
       clearComments();
       clearClickedElements?.();
       onAfterSendCleanup();
@@ -80,5 +87,7 @@ export function useFollowUpSend({
     followUpError,
     setFollowUpError,
     onSendFollowUp,
+    isGloballyQueued,
+    setIsGloballyQueued,
   } as const;
 }

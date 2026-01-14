@@ -93,6 +93,7 @@ import {
   SharedTaskResponse,
   SharedTaskDetails,
   QueueStatus,
+  FollowUpResult,
   PrCommentsResponse,
   NormalizedEntry,
   MergeTaskAttemptRequest,
@@ -691,12 +692,12 @@ export const sessionsApi = {
   followUp: async (
     sessionId: string,
     data: CreateFollowUpAttempt
-  ): Promise<ExecutionProcess> => {
+  ): Promise<FollowUpResult> => {
     const response = await makeRequest(`/api/sessions/${sessionId}/follow-up`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
-    return handleApiResponse<ExecutionProcess>(response);
+    return handleApiResponse<FollowUpResult>(response);
   },
 };
 

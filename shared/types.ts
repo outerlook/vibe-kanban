@@ -242,6 +242,18 @@ export type CurrentUserResponse = { user_id: string, };
 
 export type CreateFollowUpAttempt = { prompt: string, variant: string | null, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
 
+export type FollowUpResult = { "status": "started", execution_process: ExecutionProcess, } | { "status": "queued", queue_entry: ExecutionQueue, };
+
+export type ExecutionQueue = { id: string, workspace_id: string, executor_profile_id: ExecutorProfileId, queued_at: string, 
+/**
+ * Session ID for follow-up executions (None for initial workspace starts)
+ */
+session_id: string | null, 
+/**
+ * Serialized ExecutorAction for follow-up executions (None for initial workspace starts)
+ */
+executor_action: string | null, };
+
 export type ChangeTargetBranchRequest = { repo_id: string, new_target_branch: string, };
 
 export type ChangeTargetBranchResponse = { repo_id: string, new_target_branch: string, status: [number, number], };
