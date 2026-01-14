@@ -7,11 +7,15 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { GitBranch, MoreHorizontal } from 'lucide-react';
+import { Code2, GitBranch, MoreHorizontal } from 'lucide-react';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import type { Workspace } from 'shared/types';
+import { EditorType } from 'shared/types';
 import { useOpenInEditor } from '@/hooks/useOpenInEditor';
 import { DeleteTaskConfirmationDialog } from '@/components/dialogs/tasks/DeleteTaskConfirmationDialog';
 import { ViewProcessesDialog } from '@/components/dialogs/tasks/ViewProcessesDialog';
@@ -26,10 +30,14 @@ import { DependencyTreeDialog } from '@/components/dialogs/tasks/DependencyTreeD
 import { AddDependencyDialog } from '@/components/dialogs/tasks/AddDependencyDialog';
 import { useProject } from '@/contexts/ProjectContext';
 import { openTaskForm } from '@/lib/openTaskForm';
+import { IdeIcon, getIdeName } from '@/components/ide/IdeIcon';
 
 import { useNavigate } from 'react-router-dom';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
-import { useAuth, useTaskDependencies } from '@/hooks';
+import { useAuth, useCustomEditors, useTaskDependencies } from '@/hooks';
+
+const PREFERRED_EDITOR_KEY = 'preferredEditor';
+const CUSTOM_EDITOR_PREFIX = 'custom:';
 
 interface ActionsDropdownProps {
   task?: TaskWithAttemptStatus | null;
@@ -56,6 +64,27 @@ export function ActionsDropdown({
     [dependencyQuery.data]
   );
   const isDependenciesLoading = dependencyQuery.isLoading;
+  const { data: customEditors = [] } = useCustomEditors();
+
+  const editorOptions = useMemo(() => {
+    const builtIn = Object.values(EditorType)
+      .filter((type) => type !== EditorType.CUSTOM)
+      .map((editorType) => ({
+        value: editorType,
+        label: getIdeName(editorType),
+        icon: <IdeIcon editorType={editorType} className="h-3.5 w-3.5" />,
+        isCustom: false,
+      }));
+
+    const custom = customEditors.map((editor) => ({
+      value: `${CUSTOM_EDITOR_PREFIX}${editor.id}`,
+      label: editor.name,
+      icon: <Code2 className="h-3.5 w-3.5" />,
+      isCustom: true,
+    }));
+
+    return [...builtIn, ...custom];
+  }, [customEditors]);
 
   const hasAttemptActions = Boolean(attempt);
   const hasTaskActions = Boolean(task);
@@ -87,10 +116,10 @@ export function ActionsDropdown({
     }
   };
 
-  const handleOpenInEditor = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleOpenInEditor = (editorValue: string) => {
     if (!attempt?.id) return;
-    openInEditor();
+    localStorage.setItem(PREFERRED_EDITOR_KEY, editorValue);
+    openInEditor({ editorType: editorValue as EditorType });
   };
 
   const handleViewProcesses = (e: React.MouseEvent) => {
@@ -207,12 +236,22 @@ export function ActionsDropdown({
           {hasAttemptActions && (
             <>
               <DropdownMenuLabel>{t('actionsMenu.attempt')}</DropdownMenuLabel>
-              <DropdownMenuItem
-                disabled={!attempt?.id}
-                onClick={handleOpenInEditor}
-              >
-                {t('actionsMenu.openInIde')}
-              </DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger disabled={!attempt?.id}>
+                  {t('actionsMenu.openInIde')}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {editorOptions.map((option) => (
+                    <DropdownMenuItem
+                      key={option.value}
+                      onClick={() => handleOpenInEditor(option.value)}
+                    >
+                      {option.icon}
+                      <span className="ml-2">{option.label}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
               <DropdownMenuItem
                 disabled={!attempt?.id}
                 onClick={handleViewProcesses}
