@@ -61,3 +61,4 @@ export {
   type TaskFilters,
   type TaskFiltersHook,
 } from './useTaskFilters';
+export { useFilteredTasks, type UseFilteredTasksResult } from './useFilteredTasks';
