@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO execution_queue (id, workspace_id, executor_profile_id)\n               VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "a4f83129ff60d098f62da80054d7934571970ccfc02b1f0b356656a99534e73d"
+}

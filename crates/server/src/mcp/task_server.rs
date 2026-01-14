@@ -66,9 +66,7 @@ pub struct TaskDefinition {
     pub title: String,
     #[schemars(description = "Optional description of the task")]
     pub description: Option<String>,
-    #[schemars(
-        description = "Reference to another task in this batch by index (0-based)"
-    )]
+    #[schemars(description = "Reference to another task in this batch by index (0-based)")]
     pub depends_on_indices: Option<Vec<usize>>,
     #[schemars(description = "Optional task group ID to assign this task to")]
     pub task_group_id: Option<Uuid>,
@@ -454,9 +452,7 @@ pub struct UpdateTaskGroupRequest {
     pub group_id: Uuid,
     #[schemars(description = "New name for the task group")]
     pub name: Option<String>,
-    #[schemars(
-        description = "New base branch for the task group (set to null to clear)"
-    )]
+    #[schemars(description = "New base branch for the task group (set to null to clear)")]
     pub base_branch: Option<String>,
 }
 
@@ -707,9 +703,12 @@ impl TaskServer {
             );
         }
 
-        let api_response = resp.json::<ApiResponseEnvelope<serde_json::Value>>().await.map_err(
-            |e| Self::err("Failed to parse VK API response", Some(&e.to_string())).unwrap(),
-        )?;
+        let api_response = resp
+            .json::<ApiResponseEnvelope<serde_json::Value>>()
+            .await
+            .map_err(|e| {
+                Self::err("Failed to parse VK API response", Some(&e.to_string())).unwrap()
+            })?;
 
         if !api_response.success {
             let msg = api_response.message.as_deref().unwrap_or("Unknown error");
@@ -825,10 +824,10 @@ fn detect_dependency_cycle(dependencies: &[Vec<usize>]) -> Option<Vec<usize>> {
     }
 
     for node in 0..dependencies.len() {
-        if state[node] == 0 {
-            if let Some(cycle) = visit(node, dependencies, &mut state, &mut stack, &mut in_stack) {
-                return Some(cycle);
-            }
+        if state[node] == 0
+            && let Some(cycle) = visit(node, dependencies, &mut state, &mut stack, &mut in_stack)
+        {
+            return Some(cycle);
         }
     }
 
@@ -868,18 +867,16 @@ impl TaskServer {
         let url = self.url("/api/tasks");
 
         let task: Task = match self
-            .send_json(
-                self.client.post(&url).json(&CreateTask {
-                    project_id,
-                    title,
-                    description: expanded_description,
-                    status: Some(TaskStatus::Todo),
-                    parent_workspace_id: None,
-                    image_ids: None,
-                    shared_task_id: None,
-                    task_group_id,
-                }),
-            )
+            .send_json(self.client.post(&url).json(&CreateTask {
+                project_id,
+                title,
+                description: expanded_description,
+                status: Some(TaskStatus::Todo),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id,
+            }))
             .await
         {
             Ok(t) => t,
@@ -955,18 +952,16 @@ impl TaskServer {
             };
 
             let created_task: Task = match self
-                .send_json(
-                    self.client.post(&url).json(&CreateTask {
-                        project_id,
-                        title: task.title,
-                        description: expanded_description,
-                        status: Some(TaskStatus::Todo),
-                        parent_workspace_id: None,
-                        image_ids: None,
-                        shared_task_id: None,
-                        task_group_id: task.task_group_id,
-                    }),
-                )
+                .send_json(self.client.post(&url).json(&CreateTask {
+                    project_id,
+                    title: task.title,
+                    description: expanded_description,
+                    status: Some(TaskStatus::Todo),
+                    parent_workspace_id: None,
+                    image_ids: None,
+                    shared_task_id: None,
+                    task_group_id: task.task_group_id,
+                }))
                 .await
             {
                 Ok(t) => t,
@@ -988,16 +983,14 @@ impl TaskServer {
                 let depends_on_id = created_tasks[dep_index].id;
                 let url = self.url(&format!("/api/tasks/{}/dependencies", task_id));
                 let payload = serde_json::json!({ "depends_on_id": depends_on_id });
-                let _: TaskDependency = match self
-                    .send_json(self.client.post(&url).json(&payload))
-                    .await
-                {
-                    Ok(dep) => dep,
-                    Err(e) => {
-                        self.rollback_created_tasks(&created_tasks).await;
-                        return Ok(e);
-                    }
-                };
+                let _: TaskDependency =
+                    match self.send_json(self.client.post(&url).json(&payload)).await {
+                        Ok(dep) => dep,
+                        Err(e) => {
+                            self.rollback_created_tasks(&created_tasks).await;
+                            return Ok(e);
+                        }
+                    };
             }
         }
 
@@ -1031,18 +1024,16 @@ impl TaskServer {
 
         let url = self.url("/api/tasks");
         let task: Task = match self
-            .send_json(
-                self.client.post(&url).json(&CreateTask {
-                    project_id,
-                    title,
-                    description: expanded_description,
-                    status: None,
-                    parent_workspace_id: None,
-                    image_ids: None,
-                    shared_task_id: None,
-                    task_group_id,
-                }),
-            )
+            .send_json(self.client.post(&url).json(&CreateTask {
+                project_id,
+                title,
+                description: expanded_description,
+                status: None,
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id,
+            }))
             .await
         {
             Ok(t) => t,
@@ -1313,10 +1304,7 @@ impl TaskServer {
         Parameters(DeleteTaskRequest { task_id }): Parameters<DeleteTaskRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let url = self.url(&format!("/api/tasks/{}", task_id));
-        let deleted = match self
-            .send_json_no_data(self.client.delete(&url), true)
-            .await
-        {
+        let deleted = match self.send_json_no_data(self.client.delete(&url), true).await {
             Ok(deleted) => deleted,
             Err(e) => return Ok(e),
         };
@@ -1361,13 +1349,11 @@ impl TaskServer {
     ) -> Result<CallToolResult, ErrorData> {
         let url = self.url(&format!("/api/tasks/{}/dependencies", task_id));
         let payload = serde_json::json!({ "depends_on_id": depends_on_id });
-        let dependency: TaskDependency = match self
-            .send_json(self.client.post(&url).json(&payload))
-            .await
-        {
-            Ok(dep) => dep,
-            Err(e) => return Ok(e),
-        };
+        let dependency: TaskDependency =
+            match self.send_json(self.client.post(&url).json(&payload)).await {
+                Ok(dep) => dep,
+                Err(e) => return Ok(e),
+            };
 
         TaskServer::success(&TaskDependencyInfo::from_dependency(dependency))
     }
@@ -1408,11 +1394,10 @@ impl TaskServer {
         Parameters(GetTaskDependenciesRequest { task_id }): Parameters<GetTaskDependenciesRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let blocked_by_url = self.url(&format!("/api/tasks/{}/dependencies", task_id));
-        let blocked_by: Vec<Task> =
-            match self.send_json(self.client.get(&blocked_by_url)).await {
-                Ok(tasks) => tasks,
-                Err(e) => return Ok(e),
-            };
+        let blocked_by: Vec<Task> = match self.send_json(self.client.get(&blocked_by_url)).await {
+            Ok(tasks) => tasks,
+            Err(e) => return Ok(e),
+        };
 
         let blocking_url = self.url(&format!(
             "/api/tasks/{}/dependencies?direction=blocking",
@@ -1423,19 +1408,13 @@ impl TaskServer {
             Err(e) => return Ok(e),
         };
 
-        let blocked_by_details: Vec<TaskDetails> = blocked_by
-            .into_iter()
-            .map(TaskDetails::from_task)
-            .collect();
-        let blocking_details: Vec<TaskDetails> = blocking
-            .into_iter()
-            .map(TaskDetails::from_task)
-            .collect();
+        let blocked_by_details: Vec<TaskDetails> =
+            blocked_by.into_iter().map(TaskDetails::from_task).collect();
+        let blocking_details: Vec<TaskDetails> =
+            blocking.into_iter().map(TaskDetails::from_task).collect();
 
         // A task is blocked if any of its dependencies are not done
-        let is_blocked = blocked_by_details
-            .iter()
-            .any(|dep| dep.status != "done");
+        let is_blocked = blocked_by_details.iter().any(|dep| dep.status != "done");
 
         let response = TaskDependencySummary {
             is_blocked,
@@ -1456,7 +1435,10 @@ impl TaskServer {
         if let Some(max_depth) = max_depth
             && max_depth < 0
         {
-            return Self::err("max_depth must be non-negative.".to_string(), None::<String>);
+            return Self::err(
+                "max_depth must be non-negative.".to_string(),
+                None::<String>,
+            );
         }
 
         let url = self.url(&format!("/api/tasks/{}/dependency-tree", task_id));
@@ -1507,7 +1489,9 @@ impl TaskServer {
         TaskServer::success(&response)
     }
 
-    #[tool(description = "Create a new task group in a project. `project_id` and `name` are required!")]
+    #[tool(
+        description = "Create a new task group in a project. `project_id` and `name` are required!"
+    )]
     async fn create_task_group(
         &self,
         Parameters(CreateTaskGroupRequest {
@@ -1586,10 +1570,7 @@ impl TaskServer {
         Parameters(DeleteTaskGroupRequest { group_id }): Parameters<DeleteTaskGroupRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let url = self.url(&format!("/api/task-groups/{}", group_id));
-        let deleted = match self
-            .send_json_no_data(self.client.delete(&url), true)
-            .await
-        {
+        let deleted = match self.send_json_no_data(self.client.delete(&url), true).await {
             Ok(deleted) => deleted,
             Err(e) => return Ok(e),
         };

@@ -26,7 +26,9 @@ use executors::profile::ExecutorProfileId;
 use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use services::services::{
-    container::ContainerService, share::ShareError, workspace_manager::WorkspaceManager,
+    container::{ContainerService, StartWorkspaceResult},
+    share::ShareError,
+    workspace_manager::WorkspaceManager,
 };
 use sqlx::Error as SqlxError;
 use ts_rs::TS;
@@ -63,10 +65,7 @@ pub async fn get_tasks(
     const MAX_LIMIT: i32 = 200;
     const DEFAULT_OFFSET: i32 = 0;
 
-    let limit = query
-        .limit
-        .unwrap_or(DEFAULT_LIMIT)
-        .clamp(0, MAX_LIMIT) as i64;
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(0, MAX_LIMIT) as i64;
     let offset = query.offset.unwrap_or(DEFAULT_OFFSET).max(0) as i64;
 
     let order_by = match query.order_by.as_deref() {
@@ -298,12 +297,21 @@ pub async fn create_task_and_start(
         .collect();
     WorkspaceRepo::create_many(&deployment.db().pool, workspace.id, &workspace_repos).await?;
 
-    let is_attempt_running = deployment
+    let is_attempt_running = match deployment
         .container()
         .start_workspace(&workspace, payload.executor_profile_id.clone())
         .await
-        .inspect_err(|err| tracing::error!("Failed to start task attempt: {}", err))
-        .is_ok();
+    {
+        Ok(StartWorkspaceResult::Started(_)) => true,
+        Ok(StartWorkspaceResult::Queued(_)) => {
+            tracing::info!("Task attempt queued for workspace {}", workspace.id);
+            false
+        }
+        Err(err) => {
+            tracing::error!("Failed to start task attempt: {}", err);
+            false
+        }
+    };
     deployment
         .track_if_analytics_allowed(
             "task_attempt_started",
@@ -326,6 +334,7 @@ pub async fn create_task_and_start(
         has_in_progress_attempt: is_attempt_running,
         last_attempt_failed: false,
         is_blocked: false,
+        is_queued: !is_attempt_running,
         executor: payload.executor_profile_id.executor.to_string(),
     })))
 }
@@ -340,8 +349,12 @@ pub async fn update_task(
 
     // Validate task_group_id if a new value is provided
     if let Some(task_group_id) = payload.task_group_id {
-        validate_task_group_id(&deployment.db().pool, task_group_id, existing_task.project_id)
-            .await?;
+        validate_task_group_id(
+            &deployment.db().pool,
+            task_group_id,
+            existing_task.project_id,
+        )
+        .await?;
     }
 
     // Use existing values if not provided in update

@@ -46,7 +46,7 @@ export type TaskStatus = "todo" | "inprogress" | "inreview" | "done" | "cancelle
 
 export type Task = { id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_workspace_id: string | null, shared_task_id: string | null, task_group_id: string | null, created_at: string, updated_at: string, };
 
-export type TaskWithAttemptStatus = { has_in_progress_attempt: boolean, last_attempt_failed: boolean, is_blocked: boolean, executor: string, id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_workspace_id: string | null, shared_task_id: string | null, task_group_id: string | null, created_at: string, updated_at: string, };
+export type TaskWithAttemptStatus = { has_in_progress_attempt: boolean, last_attempt_failed: boolean, is_blocked: boolean, is_queued: boolean, executor: string, id: string, project_id: string, title: string, description: string | null, status: TaskStatus, parent_workspace_id: string | null, shared_task_id: string | null, task_group_id: string | null, created_at: string, updated_at: string, };
 
 export type TaskRelationships = { parent_task: Task | null, current_workspace: Workspace, children: Array<Task>, };
 
@@ -220,7 +220,23 @@ export type CheckEditorAvailabilityQuery = { editor_type: EditorType, };
 
 export type CheckEditorAvailabilityResponse = { available: boolean, };
 
+export type CreateCustomEditorRequest = { name: string, command: string, };
+
+export type UpdateCustomEditorRequest = { name: string, command: string, };
+
+export type CustomEditorResponse = { id: string, name: string, command: string, icon: string | null, created_at: string, available: boolean, };
+
+export type ListCustomEditorsResponse = { editors: Array<CustomEditorResponse>, };
+
+export type CheckCustomEditorAvailabilityResponse = { available: boolean, };
+
 export type CheckAgentAvailabilityQuery = { executor: BaseCodingAgent, };
+
+export type AccountInfo = { claude: ClaudeAccountInfo | null, codex: CodexAccountInfo | null, };
+
+export type ClaudeAccountInfo = { subscriptionType: string, rateLimitTier: string | null, };
+
+export type CodexAccountInfo = { planType: string, subscriptionActiveUntil: string | null, };
 
 export type CurrentUserResponse = { user_id: string, };
 
@@ -324,17 +340,27 @@ export type DirectoryEntry = { name: string, path: string, is_directory: boolean
 
 export type DirectoryListResponse = { entries: Array<DirectoryEntry>, current_path: string, };
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, default_clone_directory: string | null, commit_message_auto_generate_enabled: boolean, commit_message_prompt: string | null, commit_message_executor_profile: ExecutorProfileId | null, };
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, default_clone_directory: string | null, commit_message_auto_generate_enabled: boolean, commit_message_prompt: string | null, commit_message_executor_profile: ExecutorProfileId | null, 
+/**
+ * Maximum concurrent agent executions (0 = unlimited)
+ */
+max_concurrent_agents: number, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, };
 
 export enum ThemeMode { LIGHT = "LIGHT", DARK = "DARK", SYSTEM = "SYSTEM" }
 
-export type EditorConfig = { editor_type: EditorType, custom_command: string | null, remote_ssh_host: string | null, remote_ssh_user: string | null, };
+export type EditorConfig = { editor_type: EditorType, custom_command: string | null, custom_editor_id: string | null, remote_ssh_host: string | null, remote_ssh_user: string | null, };
 
 export enum EditorType { VS_CODE = "VS_CODE", CURSOR = "CURSOR", WINDSURF = "WINDSURF", INTELLI_J = "INTELLI_J", ZED = "ZED", XCODE = "XCODE", CUSTOM = "CUSTOM" }
 
 export type EditorOpenError = { "type": "executable_not_found", executable: string, editor_type: EditorType, } | { "type": "invalid_command", details: string, editor_type: EditorType, } | { "type": "launch_failed", executable: string, details: string, editor_type: EditorType, };
+
+export type EditorIdentifier = { "type": "built_in" } & EditorType | { "type": "custom" } & string;
+
+export type CustomEditor = { id: string, name: string, command: string, icon: string | null, created_at: string, };
+
+export type CustomEditorsConfig = { custom_editors: { [key in string]?: CustomEditor }, };
 
 export type GitHubConfig = { pat: string | null, oauth_token: string | null, username: string | null, primary_email: string | null, default_pr_base: string | null, };
 

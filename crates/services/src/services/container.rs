@@ -20,6 +20,7 @@ use db::{
         execution_process_repo_state::{
             CreateExecutionProcessRepoState, ExecutionProcessRepoState,
         },
+        execution_queue::ExecutionQueue,
         project::{Project, UpdateProject},
         project_repo::{ProjectRepo, ProjectRepoWithName},
         repo::Repo,
@@ -51,6 +52,7 @@ use utils::{
 use uuid::Uuid;
 
 use crate::services::{
+    config::Config,
     git::{GitService, GitServiceError},
     notification::NotificationService,
     share::SharePublisher,
@@ -60,12 +62,23 @@ use crate::services::{
 };
 pub type ContainerRef = String;
 
+/// Result of starting a workspace execution
+#[derive(Debug)]
+pub enum StartWorkspaceResult {
+    /// Execution started immediately
+    Started(ExecutionProcess),
+    /// Execution was queued due to concurrency limit
+    Queued(ExecutionQueue),
+}
+
 enum NormalizedEntryPatchOp {
     Upsert {
         index: i64,
         entry: Box<NormalizedEntry>,
     },
-    Remove { index: i64 },
+    Remove {
+        index: i64,
+    },
 }
 
 fn extract_normalized_entry_ops(patch: &json_patch::Patch) -> Vec<NormalizedEntryPatchOp> {
@@ -98,9 +111,7 @@ fn extract_normalized_entry_ops(patch: &json_patch::Patch) -> Vec<NormalizedEntr
                         entry: Box::new(entry),
                     })
                 }
-                "remove" => Some(NormalizedEntryPatchOp::Remove {
-                    index: entry_index,
-                }),
+                "remove" => Some(NormalizedEntryPatchOp::Remove { index: entry_index }),
                 _ => None,
             }
         })
@@ -115,12 +126,7 @@ async fn apply_normalized_entry_ops(
     for op in ops {
         match op {
             NormalizedEntryPatchOp::Upsert { index, entry } => {
-                ExecutionProcessNormalizedEntry::upsert(
-                    pool,
-                    execution_id,
-                    index,
-                    entry.as_ref(),
-                )
+                ExecutionProcessNormalizedEntry::upsert(pool, execution_id, index, entry.as_ref())
                     .await
                     .map_err(ContainerError::Other)?;
             }
@@ -238,6 +244,9 @@ pub trait ContainerService {
     /// Returns None if the implementation doesn't support shared watching.
     fn watcher_manager(&self) -> Option<&WatcherManager>;
 
+    /// Get the deployment config for accessing max_concurrent_agents setting.
+    fn config(&self) -> &Arc<RwLock<Config>>;
+
     fn workspace_to_current_dir(&self, workspace: &Workspace) -> PathBuf;
 
     async fn create(&self, workspace: &Workspace) -> Result<ContainerRef, ContainerError>;
@@ -249,6 +258,87 @@ pub trait ContainerService {
     /// Check if a task has any running execution processes
     async fn has_running_processes(&self, task_id: Uuid) -> Result<bool, ContainerError> {
         Ok(ExecutionProcess::has_running_processes_for_task(&self.db().pool, task_id).await?)
+    }
+
+    /// Check if execution should be queued based on concurrency limit.
+    /// Returns true if running agents >= max_concurrent_agents (and limit is enabled).
+    /// Returns false if max_concurrent_agents == 0 (unlimited).
+    async fn should_queue_execution(&self) -> Result<bool, ContainerError> {
+        let max_concurrent = self.config().read().await.max_concurrent_agents;
+
+        // 0 means unlimited - never queue
+        if max_concurrent == 0 {
+            return Ok(false);
+        }
+
+        let running_count = ExecutionProcess::count_running_agents(&self.db().pool).await?;
+        Ok(running_count >= max_concurrent as i64)
+    }
+
+    /// Process the execution queue - start queued workspaces when slots are available.
+    /// Pops entries from the queue and starts execution until at capacity or queue empty.
+    async fn process_queue(&self) -> Result<(), ContainerError> {
+        loop {
+            // Check if we can start more executions
+            if self.should_queue_execution().await? {
+                // At capacity, stop processing
+                break;
+            }
+
+            // Try to pop next from queue
+            let entry = match ExecutionQueue::pop_next(&self.db().pool).await {
+                Ok(Some(e)) => e,
+                Ok(None) => {
+                    // Queue is empty
+                    break;
+                }
+                Err(e) => {
+                    tracing::error!("Failed to pop from execution queue: {}", e);
+                    break;
+                }
+            };
+
+            // Load workspace and start execution
+            let workspace = match Workspace::find_by_id(&self.db().pool, entry.workspace_id).await {
+                Ok(Some(w)) => w,
+                Ok(None) => {
+                    tracing::warn!(
+                        "Workspace {} not found when processing queue, skipping",
+                        entry.workspace_id
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to load workspace {} from queue: {}",
+                        entry.workspace_id,
+                        e
+                    );
+                    continue;
+                }
+            };
+
+            tracing::info!(
+                "Starting queued workspace {} with executor {:?}",
+                workspace.id,
+                entry.executor_profile_id.0
+            );
+
+            // Start the workspace execution (inner call that bypasses queue check)
+            if let Err(e) = self
+                .start_workspace_inner(&workspace, entry.executor_profile_id.0.clone())
+                .await
+            {
+                tracing::error!(
+                    "Failed to start queued workspace {}: {}",
+                    workspace.id,
+                    e
+                );
+                // Continue processing other queue entries even if one fails
+            }
+        }
+
+        Ok(())
     }
 
     /// Wait for an execution process to complete (status != Running).
@@ -842,16 +932,15 @@ pub trait ContainerService {
     }
 
     async fn build_normalized_store_from_db(&self, id: &Uuid) -> Option<Arc<MsgStore>> {
-        let log_records = match ExecutionProcessLogs::find_by_execution_id(&self.db().pool, *id)
-            .await
-        {
-            Ok(records) if !records.is_empty() => records,
-            Ok(_) => return None,
-            Err(e) => {
-                tracing::error!("Failed to fetch logs for execution {}: {}", id, e);
-                return None;
-            }
-        };
+        let log_records =
+            match ExecutionProcessLogs::find_by_execution_id(&self.db().pool, *id).await {
+                Ok(records) if !records.is_empty() => records,
+                Ok(_) => return None,
+                Err(e) => {
+                    tracing::error!("Failed to fetch logs for execution {}: {}", id, e);
+                    return None;
+                }
+            };
 
         let raw_messages = match ExecutionProcessLogs::parse_logs(&log_records) {
             Ok(msgs) => msgs,
@@ -976,10 +1065,7 @@ pub trait ContainerService {
         }
     }
 
-    async fn backfill_normalized_entries(
-        &self,
-        execution_id: Uuid,
-    ) -> Result<(), ContainerError> {
+    async fn backfill_normalized_entries(&self, execution_id: Uuid) -> Result<(), ContainerError> {
         let store = if let Some(store) = self.get_msg_store_by_id(&execution_id).await {
             Some(store)
         } else {
@@ -1107,7 +1193,36 @@ pub trait ContainerService {
         })
     }
 
+    /// Start a workspace execution, potentially queuing if at concurrency limit.
+    /// Returns `StartWorkspaceResult::Queued` if execution was queued,
+    /// or `StartWorkspaceResult::Started` if execution began immediately.
     async fn start_workspace(
+        &self,
+        workspace: &Workspace,
+        executor_profile_id: ExecutorProfileId,
+    ) -> Result<StartWorkspaceResult, ContainerError> {
+        // Check if we should queue this execution
+        if self.should_queue_execution().await? {
+            tracing::info!(
+                "At concurrency limit, queueing workspace {} for execution",
+                workspace.id
+            );
+            let queue_entry =
+                ExecutionQueue::create(&self.db().pool, workspace.id, &executor_profile_id)
+                    .await?;
+            return Ok(StartWorkspaceResult::Queued(queue_entry));
+        }
+
+        // Not at limit, start immediately
+        let execution_process = self
+            .start_workspace_inner(workspace, executor_profile_id)
+            .await?;
+        Ok(StartWorkspaceResult::Started(execution_process))
+    }
+
+    /// Inner implementation of start_workspace that bypasses queue check.
+    /// Used when starting from the queue (already popped) or when not at capacity.
+    async fn start_workspace_inner(
         &self,
         workspace: &Workspace,
         executor_profile_id: ExecutorProfileId,

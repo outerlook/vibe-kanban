@@ -117,10 +117,8 @@ impl Deployment for LocalDeployment {
 
         // Create DB with event hooks that send to the worker
         let db = {
-            let hook = EventService::create_hook(
-                events_msg_store.clone(),
-                event_worker_handle.sender(),
-            );
+            let hook =
+                EventService::create_hook(events_msg_store.clone(), event_worker_handle.sender());
             DBService::new_with_after_connect(hook).await?
         };
 

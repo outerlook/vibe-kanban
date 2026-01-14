@@ -15,5 +15,6 @@
   "github": {
     "token": "",
     "default_pr_base": "main"
-  }
+  },
+  "max_concurrent_agents": 0
 }

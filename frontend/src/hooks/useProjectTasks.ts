@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks';
 import { useProject } from '@/contexts/ProjectContext';
 import { useLiveQuery, eq, isNull } from '@tanstack/react-db';
@@ -12,6 +13,14 @@ import type {
   TaskStatus,
   TaskWithAttemptStatus,
 } from 'shared/types';
+
+export const projectTasksKeys = {
+  all: ['projectTasks'] as const,
+  byProject: (projectId: string | undefined) =>
+    ['projectTasks', projectId] as const,
+  byProjectInfinite: (projectId: string | undefined) =>
+    ['projectTasks', 'infinite', projectId] as const,
+};
 
 export type SharedTaskRecord = SharedTask & {
   remote_project_id: string;
@@ -62,6 +71,7 @@ const createInitialPaginationState = (): PerStatusPagination => ({
   done: { offset: 0, total: 0, hasMore: false, isLoading: false },
   cancelled: { offset: 0, total: 0, hasMore: false, isLoading: false },
 });
+
 const TASK_PATH_PREFIX = '/tasks/';
 
 type WsJsonPatchMsg = { JsonPatch: Operation[] };
@@ -87,6 +97,7 @@ export interface UseProjectTasksResult {
 }
 
 export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
+  const queryClient = useQueryClient();
   const { project } = useProject();
   const { isSignedIn } = useAuth();
   const remoteProjectId = project?.remote_project_id;
@@ -286,8 +297,11 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
           return next;
         });
       }
+
+      // Invalidate React Query cache to keep it in sync
+      queryClient.invalidateQueries({ queryKey: projectTasksKeys.byProject(projectId) });
     },
-    [projectId]
+    [projectId, queryClient]
   );
 
   useEffect(() => {
@@ -391,16 +405,14 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     [sharedTasksQuery.data]
   );
 
-  const localTasksById = useMemo(() => tasksById, [tasksById]);
-
   const referencedSharedIds = useMemo(
     () =>
       new Set(
-        Object.values(localTasksById)
+        Object.values(tasksById)
           .map((task) => task.shared_task_id)
           .filter((id): id is string => Boolean(id))
       ),
-    [localTasksById]
+    [tasksById]
   );
 
   const { assignees } = useAssigneeUserNames({
@@ -430,7 +442,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
   }, [sharedTasksList, assignees]);
 
   const { tasks, tasksById: mergedTasksById, tasksByStatus } = useMemo(() => {
-    const merged: Record<string, TaskWithAttemptStatus> = { ...localTasksById };
+    const merged: Record<string, TaskWithAttemptStatus> = { ...tasksById };
     const byStatus: Record<TaskStatus, TaskWithAttemptStatus[]> = {
       todo: [],
       inprogress: [],
@@ -454,7 +466,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     );
 
     return { tasks: sorted, tasksById: merged, tasksByStatus: byStatus };
-  }, [localTasksById]);
+  }, [tasksById]);
 
   const sharedOnlyByStatus = useMemo(() => {
     const grouped: Record<TaskStatus, SharedTaskRecord[]> = {
@@ -467,7 +479,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
 
     Object.values(sharedTasksById).forEach((sharedTask) => {
       const hasLocal =
-        Boolean(localTasksById[sharedTask.id]) ||
+        Boolean(tasksById[sharedTask.id]) ||
         referencedSharedIds.has(sharedTask.id);
 
       if (hasLocal) {
@@ -485,7 +497,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     });
 
     return grouped;
-  }, [localTasksById, sharedTasksById, referencedSharedIds]);
+  }, [tasksById, sharedTasksById, referencedSharedIds]);
 
   // Derive per-status pagination helpers for the return value
   const loadMoreByStatus = useMemo(() => {
@@ -537,7 +549,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
   // Auto-link shared tasks assigned to current user
   useAutoLinkSharedTasks({
     sharedTasksById,
-    localTasksById,
+    localTasksById: tasksById,
     referencedSharedIds,
     isLoading,
     hasMore: anyStatusHasMore,

@@ -1,7 +1,9 @@
 use std::{collections::HashMap, env, fs, path::Path};
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, generate::SchemaSettings};
-use server::routes::task_attempts::pr::{DEFAULT_COMMIT_MESSAGE_PROMPT, DEFAULT_PR_DESCRIPTION_PROMPT};
+use server::routes::task_attempts::pr::{
+    DEFAULT_COMMIT_MESSAGE_PROMPT, DEFAULT_PR_DESCRIPTION_PROMPT,
+};
 use ts_rs::TS;
 
 fn generate_types_content() -> String {
@@ -110,7 +112,15 @@ fn generate_types_content() -> String {
         server::routes::config::GetMcpServerResponse::decl(),
         server::routes::config::CheckEditorAvailabilityQuery::decl(),
         server::routes::config::CheckEditorAvailabilityResponse::decl(),
+        server::routes::config::CreateCustomEditorRequest::decl(),
+        server::routes::config::UpdateCustomEditorRequest::decl(),
+        server::routes::config::CustomEditorResponse::decl(),
+        server::routes::config::ListCustomEditorsResponse::decl(),
+        server::routes::config::CheckCustomEditorAvailabilityResponse::decl(),
         server::routes::config::CheckAgentAvailabilityQuery::decl(),
+        server::routes::account_info::AccountInfo::decl(),
+        server::routes::account_info::ClaudeAccountInfo::decl(),
+        server::routes::account_info::CodexAccountInfo::decl(),
         server::routes::oauth::CurrentUserResponse::decl(),
         server::routes::sessions::CreateFollowUpAttempt::decl(),
         server::routes::task_attempts::ChangeTargetBranchRequest::decl(),
@@ -156,6 +166,9 @@ fn generate_types_content() -> String {
         services::services::config::EditorConfig::decl(),
         services::services::config::EditorType::decl(),
         services::services::config::EditorOpenError::decl(),
+        services::services::config::editor::EditorIdentifier::decl(),
+        services::services::config::custom_editors::CustomEditor::decl(),
+        services::services::config::custom_editors::CustomEditorsConfig::decl(),
         services::services::config::GitHubConfig::decl(),
         services::services::config::SoundFile::decl(),
         services::services::config::UiLanguage::decl(),
@@ -235,8 +248,7 @@ fn generate_types_content() -> String {
         .replace('`', "\\`");
     let constants = format!(
         "export const DEFAULT_PR_DESCRIPTION_PROMPT = `{}`;\n\nexport const DEFAULT_COMMIT_MESSAGE_PROMPT = `{}`;",
-        pr_prompt_escaped,
-        commit_prompt_escaped
+        pr_prompt_escaped, commit_prompt_escaped
     );
 
     format!("{HEADER}\n\n{body}\n\n{constants}")

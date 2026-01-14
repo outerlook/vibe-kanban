@@ -10,6 +10,7 @@ use axum::{
 };
 use deployment::{Deployment, DeploymentError};
 use executors::{
+    command::CommandBuilder,
     executors::{
         AvailabilityInfo, BaseAgentCapability, BaseCodingAgent, StandardCodingAgentExecutor,
     },
@@ -20,12 +21,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use services::services::config::{
     Config, ConfigError, SoundFile,
+    custom_editors::{CustomEditor, CustomEditorsConfig},
     editor::{EditorConfig, EditorType},
     save_config_to_file,
 };
 use tokio::fs;
 use ts_rs::TS;
 use utils::{api::oauth::LoginStatus, assets::config_path, response::ApiResponse};
+use uuid::Uuid;
 
 use crate::{DeploymentImpl, error::ApiError};
 
@@ -33,6 +36,18 @@ pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/info", get(get_user_system_info))
         .route("/config", put(update_config))
+        .route(
+            "/config/custom-editors",
+            get(list_custom_editors).post(create_custom_editor),
+        )
+        .route(
+            "/config/custom-editors/{id}",
+            put(update_custom_editor).delete(delete_custom_editor),
+        )
+        .route(
+            "/config/custom-editors/{id}/check-availability",
+            get(check_custom_editor_availability),
+        )
         .route("/sounds/{sound}", get(get_sound))
         .route("/mcp-config", get(get_mcp_servers).post(update_mcp_servers))
         .route("/profiles", get(get_profiles).put(update_profiles))
@@ -196,6 +211,167 @@ async fn get_sound(Path(sound): Path<SoundFile>) -> Result<Response, ApiError> {
         .body(Body::from(sound.data.into_owned()))
         .unwrap();
     Ok(response)
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct CreateCustomEditorRequest {
+    pub name: String,
+    pub command: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct UpdateCustomEditorRequest {
+    pub name: String,
+    pub command: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct CustomEditorResponse {
+    pub id: Uuid,
+    pub name: String,
+    pub command: String,
+    pub icon: Option<String>,
+    pub created_at: String,
+    pub available: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct ListCustomEditorsResponse {
+    pub editors: Vec<CustomEditorResponse>,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct CheckCustomEditorAvailabilityResponse {
+    pub available: bool,
+}
+
+async fn list_custom_editors(
+    State(_deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<ListCustomEditorsResponse>>, ApiError> {
+    let config = CustomEditorsConfig::get_cached();
+    let mut editors: Vec<CustomEditor> = config.custom_editors.values().cloned().collect();
+    editors.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
+    let mut responses = Vec::with_capacity(editors.len());
+    for editor in editors {
+        responses.push(build_custom_editor_response(editor).await);
+    }
+
+    Ok(ResponseJson(ApiResponse::success(
+        ListCustomEditorsResponse { editors: responses },
+    )))
+}
+
+async fn create_custom_editor(
+    State(_deployment): State<DeploymentImpl>,
+    Json(payload): Json<CreateCustomEditorRequest>,
+) -> Result<
+    (
+        http::StatusCode,
+        ResponseJson<ApiResponse<CustomEditorResponse>>,
+    ),
+    ApiError,
+> {
+    let id = CustomEditorsConfig::create(payload.name, payload.command)
+        .await
+        .map_err(map_custom_editor_error)?;
+
+    let config = CustomEditorsConfig::get_cached();
+    let editor = config
+        .get(id)
+        .cloned()
+        .ok_or_else(|| ApiError::NotFound("Custom editor not found".to_string()))?;
+
+    let response = build_custom_editor_response(editor).await;
+    Ok((
+        http::StatusCode::CREATED,
+        ResponseJson(ApiResponse::success(response)),
+    ))
+}
+
+async fn update_custom_editor(
+    State(_deployment): State<DeploymentImpl>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateCustomEditorRequest>,
+) -> Result<ResponseJson<ApiResponse<CustomEditorResponse>>, ApiError> {
+    let config = CustomEditorsConfig::get_cached();
+    if config.get(id).is_none() {
+        return Err(ApiError::NotFound("Custom editor not found".to_string()));
+    }
+
+    CustomEditorsConfig::update(id, payload.name, payload.command)
+        .await
+        .map_err(map_custom_editor_error)?;
+
+    let config = CustomEditorsConfig::get_cached();
+    let editor = config
+        .get(id)
+        .cloned()
+        .ok_or_else(|| ApiError::NotFound("Custom editor not found".to_string()))?;
+
+    Ok(ResponseJson(ApiResponse::success(
+        build_custom_editor_response(editor).await,
+    )))
+}
+
+async fn delete_custom_editor(
+    State(_deployment): State<DeploymentImpl>,
+    Path(id): Path<Uuid>,
+) -> Result<http::StatusCode, ApiError> {
+    let config = CustomEditorsConfig::get_cached();
+    if config.get(id).is_none() {
+        return Err(ApiError::NotFound("Custom editor not found".to_string()));
+    }
+
+    CustomEditorsConfig::delete(id)
+        .await
+        .map_err(map_custom_editor_error)?;
+
+    Ok(http::StatusCode::NO_CONTENT)
+}
+
+async fn check_custom_editor_availability(
+    State(_deployment): State<DeploymentImpl>,
+    Path(id): Path<Uuid>,
+) -> Result<ResponseJson<ApiResponse<CheckCustomEditorAvailabilityResponse>>, ApiError> {
+    let config = CustomEditorsConfig::get_cached();
+    let editor = config
+        .get(id)
+        .cloned()
+        .ok_or_else(|| ApiError::NotFound("Custom editor not found".to_string()))?;
+
+    let available = command_available(&editor.command).await;
+    Ok(ResponseJson(ApiResponse::success(
+        CheckCustomEditorAvailabilityResponse { available },
+    )))
+}
+
+async fn build_custom_editor_response(editor: CustomEditor) -> CustomEditorResponse {
+    let available = command_available(&editor.command).await;
+    CustomEditorResponse {
+        id: editor.id,
+        name: editor.name,
+        command: editor.command,
+        icon: editor.icon,
+        created_at: editor.created_at,
+        available,
+    }
+}
+
+async fn command_available(command: &str) -> bool {
+    let parts = match CommandBuilder::new(command).build_initial() {
+        Ok(parts) => parts,
+        Err(_) => return false,
+    };
+
+    parts.into_resolved().await.is_ok()
+}
+
+fn map_custom_editor_error(err: ConfigError) -> ApiError {
+    match err {
+        ConfigError::ValidationError(message) => ApiError::BadRequest(message),
+        other => ApiError::Config(other),
+    }
 }
 
 #[derive(TS, Debug, Deserialize)]
@@ -456,6 +632,7 @@ async fn check_editor_availability(
     let editor_config = EditorConfig::new(
         query.editor_type,
         None, // custom_command
+        None, // custom_editor_id
         None, // remote_ssh_host
         None, // remote_ssh_user
     );
@@ -484,4 +661,209 @@ async fn check_agent_availability(
     };
 
     ResponseJson(ApiResponse::success(info))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs,
+        sync::{LazyLock, Mutex},
+    };
+
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
+    use local_deployment::LocalDeployment;
+    use serde_json::json;
+    use tower::ServiceExt;
+
+    use super::*;
+
+    static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    fn read_editors_file() -> Option<String> {
+        fs::read_to_string(utils::assets::editors_path()).ok()
+    }
+
+    fn write_editors_file(contents: &str) {
+        fs::write(utils::assets::editors_path(), contents).unwrap();
+    }
+
+    fn delete_editors_file() {
+        let _ = fs::remove_file(utils::assets::editors_path());
+    }
+
+    async fn reset_custom_editors() {
+        delete_editors_file();
+        CustomEditorsConfig::reload().await.unwrap();
+    }
+
+    async fn init_custom_editors_cache() {
+        tokio::task::spawn_blocking(|| {
+            let _ = CustomEditorsConfig::get_cached();
+        })
+        .await
+        .unwrap();
+    }
+
+    async fn restore_custom_editors(original: Option<String>) {
+        match original {
+            Some(contents) => write_editors_file(&contents),
+            None => delete_editors_file(),
+        }
+        CustomEditorsConfig::reload().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // Test serialization via std::sync::Mutex is intentional
+    async fn custom_editor_crud_and_availability() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let original = read_editors_file();
+        init_custom_editors_cache().await;
+        reset_custom_editors().await;
+
+        let available_command = if cfg!(windows) { "cmd" } else { "sh" };
+        let deployment = LocalDeployment::new().await.unwrap();
+        let app = router().with_state(deployment);
+
+        let create_body = json!({
+            "name": "Local Editor",
+            "command": available_command
+        });
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/config/custom-editors")
+                    .header("content-type", "application/json")
+                    .body(Body::from(create_body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let create_response: ApiResponse<CustomEditorResponse> =
+            serde_json::from_slice(&body).unwrap();
+        assert!(create_response.is_success());
+        let created = create_response.into_data().unwrap();
+        assert_eq!(created.name, "Local Editor");
+        assert_eq!(created.command, available_command);
+        assert!(!created.created_at.is_empty());
+
+        let duplicate_body = json!({
+            "name": "Local Editor",
+            "command": available_command
+        });
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/config/custom-editors")
+                    .header("content-type", "application/json")
+                    .body(Body::from(duplicate_body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/config/custom-editors")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let list_response: ApiResponse<ListCustomEditorsResponse> =
+            serde_json::from_slice(&body).unwrap();
+        let list_data = list_response.into_data().unwrap();
+        assert_eq!(list_data.editors.len(), 1);
+        assert_eq!(list_data.editors[0].id, created.id);
+        assert!(list_data.editors[0].available);
+
+        let update_body = json!({
+            "name": "Updated Editor",
+            "command": "definitely_not_a_command_12345"
+        });
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/config/custom-editors/{}", created.id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(update_body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let update_response: ApiResponse<CustomEditorResponse> =
+            serde_json::from_slice(&body).unwrap();
+        let updated = update_response.into_data().unwrap();
+        assert_eq!(updated.name, "Updated Editor");
+        assert!(!updated.available);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!(
+                        "/config/custom-editors/{}/check-availability",
+                        created.id
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let availability_response: ApiResponse<CheckCustomEditorAvailabilityResponse> =
+            serde_json::from_slice(&body).unwrap();
+        let availability = availability_response.into_data().unwrap();
+        assert!(!availability.available);
+
+        let missing_id = Uuid::new_v4();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/config/custom-editors/{missing_id}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(update_body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/config/custom-editors/{}", created.id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        restore_custom_editors(original).await;
+    }
 }

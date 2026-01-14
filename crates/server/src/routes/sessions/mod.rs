@@ -127,7 +127,10 @@ pub async fn follow_up(
             executor: initial_executor_profile_id.executor,
             variant: Some(variant.clone()),
         };
-        if ExecutorConfigs::get_cached().get_coding_agent(&candidate).is_some() {
+        if ExecutorConfigs::get_cached()
+            .get_coding_agent(&candidate)
+            .is_some()
+        {
             candidate
         } else {
             tracing::warn!(

@@ -46,7 +46,7 @@ use executors::{
 use git2::BranchType;
 use serde::{Deserialize, Serialize};
 use services::services::{
-    container::ContainerService,
+    container::{ContainerService, StartWorkspaceResult},
     git::{ConflictOp, GitCliError, GitServiceError},
     github::GitHubService,
 };
@@ -189,12 +189,28 @@ pub async fn create_task_attempt(
         .collect();
 
     WorkspaceRepo::create_many(pool, workspace.id, &workspace_repos).await?;
-    if let Err(err) = deployment
+    match deployment
         .container()
         .start_workspace(&workspace, executor_profile_id.clone())
         .await
     {
-        tracing::error!("Failed to start task attempt: {}", err);
+        Ok(StartWorkspaceResult::Started(execution_process)) => {
+            tracing::info!(
+                "Task attempt {} started immediately, execution process {}",
+                workspace.id,
+                execution_process.id
+            );
+        }
+        Ok(StartWorkspaceResult::Queued(queue_entry)) => {
+            tracing::info!(
+                "Task attempt {} queued for execution (queue entry {})",
+                workspace.id,
+                queue_entry.id
+            );
+        }
+        Err(err) => {
+            tracing::error!("Failed to start task attempt {}: {}", workspace.id, err);
+        }
     }
 
     deployment
@@ -316,7 +332,9 @@ pub async fn stream_workspaces_ws(
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| async move {
         let include_snapshot = query.include_snapshot.unwrap_or(true);
-        if let Err(e) = handle_workspaces_ws(socket, deployment, query.task_id, include_snapshot).await {
+        if let Err(e) =
+            handle_workspaces_ws(socket, deployment, query.task_id, include_snapshot).await
+        {
             tracing::warn!("workspaces WS closed: {}", e);
         }
     })
@@ -671,7 +689,7 @@ pub async fn open_task_attempt_in_editor(
     let editor_config = {
         let config = deployment.config().read().await;
         let editor_type_str = payload.editor_type.as_deref();
-        config.editor.with_override(editor_type_str)
+        config.editor.with_override(editor_type_str)?
     };
 
     match editor_config.open_file(path.as_path()).await {
@@ -792,40 +810,35 @@ pub async fn get_task_attempt_branch_status(
         let repo_merges = merges_by_repo.get(&repo.id).cloned().unwrap_or_default();
 
         let worktree_path = workspace_dir.join(&repo.name);
-
-        // Clone values for spawn_blocking closures
-        let git = deployment.git().clone();
-        let worktree_path_clone = worktree_path.clone();
-        let repo_path = repo.path.clone();
-        let target_branch_clone = target_branch.clone();
+        let git = deployment.git();
 
         // Run independent git operations in parallel using spawn_blocking
         let (head_result, rebase_result, conflicts_result, counts_result, branch_type_result) = tokio::join!(
             tokio::task::spawn_blocking({
                 let git = git.clone();
-                let path = worktree_path_clone.clone();
+                let path = worktree_path.clone();
                 move || git.get_head_info(&path)
             }),
             tokio::task::spawn_blocking({
                 let git = git.clone();
-                let path = worktree_path_clone.clone();
+                let path = worktree_path.clone();
                 move || git.is_rebase_in_progress(&path)
             }),
             tokio::task::spawn_blocking({
                 let git = git.clone();
-                let path = worktree_path_clone.clone();
+                let path = worktree_path.clone();
                 move || git.get_conflicted_files(&path)
             }),
             tokio::task::spawn_blocking({
                 let git = git.clone();
-                let path = worktree_path_clone.clone();
+                let path = worktree_path.clone();
                 move || git.get_worktree_change_counts(&path)
             }),
             tokio::task::spawn_blocking({
                 let git = git.clone();
-                let path = repo_path.clone();
-                let target = target_branch_clone.clone();
-                move || git.find_branch_type(&path, &target)
+                let repo_path = repo.path.clone();
+                let target = target_branch.clone();
+                move || git.find_branch_type(&repo_path, &target)
             }),
         );
 
@@ -880,21 +893,21 @@ pub async fn get_task_attempt_branch_status(
 
         let branch_status_future = tokio::task::spawn_blocking({
             let git = git.clone();
-            let path = repo_path.clone();
+            let repo_path = repo.path.clone();
             let branch = workspace.branch.clone();
             let target = target_branch.clone();
             move || match target_branch_type {
-                BranchType::Local => git.get_branch_status(&path, &branch, &target),
-                BranchType::Remote => git.get_remote_branch_status(&path, &branch, Some(&target)),
+                BranchType::Local => git.get_branch_status(&repo_path, &branch, &target),
+                BranchType::Remote => git.get_remote_branch_status(&repo_path, &branch, Some(&target)),
             }
         });
 
         let remote_status_future = if has_open_pr {
             Some(tokio::task::spawn_blocking({
                 let git = git.clone();
-                let path = repo_path.clone();
+                let repo_path = repo.path.clone();
                 let branch = workspace.branch.clone();
-                move || git.get_remote_branch_status(&path, &branch, None)
+                move || git.get_remote_branch_status(&repo_path, &branch, None)
             }))
         } else {
             None

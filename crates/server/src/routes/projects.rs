@@ -346,7 +346,7 @@ pub async fn open_project_in_editor(
     let editor_config = {
         let config = deployment.config().read().await;
         let editor_type_str = payload.as_ref().and_then(|req| req.editor_type.as_deref());
-        config.editor.with_override(editor_type_str)
+        config.editor.with_override(editor_type_str)?
     };
 
     match editor_config.open_file(&path).await {
