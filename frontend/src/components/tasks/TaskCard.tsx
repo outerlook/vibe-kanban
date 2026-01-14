@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
-import { Circle, Clock, Link, Loader2, Lock, XCircle } from 'lucide-react';
+import { Circle, Clock, Filter, Link, Loader2, Lock, Pencil, XCircle } from 'lucide-react';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import { ActionsDropdown } from '@/components/ui/actions-dropdown';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { useNavigateWithSearch } from '@/hooks';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
+import { useNavigateWithSearch, useTaskFilters } from '@/hooks';
 import { paths } from '@/lib/paths';
 import { attemptsApi } from '@/lib/api';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
@@ -46,8 +51,15 @@ export function TaskCard({
   const { isTaskUnread, markTaskAsRead } = useUnread();
   const { toggleTask } = useTaskSelection();
   const { getGroupName, groupsById } = useTaskGroupsContext();
+  const { setGroupId } = useTaskFilters();
   const isUnread = isTaskUnread(task);
   const groupName = getGroupName(task.task_group_id);
+
+  const [groupContextMenu, setGroupContextMenu] = useState<{
+    open: boolean;
+    x: number;
+    y: number;
+  }>({ open: false, x: 0, y: 0 });
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -96,12 +108,39 @@ export function TaskCard({
     (e: React.MouseEvent) => {
       e.stopPropagation();
       if (!task.task_group_id) return;
-      const group = groupsById[task.task_group_id];
-      if (!group) return;
-      TaskGroupFormDialog.show({ mode: 'edit', projectId, group });
+      setGroupId(task.task_group_id);
     },
-    [groupsById, projectId, task.task_group_id]
+    [setGroupId, task.task_group_id]
   );
+
+  const handleGroupContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!task.task_group_id) return;
+      setGroupContextMenu({ open: true, x: e.clientX, y: e.clientY });
+    },
+    [task.task_group_id]
+  );
+
+  const closeGroupContextMenu = useCallback(() => {
+    setGroupContextMenu({ open: false, x: 0, y: 0 });
+  }, []);
+
+  const handleFilterByGroup = useCallback(() => {
+    if (task.task_group_id) {
+      setGroupId(task.task_group_id);
+    }
+    closeGroupContextMenu();
+  }, [setGroupId, task.task_group_id, closeGroupContextMenu]);
+
+  const handleEditGroup = useCallback(() => {
+    if (!task.task_group_id) return;
+    const group = groupsById[task.task_group_id];
+    if (!group) return;
+    TaskGroupFormDialog.show({ mode: 'edit', projectId, group });
+    closeGroupContextMenu();
+  }, [groupsById, projectId, task.task_group_id, closeGroupContextMenu]);
 
   useEffect(() => {
     if (!isOpen || !localRef.current) return;
@@ -189,7 +228,32 @@ export function TaskCard({
           groupName={groupName}
           className="w-fit"
           onClick={handleGroupClick}
+          onContextMenu={handleGroupContextMenu}
         />
+        <DropdownMenu
+          open={groupContextMenu.open}
+          onOpenChange={(open) => {
+            if (!open) closeGroupContextMenu();
+          }}
+        >
+          <DropdownMenuContent
+            style={{
+              position: 'fixed',
+              left: groupContextMenu.x,
+              top: groupContextMenu.y,
+            }}
+            onCloseAutoFocus={(e) => e.preventDefault()}
+          >
+            <DropdownMenuItem onClick={handleFilterByGroup}>
+              <Filter className="h-4 w-4" />
+              Filter by this group
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleEditGroup}>
+              <Pencil className="h-4 w-4" />
+              Edit group
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         {task.description && (
           <p className="text-sm text-secondary-foreground break-words">
             {task.description.length > 130
