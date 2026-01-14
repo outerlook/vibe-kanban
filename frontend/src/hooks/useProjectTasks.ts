@@ -6,7 +6,7 @@ import { useLiveQuery, eq, isNull } from '@tanstack/react-db';
 import { sharedTasksCollection } from '@/lib/electric/sharedTasksCollection';
 import { useAssigneeUserNames } from './useAssigneeUserName';
 import { useAutoLinkSharedTasks } from './useAutoLinkSharedTasks';
-import { tasksApi, type PaginatedTasksResponse } from '@/lib/api';
+import { tasksApi } from '@/lib/api';
 import type { Operation } from 'rfc6902';
 import type {
   SharedTask,
@@ -106,16 +106,18 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const query = useInfiniteQuery({
-    queryKey: projectTasksKeys.byProjectInfinite(projectId),
-    queryFn: async ({ pageParam = 0 }): Promise<PaginatedTasksResponse> => {
-      return tasksApi.list(projectId, { offset: pageParam, limit: PAGE_SIZE });
+  const mergeTasks = useCallback(
+    (incoming: TaskWithAttemptStatus[], replace: boolean) => {
+      setTasksById((prev) => {
+        const next = replace ? {} : { ...prev };
+        incoming.forEach((task) => {
+          next[task.id] = task;
+        });
+        return next;
+      });
     },
-    getNextPageParam: (lastPage, allPages) =>
-      lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined,
-    initialPageParam: 0,
-    enabled: !!projectId,
-  });
+    []
+  );
 
   useEffect(() => {
     if (!projectId) {
@@ -125,8 +127,6 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
       setError(null);
       return;
     }
-    return map;
-  }, [query.data?.pages]);
 
     let cancelled = false;
     setIsLoading(true);
@@ -183,7 +183,6 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     if (!projectId || isLoading || statusPagination.isLoading || !statusPagination.hasMore) {
       return;
     }
-  }, [query]);
 
     // Set loading state for this status
     setPaginationByStatus((prev) => ({
@@ -230,17 +229,12 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
       setTasksById((prev) => {
         let next = prev;
 
-          // Build a mutable map from all pages
-          const taskMap: Record<string, TaskWithAttemptStatus> = {};
-          for (const page of oldData.pages) {
-            for (const task of page.tasks) {
-              taskMap[task.id] = task;
-            }
-          }
+        for (const op of patches) {
+          if (!op.path.startsWith(TASK_PATH_PREFIX)) continue;
 
-          let added = 0;
-          let removed = 0;
-          let updated = 0;
+          const rawId = op.path.slice(TASK_PATH_PREFIX.length);
+          const taskId = decodePointerSegment(rawId);
+          if (!taskId) continue;
 
           if (op.op === 'remove') {
             const existingTask = next[taskId];
@@ -254,18 +248,13 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
             continue;
           }
 
-            const rawId = op.path.slice(TASK_PATH_PREFIX.length);
-            const taskId = decodePointerSegment(rawId);
-            if (!taskId) continue;
+          if (op.op !== 'add' && op.op !== 'replace') continue;
 
-            if (op.op === 'remove') {
-              if (!taskMap[taskId]) continue;
-              delete taskMap[taskId];
-              removed += 1;
-              continue;
-            }
+          const value = (op as { value?: unknown }).value;
+          if (!value) continue;
 
-            if (op.op !== 'add' && op.op !== 'replace') continue;
+          const task = value as TaskWithAttemptStatus;
+          if (task.project_id !== projectId) continue;
 
           const existingTask = next[task.id];
           if (op.op === 'replace' && !existingTask) continue;
@@ -462,7 +451,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
       cancelled: [],
     };
 
-    Object.values(tasksById).forEach((task) => {
+    Object.values(merged).forEach((task) => {
       byStatus[task.status]?.push(task);
     });
 
@@ -570,7 +559,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
 
   return {
     tasks,
-    tasksById,
+    tasksById: mergedTasksById,
     tasksByStatus,
     sharedTasksById,
     sharedOnlyByStatus,

@@ -22,8 +22,6 @@ import {
   BarChart3,
 } from 'lucide-react';
 import { Logo } from '@/components/Logo';
-import { SearchBar } from '@/components/SearchBar';
-import { useSearch } from '@/contexts/SearchContext';
 import { openTaskForm } from '@/lib/openTaskForm';
 import { paths } from '@/lib/paths';
 import { useProject } from '@/contexts/ProjectContext';
@@ -79,7 +77,6 @@ export function Navbar() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { projectId, project } = useProject();
-  const { query, setQuery, active, clear, registerInputRef } = useSearch();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
   const { data: onlineCount } = useDiscordOnlineCount();
   const { loginStatus, reloadSystem } = useUserSystem();
@@ -87,19 +84,13 @@ export function Navbar() {
   const { data: repos } = useProjectRepos(projectId);
   const isSingleRepoProject = repos?.length === 1;
 
-  const setSearchBarRef = useCallback(
-    (node: HTMLInputElement | null) => {
-      registerInputRef(node);
-    },
-    [registerInputRef]
-  );
   const { t } = useTranslation(['tasks', 'common']);
   // Navbar is global, but the share tasks toggle only makes sense on the tasks route
   const isTasksRoute = /^\/projects\/[^/]+\/tasks/.test(location.pathname);
   const isGanttRoute = /^\/projects\/[^/]+\/gantt/.test(location.pathname);
   const showSharedTasks = searchParams.get('shared') !== 'off';
   const shouldShowSharedToggle =
-    isTasksRoute && active && project?.remote_project_id != null;
+    isTasksRoute && project?.remote_project_id != null;
 
   const handleSharedToggle = useCallback(
     (checked: boolean) => {
@@ -182,18 +173,6 @@ export function Navbar() {
                   : 'online'}
               </span>
             </a>
-          </div>
-
-          <div className="hidden sm:flex items-center gap-2">
-            <SearchBar
-              ref={setSearchBarRef}
-              className="shrink-0"
-              value={query}
-              onChange={setQuery}
-              disabled={!active}
-              onClear={clear}
-              project={project || null}
-            />
           </div>
 
           <div className="flex flex-1 items-center justify-end gap-1">

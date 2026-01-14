@@ -13,6 +13,9 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { usePostHog } from 'posthog-js/react';
 
 import { useSearch } from '@/contexts/SearchContext';
+import { useTaskFilters } from '@/hooks/useTaskFilters';
+import { useFilteredTasks } from '@/hooks/useFilteredTasks';
+import { TaskFilterBar } from '@/components/tasks/TaskFilterBar';
 import { useProject } from '@/contexts/ProjectContext';
 import { useTaskAttempts } from '@/hooks/useTaskAttempts';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
@@ -38,9 +41,7 @@ import {
   useKeyCycleViewBackward,
 } from '@/keyboard';
 
-import TaskKanbanBoard, {
-  type KanbanColumnItem,
-} from '@/components/tasks/TaskKanbanBoard';
+import TaskKanbanBoard from '@/components/tasks/TaskKanbanBoard';
 import type { DragEndEvent } from '@/components/ui/shadcn-io/kanban';
 import {
   useProjectTasks,
@@ -75,20 +76,10 @@ import { TaskSelectionProvider } from '@/contexts/TaskSelectionContext';
 import { TaskGroupsProvider } from '@/contexts/TaskGroupsContext';
 import { BulkActionsBar } from '@/components/tasks/BulkActionsBar';
 
-import type { TaskWithAttemptStatus, TaskStatus } from 'shared/types';
+import type { TaskWithAttemptStatus } from 'shared/types';
+import { TASK_STATUSES, normalizeStatus } from '@/constants/taskStatuses';
 
 type Task = TaskWithAttemptStatus;
-
-const TASK_STATUSES = [
-  'todo',
-  'inprogress',
-  'inreview',
-  'done',
-  'cancelled',
-] as const;
-
-const normalizeStatus = (status: string): TaskStatus =>
-  status.toLowerCase() as TaskStatus;
 
 export function ProjectTasks() {
   const { t } = useTranslation(['tasks', 'common']);
@@ -127,7 +118,8 @@ export function ProjectTasks() {
       openTaskForm({ mode: 'create', projectId });
     }
   }, [projectId]);
-  const { query: searchQuery, focusInput } = useSearch();
+  const { focusInput } = useSearch();
+  const { filters } = useTaskFilters();
 
   const {
     tasks,
@@ -319,8 +311,6 @@ export function ProjectTasks() {
     { scope: Scope.KANBAN }
   );
 
-  const hasSearch = Boolean(searchQuery.trim());
-  const normalizedSearch = searchQuery.trim().toLowerCase();
   const showSharedTasks = searchParams.get('shared') !== 'off';
 
   useEffect(() => {
@@ -333,131 +323,19 @@ export function ProjectTasks() {
     setSelectedSharedTaskId(null);
   }, [selectedSharedTaskId, sharedTasksById, showSharedTasks, userId]);
 
-  const kanbanColumns = useMemo(() => {
-    const columns: Record<TaskStatus, KanbanColumnItem[]> = {
-      todo: [],
-      inprogress: [],
-      inreview: [],
-      done: [],
-      cancelled: [],
-    };
-
-    const matchesSearch = (
-      title: string,
-      description?: string | null
-    ): boolean => {
-      if (!hasSearch) return true;
-      const lowerTitle = title.toLowerCase();
-      const lowerDescription = description?.toLowerCase() ?? '';
-      return (
-        lowerTitle.includes(normalizedSearch) ||
-        lowerDescription.includes(normalizedSearch)
-      );
-    };
-
-    tasks.forEach((task) => {
-      const statusKey = normalizeStatus(task.status);
-      const sharedTask = task.shared_task_id
-        ? sharedTasksById[task.shared_task_id]
-        : sharedTasksById[task.id];
-
-      if (!matchesSearch(task.title, task.description)) {
-        return;
-      }
-
-      const isSharedAssignedElsewhere =
-        !showSharedTasks &&
-        !!sharedTask &&
-        !!sharedTask.assignee_user_id &&
-        sharedTask.assignee_user_id !== userId;
-
-      if (isSharedAssignedElsewhere) {
-        return;
-      }
-
-      columns[statusKey].push({
-        type: 'task',
-        task,
-        sharedTask,
-      });
-    });
-
-    (
-      Object.entries(sharedOnlyByStatus) as [TaskStatus, SharedTaskRecord[]][]
-    ).forEach(([status, items]) => {
-      if (!columns[status]) {
-        columns[status] = [];
-      }
-      items.forEach((sharedTask) => {
-        if (!matchesSearch(sharedTask.title, sharedTask.description)) {
-          return;
-        }
-        const shouldIncludeShared =
-          showSharedTasks || sharedTask.assignee_user_id === userId;
-        if (!shouldIncludeShared) {
-          return;
-        }
-        columns[status].push({
-          type: 'shared',
-          task: sharedTask,
-        });
-      });
-    });
-
-    const getTimestamp = (item: KanbanColumnItem) => {
-      const createdAt =
-        item.type === 'task' ? item.task.created_at : item.task.created_at;
-      return new Date(createdAt).getTime();
-    };
-
-    TASK_STATUSES.forEach((status) => {
-      columns[status].sort((a, b) => getTimestamp(b) - getTimestamp(a));
-    });
-
-    return columns;
-  }, [
-    hasSearch,
-    normalizedSearch,
+  const {
+    kanbanColumns,
+    visibleTasksByStatus,
+    hasVisibleLocalTasks,
+    hasVisibleSharedTasks,
+  } = useFilteredTasks({
     tasks,
-    sharedOnlyByStatus,
     sharedTasksById,
+    sharedOnlyByStatus,
+    filters,
     showSharedTasks,
     userId,
-  ]);
-
-  const visibleTasksByStatus = useMemo(() => {
-    const map: Record<TaskStatus, Task[]> = {
-      todo: [],
-      inprogress: [],
-      inreview: [],
-      done: [],
-      cancelled: [],
-    };
-
-    TASK_STATUSES.forEach((status) => {
-      map[status] = kanbanColumns[status]
-        .filter((item) => item.type === 'task')
-        .map((item) => item.task);
-    });
-
-    return map;
-  }, [kanbanColumns]);
-
-  const hasVisibleLocalTasks = useMemo(
-    () =>
-      Object.values(visibleTasksByStatus).some(
-        (items) => items && items.length > 0
-      ),
-    [visibleTasksByStatus]
-  );
-
-  const hasVisibleSharedTasks = useMemo(
-    () =>
-      Object.values(kanbanColumns).some((items) =>
-        items.some((item) => item.type === 'shared')
-      ),
-    [kanbanColumns]
-  );
+  });
 
   useKeyNavUp(
     () => {
@@ -814,32 +692,39 @@ export function ProjectTasks() {
           </CardContent>
         </Card>
       </div>
-    ) : !hasVisibleLocalTasks && !hasVisibleSharedTasks ? (
-      <div className="max-w-7xl mx-auto mt-8">
-        <Card>
-          <CardContent className="text-center py-8">
-            <p className="text-muted-foreground">
-              {t('empty.noSearchResults')}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
     ) : (
-      <div className="w-full h-full overflow-x-auto overflow-y-auto overscroll-x-contain">
-        <TaskKanbanBoard
-          columns={kanbanColumns}
-          onDragEnd={handleDragEnd}
-          onViewTaskDetails={handleViewTaskDetails}
-          onViewSharedTask={handleViewSharedTask}
-          selectedTaskId={selectedTask?.id}
-          selectedSharedTaskId={selectedSharedTaskId}
-          onCreateTask={handleCreateNewTask}
-          projectId={projectId!}
-          loadMoreByStatus={loadMoreByStatus}
-          hasMoreByStatus={hasMoreByStatus}
-          isLoadingMoreByStatus={isLoadingMoreByStatus}
-          totalByStatus={totalByStatus}
-        />
+      <div className="flex flex-col h-full">
+        <div className="shrink-0 px-4">
+          <TaskFilterBar />
+        </div>
+        {!hasVisibleLocalTasks && !hasVisibleSharedTasks ? (
+          <div className="max-w-7xl mx-auto mt-8">
+            <Card>
+              <CardContent className="text-center py-8">
+                <p className="text-muted-foreground">
+                  {t('empty.noSearchResults')}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        ) : (
+          <div className="flex-1 min-h-0 w-full overflow-x-auto overflow-y-auto overscroll-x-contain">
+            <TaskKanbanBoard
+              columns={kanbanColumns}
+              onDragEnd={handleDragEnd}
+              onViewTaskDetails={handleViewTaskDetails}
+              onViewSharedTask={handleViewSharedTask}
+              selectedTaskId={selectedTask?.id}
+              selectedSharedTaskId={selectedSharedTaskId}
+              onCreateTask={handleCreateNewTask}
+              projectId={projectId!}
+              loadMoreByStatus={loadMoreByStatus}
+              hasMoreByStatus={hasMoreByStatus}
+              isLoadingMoreByStatus={isLoadingMoreByStatus}
+              totalByStatus={totalByStatus}
+            />
+          </div>
+        )}
       </div>
     );
 
