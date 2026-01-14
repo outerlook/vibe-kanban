@@ -13,6 +13,30 @@ fn normalize_pattern(pattern: &str) -> String {
     pattern.replace('\\', "/")
 }
 
+/// Create a symlink at `link` pointing to `target`.
+/// On Unix, creates a symlink directly. On other platforms, attempts to copy the target.
+fn create_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link)
+    }
+    #[cfg(not(unix))]
+    {
+        // On non-Unix platforms, copy the target if it exists and is a file
+        if let Ok(metadata) = fs::metadata(target) {
+            if metadata.is_file() {
+                fs::copy(target, link)?;
+                return Ok(());
+            }
+        }
+        // For directories or non-existent targets, skip
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "symlinks not supported on this platform",
+        ))
+    }
+}
+
 /// Copy project files from source to target directory based on glob patterns.
 /// Skips files that already exist at target with same size.
 pub(crate) fn copy_project_files_impl(
@@ -33,10 +57,16 @@ pub(crate) fn copy_project_files_impl(
         let pattern = normalize_pattern(pattern);
         let pattern_path = source_dir.join(&pattern);
 
-        if pattern_path.is_file() {
-            if let Err(e) = copy_single_file(&pattern_path, source_dir, target_dir, &mut seen) {
+        // Check if it's a file or symlink (use symlink_metadata to not follow symlinks)
+        let is_file_or_symlink = pattern_path
+            .symlink_metadata()
+            .map(|m| m.is_file() || m.is_symlink())
+            .unwrap_or(false);
+
+        if is_file_or_symlink {
+            if let Err(e) = copy_single_entry(&pattern_path, source_dir, target_dir, &mut seen) {
                 tracing::warn!(
-                    "Failed to copy file {} (from {}): {}",
+                    "Failed to copy {} (from {}): {}",
                     pattern,
                     pattern_path.display(),
                     e
@@ -53,7 +83,7 @@ pub(crate) fn copy_project_files_impl(
         };
 
         let walker = match GlobWalkerBuilder::from_patterns(source_dir, &[&glob_pattern])
-            .file_type(globwalk::FileType::FILE)
+            .file_type(globwalk::FileType::FILE | globwalk::FileType::SYMLINK)
             .build()
         {
             Ok(w) => w,
@@ -64,8 +94,8 @@ pub(crate) fn copy_project_files_impl(
         };
 
         for entry in walker.flatten() {
-            if let Err(e) = copy_single_file(entry.path(), source_dir, target_dir, &mut seen) {
-                tracing::warn!("Failed to copy file {:?}: {e}", entry.path());
+            if let Err(e) = copy_single_entry(entry.path(), source_dir, target_dir, &mut seen) {
+                tracing::warn!("Failed to copy {:?}: {e}", entry.path());
             }
         }
     }
@@ -73,43 +103,80 @@ pub(crate) fn copy_project_files_impl(
     Ok(())
 }
 
-fn copy_single_file(
-    source_file: &Path,
+/// Copy a single file or symlink from source to target.
+fn copy_single_entry(
+    source_path: &Path,
     source_root: &Path,
     target_root: &Path,
     seen: &mut HashSet<PathBuf>,
 ) -> Result<bool, ContainerError> {
-    let canonical_source = source_root.canonicalize()?;
-    let canonical_file = source_file.canonicalize()?;
+    // Use symlink_metadata to get info about the path itself, not the target
+    let metadata = source_path.symlink_metadata()?;
+    let is_symlink = metadata.is_symlink();
+
+    // For deduplication and security validation:
+    // - For regular files: use canonical path
+    // - For symlinks: use the symlink's own path (don't follow it)
+    let key_path = if is_symlink {
+        source_path.to_path_buf()
+    } else {
+        source_path.canonicalize()?
+    };
+
     // Validate path is within source_dir
-    if !canonical_file.starts_with(canonical_source) {
-        return Err(ContainerError::Other(anyhow!(
-            "File {source_file:?} is outside project directory"
-        )));
+    let canonical_source = source_root.canonicalize()?;
+    if is_symlink {
+        // For symlinks, ensure the symlink itself is within the source directory
+        // Get the parent directory of the symlink and canonicalize that
+        if let Some(parent) = source_path.parent() {
+            let canonical_parent = parent.canonicalize()?;
+            if !canonical_parent.starts_with(&canonical_source) {
+                return Err(ContainerError::Other(anyhow!(
+                    "Symlink {source_path:?} is outside project directory"
+                )));
+            }
+        }
+    } else {
+        // For regular files, validate the canonical path
+        if !key_path.starts_with(&canonical_source) {
+            return Err(ContainerError::Other(anyhow!(
+                "File {source_path:?} is outside project directory"
+            )));
+        }
     }
 
-    if !seen.insert(canonical_file.clone()) {
+    if !seen.insert(key_path) {
         return Ok(false);
     }
 
-    let relative_path = source_file.strip_prefix(source_root).map_err(|e| {
+    let relative_path = source_path.strip_prefix(source_root).map_err(|e| {
         ContainerError::Other(anyhow!(
-            "Failed to get relative path for {source_file:?}: {e}"
+            "Failed to get relative path for {source_path:?}: {e}"
         ))
     })?;
 
-    let target_file = target_root.join(relative_path);
+    let target_path = target_root.join(relative_path);
 
-    if target_file.exists() {
+    // Check if target already exists (use symlink_metadata to detect symlinks too)
+    if target_path.symlink_metadata().is_ok() {
         return Ok(false);
     }
 
-    if let Some(parent) = target_file.parent()
+    if let Some(parent) = target_path.parent()
         && !parent.exists()
     {
         fs::create_dir_all(parent)?;
     }
-    fs::copy(source_file, &target_file)?;
+
+    if is_symlink {
+        // Read the symlink target and recreate it
+        let link_target = fs::read_link(source_path)?;
+        if let Err(e) = create_symlink(&link_target, &target_path) {
+            tracing::warn!("Failed to create symlink {:?} -> {:?}: {e}", target_path, link_target);
+        }
+    } else {
+        fs::copy(source_path, &target_path)?;
+    }
 
     Ok(true)
 }
@@ -311,17 +378,86 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn test_symlink_loop_is_skipped() {
+    fn test_symlink_to_file_is_copied() {
         use std::os::unix::fs::symlink;
         let src = TempDir::new().unwrap();
         let dst = TempDir::new().unwrap();
 
-        let loop_dir = src.path().join("loop");
-        std::fs::create_dir(&loop_dir).unwrap();
-        symlink(".", loop_dir.join("self")).unwrap(); // loop/self -> loop
+        // Create a real file and a symlink to it
+        fs::write(src.path().join("real.txt"), "content").unwrap();
+        symlink("real.txt", src.path().join("link.txt")).unwrap();
 
-        copy_project_files_impl(src.path(), dst.path(), "loop").unwrap();
+        copy_project_files_impl(src.path(), dst.path(), "*.txt").unwrap();
 
-        assert_eq!(std::fs::read_dir(dst.path()).unwrap().count(), 0);
+        // Both the file and symlink should be copied
+        assert!(dst.path().join("real.txt").exists());
+        let link_path = dst.path().join("link.txt");
+        assert!(link_path.symlink_metadata().unwrap().is_symlink());
+        assert_eq!(fs::read_link(&link_path).unwrap().to_str().unwrap(), "real.txt");
+        // Reading through the symlink should work
+        assert_eq!(fs::read_to_string(&link_path).unwrap(), "content");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_symlink_to_directory_is_copied() {
+        use std::os::unix::fs::symlink;
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+
+        // Create a directory with a file, and a symlink to the directory
+        let data_dir = src.path().join("data");
+        fs::create_dir(&data_dir).unwrap();
+        fs::write(data_dir.join("file.txt"), "data").unwrap();
+        symlink("data", src.path().join("data-link")).unwrap();
+
+        // Copy the symlink directly
+        copy_project_files_impl(src.path(), dst.path(), "data-link").unwrap();
+
+        // The symlink should be recreated
+        let link_path = dst.path().join("data-link");
+        assert!(link_path.symlink_metadata().unwrap().is_symlink());
+        assert_eq!(fs::read_link(&link_path).unwrap().to_str().unwrap(), "data");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_broken_symlink_is_copied() {
+        use std::os::unix::fs::symlink;
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+
+        // Create a symlink to a non-existent target
+        symlink("nonexistent.txt", src.path().join("broken.txt")).unwrap();
+
+        copy_project_files_impl(src.path(), dst.path(), "broken.txt").unwrap();
+
+        // The broken symlink should be copied
+        let link_path = dst.path().join("broken.txt");
+        assert!(link_path.symlink_metadata().unwrap().is_symlink());
+        assert_eq!(fs::read_link(&link_path).unwrap().to_str().unwrap(), "nonexistent.txt");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_symlink_in_directory_glob() {
+        use std::os::unix::fs::symlink;
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+
+        // Create a directory with files and symlinks
+        let config_dir = src.path().join("config");
+        fs::create_dir(&config_dir).unwrap();
+        fs::write(config_dir.join("base.yml"), "base").unwrap();
+        symlink("base.yml", config_dir.join("current.yml")).unwrap();
+
+        // Copy the whole directory
+        copy_project_files_impl(src.path(), dst.path(), "config").unwrap();
+
+        // Both file and symlink should be copied
+        assert!(dst.path().join("config/base.yml").exists());
+        let link_path = dst.path().join("config/current.yml");
+        assert!(link_path.symlink_metadata().unwrap().is_symlink());
+        assert_eq!(fs::read_link(&link_path).unwrap().to_str().unwrap(), "base.yml");
     }
 }
