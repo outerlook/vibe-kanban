@@ -3,7 +3,7 @@ use std::sync::{Arc, OnceLock};
 use tokio::sync::RwLock;
 use utils;
 
-use crate::services::config::{Config, NotificationConfig, SoundFile};
+use crate::services::config::{Config, EffectiveSound, NotificationConfig, SoundFile};
 
 /// Service for handling cross-platform notifications including sound alerts and push notifications
 #[derive(Debug, Clone)]
@@ -28,7 +28,7 @@ impl NotificationService {
     /// Internal method to send notifications with a given config
     async fn send_notification(config: &NotificationConfig, title: &str, message: &str) {
         if config.sound_enabled {
-            Self::play_sound_notification(&config.sound_file).await;
+            Self::play_sound_notification(config).await;
         }
 
         if config.push_enabled {
@@ -37,13 +37,10 @@ impl NotificationService {
     }
 
     /// Play a system sound notification across platforms
-    async fn play_sound_notification(sound_file: &SoundFile) {
-        let file_path = match sound_file.get_path().await {
-            Ok(path) => path,
-            Err(e) => {
-                tracing::error!("Failed to create cached sound file: {}", e);
-                return;
-            }
+    async fn play_sound_notification(config: &NotificationConfig) {
+        let file_path = match Self::resolve_sound_path(config).await {
+            Some(path) => path,
+            None => return,
         };
 
         // Use platform-specific sound notification
@@ -92,6 +89,45 @@ impl NotificationService {
                 ))
                 .spawn();
         }
+    }
+
+    async fn resolve_sound_path(config: &NotificationConfig) -> Option<std::path::PathBuf> {
+        match config.effective_sound() {
+            EffectiveSound::Custom(filename) => {
+                let custom_path = utils::assets::alerts_dir().join(&filename);
+                match tokio::fs::metadata(&custom_path).await {
+                    Ok(_) => Some(custom_path),
+                    Err(error) => {
+                        tracing::warn!(
+                            "Custom sound file not found: {} ({})",
+                            filename,
+                            error
+                        );
+                        Self::bundled_sound_path(&SoundFile::CowMooing).await
+                    }
+                }
+            }
+            EffectiveSound::Bundled(sound_file) => Self::bundled_sound_path(&sound_file).await,
+        }
+    }
+
+    async fn bundled_sound_path(
+        sound_file: &SoundFile,
+    ) -> Option<std::path::PathBuf> {
+        let path = match sound_file.get_path().await {
+            Ok(path) => path,
+            Err(e) => {
+                tracing::error!("Failed to create cached sound file: {}", e);
+                return None;
+            }
+        };
+
+        if let Err(error) = tokio::fs::metadata(&path).await {
+            tracing::error!("Sound file missing at {}: {}", path.display(), error);
+            return None;
+        }
+
+        Some(path)
     }
 
     /// Send a cross-platform push notification
@@ -234,5 +270,60 @@ impl NotificationService {
             );
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn custom_sound_resolves_to_alerts_dir() {
+        let filename = format!("test-custom-{}.wav", std::process::id());
+        let alerts_dir = utils::assets::alerts_dir();
+        let custom_path = alerts_dir.join(&filename);
+
+        tokio::fs::create_dir_all(&alerts_dir)
+            .await
+            .expect("create alerts dir");
+        tokio::fs::write(&custom_path, b"test")
+            .await
+            .expect("write custom sound");
+
+        let config = NotificationConfig {
+            sound_enabled: true,
+            push_enabled: true,
+            sound_file: SoundFile::Rooster,
+            custom_sound_path: Some(filename),
+        };
+
+        let resolved = NotificationService::resolve_sound_path(&config)
+            .await
+            .expect("resolve sound path");
+
+        assert_eq!(resolved, custom_path);
+
+        let _ = tokio::fs::remove_file(&custom_path).await;
+    }
+
+    #[tokio::test]
+    async fn missing_custom_sound_falls_back_to_default() {
+        let filename = format!("missing-custom-{}.wav", std::process::id());
+        let config = NotificationConfig {
+            sound_enabled: true,
+            push_enabled: true,
+            sound_file: SoundFile::Rooster,
+            custom_sound_path: Some(filename),
+        };
+
+        let resolved = NotificationService::resolve_sound_path(&config)
+            .await
+            .expect("resolve sound path");
+        let default_path = SoundFile::CowMooing
+            .get_path()
+            .await
+            .expect("default sound path");
+
+        assert_eq!(resolved, default_path);
     }
 }
