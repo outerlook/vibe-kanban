@@ -13,6 +13,7 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { usePostHog } from 'posthog-js/react';
 
 import { useSearch } from '@/contexts/SearchContext';
+import { useTaskFilters } from '@/hooks/useTaskFilters';
 import { useProject } from '@/contexts/ProjectContext';
 import { useTaskAttempts } from '@/hooks/useTaskAttempts';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
@@ -127,7 +128,9 @@ export function ProjectTasks() {
       openTaskForm({ mode: 'create', projectId });
     }
   }, [projectId]);
-  const { query: searchQuery, focusInput } = useSearch();
+  const { focusInput } = useSearch();
+  const { filters } = useTaskFilters();
+  const searchQuery = filters.search;
 
   const {
     tasks,

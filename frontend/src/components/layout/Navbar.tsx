@@ -24,6 +24,7 @@ import {
 import { Logo } from '@/components/Logo';
 import { SearchBar } from '@/components/SearchBar';
 import { useSearch } from '@/contexts/SearchContext';
+import { useTaskFilters } from '@/hooks/useTaskFilters';
 import { openTaskForm } from '@/lib/openTaskForm';
 import { paths } from '@/lib/paths';
 import { useProject } from '@/contexts/ProjectContext';
@@ -79,7 +80,8 @@ export function Navbar() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { projectId, project } = useProject();
-  const { query, setQuery, active, clear, registerInputRef } = useSearch();
+  const { active, registerInputRef } = useSearch();
+  const { filters, setSearch } = useTaskFilters();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
   const { data: onlineCount } = useDiscordOnlineCount();
   const { loginStatus, reloadSystem } = useUserSystem();
@@ -188,10 +190,9 @@ export function Navbar() {
             <SearchBar
               ref={setSearchBarRef}
               className="shrink-0"
-              value={query}
-              onChange={setQuery}
+              value={filters.search}
+              onChange={setSearch}
               disabled={!active}
-              onClear={clear}
               project={project || null}
             />
           </div>

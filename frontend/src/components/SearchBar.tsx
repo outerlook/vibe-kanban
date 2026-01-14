@@ -6,15 +6,14 @@ import { Project } from 'shared/types';
 
 interface SearchBarProps {
   className?: string;
-  value?: string;
-  onChange?: (value: string) => void;
+  value: string;
+  onChange: (value: string) => void;
   disabled?: boolean;
-  onClear?: () => void;
   project: Project | null;
 }
 
 export const SearchBar = React.forwardRef<HTMLInputElement, SearchBarProps>(
-  ({ className, value = '', onChange, disabled = false, project }, ref) => {
+  ({ className, value, onChange, disabled = false, project }, ref) => {
     if (disabled) {
       return null;
     }
@@ -25,7 +24,7 @@ export const SearchBar = React.forwardRef<HTMLInputElement, SearchBarProps>(
         <Input
           ref={ref}
           value={value}
-          onChange={(e) => onChange?.(e.target.value)}
+          onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
           placeholder={project ? `Search ${project.name}...` : 'Search...'}
           className="pl-8 pr-14 h-8 bg-muted"
