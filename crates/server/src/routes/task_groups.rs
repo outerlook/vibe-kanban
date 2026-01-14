@@ -6,7 +6,7 @@ use axum::{
     response::Json as ResponseJson,
     routing::{get, post},
 };
-use db::models::task_group::{TaskGroup, UpdateTaskGroup};
+use db::models::task_group::{TaskGroup, TaskGroupWithStats, UpdateTaskGroup};
 use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -41,6 +41,19 @@ pub struct BulkAssignTasksRequest {
 #[derive(Debug, Serialize, TS)]
 pub struct BulkAssignTasksResponse {
     pub updated_count: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GetTaskGroupStatsQuery {
+    pub project_id: Uuid,
+}
+
+pub async fn get_task_group_stats(
+    State(deployment): State<DeploymentImpl>,
+    axum::extract::Query(query): axum::extract::Query<GetTaskGroupStatsQuery>,
+) -> Result<ResponseJson<ApiResponse<Vec<TaskGroupWithStats>>>, ApiError> {
+    let stats = TaskGroup::get_stats_for_project(&deployment.db().pool, query.project_id).await?;
+    Ok(ResponseJson(ApiResponse::success(stats)))
 }
 
 pub async fn list_task_groups(
@@ -142,6 +155,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 
     let inner = Router::new()
         .route("/", get(list_task_groups).post(create_task_group))
+        .route("/stats", get(get_task_group_stats))
         .nest("/{group_id}", task_group_actions);
 
     Router::new().nest("/task-groups", inner)
