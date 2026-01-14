@@ -352,18 +352,23 @@ WHERE t.id = $1"#,
     pub async fn find_paginated_by_project_id_with_attempt_status(
         pool: &SqlitePool,
         project_id: Uuid,
+        query: Option<String>,
         status: Option<TaskStatus>,
         order_by: TaskOrderBy,
         limit: i64,
         offset: i64,
     ) -> Result<(Vec<TaskWithAttemptStatus>, i64), sqlx::Error> {
+        let search_pattern = query.as_ref().map(|q| format!("%{}%", q));
+
         let total = sqlx::query!(
             r#"SELECT COUNT(*) as "count!: i64"
                FROM tasks t
                WHERE t.project_id = $1
-                 AND ($2 IS NULL OR t.status = $2)"#,
+                 AND ($2 IS NULL OR t.status = $2)
+                 AND ($3 IS NULL OR t.title LIKE $3 OR t.description LIKE $3)"#,
             project_id,
-            status
+            status,
+            search_pattern
         )
         .fetch_one(pool)
         .await?
@@ -432,6 +437,7 @@ WHERE t.id = $1"#,
 FROM tasks t
 WHERE t.project_id = ?1
   AND (?2 IS NULL OR t.status = ?2)
+  AND (?5 IS NULL OR t.title LIKE ?5 OR t.description LIKE ?5)
 ORDER BY {}
 LIMIT ?3 OFFSET ?4"#,
             order_by.to_sql()
@@ -461,6 +467,7 @@ LIMIT ?3 OFFSET ?4"#,
             .bind(status_str)
             .bind(limit)
             .bind(offset)
+            .bind(search_pattern)
             .fetch_all(pool)
             .await?;
 

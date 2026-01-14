@@ -43,6 +43,7 @@ use crate::{
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListTasksQuery {
     pub project_id: Uuid,
+    pub query: Option<String>,
     pub limit: Option<i32>,
     pub offset: Option<i32>,
     pub status: Option<TaskStatus>,
@@ -85,6 +86,7 @@ pub async fn get_tasks(
     let (tasks, total) = Task::find_paginated_by_project_id_with_attempt_status(
         &deployment.db().pool,
         query.project_id,
+        query.query,
         query.status,
         order_by,
         limit,

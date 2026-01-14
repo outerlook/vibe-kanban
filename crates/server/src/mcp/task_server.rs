@@ -18,8 +18,11 @@ use rmcp::{
     model::{
         CallToolResult, Content, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
     },
-    schemars, tool, tool_handler, tool_router,
+    tool,
+    tool_handler,
+    tool_router,
 };
+use schemars;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json;
 use uuid::Uuid;
@@ -139,6 +142,8 @@ pub struct ListProjectsResponse {
 pub struct ListTasksRequest {
     #[schemars(description = "The ID of the project to list tasks from")]
     pub project_id: Uuid,
+    #[schemars(description = "Optional text search query to filter tasks by title or description")]
+    pub query: Option<String>,
     #[schemars(
         description = "Optional status filter: 'todo', 'inprogress', 'inreview', 'done', 'cancelled'"
     )]
@@ -230,6 +235,7 @@ pub struct ListTasksResponse {
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ListTasksFilters {
+    pub query: Option<String>,
     pub status: Option<String>,
     pub limit: i32,
 }
@@ -1114,6 +1120,7 @@ impl TaskServer {
         &self,
         Parameters(ListTasksRequest {
             project_id,
+            query,
             status,
             limit,
         }): Parameters<ListTasksRequest>,
@@ -1140,6 +1147,9 @@ impl TaskServer {
         if let Some(status) = status_filter.as_ref() {
             url.push_str(&format!("&status={}", status));
         }
+        if let Some(ref search_query) = query {
+            url.push_str(&format!("&query={}", search_query));
+        }
 
         let page: PaginatedTasksResponse =
             match self.send_json(self.client.get(self.url(&url))).await {
@@ -1158,6 +1168,7 @@ impl TaskServer {
             tasks: task_summaries,
             project_id: project_id.to_string(),
             applied_filters: ListTasksFilters {
+                query: query.clone(),
                 status: status.clone(),
                 limit: task_limit,
             },
