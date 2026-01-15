@@ -6,6 +6,7 @@ export const paths = {
   conversation: (projectId: string, conversationId: string) =>
     `/projects/${projectId}/conversations/${conversationId}`,
   projectGantt: (projectId: string) => `/projects/${projectId}/gantt`,
+  projectPrs: (projectId: string) => `/projects/${projectId}/prs`,
   ganttTask: (projectId: string, taskId: string) =>
     `/projects/${projectId}/gantt/${taskId}`,
   ganttAttempt: (projectId: string, taskId: string, attemptId: string) =>

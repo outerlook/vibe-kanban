@@ -20,6 +20,7 @@ import {
   LogOut,
   LogIn,
   BarChart3,
+  GitPullRequest,
 } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { openTaskForm } from '@/lib/openTaskForm';
@@ -92,6 +93,7 @@ export function Navbar() {
     location.pathname
   );
   const isGanttRoute = /^\/projects\/[^/]+\/gantt/.test(location.pathname);
+  const isPrsRoute = /^\/projects\/[^/]+\/prs/.test(location.pathname);
   const showSharedTasks = searchParams.get('shared') !== 'off';
   const shouldShowSharedToggle =
     isTasksRoute && project?.remote_project_id != null;
@@ -228,6 +230,17 @@ export function Navbar() {
                   >
                     <Link to={paths.projectGantt(projectId)}>
                       <BarChart3 className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={`h-9 w-9 ${isPrsRoute ? 'bg-accent' : ''}`}
+                    asChild
+                    aria-label="Pull requests"
+                  >
+                    <Link to={paths.projectPrs(projectId)}>
+                      <GitPullRequest className="h-4 w-4" />
                     </Link>
                   </Button>
                   {isSingleRepoProject && (
