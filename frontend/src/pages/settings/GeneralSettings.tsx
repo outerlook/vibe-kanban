@@ -708,50 +708,90 @@ export function GeneralSettings() {
             </div>
           </div>
           {draft?.notifications.sound_enabled && (
-            <div className="ml-6 space-y-2">
-              <Label htmlFor="sound-file">
-                {t('settings.general.notifications.sound.fileLabel')}
-              </Label>
-              <div className="flex gap-2">
-                <Select
-                  value={draft.notifications.sound_file}
-                  onValueChange={(value: SoundFile) =>
-                    updateDraft({
-                      notifications: {
-                        ...draft.notifications,
-                        sound_file: value,
-                      },
-                    })
-                  }
-                >
-                  <SelectTrigger id="sound-file" className="flex-1">
-                    <SelectValue
-                      placeholder={t(
-                        'settings.general.notifications.sound.filePlaceholder'
-                      )}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.values(SoundFile).map((soundFile) => (
-                      <SelectItem key={soundFile} value={soundFile}>
-                        {toPrettyCase(soundFile)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => playSound(draft.notifications.sound_file)}
-                  className="px-3"
-                >
-                  <Volume2 className="h-4 w-4" />
-                </Button>
+            <>
+              <div className="ml-6 space-y-2">
+                <Label htmlFor="sound-file">
+                  {t('settings.general.notifications.sound.fileLabel')}
+                </Label>
+                <div className="flex gap-2">
+                  <Select
+                    value={draft.notifications.sound_file}
+                    onValueChange={(value: SoundFile) =>
+                      updateDraft({
+                        notifications: {
+                          ...draft.notifications,
+                          sound_file: value,
+                        },
+                      })
+                    }
+                  >
+                    <SelectTrigger id="sound-file" className="flex-1">
+                      <SelectValue
+                        placeholder={t(
+                          'settings.general.notifications.sound.filePlaceholder'
+                        )}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.values(SoundFile).map((soundFile) => (
+                        <SelectItem key={soundFile} value={soundFile}>
+                          {toPrettyCase(soundFile)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => playSound(draft.notifications.sound_file)}
+                    className="px-3"
+                  >
+                    <Volume2 className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {t('settings.general.notifications.sound.fileHelper')}
+                </p>
               </div>
-              <p className="text-sm text-muted-foreground">
-                {t('settings.general.notifications.sound.fileHelper')}
-              </p>
-            </div>
+              <div className="ml-6 space-y-2">
+                <Label htmlFor="error-sound-file">Error Sound</Label>
+                <div className="flex gap-2">
+                  <Select
+                    value={draft.notifications.error_sound_file}
+                    onValueChange={(value: SoundFile) =>
+                      updateDraft({
+                        notifications: {
+                          ...draft.notifications,
+                          error_sound_file: value,
+                        },
+                      })
+                    }
+                  >
+                    <SelectTrigger id="error-sound-file" className="flex-1">
+                      <SelectValue placeholder="Select error sound" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.values(SoundFile).map((soundFile) => (
+                        <SelectItem key={soundFile} value={soundFile}>
+                          {toPrettyCase(soundFile)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => playSound(draft.notifications.error_sound_file)}
+                    className="px-3"
+                  >
+                    <Volume2 className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Sound played when a task fails or an error occurs
+                </p>
+              </div>
+            </>
           )}
           <div className="flex items-center space-x-2">
             <Checkbox

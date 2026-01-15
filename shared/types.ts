@@ -358,7 +358,7 @@ export type Config = { config_version: string, theme: ThemeMode, executor_profil
  */
 max_concurrent_agents: number, };
 
-export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, };
+export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, error_sound_file: SoundFile, };
 
 export enum ThemeMode { LIGHT = "LIGHT", DARK = "DARK", SYSTEM = "SYSTEM" }
 
@@ -376,7 +376,7 @@ export type CustomEditorsConfig = { custom_editors: { [key in string]?: CustomEd
 
 export type GitHubConfig = { pat: string | null, oauth_token: string | null, username: string | null, primary_email: string | null, default_pr_base: string | null, };
 
-export enum SoundFile { ABSTRACT_SOUND1 = "ABSTRACT_SOUND1", ABSTRACT_SOUND2 = "ABSTRACT_SOUND2", ABSTRACT_SOUND3 = "ABSTRACT_SOUND3", ABSTRACT_SOUND4 = "ABSTRACT_SOUND4", COW_MOOING = "COW_MOOING", PHONE_VIBRATION = "PHONE_VIBRATION", ROOSTER = "ROOSTER" }
+export enum SoundFile { ABSTRACT_SOUND1 = "ABSTRACT_SOUND1", ABSTRACT_SOUND2 = "ABSTRACT_SOUND2", ABSTRACT_SOUND3 = "ABSTRACT_SOUND3", ABSTRACT_SOUND4 = "ABSTRACT_SOUND4", COW_MOOING = "COW_MOOING", ERROR_BUZZER = "ERROR_BUZZER", PHONE_VIBRATION = "PHONE_VIBRATION", ROOSTER = "ROOSTER" }
 
 export type UiLanguage = "BROWSER" | "EN" | "JA" | "ES" | "KO" | "ZH_HANS";
 

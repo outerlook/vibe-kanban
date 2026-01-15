@@ -511,24 +511,30 @@ pub trait ContainerService {
         }
 
         let title = format!("Task Complete: {}", ctx.task.title);
-        let message = match ctx.execution_process.status {
-            ExecutionProcessStatus::Completed => format!(
-                "✅ '{}' completed successfully\nBranch: {:?}\nExecutor: {:?}",
-                ctx.task.title, ctx.workspace.branch, ctx.session.executor
-            ),
-            ExecutionProcessStatus::Failed => format!(
-                "❌ '{}' execution failed\nBranch: {:?}\nExecutor: {:?}",
-                ctx.task.title, ctx.workspace.branch, ctx.session.executor
-            ),
+        match ctx.execution_process.status {
+            ExecutionProcessStatus::Completed => {
+                let message = format!(
+                    "✅ '{}' completed successfully\nBranch: {:?}\nExecutor: {:?}",
+                    ctx.task.title, ctx.workspace.branch, ctx.session.executor
+                );
+                self.notification_service().notify(&title, &message).await;
+            }
+            ExecutionProcessStatus::Failed => {
+                let message = format!(
+                    "❌ '{}' execution failed\nBranch: {:?}\nExecutor: {:?}",
+                    ctx.task.title, ctx.workspace.branch, ctx.session.executor
+                );
+                self.notification_service()
+                    .notify_error(&title, &message)
+                    .await;
+            }
             _ => {
                 tracing::warn!(
                     "Tried to notify workspace completion for {} but process is still running!",
                     ctx.workspace.id
                 );
-                return;
             }
-        };
-        self.notification_service().notify(&title, &message).await;
+        }
     }
 
     /// Cleanup executions marked as running in the db, call at startup
