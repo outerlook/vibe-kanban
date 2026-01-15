@@ -3,8 +3,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { GroupCard } from './GroupCard';
-import { useTaskGroupStats } from '@/hooks/useTaskGroupStats';
-import { useProjectRepos } from '@/hooks/useProjectRepos';
+import { useTaskGroupStats, useProjectRepos } from '@/hooks';
 import { TaskGroupFormDialog } from '@/components/dialogs/tasks/TaskGroupFormDialog';
 
 interface GroupViewProps {

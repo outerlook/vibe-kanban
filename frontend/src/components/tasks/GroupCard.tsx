@@ -2,7 +2,7 @@ import { Check, AlertTriangle, GitBranch, Loader2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { useBranchAncestorStatus } from '@/hooks/useBranchAncestorStatus';
+import { useBranchAncestorStatus } from '@/hooks';
 import { StatusCountBadge } from './StatusCountBadge';
 import type { TaskGroupWithStats, TaskStatus } from 'shared/types';
 
