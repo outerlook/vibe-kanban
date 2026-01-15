@@ -120,6 +120,8 @@ fn generate_types_content() -> String {
         server::routes::config::CheckAgentAvailabilityQuery::decl(),
         server::routes::account_info::AccountInfo::decl(),
         server::routes::account_info::ClaudeAccountInfo::decl(),
+        server::routes::account_info::ClaudeUsage::decl(),
+        server::routes::account_info::UsageLimit::decl(),
         server::routes::account_info::CodexAccountInfo::decl(),
         server::routes::oauth::CurrentUserResponse::decl(),
         server::routes::sessions::CreateFollowUpAttempt::decl(),
