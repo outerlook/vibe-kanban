@@ -21,6 +21,8 @@ use services::services::{
     auth::AuthContext,
     config::{Config, ConfigError},
     container::{ContainerError, ContainerService},
+    embedding::EmbeddingService,
+    embedding_worker::EmbeddingWorker,
     events::{EventError, EventService},
     file_search_cache::FileSearchCache,
     filesystem::{FilesystemError, FilesystemService},
@@ -73,6 +75,8 @@ pub enum DeploymentError {
     Config(#[from] ConfigError),
     #[error("Remote client not configured")]
     RemoteClientNotConfigured,
+    #[error("Embedding error: {0}")]
+    Embedding(String),
     #[error(transparent)]
     Other(#[from] AnyhowError),
 }
@@ -102,6 +106,8 @@ pub trait Deployment: Clone + Send + Sync + 'static {
     fn filesystem(&self) -> &FilesystemService;
 
     fn events(&self) -> &EventService;
+
+    fn embedding(&self) -> &EmbeddingService;
 
     fn file_search_cache(&self) -> &Arc<FileSearchCache>;
 
@@ -134,6 +140,10 @@ pub trait Deployment: Clone + Send + Sync + 'static {
             });
         let publisher = self.share_publisher().ok();
         PrMonitorService::spawn(db, analytics, publisher).await
+    }
+
+    fn spawn_embedding_worker(&self) -> tokio::task::JoinHandle<()> {
+        EmbeddingWorker::spawn(self.embedding().clone(), self.db().clone())
     }
 
     async fn track_if_analytics_allowed(&self, event_name: &str, properties: Value) {

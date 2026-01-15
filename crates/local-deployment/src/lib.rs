@@ -10,6 +10,7 @@ use services::services::{
     auth::AuthContext,
     config::{Config, load_config_from_file, save_config_to_file},
     container::ContainerService,
+    embedding::EmbeddingService,
     events::{EventService, EventWorkerHandle},
     file_search_cache::FileSearchCache,
     filesystem::FilesystemService,
@@ -48,6 +49,7 @@ pub struct LocalDeployment {
     image: ImageService,
     filesystem: FilesystemService,
     events: EventService,
+    embedding: EmbeddingService,
     event_worker_handle: Arc<Mutex<Option<EventWorkerHandle>>>,
     file_search_cache: Arc<FileSearchCache>,
     approvals: Approvals,
@@ -121,6 +123,10 @@ impl Deployment for LocalDeployment {
                 EventService::create_hook(events_msg_store.clone(), event_worker_handle.sender());
             DBService::new_with_after_connect(hook).await?
         };
+
+        // Initialize embedding service (loads the model - may take a few seconds on first run)
+        let embedding = EmbeddingService::new()
+            .map_err(|e| DeploymentError::Embedding(e.to_string()))?;
 
         let image = ImageService::new(db.clone().pool).await?;
         {
@@ -209,6 +215,7 @@ impl Deployment for LocalDeployment {
             image,
             filesystem,
             events,
+            embedding,
             event_worker_handle: Arc::new(Mutex::new(Some(event_worker_handle))),
             file_search_cache,
             approvals,
@@ -265,6 +272,10 @@ impl Deployment for LocalDeployment {
 
     fn events(&self) -> &EventService {
         &self.events
+    }
+
+    fn embedding(&self) -> &EmbeddingService {
+        &self.embedding
     }
 
     fn file_search_cache(&self) -> &Arc<FileSearchCache> {
