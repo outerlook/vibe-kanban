@@ -12,7 +12,9 @@
         "mcp": "MCP Servers",
         "mcpDesc": "Model Context Protocol servers",
         "organizations": "Organization Settings",
-        "organizationsDesc": "Manage organization members and permissions"
+        "organizationsDesc": "Manage organization members and permissions",
+        "github": "GitHub",
+        "githubDesc": "Configure GitHub token for API access"
       }
     },
     "general": {
@@ -106,6 +108,37 @@
       },
       "github": {
         "title": "GitHub Integration",
+        "loading": "Loading GitHub settings...",
+        "token": {
+          "title": "GitHub Token",
+          "description": "Configure a GitHub Personal Access Token for API operations like creating pull requests.",
+          "status": {
+            "configured": "Connected",
+            "notConfigured": "Not configured"
+          },
+          "tokenConfiguredMessage": "Your GitHub token is configured and ready to use.",
+          "inputLabel": "Personal Access Token",
+          "inputPlaceholder": "ghp_xxxxxxxxxxxxxxxxxxxx",
+          "inputHelper": "Enter a GitHub Personal Access Token with repo scope.",
+          "or": "Or",
+          "importHelper": "Import token from GitHub CLI (requires gh auth login)",
+          "buttons": {
+            "save": "Save Token",
+            "remove": "Remove Token",
+            "import": "Import from GitHub CLI"
+          },
+          "confirmDelete": "Are you sure you want to remove your GitHub token?",
+          "success": {
+            "saved": "GitHub token saved successfully",
+            "deleted": "GitHub token removed successfully"
+          },
+          "errors": {
+            "required": "Token is required",
+            "saveFailed": "Failed to save token",
+            "deleteFailed": "Failed to remove token",
+            "importFailed": "Failed to import token from GitHub CLI"
+          }
+        },
         "cliSetup": {
           "title": "GitHub CLI Setup",
           "description": "GitHub CLI authentication is required to create pull requests and interact with GitHub repositories.",

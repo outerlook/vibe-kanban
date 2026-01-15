@@ -21,6 +21,8 @@ import {
   ExecutionProcessRepoState,
   GanttTask,
   GitBranch,
+  GitHubImportResponse,
+  GitHubSettingsStatus,
   MergeStatus,
   Project,
   ProjectRepo,
@@ -1898,5 +1900,39 @@ export const conversationsApi = {
       `/api/conversations/${conversationId}/executions`
     );
     return handleApiResponse<ExecutionProcess[]>(response);
+  },
+};
+
+// GitHub Settings API
+export const githubSettingsApi = {
+  /** Check if GitHub token is configured */
+  getStatus: async (): Promise<GitHubSettingsStatus> => {
+    const response = await makeRequest('/api/settings/github');
+    return handleApiResponse<GitHubSettingsStatus>(response);
+  },
+
+  /** Set GitHub token */
+  setToken: async (token: string): Promise<GitHubSettingsStatus> => {
+    const response = await makeRequest('/api/settings/github', {
+      method: 'PUT',
+      body: JSON.stringify({ token }),
+    });
+    return handleApiResponse<GitHubSettingsStatus>(response);
+  },
+
+  /** Delete GitHub token */
+  deleteToken: async (): Promise<GitHubSettingsStatus> => {
+    const response = await makeRequest('/api/settings/github', {
+      method: 'DELETE',
+    });
+    return handleApiResponse<GitHubSettingsStatus>(response);
+  },
+
+  /** Import GitHub token from gh CLI */
+  importFromCli: async (): Promise<GitHubImportResponse> => {
+    const response = await makeRequest('/api/settings/github/import', {
+      method: 'POST',
+    });
+    return handleApiResponse<GitHubImportResponse>(response);
   },
 };
