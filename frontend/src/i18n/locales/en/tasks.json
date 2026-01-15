@@ -562,6 +562,28 @@
       "assignFailed": "Failed to assign tasks to group. Please try again."
     }
   },
+  "mergeGroupDialog": {
+    "title": "Merge Group",
+    "description": "Merge \"{{sourceName}}\" into another group. All tasks will be moved to the target group.",
+    "targetLabel": "Target Group",
+    "loadingGroups": "Loading groups...",
+    "noTargetsAvailable": "No other groups available to merge into.",
+    "selectPlaceholder": "Select target group",
+    "confirmation": "All tasks from \"{{sourceName}}\" will be moved to \"{{targetName}}\". The source group will be deleted.",
+    "merging": "Merging...",
+    "merge": "Merge Group",
+    "errors": {
+      "selectTarget": "Please select a target group",
+      "mergeFailed": "Failed to merge groups. Please try again."
+    }
+  },
+  "groupCard": {
+    "contextMenu": {
+      "mergeInto": "Merge into...",
+      "edit": "Edit group",
+      "delete": "Delete group"
+    }
+  },
   "restoreLogsDialog": {
     "title": "Confirm Retry",
     "historyChange": {

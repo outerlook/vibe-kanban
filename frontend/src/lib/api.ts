@@ -672,6 +672,14 @@ export const taskGroupsApi = {
     });
     return handleApiResponse<void>(response);
   },
+
+  merge: async (sourceGroupId: string, targetGroupId: string): Promise<TaskGroup> => {
+    const response = await makeRequest(`/api/task-groups/${sourceGroupId}/merge`, {
+      method: 'POST',
+      body: JSON.stringify({ target_group_id: targetGroupId }),
+    });
+    return handleApiResponse<TaskGroup>(response);
+  },
 };
 
 // Sessions API

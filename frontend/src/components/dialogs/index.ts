@@ -105,6 +105,10 @@ export {
   BulkAssignGroupDialog,
   type BulkAssignGroupDialogProps,
 } from './tasks/BulkAssignGroupDialog';
+export {
+  MergeGroupDialog,
+  type MergeGroupDialogProps,
+} from './tasks/MergeGroupDialog';
 
 // Auth dialogs
 export { GhCliSetupDialog } from './auth/GhCliSetupDialog';

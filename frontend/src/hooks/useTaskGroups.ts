@@ -142,3 +142,33 @@ export function useAssignTasksToGroup() {
     },
   });
 }
+
+export function useMergeTaskGroup() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    TaskGroup,
+    unknown,
+    { sourceId: string; targetId: string; projectId: string }
+  >({
+    mutationFn: ({ sourceId, targetId }) =>
+      taskGroupsApi.merge(sourceId, targetId),
+    onSuccess: (_data, { sourceId, projectId }) => {
+      // Remove the source group from cache
+      queryClient.removeQueries({
+        queryKey: taskGroupKeys.byId(sourceId),
+      });
+      // Invalidate task groups list
+      queryClient.invalidateQueries({
+        queryKey: taskGroupKeys.byProject(projectId),
+      });
+      // Invalidate tasks since their group assignments changed
+      queryClient.invalidateQueries({
+        queryKey: taskKeys.all,
+      });
+    },
+    onError: (err) => {
+      console.error('Failed to merge task groups:', err);
+    },
+  });
+}
