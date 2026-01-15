@@ -242,11 +242,11 @@ export type CheckCustomEditorAvailabilityResponse = { available: boolean, };
 
 export type CheckAgentAvailabilityQuery = { executor: BaseCodingAgent, };
 
-export type BundledSoundInfo = {
+export type BundledSoundInfo = { 
 /**
  * Identifier for API paths (e.g., "bundled:COW_MOOING")
  */
-identifier: string,
+identifier: string, 
 /**
  * Human-readable name (e.g., "Cow Mooing")
  */

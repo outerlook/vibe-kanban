@@ -263,6 +263,7 @@ impl SoundFile {
             SoundFile::AbstractSound3 => "Abstract Sound 3",
             SoundFile::AbstractSound4 => "Abstract Sound 4",
             SoundFile::CowMooing => "Cow Mooing",
+            SoundFile::ErrorBuzzer => "Error Buzzer",
             SoundFile::PhoneVibration => "Phone Vibration",
             SoundFile::Rooster => "Rooster",
         }
