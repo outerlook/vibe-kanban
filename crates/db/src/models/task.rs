@@ -925,6 +925,295 @@ LIMIT ?4"#,
         Ok(results)
     }
 
+    /// Search tasks using hybrid search combining vector similarity and FTS5.
+    ///
+    /// Combines semantic understanding (vector embeddings) with exact keyword matching (FTS5)
+    /// for best results. Uses weighted scoring: 0.6 * vector_score + 0.4 * fts_score.
+    ///
+    /// Handles edge cases:
+    /// - Tasks with embedding but no FTS match: uses vector score only
+    /// - Tasks with FTS match but no embedding: uses FTS score only
+    /// - Tasks matching both: uses weighted combination (highest ranked)
+    pub async fn search_hybrid(
+        pool: &SqlitePool,
+        project_id: Uuid,
+        query_embedding: &[f32],
+        keyword_query: &str,
+        status: Option<TaskStatus>,
+        limit: i64,
+    ) -> Result<Vec<(TaskWithAttemptStatus, f64)>, sqlx::Error> {
+        use super::embedding::{TaskEmbedding, EMBEDDING_DIMENSION};
+
+        if query_embedding.len() != EMBEDDING_DIMENSION {
+            return Err(sqlx::Error::Protocol(format!(
+                "Query embedding dimension mismatch: expected {}, got {}",
+                EMBEDDING_DIMENSION,
+                query_embedding.len()
+            )));
+        }
+
+        let trimmed_query = keyword_query.trim();
+        let escaped_query = if trimmed_query.is_empty() {
+            None
+        } else {
+            Some(Self::escape_fts5_query(trimmed_query))
+        };
+
+        let query_bytes = TaskEmbedding::serialize_embedding(query_embedding);
+        let status_str = status.map(|s| s.to_string().to_lowercase());
+
+        // Hybrid search query:
+        // - vector_scores: cosine similarity converted to 0-1 (1 = most similar)
+        // - fts_scores: BM25 normalized to 0-1 range using sigmoid-like transform
+        // - Final score: 0.6 * vector + 0.4 * fts, with fallback when one is missing
+        #[derive(FromRow)]
+        struct HybridSearchRow {
+            id: Uuid,
+            project_id: Uuid,
+            title: String,
+            description: Option<String>,
+            status: TaskStatus,
+            parent_workspace_id: Option<Uuid>,
+            shared_task_id: Option<Uuid>,
+            task_group_id: Option<Uuid>,
+            created_at: DateTime<Utc>,
+            updated_at: DateTime<Utc>,
+            is_blocked: i64,
+            has_in_progress_attempt: i64,
+            last_attempt_failed: i64,
+            is_queued: i64,
+            executor: String,
+            hybrid_score: f64,
+        }
+
+        // Build the query dynamically based on whether we have a keyword query
+        let sql = if escaped_query.is_some() {
+            // Full hybrid: both vector and FTS
+            r#"WITH vector_scores AS (
+                SELECT
+                    te.task_rowid,
+                    -- Convert cosine distance (0-2) to similarity score (1-0)
+                    1.0 - (vec_distance_cosine(te.embedding, ?1) / 2.0) AS score
+                FROM task_embeddings te
+                JOIN tasks t ON t.rowid = te.task_rowid
+                WHERE t.project_id = ?2
+            ),
+            fts_scores AS (
+                SELECT
+                    tasks_fts.rowid,
+                    -- BM25 scores are negative (more negative = better match)
+                    -- Normalize using: 1 / (1 + exp(bm25)) to get 0-1 range
+                    1.0 / (1.0 + exp(bm25(tasks_fts))) AS score
+                FROM tasks_fts
+                WHERE tasks_fts MATCH ?3
+            )
+            SELECT
+                t.id,
+                t.project_id,
+                t.title,
+                t.description,
+                t.status,
+                t.parent_workspace_id,
+                t.shared_task_id,
+                t.task_group_id,
+                t.created_at,
+                t.updated_at,
+
+                CASE WHEN EXISTS (
+                    SELECT 1
+                    FROM task_dependencies td
+                    JOIN tasks dep ON dep.id = td.depends_on_id
+                    WHERE td.task_id = t.id
+                    AND dep.status != 'done'
+                ) THEN 1 ELSE 0 END AS is_blocked,
+
+                CASE WHEN EXISTS (
+                    SELECT 1
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    JOIN execution_processes ep ON ep.session_id = s.id
+                    WHERE w.task_id = t.id
+                    AND ep.status = 'running'
+                    AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
+                    LIMIT 1
+                ) THEN 1 ELSE 0 END AS has_in_progress_attempt,
+
+                CASE WHEN (
+                    SELECT ep.status
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    JOIN execution_processes ep ON ep.session_id = s.id
+                    WHERE w.task_id = t.id
+                    AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
+                    ORDER BY ep.created_at DESC
+                    LIMIT 1
+                ) IN ('failed','killed') THEN 1 ELSE 0 END AS last_attempt_failed,
+
+                CASE WHEN EXISTS (
+                    SELECT 1 FROM workspaces w
+                    JOIN execution_queue eq ON eq.workspace_id = w.id
+                    WHERE w.task_id = t.id
+                    LIMIT 1
+                ) THEN 1 ELSE 0 END AS is_queued,
+
+                COALESCE((SELECT s.executor
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    WHERE w.task_id = t.id
+                    ORDER BY s.created_at DESC
+                    LIMIT 1
+                ), '') AS executor,
+
+                -- Hybrid score calculation:
+                -- When both exist: weighted combination
+                -- When only vector: use vector score
+                -- When only FTS: use FTS score
+                CASE
+                    WHEN vs.score IS NOT NULL AND fs.score IS NOT NULL THEN
+                        0.6 * vs.score + 0.4 * fs.score
+                    WHEN vs.score IS NOT NULL THEN
+                        vs.score
+                    WHEN fs.score IS NOT NULL THEN
+                        fs.score
+                    ELSE 0.0
+                END AS hybrid_score
+
+            FROM tasks t
+            LEFT JOIN vector_scores vs ON vs.task_rowid = t.rowid
+            LEFT JOIN fts_scores fs ON fs.rowid = t.rowid
+            WHERE t.project_id = ?2
+                AND (vs.score IS NOT NULL OR fs.score IS NOT NULL)
+                AND (?4 IS NULL OR t.status = ?4)
+            ORDER BY hybrid_score DESC
+            LIMIT ?5"#
+        } else {
+            // Vector-only search (no keyword query)
+            r#"WITH vector_scores AS (
+                SELECT
+                    te.task_rowid,
+                    1.0 - (vec_distance_cosine(te.embedding, ?1) / 2.0) AS score
+                FROM task_embeddings te
+                JOIN tasks t ON t.rowid = te.task_rowid
+                WHERE t.project_id = ?2
+            )
+            SELECT
+                t.id,
+                t.project_id,
+                t.title,
+                t.description,
+                t.status,
+                t.parent_workspace_id,
+                t.shared_task_id,
+                t.task_group_id,
+                t.created_at,
+                t.updated_at,
+
+                CASE WHEN EXISTS (
+                    SELECT 1
+                    FROM task_dependencies td
+                    JOIN tasks dep ON dep.id = td.depends_on_id
+                    WHERE td.task_id = t.id
+                    AND dep.status != 'done'
+                ) THEN 1 ELSE 0 END AS is_blocked,
+
+                CASE WHEN EXISTS (
+                    SELECT 1
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    JOIN execution_processes ep ON ep.session_id = s.id
+                    WHERE w.task_id = t.id
+                    AND ep.status = 'running'
+                    AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
+                    LIMIT 1
+                ) THEN 1 ELSE 0 END AS has_in_progress_attempt,
+
+                CASE WHEN (
+                    SELECT ep.status
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    JOIN execution_processes ep ON ep.session_id = s.id
+                    WHERE w.task_id = t.id
+                    AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
+                    ORDER BY ep.created_at DESC
+                    LIMIT 1
+                ) IN ('failed','killed') THEN 1 ELSE 0 END AS last_attempt_failed,
+
+                CASE WHEN EXISTS (
+                    SELECT 1 FROM workspaces w
+                    JOIN execution_queue eq ON eq.workspace_id = w.id
+                    WHERE w.task_id = t.id
+                    LIMIT 1
+                ) THEN 1 ELSE 0 END AS is_queued,
+
+                COALESCE((SELECT s.executor
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    WHERE w.task_id = t.id
+                    ORDER BY s.created_at DESC
+                    LIMIT 1
+                ), '') AS executor,
+
+                vs.score AS hybrid_score
+
+            FROM tasks t
+            JOIN vector_scores vs ON vs.task_rowid = t.rowid
+            WHERE t.project_id = ?2
+                AND (?4 IS NULL OR t.status = ?4)
+            ORDER BY hybrid_score DESC
+            LIMIT ?5"#
+        };
+
+        let records: Vec<HybridSearchRow> = if let Some(ref fts_query) = escaped_query {
+            sqlx::query_as(sql)
+                .bind(&query_bytes)
+                .bind(project_id)
+                .bind(fts_query)
+                .bind(&status_str)
+                .bind(limit)
+                .fetch_all(pool)
+                .await?
+        } else {
+            sqlx::query_as(sql)
+                .bind(&query_bytes)
+                .bind(project_id)
+                .bind::<Option<String>>(None) // placeholder for ?3
+                .bind(&status_str)
+                .bind(limit)
+                .fetch_all(pool)
+                .await?
+        };
+
+        let results = records
+            .into_iter()
+            .map(|rec| {
+                (
+                    TaskWithAttemptStatus {
+                        task: Task {
+                            id: rec.id,
+                            project_id: rec.project_id,
+                            title: rec.title,
+                            description: rec.description,
+                            status: rec.status,
+                            parent_workspace_id: rec.parent_workspace_id,
+                            shared_task_id: rec.shared_task_id,
+                            task_group_id: rec.task_group_id,
+                            created_at: rec.created_at,
+                            updated_at: rec.updated_at,
+                        },
+                        has_in_progress_attempt: rec.has_in_progress_attempt != 0,
+                        last_attempt_failed: rec.last_attempt_failed != 0,
+                        is_blocked: rec.is_blocked != 0,
+                        is_queued: rec.is_queued != 0,
+                        executor: rec.executor,
+                    },
+                    rec.hybrid_score,
+                )
+            })
+            .collect();
+
+        Ok(results)
+    }
+
     pub async fn find_relationships_for_workspace(
         pool: &SqlitePool,
         workspace: &Workspace,
@@ -963,6 +1252,7 @@ LIMIT ?4"#,
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::embedding::EMBEDDING_DIMENSION;
 
     #[test]
     fn test_escape_fts5_query_simple() {
@@ -1014,5 +1304,51 @@ mod tests {
     fn test_escape_fts5_query_column_prefix() {
         // Column prefixes like "title:" should be quoted to prevent FTS5 interpretation
         assert_eq!(Task::escape_fts5_query("title:auth"), r#""title:auth""#);
+    }
+
+    #[tokio::test]
+    async fn test_search_hybrid_validates_embedding_dimension() {
+        // Create a test pool (in-memory)
+        let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
+
+        let project_id = Uuid::new_v4();
+
+        // Test with wrong dimension (too short)
+        let wrong_embedding: Vec<f32> = vec![0.0; 100];
+        let result = Task::search_hybrid(
+            &pool,
+            project_id,
+            &wrong_embedding,
+            "test query",
+            None,
+            10,
+        )
+        .await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("dimension mismatch"));
+
+        // Test with wrong dimension (too long)
+        let wrong_embedding: Vec<f32> = vec![0.0; 500];
+        let result = Task::search_hybrid(
+            &pool,
+            project_id,
+            &wrong_embedding,
+            "test query",
+            None,
+            10,
+        )
+        .await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("dimension mismatch"));
+    }
+
+    #[test]
+    fn test_hybrid_search_embedding_dimension_constant() {
+        // Ensure embedding dimension matches expected BGE-small-en-v1.5 size
+        assert_eq!(EMBEDDING_DIMENSION, 384);
     }
 }
