@@ -88,6 +88,11 @@ const ProjectConversations = lazy(() =>
     default: module.ProjectConversations,
   }))
 );
+const PrOverview = lazy(() =>
+  import('@/pages/PrOverview').then((module) => ({
+    default: module.PrOverview,
+  }))
+);
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
@@ -212,6 +217,10 @@ function AppContent() {
                   <Route
                     path="/projects/:projectId/gantt/:taskId/attempts/:attemptId"
                     element={<GanttView />}
+                  />
+                  <Route
+                    path="/projects/:projectId/prs"
+                    element={<PrOverview />}
                   />
                   <Route path="/settings/*" element={<SettingsLayout />}>
                     <Route index element={<Navigate to="general" replace />} />
