@@ -7018,8 +7018,10 @@ dependencies = [
 name = "server"
 version = "0.0.143"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "axum",
+ "base64",
  "chrono",
  "db",
  "deployment",

@@ -116,6 +116,8 @@ export type Image = { id: string, file_path: string, original_name: string, mime
 
 export type CreateImage = { file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, };
 
+export type GitHubSettingsStatus = { configured: boolean, };
+
 export type Workspace = { id: string, task_id: string, container_ref: string | null, branch: string, agent_working_dir: string | null, setup_completed_at: string | null, created_at: string, updated_at: string, };
 
 export type Session = { id: string, workspace_id: string, executor: string | null, created_at: string, updated_at: string, };
@@ -291,6 +293,10 @@ identifier: string,
 display_name: string, };
 
 export type AvailableSoundsResponse = { bundled: Array<BundledSoundInfo>, custom: Array<CustomSoundInfo>, };
+
+export type SetGitHubTokenRequest = { token: string, };
+
+export type GitHubImportResponse = { success: boolean, message: string, };
 
 export type AccountInfo = { claude: ClaudeAccountInfo | null, codex: CodexAccountInfo | null, };
 
