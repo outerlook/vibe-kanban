@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use octocrab::{Octocrab, params};
-use serde::Serialize;
+use octocrab::{params, Octocrab};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ts_rs::TS;
 
@@ -25,6 +25,59 @@ pub struct PullRequestSummary {
     pub base_branch: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+// GraphQL types for PR review threads query
+#[derive(Debug, Serialize)]
+struct ReviewThreadsQuery {
+    query: &'static str,
+    variables: ReviewThreadsVariables,
+}
+
+#[derive(Debug, Serialize)]
+struct ReviewThreadsVariables {
+    owner: String,
+    repo: String,
+    pr: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct GraphQLResponse {
+    data: Option<GraphQLData>,
+    errors: Option<Vec<GraphQLError>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GraphQLError {
+    message: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GraphQLData {
+    repository: Option<RepositoryData>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RepositoryData {
+    pull_request: Option<PullRequestData>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullRequestData {
+    review_threads: ReviewThreadsConnection,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReviewThreadsConnection {
+    nodes: Vec<ReviewThread>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReviewThread {
+    is_resolved: bool,
 }
 
 /// GitHub API client wrapper using octocrab.
@@ -113,6 +166,62 @@ impl GitHubClient {
 
         Ok(all_prs)
     }
+
+    /// Get the count of unresolved review threads for a pull request.
+    ///
+    /// Uses GitHub's GraphQL API to fetch review threads with their resolved status.
+    /// Returns 0 for PRs with no review threads.
+    pub async fn get_unresolved_thread_count(
+        &self,
+        owner: &str,
+        repo: &str,
+        pr_number: u64,
+    ) -> Result<usize, GitHubClientError> {
+        const QUERY: &str = r#"
+            query($owner: String!, $repo: String!, $pr: Int!) {
+                repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $pr) {
+                        reviewThreads(first: 100) {
+                            nodes {
+                                isResolved
+                            }
+                        }
+                    }
+                }
+            }
+        "#;
+
+        let query = ReviewThreadsQuery {
+            query: QUERY,
+            variables: ReviewThreadsVariables {
+                owner: owner.to_string(),
+                repo: repo.to_string(),
+                pr: pr_number as i64,
+            },
+        };
+
+        let response: GraphQLResponse = self
+            .inner
+            .graphql(&query)
+            .await
+            .map_err(|e| GitHubClientError::ApiError(e.to_string()))?;
+
+        if let Some(errors) = response.errors {
+            if !errors.is_empty() {
+                let error_messages: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
+                return Err(GitHubClientError::ApiError(error_messages.join(", ")));
+            }
+        }
+
+        let count = response
+            .data
+            .and_then(|d| d.repository)
+            .and_then(|r| r.pull_request)
+            .map(|pr| pr.review_threads.nodes.iter().filter(|t| !t.is_resolved).count())
+            .unwrap_or(0);
+
+        Ok(count)
+    }
 }
 
 #[cfg(test)]
@@ -193,5 +302,114 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(matches!(err, GitHubClientError::ApiError(_)));
+    }
+
+    #[test]
+    fn test_graphql_response_parsing_with_unresolved_threads() {
+        let json = r#"{
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "nodes": [
+                                {"isResolved": false},
+                                {"isResolved": true},
+                                {"isResolved": false},
+                                {"isResolved": true}
+                            ]
+                        }
+                    }
+                }
+            }
+        }"#;
+
+        let response: GraphQLResponse = serde_json::from_str(json).unwrap();
+        let count = response
+            .data
+            .and_then(|d| d.repository)
+            .and_then(|r| r.pull_request)
+            .map(|pr| pr.review_threads.nodes.iter().filter(|t| !t.is_resolved).count())
+            .unwrap_or(0);
+
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_graphql_response_parsing_no_threads() {
+        let json = r#"{
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "nodes": []
+                        }
+                    }
+                }
+            }
+        }"#;
+
+        let response: GraphQLResponse = serde_json::from_str(json).unwrap();
+        let count = response
+            .data
+            .and_then(|d| d.repository)
+            .and_then(|r| r.pull_request)
+            .map(|pr| pr.review_threads.nodes.iter().filter(|t| !t.is_resolved).count())
+            .unwrap_or(0);
+
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_graphql_response_parsing_null_pr() {
+        let json = r#"{
+            "data": {
+                "repository": {
+                    "pullRequest": null
+                }
+            }
+        }"#;
+
+        let response: GraphQLResponse = serde_json::from_str(json).unwrap();
+        let count = response
+            .data
+            .and_then(|d| d.repository)
+            .and_then(|r| r.pull_request)
+            .map(|pr| pr.review_threads.nodes.iter().filter(|t| !t.is_resolved).count())
+            .unwrap_or(0);
+
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_graphql_response_parsing_with_errors() {
+        let json = r#"{
+            "data": null,
+            "errors": [
+                {"message": "Could not resolve to a Repository"},
+                {"message": "Another error"}
+            ]
+        }"#;
+
+        let response: GraphQLResponse = serde_json::from_str(json).unwrap();
+        assert!(response.errors.is_some());
+        assert_eq!(response.errors.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires valid GitHub token - run with GITHUB_TOKEN env var"]
+    async fn test_get_unresolved_thread_count_real_api() {
+        let token = std::env::var("GITHUB_TOKEN").expect("GITHUB_TOKEN must be set");
+        let client = GitHubClient::new(token).unwrap();
+
+        // Test with a known public repo PR (rust-lang/rust has many PRs with reviews)
+        let result = client
+            .get_unresolved_thread_count("rust-lang", "rust", 1)
+            .await;
+
+        // Should either succeed or fail gracefully
+        match result {
+            Ok(count) => println!("Unresolved threads: {}", count),
+            Err(e) => println!("API error (expected for old/invalid PRs): {}", e),
+        }
     }
 }
