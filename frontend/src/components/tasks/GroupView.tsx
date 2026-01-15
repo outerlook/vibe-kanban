@@ -77,6 +77,7 @@ export function GroupView({ projectId, onGroupClick }: GroupViewProps) {
           key={group.id}
           group={group}
           repoId={repoId ?? ''}
+          projectId={projectId}
           onClick={onGroupClick ? () => onGroupClick(group.id) : undefined}
         />
       ))}

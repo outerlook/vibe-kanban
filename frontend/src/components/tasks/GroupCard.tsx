@@ -1,14 +1,37 @@
-import { Check, AlertTriangle, GitBranch, Loader2 } from 'lucide-react';
+import { useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import {
+  Check,
+  AlertTriangle,
+  GitBranch,
+  Loader2,
+  GitMerge,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { useBranchAncestorStatus } from '@/hooks';
+import { useDeleteTaskGroup } from '@/hooks/useTaskGroups';
 import { StatusCountBadge } from './StatusCountBadge';
+import {
+  TaskGroupFormDialog,
+  MergeGroupDialog,
+  ConfirmDialog,
+} from '@/components/dialogs';
 import type { TaskGroupWithStats, TaskStatus } from 'shared/types';
 
 interface GroupCardProps {
   group: TaskGroupWithStats;
   repoId: string;
+  projectId: string;
   onClick?: () => void;
 }
 
@@ -20,60 +43,144 @@ const statusOrder: TaskStatus[] = [
   'cancelled',
 ];
 
-export function GroupCard({ group, repoId, onClick }: GroupCardProps) {
+export function GroupCard({
+  group,
+  repoId,
+  projectId,
+  onClick,
+}: GroupCardProps) {
+  const { t } = useTranslation('tasks');
   const { data: branchStatus, isLoading: isBranchLoading } =
     useBranchAncestorStatus(repoId, group.base_branch ?? undefined);
 
+  const deleteMutation = useDeleteTaskGroup();
+
+  const [contextMenu, setContextMenu] = useState<{
+    open: boolean;
+    x: number;
+    y: number;
+  }>({ open: false, x: 0, y: 0 });
+
   const counts = group.task_counts;
 
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ open: true, x: e.clientX, y: e.clientY });
+  }, []);
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu({ open: false, x: 0, y: 0 });
+  }, []);
+
+  const handleMergeInto = useCallback(() => {
+    closeContextMenu();
+    MergeGroupDialog.show({ sourceGroup: group, projectId });
+  }, [closeContextMenu, group, projectId]);
+
+  const handleEdit = useCallback(() => {
+    closeContextMenu();
+    TaskGroupFormDialog.show({ mode: 'edit', projectId, group });
+  }, [closeContextMenu, group, projectId]);
+
+  const handleDelete = useCallback(async () => {
+    closeContextMenu();
+    const result = await ConfirmDialog.show({
+      title: 'Delete Group',
+      message: `Are you sure you want to delete "${group.name}"? Tasks in this group will be unassigned.`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    });
+    if (result === 'confirmed') {
+      await deleteMutation.mutateAsync({ groupId: group.id, projectId });
+    }
+  }, [closeContextMenu, deleteMutation, group, projectId]);
+
   return (
-    <Card
-      onClick={onClick}
-      className={cn(
-        'p-4 cursor-pointer transition-colors',
-        'hover:bg-accent/50 border border-border rounded-lg',
-        onClick && 'hover:shadow-sm'
-      )}
-    >
-      <div className="flex flex-col gap-3">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="font-medium text-base text-foreground truncate">
-            {group.name}
-          </h3>
+    <>
+      <Card
+        onClick={onClick}
+        onContextMenu={handleContextMenu}
+        className={cn(
+          'p-4 cursor-pointer transition-colors',
+          'hover:bg-accent/50 border border-border rounded-lg',
+          onClick && 'hover:shadow-sm'
+        )}
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="font-medium text-base text-foreground truncate">
+              {group.name}
+            </h3>
+
+            {group.base_branch && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                {isBranchLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                ) : branchStatus?.is_ancestor ? (
+                  <Check className="h-4 w-4 text-emerald-500" />
+                ) : (
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                )}
+              </div>
+            )}
+          </div>
 
           {group.base_branch && (
-            <div className="flex items-center gap-1.5 shrink-0">
-              {isBranchLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              ) : branchStatus?.is_ancestor ? (
-                <Check className="h-4 w-4 text-emerald-500" />
-              ) : (
-                <AlertTriangle className="h-4 w-4 text-amber-500" />
-              )}
-            </div>
+            <Badge
+              variant="outline"
+              className="w-fit text-xs font-normal gap-1 px-2 py-0.5"
+            >
+              <GitBranch className="h-3 w-3" />
+              {group.base_branch}
+            </Badge>
           )}
-        </div>
 
-        {group.base_branch && (
-          <Badge
-            variant="outline"
-            className="w-fit text-xs font-normal gap-1 px-2 py-0.5"
+          <div className="flex flex-wrap gap-1.5">
+            {statusOrder.map((status) => (
+              <StatusCountBadge
+                key={status}
+                status={status}
+                count={counts[status]}
+              />
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      <DropdownMenu
+        open={contextMenu.open}
+        onOpenChange={(open) => {
+          if (!open) closeContextMenu();
+        }}
+      >
+        <DropdownMenuContent
+          style={{
+            position: 'fixed',
+            left: contextMenu.x,
+            top: contextMenu.y,
+          }}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
+          <DropdownMenuItem onClick={handleMergeInto}>
+            <GitMerge className="h-4 w-4" />
+            {t('groupCard.contextMenu.mergeInto')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleEdit}>
+            <Pencil className="h-4 w-4" />
+            {t('groupCard.contextMenu.edit')}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={handleDelete}
+            className="text-destructive focus:text-destructive"
           >
-            <GitBranch className="h-3 w-3" />
-            {group.base_branch}
-          </Badge>
-        )}
-
-        <div className="flex flex-wrap gap-1.5">
-          {statusOrder.map((status) => (
-            <StatusCountBadge
-              key={status}
-              status={status}
-              count={counts[status]}
-            />
-          ))}
-        </div>
-      </div>
-    </Card>
+            <Trash2 className="h-4 w-4" />
+            {t('groupCard.contextMenu.delete')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   );
 }
