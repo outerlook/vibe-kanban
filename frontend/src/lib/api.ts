@@ -4,6 +4,7 @@ import {
   AccountInfo,
   ApprovalStatus,
   ApiResponse,
+  BranchAncestorStatus,
   Config,
   CreateFollowUpAttempt,
   EditorType,
@@ -31,6 +32,7 @@ import {
   Task,
   TaskDependency,
   TaskGroup,
+  TaskGroupWithStats,
   TaskRelationships,
   Tag,
   TagSearchParams,
@@ -626,6 +628,13 @@ export const taskGroupsApi = {
     return handleApiResponse<TaskGroup[]>(response);
   },
 
+  getStatsForProject: async (projectId: string): Promise<TaskGroupWithStats[]> => {
+    const response = await makeRequest(
+      `/api/task-groups/stats?project_id=${encodeURIComponent(projectId)}`
+    );
+    return handleApiResponse<TaskGroupWithStats[]>(response);
+  },
+
   getById: async (groupId: string): Promise<TaskGroup> => {
     const response = await makeRequest(`/api/task-groups/${groupId}`);
     return handleApiResponse<TaskGroup>(response);
@@ -1064,6 +1073,20 @@ export const repoApi = {
       body: JSON.stringify(payload),
     });
     return handleApiResponse<GitBranch>(response);
+  },
+
+  checkBranchAncestor: async (
+    repoId: string,
+    branchName: string
+  ): Promise<BranchAncestorStatus> => {
+    const response = await makeRequest(
+      `/api/repos/${repoId}/branches/check-ancestor`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ branch_name: branchName }),
+      }
+    );
+    return handleApiResponse<BranchAncestorStatus>(response);
   },
 
   init: async (data: {
