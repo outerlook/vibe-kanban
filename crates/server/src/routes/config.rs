@@ -25,9 +25,14 @@ use services::services::config::{
     editor::{EditorConfig, EditorType},
     save_config_to_file,
 };
+use strum::IntoEnumIterator;
 use tokio::fs;
 use ts_rs::TS;
-use utils::{api::oauth::LoginStatus, assets::config_path, response::ApiResponse};
+use utils::{
+    api::oauth::LoginStatus,
+    assets::{CustomSoundInfo, alerts_dir, config_path, list_custom_sounds},
+    response::ApiResponse,
+};
 use uuid::Uuid;
 
 use crate::{DeploymentImpl, error::ApiError};
@@ -48,7 +53,8 @@ pub fn router() -> Router<DeploymentImpl> {
             "/config/custom-editors/{id}/check-availability",
             get(check_custom_editor_availability),
         )
-        .route("/sounds/{sound}", get(get_sound))
+        .route("/sounds", get(list_sounds))
+        .route("/sounds/{identifier}", get(get_sound))
         .route("/mcp-config", get(get_mcp_servers).post(update_mcp_servers))
         .route("/profiles", get(get_profiles).put(update_profiles))
         .route(
@@ -200,17 +206,97 @@ async fn handle_config_events(deployment: &DeploymentImpl, old: &Config, new: &C
     }
 }
 
-async fn get_sound(Path(sound): Path<SoundFile>) -> Result<Response, ApiError> {
-    let sound = sound.serve().await.map_err(DeploymentError::Other)?;
-    let response = Response::builder()
-        .status(http::StatusCode::OK)
-        .header(
-            http::header::CONTENT_TYPE,
-            http::HeaderValue::from_static("audio/wav"),
-        )
-        .body(Body::from(sound.data.into_owned()))
-        .unwrap();
-    Ok(response)
+/// Info about a bundled sound file
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct BundledSoundInfo {
+    /// Identifier for API paths (e.g., "bundled:COW_MOOING")
+    pub identifier: String,
+    /// Human-readable name (e.g., "Cow Mooing")
+    pub display_name: String,
+}
+
+/// Response for GET /api/sounds listing all available sounds
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct AvailableSoundsResponse {
+    pub bundled: Vec<BundledSoundInfo>,
+    pub custom: Vec<CustomSoundInfo>,
+}
+
+/// Lists all available sounds (bundled and custom)
+async fn list_sounds(
+    State(_deployment): State<DeploymentImpl>,
+) -> ResponseJson<ApiResponse<AvailableSoundsResponse>> {
+    let bundled: Vec<BundledSoundInfo> = SoundFile::iter()
+        .map(|sf| BundledSoundInfo {
+            identifier: sf.to_identifier(),
+            display_name: sf.display_name().to_string(),
+        })
+        .collect();
+
+    let custom = list_custom_sounds().await;
+
+    ResponseJson(ApiResponse::success(AvailableSoundsResponse { bundled, custom }))
+}
+
+/// Serves a sound file by identifier.
+/// - "bundled:COW_MOOING" serves the embedded bundled sound
+/// - "custom:mysound.wav" serves from the alerts directory
+async fn get_sound(Path(identifier): Path<String>) -> Result<Response, ApiError> {
+    if let Some(variant) = identifier.strip_prefix("bundled:") {
+        // Parse the bundled sound variant
+        let sound_file: SoundFile = variant
+            .parse()
+            .map_err(|_| ApiError::NotFound(format!("Unknown bundled sound: {}", variant)))?;
+
+        let sound = sound_file
+            .serve()
+            .await
+            .map_err(DeploymentError::Other)?;
+
+        let response = Response::builder()
+            .status(http::StatusCode::OK)
+            .header(
+                http::header::CONTENT_TYPE,
+                http::HeaderValue::from_static("audio/wav"),
+            )
+            .body(Body::from(sound.data.into_owned()))
+            .unwrap();
+        Ok(response)
+    } else if let Some(filename) = identifier.strip_prefix("custom:") {
+        // Validate filename to prevent path traversal
+        if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
+            return Err(ApiError::BadRequest("Invalid filename".to_string()));
+        }
+
+        let path = alerts_dir().join(filename);
+
+        // Read the file
+        let data = fs::read(&path).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                ApiError::NotFound(format!("Custom sound not found: {}", filename))
+            } else {
+                ApiError::Internal(format!("Failed to read sound file: {}", e))
+            }
+        })?;
+
+        // Determine MIME type from extension
+        let mime_type = match path.extension().and_then(|e| e.to_str()) {
+            Some(ext) if ext.eq_ignore_ascii_case("wav") => "audio/wav",
+            Some(ext) if ext.eq_ignore_ascii_case("mp3") => "audio/mpeg",
+            _ => "application/octet-stream",
+        };
+
+        let response = Response::builder()
+            .status(http::StatusCode::OK)
+            .header(http::header::CONTENT_TYPE, mime_type)
+            .body(Body::from(data))
+            .unwrap();
+        Ok(response)
+    } else {
+        Err(ApiError::BadRequest(
+            "Invalid sound identifier. Must start with 'bundled:' or 'custom:'".to_string(),
+        ))
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -865,5 +951,141 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
         restore_custom_editors(original).await;
+    }
+
+    #[tokio::test]
+    async fn list_sounds_returns_bundled_and_custom() {
+        let deployment = LocalDeployment::new().await.unwrap();
+        let app = router().with_state(deployment);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/sounds")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let response: ApiResponse<AvailableSoundsResponse> =
+            serde_json::from_slice(&body).unwrap();
+        assert!(response.is_success());
+
+        let data = response.into_data().unwrap();
+        // Should have all bundled sounds
+        assert_eq!(data.bundled.len(), 7); // All SoundFile variants
+        assert!(data.bundled.iter().any(|s| s.identifier == "bundled:COW_MOOING"));
+        assert!(data.bundled.iter().any(|s| s.display_name == "Cow Mooing"));
+
+        // Custom sounds depend on user's alerts directory - just verify it doesn't panic
+        // The list may be empty or contain files depending on the environment
+    }
+
+    #[tokio::test]
+    async fn get_bundled_sound_serves_wav() {
+        let deployment = LocalDeployment::new().await.unwrap();
+        let app = router().with_state(deployment);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/sounds/bundled:COW_MOOING")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get("content-type").unwrap(),
+            "audio/wav"
+        );
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert!(!body.is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_unknown_bundled_sound_returns_404() {
+        let deployment = LocalDeployment::new().await.unwrap();
+        let app = router().with_state(deployment);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/sounds/bundled:UNKNOWN_SOUND")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn get_missing_custom_sound_returns_404() {
+        let deployment = LocalDeployment::new().await.unwrap();
+        let app = router().with_state(deployment);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/sounds/custom:nonexistent.wav")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn get_invalid_sound_identifier_returns_400() {
+        let deployment = LocalDeployment::new().await.unwrap();
+        let app = router().with_state(deployment);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/sounds/invalid_identifier")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn get_custom_sound_rejects_path_traversal() {
+        let deployment = LocalDeployment::new().await.unwrap();
+        let app = router().with_state(deployment);
+
+        // Try path traversal attack with encoded slashes
+        // The `..` pattern is caught by our validation
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/sounds/custom:test..file.wav")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }

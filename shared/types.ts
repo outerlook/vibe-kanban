@@ -132,6 +132,8 @@ additions: number | null, deletions: number | null, };
 
 export type DiffChangeKind = "added" | "deleted" | "modified" | "renamed" | "copied" | "permissionChange";
 
+export type CustomSoundInfo = { filename: string, };
+
 export type ApiResponse<T, E = T> = { success: boolean, data: T | null, error_data: E | null, message: string | null, };
 
 export type LoginStatus = { "status": "loggedout" } | { "status": "loggedin", profile: ProfileResponse, };
@@ -239,6 +241,18 @@ export type ListCustomEditorsResponse = { editors: Array<CustomEditorResponse>, 
 export type CheckCustomEditorAvailabilityResponse = { available: boolean, };
 
 export type CheckAgentAvailabilityQuery = { executor: BaseCodingAgent, };
+
+export type BundledSoundInfo = {
+/**
+ * Identifier for API paths (e.g., "bundled:COW_MOOING")
+ */
+identifier: string,
+/**
+ * Human-readable name (e.g., "Cow Mooing")
+ */
+display_name: string, };
+
+export type AvailableSoundsResponse = { bundled: Array<BundledSoundInfo>, custom: Array<CustomSoundInfo>, };
 
 export type AccountInfo = { claude: ClaudeAccountInfo | null, codex: CodexAccountInfo | null, };
 
@@ -378,7 +392,7 @@ export type Config = { config_version: string, theme: ThemeMode, executor_profil
  */
 max_concurrent_agents: number, };
 
-export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, error_sound_file: SoundFile, };
+export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, error_sound_file: SoundFile, custom_sound_path: string | null, };
 
 export enum ThemeMode { LIGHT = "LIGHT", DARK = "DARK", SYSTEM = "SYSTEM" }
 

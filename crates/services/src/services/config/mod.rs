@@ -23,6 +23,7 @@ pub type NotificationConfig = versions::v10::NotificationConfig;
 pub type EditorConfig = versions::v10::EditorConfig;
 pub type ThemeMode = versions::v10::ThemeMode;
 pub type SoundFile = versions::v10::SoundFile;
+pub use versions::v2::EffectiveSound;
 pub type EditorType = versions::v10::EditorType;
 pub type GitHubConfig = versions::v10::GitHubConfig;
 pub type UiLanguage = versions::v10::UiLanguage;
