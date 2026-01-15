@@ -106,15 +106,6 @@ export function TaskCard({
 
   const localRef = useRef<HTMLDivElement>(null);
 
-  const handleGroupClick = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (!task.task_group_id) return;
-      setGroupId(task.task_group_id);
-    },
-    [setGroupId, task.task_group_id]
-  );
-
   const handleGroupContextMenu = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -229,7 +220,6 @@ export function TaskCard({
           groupId={task.task_group_id}
           groupName={groupName}
           className="w-fit"
-          onClick={handleGroupClick}
           onContextMenu={handleGroupContextMenu}
         />
         <DropdownMenu
