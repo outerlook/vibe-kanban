@@ -58,6 +58,38 @@ pub struct PaginatedTasks {
     pub has_more: bool,
 }
 
+/// Request for semantic task search
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchTasksRequest {
+    pub project_id: Uuid,
+    pub query: String,
+    pub status: Option<TaskStatus>,
+    pub limit: Option<i32>,
+    /// Use hybrid search (vector + FTS). Defaults to true.
+    pub hybrid: Option<bool>,
+}
+
+/// A task match with similarity score
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskMatchWithScore {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub task: TaskWithAttemptStatus,
+    pub similarity_score: f64,
+}
+
+/// Response for semantic task search
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchTasksResponse {
+    pub matches: Vec<TaskMatchWithScore>,
+    pub count: usize,
+    /// The search method used: "hybrid", "vector", or "keyword"
+    pub search_method: String,
+}
+
 pub async fn get_tasks(
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<ListTasksQuery>,
@@ -100,6 +132,92 @@ pub async fn get_tasks(
         tasks,
         total,
         has_more,
+    })))
+}
+
+/// Search tasks using semantic search (hybrid vector + FTS or FTS-only fallback)
+pub async fn search_tasks(
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<SearchTasksRequest>,
+) -> Result<ResponseJson<ApiResponse<SearchTasksResponse>>, ApiError> {
+    const DEFAULT_LIMIT: i32 = 10;
+    const MAX_LIMIT: i32 = 50;
+
+    // Validate query is not empty
+    if request.query.trim().is_empty() {
+        return Err(ApiError::BadRequest("Query cannot be empty".to_string()));
+    }
+
+    // Validate project exists
+    let project = Project::find_by_id(&deployment.db().pool, request.project_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("Project {} not found", request.project_id)))?;
+
+    let limit = request.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT) as i64;
+    let use_hybrid = request.hybrid.unwrap_or(true);
+
+    // Try hybrid search first if requested
+    if use_hybrid {
+        match deployment.embedding().embed_text(&request.query).await {
+            Ok(query_embedding) => {
+                let results = Task::search_hybrid(
+                    &deployment.db().pool,
+                    project.id,
+                    &query_embedding,
+                    &request.query,
+                    request.status.clone(),
+                    limit,
+                )
+                .await?;
+
+                let matches: Vec<TaskMatchWithScore> = results
+                    .into_iter()
+                    .map(|(task, score)| TaskMatchWithScore {
+                        task,
+                        similarity_score: score,
+                    })
+                    .collect();
+
+                let count = matches.len();
+                return Ok(ResponseJson(ApiResponse::success(SearchTasksResponse {
+                    matches,
+                    count,
+                    search_method: "hybrid".to_string(),
+                })));
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Embedding generation failed, falling back to FTS-only: {}",
+                    e
+                );
+                // Fall through to FTS-only search
+            }
+        }
+    }
+
+    // FTS-only fallback
+    let results = Task::search_fts(
+        &deployment.db().pool,
+        project.id,
+        &request.query,
+        request.status.clone(),
+        limit,
+    )
+    .await?;
+
+    let matches: Vec<TaskMatchWithScore> = results
+        .into_iter()
+        .map(|(task, score)| TaskMatchWithScore {
+            task,
+            similarity_score: score,
+        })
+        .collect();
+
+    let count = matches.len();
+    Ok(ResponseJson(ApiResponse::success(SearchTasksResponse {
+        matches,
+        count,
+        search_method: "keyword".to_string(),
     })))
 }
 
@@ -580,6 +698,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 
     let inner = Router::new()
         .route("/", get(get_tasks).post(create_task))
+        .route("/search", post(search_tasks))
         .route("/stream/ws", get(stream_tasks_ws))
         .route("/create-and-start", post(create_task_and_start))
         .nest("/{task_id}", task_id_router);
