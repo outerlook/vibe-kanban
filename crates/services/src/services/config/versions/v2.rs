@@ -412,6 +412,7 @@ mod tests {
             sound_enabled: true,
             push_enabled: true,
             sound_file: SoundFile::CowMooing,
+            error_sound_file: SoundFile::ErrorBuzzer,
             custom_sound_path: Some("custom.wav".to_string()),
         };
 
@@ -427,6 +428,7 @@ mod tests {
             sound_enabled: true,
             push_enabled: true,
             sound_file: SoundFile::Rooster,
+            error_sound_file: SoundFile::ErrorBuzzer,
             custom_sound_path: None,
         };
 

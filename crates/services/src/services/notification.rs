@@ -349,6 +349,7 @@ mod tests {
             sound_enabled: true,
             push_enabled: true,
             sound_file: SoundFile::Rooster,
+            error_sound_file: SoundFile::ErrorBuzzer,
             custom_sound_path: Some(filename),
         };
 
@@ -368,6 +369,7 @@ mod tests {
             sound_enabled: true,
             push_enabled: true,
             sound_file: SoundFile::Rooster,
+            error_sound_file: SoundFile::ErrorBuzzer,
             custom_sound_path: Some(filename),
         };
 
