@@ -103,6 +103,7 @@ import {
   AbortConflictsRequest,
   Session,
   Workspace,
+  AvailableSoundsResponse,
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { createWorkspaceWithSession } from '@/types/attempt';
@@ -1593,5 +1594,13 @@ export const queueApi = {
   getStatus: async (sessionId: string): Promise<QueueStatus> => {
     const response = await makeRequest(`/api/sessions/${sessionId}/queue`);
     return handleApiResponse<QueueStatus>(response);
+  },
+};
+
+// Sounds API for listing available notification sounds
+export const soundsApi = {
+  list: async (): Promise<AvailableSoundsResponse> => {
+    const response = await makeRequest('/api/sounds');
+    return handleApiResponse<AvailableSoundsResponse>(response);
   },
 };

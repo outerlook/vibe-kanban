@@ -12,7 +12,9 @@ import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
@@ -22,6 +24,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Folder, Loader2, Volume2 } from 'lucide-react';
 import {
+  AvailableSoundsResponse,
   DEFAULT_COMMIT_MESSAGE_PROMPT,
   DEFAULT_PR_DESCRIPTION_PROMPT,
   EditorType,
@@ -40,6 +43,7 @@ import { TagManager } from '@/components/TagManager';
 import { FolderPickerDialog } from '@/components/dialogs/shared/FolderPickerDialog';
 import ExecutorProfileSelector from '@/components/settings/ExecutorProfileSelector';
 import { CustomEditorsList } from '@/components/settings/CustomEditorsList';
+import { soundsApi } from '@/lib/api';
 
 export function GeneralSettings() {
   const { t } = useTranslation(['settings', 'common']);
@@ -67,10 +71,28 @@ export function GeneralSettings() {
   const [branchPrefixError, setBranchPrefixError] = useState<string | null>(
     null
   );
+  const [availableSounds, setAvailableSounds] = useState<AvailableSoundsResponse | null>(null);
+  const [soundsLoading, setSoundsLoading] = useState(false);
   const { setTheme } = useTheme();
 
   // Check editor availability when draft editor changes
   const editorAvailability = useEditorAvailability(draft?.editor.editor_type);
+
+  // Fetch available sounds on mount
+  useEffect(() => {
+    const fetchSounds = async () => {
+      setSoundsLoading(true);
+      try {
+        const sounds = await soundsApi.list();
+        setAvailableSounds(sounds);
+      } catch (err) {
+        console.error('Failed to fetch sounds:', err);
+      } finally {
+        setSoundsLoading(false);
+      }
+    };
+    fetchSounds();
+  }, []);
 
   const validateBranchPrefix = useCallback(
     (prefix: string): string | null => {
@@ -138,12 +160,43 @@ export function GeneralSettings() {
     return () => window.removeEventListener('beforeunload', handler);
   }, [hasUnsavedChanges]);
 
-  const playSound = async (soundFile: SoundFile) => {
-    const audio = new Audio(`/api/sounds/${soundFile}`);
+  const playSound = async (identifier: string) => {
+    const audio = new Audio(`/api/sounds/${identifier}`);
     try {
       await audio.play();
     } catch (err) {
       console.error('Failed to play sound:', err);
+    }
+  };
+
+  // Get the current sound identifier based on draft state
+  const getCurrentSoundIdentifier = (): string | null => {
+    if (!draft) return null;
+    if (draft.notifications.custom_sound_path) {
+      return `custom:${draft.notifications.custom_sound_path}`;
+    }
+    return `bundled:${draft.notifications.sound_file}`;
+  };
+
+  // Handle sound selection from dropdown
+  const handleSoundSelect = (identifier: string) => {
+    if (identifier.startsWith('custom:')) {
+      const filename = identifier.slice('custom:'.length);
+      updateDraft({
+        notifications: {
+          ...draft!.notifications,
+          custom_sound_path: filename,
+        },
+      });
+    } else if (identifier.startsWith('bundled:')) {
+      const soundFile = identifier.slice('bundled:'.length) as SoundFile;
+      updateDraft({
+        notifications: {
+          ...draft!.notifications,
+          sound_file: soundFile,
+          custom_sound_path: null,
+        },
+      });
     }
   };
 
@@ -714,36 +767,68 @@ export function GeneralSettings() {
               </Label>
               <div className="flex gap-2">
                 <Select
-                  value={draft.notifications.sound_file}
-                  onValueChange={(value: SoundFile) =>
-                    updateDraft({
-                      notifications: {
-                        ...draft.notifications,
-                        sound_file: value,
-                      },
-                    })
-                  }
+                  value={getCurrentSoundIdentifier() ?? undefined}
+                  onValueChange={handleSoundSelect}
+                  disabled={soundsLoading}
                 >
                   <SelectTrigger id="sound-file" className="flex-1">
-                    <SelectValue
-                      placeholder={t(
-                        'settings.general.notifications.sound.filePlaceholder'
-                      )}
-                    />
+                    {soundsLoading ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {t('common:loading', { defaultValue: 'Loading...' })}
+                      </span>
+                    ) : (
+                      <SelectValue
+                        placeholder={t(
+                          'settings.general.notifications.sound.filePlaceholder'
+                        )}
+                      />
+                    )}
                   </SelectTrigger>
                   <SelectContent>
-                    {Object.values(SoundFile).map((soundFile) => (
-                      <SelectItem key={soundFile} value={soundFile}>
-                        {toPrettyCase(soundFile)}
-                      </SelectItem>
-                    ))}
+                    {availableSounds && (
+                      <>
+                        <SelectGroup>
+                          <SelectLabel>
+                            {t('settings.general.notifications.sound.bundledSounds', { defaultValue: 'Bundled Sounds' })}
+                          </SelectLabel>
+                          {availableSounds.bundled.map((sound) => (
+                            <SelectItem key={sound.identifier} value={sound.identifier}>
+                              {sound.display_name}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                        {availableSounds.custom.length > 0 ? (
+                          <SelectGroup>
+                            <SelectLabel>
+                              {t('settings.general.notifications.sound.customSounds', { defaultValue: 'Custom Sounds' })}
+                            </SelectLabel>
+                            {availableSounds.custom.map((sound) => (
+                              <SelectItem key={`custom:${sound.filename}`} value={`custom:${sound.filename}`}>
+                                {toPrettyCase(sound.filename.replace(/\.(wav|mp3)$/i, ''))}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ) : (
+                          <div className="py-2 px-3 text-sm text-muted-foreground">
+                            {t('settings.general.notifications.sound.noCustomSounds', {
+                              defaultValue: 'No custom sounds found. Add .wav or .mp3 files to ~/.vibe-kanban/alerts/'
+                            })}
+                          </div>
+                        )}
+                      </>
+                    )}
                   </SelectContent>
                 </Select>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => playSound(draft.notifications.sound_file)}
+                  onClick={() => {
+                    const identifier = getCurrentSoundIdentifier();
+                    if (identifier) playSound(identifier);
+                  }}
                   className="px-3"
+                  disabled={!getCurrentSoundIdentifier()}
                 >
                   <Volume2 className="h-4 w-4" />
                 </Button>
