@@ -1002,8 +1002,9 @@ LIMIT ?4"#,
                 SELECT
                     tasks_fts.rowid,
                     -- BM25 scores are negative (more negative = better match)
-                    -- Normalize using: 1 / (1 + exp(bm25)) to get 0-1 range
-                    1.0 / (1.0 + exp(bm25(tasks_fts))) AS score
+                    -- Normalize to 0-1 using: MIN(1.0, -bm25 / 20.0) - caps at score of 1.0 for bm25 <= -20
+                    -- A typical good match has bm25 around -5 to -15
+                    MIN(1.0, MAX(0.0, -bm25(tasks_fts) / 20.0)) AS score
                 FROM tasks_fts
                 WHERE tasks_fts MATCH ?3
             )
