@@ -236,6 +236,12 @@ export type CreateRemoteProjectRequest = { organization_id: string, name: string
 
 export type LinkToExistingRequest = { remote_project_id: string, };
 
+export type PrWithComments = { unresolved_count: number, number: bigint, title: string, url: string, author: string, head_branch: string, base_branch: string, created_at: string, updated_at: string, };
+
+export type RepoPrs = { repo_id: string, repo_name: string, display_name: string, pull_requests: Array<PrWithComments>, };
+
+export type ProjectPrsResponse = { repos: Array<RepoPrs>, };
+
 export type RegisterRepoRequest = { path: string, display_name: string | null, };
 
 export type InitRepoRequest = { parent_path: string, folder_name: string, };

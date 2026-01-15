@@ -16,12 +16,15 @@ use db::models::{
     project::{CreateProject, Project, ProjectError, SearchResult, UpdateProject},
     project_repo::{CreateProjectRepo, ProjectRepo, UpdateProjectRepo},
     repo::Repo,
+    task_group::TaskGroup,
 };
 use deployment::Deployment;
 use futures_util::{SinkExt, StreamExt, TryStreamExt};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use services::services::{
-    file_search_cache::SearchQuery, project::ProjectServiceError,
+    file_search_cache::SearchQuery,
+    github_client::{GitHubClient, PullRequestSummary},
+    project::ProjectServiceError,
     remote_client::CreateRemoteProjectPayload,
 };
 use ts_rs::TS;
@@ -31,7 +34,10 @@ use utils::{
 };
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::load_project_middleware};
+use crate::{
+    DeploymentImpl, error::ApiError, middleware::load_project_middleware,
+    routes::settings::get_github_token,
+};
 
 #[derive(Deserialize, TS)]
 pub struct LinkToExistingRequest {
@@ -42,6 +48,29 @@ pub struct LinkToExistingRequest {
 pub struct CreateRemoteProjectRequest {
     pub organization_id: Uuid,
     pub name: String,
+}
+
+/// A pull request with its unresolved review thread count.
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct PrWithComments {
+    #[serde(flatten)]
+    pub pr: PullRequestSummary,
+    pub unresolved_count: usize,
+}
+
+/// PRs grouped by repository.
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RepoPrs {
+    pub repo_id: Uuid,
+    pub repo_name: String,
+    pub display_name: String,
+    pub pull_requests: Vec<PrWithComments>,
+}
+
+/// Response for GET /api/projects/:id/prs
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct ProjectPrsResponse {
+    pub repos: Vec<RepoPrs>,
 }
 
 pub async fn get_projects(
@@ -582,6 +611,116 @@ pub async fn update_project_repository(
     }
 }
 
+/// GET /api/projects/:id/prs - Get open PRs across all repos, filtered by task group base branches.
+pub async fn get_project_prs(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<ProjectPrsResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    // Load GitHub token from settings
+    let token = get_github_token(pool)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("GitHub token not configured".to_string()))?;
+
+    let github_client = GitHubClient::new(token)
+        .map_err(|e| ApiError::Internal(format!("Failed to create GitHub client: {}", e)))?;
+
+    // Get unique base branches from task groups
+    let base_branches = TaskGroup::get_unique_base_branches(pool, project.id).await?;
+
+    // If no base branches, return empty response
+    if base_branches.is_empty() {
+        return Ok(ResponseJson(ApiResponse::success(ProjectPrsResponse {
+            repos: vec![],
+        })));
+    }
+
+    // Get project repositories
+    let repositories = deployment
+        .project()
+        .get_repositories(pool, project.id)
+        .await?;
+
+    let git_service = deployment.git();
+    let mut repo_prs_list = Vec::new();
+
+    for repo in repositories {
+        // Get GitHub repo info from remote URL
+        let repo_info = match git_service.get_github_repo_info(&repo.path) {
+            Ok(info) => info,
+            Err(e) => {
+                tracing::warn!(
+                    "Skipping repo {} ({}): failed to get GitHub info: {}",
+                    repo.name,
+                    repo.path.display(),
+                    e
+                );
+                continue;
+            }
+        };
+
+        let mut all_prs = Vec::new();
+
+        // Fetch PRs for each base branch
+        for base_branch in &base_branches {
+            match github_client
+                .list_open_prs_by_base(&repo_info.owner, &repo_info.repo_name, base_branch)
+                .await
+            {
+                Ok(prs) => {
+                    for pr in prs {
+                        // Enrich with unresolved count
+                        let unresolved_count = github_client
+                            .get_unresolved_thread_count(
+                                &repo_info.owner,
+                                &repo_info.repo_name,
+                                pr.number,
+                            )
+                            .await
+                            .unwrap_or_else(|e| {
+                                tracing::warn!(
+                                    "Failed to get unresolved threads for PR #{}: {}",
+                                    pr.number,
+                                    e
+                                );
+                                0
+                            });
+
+                        all_prs.push(PrWithComments {
+                            pr,
+                            unresolved_count,
+                        });
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to fetch PRs for {}/{} (base: {}): {}",
+                        repo_info.owner,
+                        repo_info.repo_name,
+                        base_branch,
+                        e
+                    );
+                }
+            }
+        }
+
+        // Only add repo if it has PRs
+        if !all_prs.is_empty() {
+            repo_prs_list.push(RepoPrs {
+                repo_id: repo.id,
+                repo_name: repo.name.clone(),
+                display_name: repo.display_name.clone(),
+                pull_requests: all_prs,
+            });
+        }
+    }
+
+    Ok(ResponseJson(ApiResponse::success(ProjectPrsResponse {
+        repos: repo_prs_list,
+    })))
+}
+
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let project_id_router = Router::new()
         .route(
@@ -600,6 +739,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             "/repositories",
             get(get_project_repositories).post(add_project_repository),
         )
+        .route("/prs", get(get_project_prs))
         .layer(from_fn_with_state(
             deployment.clone(),
             load_project_middleware,
