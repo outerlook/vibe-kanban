@@ -21,6 +21,7 @@ import {
   ExecutionProcessRepoState,
   GanttTask,
   GitBranch,
+  MergeStatus,
   Project,
   ProjectRepo,
   Repo,
@@ -212,6 +213,24 @@ export async function refreshApiBaseUrl(): Promise<string> {
   resetApiBaseUrl();
   return getApiBaseUrl();
 }
+
+// PR types for project overview - will be replaced with shared types after generation
+export type ProjectPr = {
+  repo_id: string;
+  number: bigint;
+  title: string;
+  url: string;
+  author: string;
+  base_branch: string;
+  head_branch: string;
+  status: MergeStatus;
+  unresolved_comment_count: number;
+  created_at: string;
+};
+
+export type ProjectPrsResponse = {
+  prs: ProjectPr[];
+};
 
 const makeRequest = async (url: string, options: RequestInit = {}) => {
   const baseUrl = await getApiBaseUrl();
@@ -486,6 +505,11 @@ export const projectsApi = {
       }
     );
     return handleApiResponse<ProjectRepo>(response);
+  },
+
+  getPullRequests: async (projectId: string): Promise<ProjectPrsResponse> => {
+    const response = await makeRequest(`/api/projects/${projectId}/prs`);
+    return handleApiResponse<ProjectPrsResponse>(response);
   },
 };
 
