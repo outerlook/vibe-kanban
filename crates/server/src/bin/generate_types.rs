@@ -68,7 +68,6 @@ fn generate_types_content() -> String {
         utils::approvals::ApprovalResponse::decl(),
         utils::diff::Diff::decl(),
         utils::diff::DiffChangeKind::decl(),
-        utils::assets::SoundFormat::decl(),
         utils::assets::CustomSoundInfo::decl(),
         utils::response::ApiResponse::<()>::decl(),
         utils::api::oauth::LoginStatus::decl(),

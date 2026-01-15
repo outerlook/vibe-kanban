@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 const PROJECT_ROOT: &str = env!("CARGO_MANIFEST_DIR");
-const MAX_SOUND_FILE_SIZE: u64 = 5 * 1024 * 1024; // 5MB
 
 pub fn asset_dir() -> std::path::PathBuf {
     let path = if cfg!(debug_assertions) {
@@ -47,25 +46,14 @@ pub fn alerts_dir() -> std::path::PathBuf {
     asset_dir().join("alerts")
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export)]
-#[serde(rename_all = "lowercase")]
-pub enum SoundFormat {
-    Wav,
-    Mp3,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct CustomSoundInfo {
     pub filename: String,
-    pub size_bytes: u64,
-    pub format: SoundFormat,
 }
 
-/// Lists custom sound files from the alerts directory.
+/// Lists custom sound files (.wav, .mp3) from the alerts directory.
 /// Returns an empty Vec if the directory doesn't exist.
-/// Skips files larger than 5MB (logs a warning).
 pub async fn list_custom_sounds() -> Vec<CustomSoundInfo> {
     let dir = alerts_dir();
 
@@ -84,54 +72,25 @@ pub async fn list_custom_sounds() -> Vec<CustomSoundInfo> {
     while let Ok(Some(entry)) = read_dir.next_entry().await {
         let path = entry.path();
 
-        // Skip directories
-        if path.is_dir() {
-            continue;
-        }
-
-        // Check extension (case-insensitive)
-        let extension = path
+        // Check extension (case-insensitive) for .wav or .mp3
+        let is_sound = path
             .extension()
             .and_then(|ext| ext.to_str())
-            .map(|ext| ext.to_lowercase());
+            .map(|ext| {
+                let lower = ext.to_lowercase();
+                lower == "wav" || lower == "mp3"
+            })
+            .unwrap_or(false);
 
-        let format = match extension.as_deref() {
-            Some("wav") => SoundFormat::Wav,
-            Some("mp3") => SoundFormat::Mp3,
-            _ => continue,
-        };
-
-        // Get file metadata
-        let metadata = match entry.metadata().await {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!("Failed to get metadata for {}: {}", path.display(), e);
-                continue;
-            }
-        };
-
-        let size_bytes = metadata.len();
-
-        // Skip files > 5MB
-        if size_bytes > MAX_SOUND_FILE_SIZE {
-            tracing::warn!(
-                "Skipping sound file {} ({}MB > 5MB limit)",
-                path.display(),
-                size_bytes / (1024 * 1024)
-            );
+        if !is_sound {
             continue;
         }
 
-        let filename = match path.file_name().and_then(|n| n.to_str()) {
-            Some(name) => name.to_string(),
-            None => continue,
-        };
-
-        sounds.push(CustomSoundInfo {
-            filename,
-            size_bytes,
-            format,
-        });
+        if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+            sounds.push(CustomSoundInfo {
+                filename: filename.to_string(),
+            });
+        }
     }
 
     sounds
@@ -213,28 +172,12 @@ mod tests {
     }
 
     #[test]
-    fn test_sound_format_serialization() {
-        assert_eq!(
-            serde_json::to_string(&SoundFormat::Wav).unwrap(),
-            "\"wav\""
-        );
-        assert_eq!(
-            serde_json::to_string(&SoundFormat::Mp3).unwrap(),
-            "\"mp3\""
-        );
-    }
-
-    #[test]
     fn test_custom_sound_info_serialization() {
         let info = CustomSoundInfo {
             filename: "test.wav".to_string(),
-            size_bytes: 1024,
-            format: SoundFormat::Wav,
         };
 
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"filename\":\"test.wav\""));
-        assert!(json.contains("\"size_bytes\":1024"));
-        assert!(json.contains("\"format\":\"wav\""));
     }
 }

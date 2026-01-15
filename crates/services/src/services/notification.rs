@@ -111,23 +111,14 @@ impl NotificationService {
         }
     }
 
-    async fn bundled_sound_path(
-        sound_file: &SoundFile,
-    ) -> Option<std::path::PathBuf> {
-        let path = match sound_file.get_path().await {
-            Ok(path) => path,
+    async fn bundled_sound_path(sound_file: &SoundFile) -> Option<std::path::PathBuf> {
+        match sound_file.get_path().await {
+            Ok(path) => Some(path),
             Err(e) => {
-                tracing::error!("Failed to create cached sound file: {}", e);
-                return None;
+                tracing::error!("Failed to get cached sound file: {}", e);
+                None
             }
-        };
-
-        if let Err(error) = tokio::fs::metadata(&path).await {
-            tracing::error!("Sound file missing at {}: {}", path.display(), error);
-            return None;
         }
-
-        Some(path)
     }
 
     /// Send a cross-platform push notification

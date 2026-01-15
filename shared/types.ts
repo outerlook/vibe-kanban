@@ -128,9 +128,7 @@ additions: number | null, deletions: number | null, };
 
 export type DiffChangeKind = "added" | "deleted" | "modified" | "renamed" | "copied" | "permissionChange";
 
-export type SoundFormat = "wav" | "mp3";
-
-export type CustomSoundInfo = { filename: string, size_bytes: bigint, format: SoundFormat, };
+export type CustomSoundInfo = { filename: string, };
 
 export type ApiResponse<T, E = T> = { success: boolean, data: T | null, error_data: E | null, message: string | null, };
 
