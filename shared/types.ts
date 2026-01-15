@@ -234,7 +234,19 @@ export type CheckAgentAvailabilityQuery = { executor: BaseCodingAgent, };
 
 export type AccountInfo = { claude: ClaudeAccountInfo | null, codex: CodexAccountInfo | null, };
 
-export type ClaudeAccountInfo = { subscriptionType: string, rateLimitTier: string | null, };
+export type ClaudeAccountInfo = { subscriptionType: string, rateLimitTier: string | null, usage: ClaudeUsage | null, };
+
+export type ClaudeUsage = { fiveHour: UsageLimit, sevenDay: UsageLimit, sevenDayOpus: UsageLimit, };
+
+export type UsageLimit = { 
+/**
+ * Usage percentage from 0 to 100
+ */
+usedPercent: number, 
+/**
+ * ISO 8601 timestamp when this limit resets
+ */
+resetsAt: string, };
 
 export type CodexAccountInfo = { planType: string, subscriptionActiveUntil: string | null, };
 

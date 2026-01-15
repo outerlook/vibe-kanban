@@ -21,6 +21,24 @@ pub struct AccountInfo {
 pub struct ClaudeAccountInfo {
     pub subscription_type: String,
     pub rate_limit_tier: Option<String>,
+    pub usage: Option<ClaudeUsage>,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeUsage {
+    pub five_hour: UsageLimit,
+    pub seven_day: UsageLimit,
+    pub seven_day_opus: UsageLimit,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageLimit {
+    /// Usage percentage from 0 to 100
+    pub used_percent: f64,
+    /// ISO 8601 timestamp when this limit resets
+    pub resets_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -42,6 +60,7 @@ struct ClaudeCredentialsFile {
 struct ClaudeOAuthData {
     subscription_type: Option<String>,
     rate_limit_tier: Option<String>,
+    access_token: Option<String>,
 }
 
 /// Codex auth file structure at ~/.codex/auth.json
@@ -68,16 +87,84 @@ struct OpenAiAuthClaims {
     chatgpt_subscription_active_until: Option<String>,
 }
 
-fn read_claude_account_info() -> Option<ClaudeAccountInfo> {
+/// Response from Anthropic usage API
+#[derive(Debug, Deserialize)]
+struct AnthropicUsageResponse {
+    five_hour: AnthropicUsageLimit,
+    seven_day: AnthropicUsageLimit,
+    seven_day_opus: AnthropicUsageLimit,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicUsageLimit {
+    /// Utilization from 0.0 to 1.0
+    utilization: f64,
+    resets_at: String,
+}
+
+async fn fetch_claude_usage(access_token: &str) -> Option<ClaudeUsage> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .ok()?;
+
+    let response = client
+        .get("https://api.anthropic.com/api/oauth/usage")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("anthropic-beta", "oauth-2025-04-20")
+        .send()
+        .await;
+
+    match response {
+        Ok(resp) => {
+            if !resp.status().is_success() {
+                tracing::warn!("Claude usage API returned status: {}", resp.status());
+                return None;
+            }
+            match resp.json::<AnthropicUsageResponse>().await {
+                Ok(usage) => Some(ClaudeUsage {
+                    five_hour: UsageLimit {
+                        used_percent: usage.five_hour.utilization * 100.0,
+                        resets_at: usage.five_hour.resets_at,
+                    },
+                    seven_day: UsageLimit {
+                        used_percent: usage.seven_day.utilization * 100.0,
+                        resets_at: usage.seven_day.resets_at,
+                    },
+                    seven_day_opus: UsageLimit {
+                        used_percent: usage.seven_day_opus.utilization * 100.0,
+                        resets_at: usage.seven_day_opus.resets_at,
+                    },
+                }),
+                Err(e) => {
+                    tracing::warn!("Failed to parse Claude usage response: {}", e);
+                    None
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to fetch Claude usage: {}", e);
+            None
+        }
+    }
+}
+
+async fn read_claude_account_info() -> Option<ClaudeAccountInfo> {
     let credentials_path = dirs::home_dir()?.join(".claude").join(".credentials.json");
 
     let contents = std::fs::read_to_string(&credentials_path).ok()?;
     let credentials: ClaudeCredentialsFile = serde_json::from_str(&contents).ok()?;
     let oauth = credentials.claude_ai_oauth?;
 
+    let usage = match &oauth.access_token {
+        Some(token) => fetch_claude_usage(token).await,
+        None => None,
+    };
+
     Some(ClaudeAccountInfo {
         subscription_type: oauth.subscription_type?,
         rate_limit_tier: oauth.rate_limit_tier,
+        usage,
     })
 }
 
@@ -98,7 +185,7 @@ fn read_codex_account_info() -> Option<CodexAccountInfo> {
 }
 
 async fn get_account_info() -> ResponseJson<ApiResponse<AccountInfo>> {
-    let claude = read_claude_account_info();
+    let claude = read_claude_account_info().await;
     let codex = read_codex_account_info();
 
     ResponseJson(ApiResponse::success(AccountInfo { claude, codex }))

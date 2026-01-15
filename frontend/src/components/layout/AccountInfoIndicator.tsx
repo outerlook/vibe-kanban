@@ -6,6 +6,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useAccountInfo } from '@/hooks/useAccountInfo';
+import { UsageLimitDisplay } from '@/components/layout/UsageLimitDisplay';
 
 export function AccountInfoIndicator() {
   const { data, isLoading } = useAccountInfo();
@@ -51,6 +52,27 @@ export function AccountInfoIndicator() {
                     <> ({data.claude.rateLimitTier})</>
                   )}
                 </div>
+                {data.claude.usage && (
+                  <div className="mt-2 pt-2 border-t space-y-2">
+                    <UsageLimitDisplay
+                      label="5-hour limit"
+                      usedPercent={data.claude.usage.fiveHour.usedPercent}
+                      resetsAt={data.claude.usage.fiveHour.resetsAt}
+                    />
+                    <UsageLimitDisplay
+                      label="Weekly limit"
+                      usedPercent={data.claude.usage.sevenDay.usedPercent}
+                      resetsAt={data.claude.usage.sevenDay.resetsAt}
+                    />
+                    {data.claude.usage.sevenDayOpus.usedPercent > 0 && (
+                      <UsageLimitDisplay
+                        label="Weekly Opus limit"
+                        usedPercent={data.claude.usage.sevenDayOpus.usedPercent}
+                        resetsAt={data.claude.usage.sevenDayOpus.resetsAt}
+                      />
+                    )}
+                  </div>
+                )}
               </div>
             )}
             {data.codex && (
