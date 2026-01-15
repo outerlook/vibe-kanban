@@ -23,7 +23,6 @@ import {
   GitBranch,
   GitHubImportResponse,
   GitHubSettingsStatus,
-  MergeStatus,
   Project,
   ProjectRepo,
   Repo,
@@ -119,6 +118,9 @@ import {
   ConversationMessage,
   ConversationWithMessages,
   SendMessageResponse,
+  ProjectPrsResponse,
+  RepoPrs,
+  PrWithComments,
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { createWorkspaceWithSession } from '@/types/attempt';
@@ -216,23 +218,8 @@ export async function refreshApiBaseUrl(): Promise<string> {
   return getApiBaseUrl();
 }
 
-// PR types for project overview - will be replaced with shared types after generation
-export type ProjectPr = {
-  repo_id: string;
-  number: bigint;
-  title: string;
-  url: string;
-  author: string;
-  base_branch: string;
-  head_branch: string;
-  status: MergeStatus;
-  unresolved_comment_count: number;
-  created_at: string;
-};
-
-export type ProjectPrsResponse = {
-  prs: ProjectPr[];
-};
+// Re-export PR types from shared for convenience
+export type { ProjectPrsResponse, RepoPrs, PrWithComments };
 
 const makeRequest = async (url: string, options: RequestInit = {}) => {
   const baseUrl = await getApiBaseUrl();

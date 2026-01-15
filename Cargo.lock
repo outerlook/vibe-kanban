@@ -7165,6 +7165,7 @@ dependencies = [
  "remote",
  "reqwest",
  "rust-embed",
+ "rustls 0.23.34",
  "secrecy",
  "security-framework 2.11.1",
  "serde",

@@ -228,8 +228,15 @@ impl GitHubClient {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_github_client_construction() {
+    fn setup_crypto_provider() {
+        // octocrab uses rustls which requires a CryptoProvider to be installed.
+        // This is normally done at application startup, but tests run in isolation.
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    }
+
+    #[tokio::test]
+    async fn test_github_client_construction() {
+        setup_crypto_provider();
         // Test that client construction works with a dummy token
         let result = GitHubClient::new("test_token".to_string());
         assert!(result.is_ok());
@@ -239,8 +246,9 @@ mod tests {
         let _ = client.inner();
     }
 
-    #[test]
-    fn test_github_client_clone() {
+    #[tokio::test]
+    async fn test_github_client_clone() {
+        setup_crypto_provider();
         let client = GitHubClient::new("test_token".to_string()).unwrap();
         let cloned = client.clone();
 

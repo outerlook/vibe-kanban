@@ -12,20 +12,22 @@ import {
 } from '@/components/prs';
 import { useProject } from '@/contexts/ProjectContext';
 import { useProjectPrs, prKeys } from '@/hooks/useProjectPrs';
-import { useProjectRepos } from '@/hooks/useProjectRepos';
 import { useTaskGroups } from '@/hooks/useTaskGroups';
 import { useQueryClient } from '@tanstack/react-query';
-import type { ProjectPr } from '@/lib/api';
+import type { PrWithComments } from '@/lib/api';
 
-function mapProjectPrToPrData(pr: ProjectPr): PrData {
+function mapPrWithCommentsToPrData(
+  pr: PrWithComments,
+  repoId: string
+): PrData {
   return {
-    id: `${pr.repo_id}-${pr.number}`,
+    id: `${repoId}-${pr.number}`,
     title: pr.title,
     url: pr.url,
     author: pr.author,
     baseBranch: pr.base_branch,
     headBranch: pr.head_branch,
-    unresolvedComments: pr.unresolved_comment_count,
+    unresolvedComments: pr.unresolved_count,
     createdAt: pr.created_at,
   };
 }
@@ -44,11 +46,10 @@ export function PrOverview() {
     refetch,
   } = useProjectPrs(projectId);
 
-  const { data: repos, isLoading: reposLoading } = useProjectRepos(projectId);
   const { data: taskGroups, isLoading: taskGroupsLoading } =
     useTaskGroups(projectId);
 
-  const isLoading = projectLoading || prsLoading || reposLoading || taskGroupsLoading;
+  const isLoading = projectLoading || prsLoading || taskGroupsLoading;
 
   // Get unique base branches from task groups that have base_branch set
   const baseBranches = useMemo(() => {
@@ -62,42 +63,43 @@ export function PrOverview() {
     ].sort();
   }, [taskGroups]);
 
-  // Create repo lookup map
-  const reposById = useMemo(() => {
-    if (!repos) return new Map<string, string>();
-    return new Map(repos.map((r) => [r.id, r.display_name]));
-  }, [repos]);
-
-  // Filter and group PRs
-  const groupedPrs = useMemo(() => {
-    if (!prsResponse?.prs) return new Map<string, PrData[]>();
-
-    const filtered = prsResponse.prs.filter((pr) => {
-      // Filter by base branch
-      if (selectedBranch && pr.base_branch !== selectedBranch) {
-        return false;
-      }
-      // Filter by search query
-      if (
-        searchQuery &&
-        !pr.title.toLowerCase().includes(searchQuery.toLowerCase())
-      ) {
-        return false;
-      }
-      return true;
-    });
-
-    // Group by repo_id
-    const grouped = new Map<string, PrData[]>();
-    for (const pr of filtered) {
-      const repoName = reposById.get(pr.repo_id) ?? pr.repo_id;
-      const existing = grouped.get(repoName) ?? [];
-      existing.push(mapProjectPrToPrData(pr));
-      grouped.set(repoName, existing);
+  // Filter and group PRs - data comes pre-grouped by repo from the backend
+  const { groupedPrs, totalPrCount } = useMemo(() => {
+    if (!prsResponse?.repos) {
+      return { groupedPrs: new Map<string, PrData[]>(), totalPrCount: 0 };
     }
 
-    return grouped;
-  }, [prsResponse, selectedBranch, searchQuery, reposById]);
+    let total = 0;
+    const grouped = new Map<string, PrData[]>();
+
+    for (const repo of prsResponse.repos) {
+      const filteredPrs = repo.pull_requests.filter((pr) => {
+        // Filter by base branch
+        if (selectedBranch && pr.base_branch !== selectedBranch) {
+          return false;
+        }
+        // Filter by search query
+        if (
+          searchQuery &&
+          !pr.title.toLowerCase().includes(searchQuery.toLowerCase())
+        ) {
+          return false;
+        }
+        return true;
+      });
+
+      total += repo.pull_requests.length;
+
+      if (filteredPrs.length > 0) {
+        grouped.set(
+          repo.display_name,
+          filteredPrs.map((pr) => mapPrWithCommentsToPrData(pr, repo.repo_id))
+        );
+      }
+    }
+
+    return { groupedPrs: grouped, totalPrCount: total };
+  }, [prsResponse, selectedBranch, searchQuery]);
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: prKeys.byProject(projectId) });
@@ -224,8 +226,7 @@ export function PrOverview() {
     );
   }
 
-  // No PRs found
-  const totalPrs = prsResponse?.prs.length ?? 0;
+  // Compute filtered count for display
   const filteredCount = Array.from(groupedPrs.values()).reduce(
     (sum, prs) => sum + prs.length,
     0
@@ -239,7 +240,7 @@ export function PrOverview() {
           <GitPullRequest className="h-6 w-6" />
           <h1 className="text-2xl font-semibold">Pull Requests</h1>
           <span className="text-sm text-muted-foreground">
-            ({filteredCount} of {totalPrs})
+            ({filteredCount} of {totalPrCount})
           </span>
         </div>
         <Button variant="outline" size="sm" onClick={handleRefresh}>
