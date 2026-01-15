@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT DISTINCT base_branch as \"base_branch!\"\n               FROM task_groups\n               WHERE project_id = $1 AND base_branch IS NOT NULL\n               ORDER BY base_branch",
+  "describe": {
+    "columns": [
+      {
+        "name": "base_branch!",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "f9ced994e2760193219a7a66d921b4912c2cb2cf070a5b286f33fee3d14e77b5"
+}

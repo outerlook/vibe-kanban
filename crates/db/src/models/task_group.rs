@@ -299,4 +299,23 @@ impl TaskGroup {
             })
             .collect())
     }
+
+    /// Get all unique non-null base branches for task groups in a project.
+    /// Returns branches sorted alphabetically.
+    pub async fn get_unique_base_branches(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let rows = sqlx::query_scalar!(
+            r#"SELECT DISTINCT base_branch as "base_branch!"
+               FROM task_groups
+               WHERE project_id = $1 AND base_branch IS NOT NULL
+               ORDER BY base_branch"#,
+            project_id
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows)
+    }
 }
