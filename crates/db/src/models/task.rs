@@ -762,6 +762,169 @@ LIMIT ?3 OFFSET ?4"#,
         .await
     }
 
+    /// Escape special FTS5 query syntax characters.
+    /// FTS5 special characters: " * ^ - : OR AND NOT NEAR
+    /// We wrap tokens in double quotes to treat them as literals.
+    fn escape_fts5_query(query: &str) -> String {
+        // Split on whitespace, wrap each token in quotes, and join with spaces
+        // This ensures special characters are treated as literals
+        query
+            .split_whitespace()
+            .map(|token| {
+                // Escape any internal double quotes by doubling them
+                let escaped = token.replace('"', "\"\"");
+                format!("\"{}\"", escaped)
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// Search tasks using FTS5 full-text search with BM25 ranking.
+    ///
+    /// Returns tasks matching the query, ranked by BM25 relevance score.
+    /// The BM25 score is negated (more negative = more relevant), so we
+    /// return it as a positive score where higher = better match.
+    pub async fn search_fts(
+        pool: &SqlitePool,
+        project_id: Uuid,
+        query: &str,
+        status: Option<TaskStatus>,
+        limit: i64,
+    ) -> Result<Vec<(TaskWithAttemptStatus, f64)>, sqlx::Error> {
+        let trimmed_query = query.trim();
+        if trimmed_query.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let escaped_query = Self::escape_fts5_query(trimmed_query);
+        let status_str = status.map(|s| s.to_string().to_lowercase());
+
+        #[derive(FromRow)]
+        struct FtsSearchRow {
+            id: Uuid,
+            project_id: Uuid,
+            title: String,
+            description: Option<String>,
+            status: TaskStatus,
+            parent_workspace_id: Option<Uuid>,
+            shared_task_id: Option<Uuid>,
+            task_group_id: Option<Uuid>,
+            created_at: DateTime<Utc>,
+            updated_at: DateTime<Utc>,
+            is_blocked: i64,
+            has_in_progress_attempt: i64,
+            last_attempt_failed: i64,
+            is_queued: i64,
+            executor: String,
+            rank_score: f64,
+        }
+
+        let records: Vec<FtsSearchRow> = sqlx::query_as(
+            r#"SELECT
+  t.id,
+  t.project_id,
+  t.title,
+  t.description,
+  t.status,
+  t.parent_workspace_id,
+  t.shared_task_id,
+  t.task_group_id,
+  t.created_at,
+  t.updated_at,
+
+  CASE WHEN EXISTS (
+    SELECT 1
+      FROM task_dependencies td
+      JOIN tasks dep ON dep.id = td.depends_on_id
+     WHERE td.task_id = t.id
+       AND dep.status != 'done'
+  ) THEN 1 ELSE 0 END AS is_blocked,
+
+  CASE WHEN EXISTS (
+    SELECT 1
+      FROM workspaces w
+      JOIN sessions s ON s.workspace_id = w.id
+      JOIN execution_processes ep ON ep.session_id = s.id
+     WHERE w.task_id       = t.id
+       AND ep.status        = 'running'
+       AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
+     LIMIT 1
+  ) THEN 1 ELSE 0 END AS has_in_progress_attempt,
+
+  CASE WHEN (
+    SELECT ep.status
+      FROM workspaces w
+      JOIN sessions s ON s.workspace_id = w.id
+      JOIN execution_processes ep ON ep.session_id = s.id
+     WHERE w.task_id       = t.id
+     AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
+     ORDER BY ep.created_at DESC
+     LIMIT 1
+  ) IN ('failed','killed') THEN 1 ELSE 0 END AS last_attempt_failed,
+
+  CASE WHEN EXISTS (
+    SELECT 1 FROM workspaces w
+    JOIN execution_queue eq ON eq.workspace_id = w.id
+    WHERE w.task_id = t.id
+    LIMIT 1
+  ) THEN 1 ELSE 0 END AS is_queued,
+
+  COALESCE(( SELECT s.executor
+      FROM workspaces w
+      JOIN sessions s ON s.workspace_id = w.id
+      WHERE w.task_id = t.id
+     ORDER BY s.created_at DESC
+      LIMIT 1
+    ), '') AS executor,
+
+  -bm25(tasks_fts) AS rank_score
+
+FROM tasks_fts
+JOIN tasks t ON t.rowid = tasks_fts.rowid
+WHERE tasks_fts MATCH ?1
+  AND t.project_id = ?2
+  AND (?3 IS NULL OR t.status = ?3)
+ORDER BY rank_score DESC
+LIMIT ?4"#,
+        )
+        .bind(&escaped_query)
+        .bind(project_id)
+        .bind(status_str)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+        let results = records
+            .into_iter()
+            .map(|rec| {
+                (
+                    TaskWithAttemptStatus {
+                        task: Task {
+                            id: rec.id,
+                            project_id: rec.project_id,
+                            title: rec.title,
+                            description: rec.description,
+                            status: rec.status,
+                            parent_workspace_id: rec.parent_workspace_id,
+                            shared_task_id: rec.shared_task_id,
+                            task_group_id: rec.task_group_id,
+                            created_at: rec.created_at,
+                            updated_at: rec.updated_at,
+                        },
+                        has_in_progress_attempt: rec.has_in_progress_attempt != 0,
+                        last_attempt_failed: rec.last_attempt_failed != 0,
+                        is_blocked: rec.is_blocked != 0,
+                        is_queued: rec.is_queued != 0,
+                        executor: rec.executor,
+                    },
+                    rec.rank_score,
+                )
+            })
+            .collect();
+
+        Ok(results)
+    }
+
     pub async fn find_relationships_for_workspace(
         pool: &SqlitePool,
         workspace: &Workspace,
@@ -794,5 +957,62 @@ LIMIT ?3 OFFSET ?4"#,
             current_workspace: workspace.clone(),
             children,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_escape_fts5_query_simple() {
+        assert_eq!(Task::escape_fts5_query("hello"), r#""hello""#);
+        assert_eq!(Task::escape_fts5_query("hello world"), r#""hello" "world""#);
+    }
+
+    #[test]
+    fn test_escape_fts5_query_special_chars() {
+        // FTS5 operators should be quoted
+        assert_eq!(Task::escape_fts5_query("OR"), r#""OR""#);
+        assert_eq!(Task::escape_fts5_query("AND"), r#""AND""#);
+        assert_eq!(Task::escape_fts5_query("NOT"), r#""NOT""#);
+        assert_eq!(Task::escape_fts5_query("NEAR"), r#""NEAR""#);
+    }
+
+    #[test]
+    fn test_escape_fts5_query_with_asterisk() {
+        // Asterisk is a prefix search operator, should be quoted
+        assert_eq!(Task::escape_fts5_query("auth*"), r#""auth*""#);
+    }
+
+    #[test]
+    fn test_escape_fts5_query_with_quotes() {
+        // Internal double quotes should be escaped by doubling
+        // Input: say "hello" -> tokens: ["say", "\"hello\""]
+        // Each token gets wrapped, with internal quotes doubled:
+        // "say" -> "\"say\""
+        // "hello" (with surrounding quotes) -> doubled internal quotes, then wrapped
+        assert_eq!(
+            Task::escape_fts5_query(r#"say "hello""#),
+            "\"say\" \"\"\"hello\"\"\""
+        );
+    }
+
+    #[test]
+    fn test_escape_fts5_query_whitespace() {
+        // Multiple spaces should be collapsed
+        assert_eq!(Task::escape_fts5_query("  hello   world  "), r#""hello" "world""#);
+    }
+
+    #[test]
+    fn test_escape_fts5_query_empty() {
+        assert_eq!(Task::escape_fts5_query(""), "");
+        assert_eq!(Task::escape_fts5_query("   "), "");
+    }
+
+    #[test]
+    fn test_escape_fts5_query_column_prefix() {
+        // Column prefixes like "title:" should be quoted to prevent FTS5 interpretation
+        assert_eq!(Task::escape_fts5_query("title:auth"), r#""title:auth""#);
     }
 }
