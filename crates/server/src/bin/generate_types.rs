@@ -44,6 +44,7 @@ fn generate_types_content() -> String {
         server::routes::gantt::PaginatedGanttTasks::decl(),
         db::models::task_group::CreateTaskGroup::decl(),
         db::models::task_group::UpdateTaskGroup::decl(),
+        server::routes::task_groups::MergeTaskGroupRequest::decl(),
         db::models::task::CreateTask::decl(),
         db::models::task::UpdateTask::decl(),
         db::models::scratch::DraftFollowUpData::decl(),

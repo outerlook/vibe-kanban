@@ -1,8 +1,23 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
+use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
+
+#[derive(Debug, Error)]
+pub enum MergeError {
+    #[error("Cannot merge a group into itself")]
+    SameGroup,
+    #[error("Source task group not found")]
+    SourceNotFound,
+    #[error("Target task group not found")]
+    TargetNotFound,
+    #[error("Groups belong to different projects")]
+    DifferentProjects,
+    #[error("Database error: {0}")]
+    Database(#[from] sqlx::Error),
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
 pub struct TaskStatusCounts {
@@ -170,6 +185,55 @@ impl TaskGroup {
 
         let result = query_builder.build().execute(pool).await?;
         Ok(result.rows_affected())
+    }
+
+    /// Merge source task group into target task group.
+    /// Moves all tasks from source to target, then deletes source.
+    /// Returns the updated target TaskGroup.
+    pub async fn merge_into(
+        pool: &SqlitePool,
+        source_id: Uuid,
+        target_id: Uuid,
+    ) -> Result<Self, MergeError> {
+        if source_id == target_id {
+            return Err(MergeError::SameGroup);
+        }
+
+        let source = Self::find_by_id(pool, source_id)
+            .await?
+            .ok_or(MergeError::SourceNotFound)?;
+
+        let target = Self::find_by_id(pool, target_id)
+            .await?
+            .ok_or(MergeError::TargetNotFound)?;
+
+        if source.project_id != target.project_id {
+            return Err(MergeError::DifferentProjects);
+        }
+
+        let mut tx = pool.begin().await?;
+
+        // Move all tasks from source to target
+        sqlx::query(
+            "UPDATE tasks SET task_group_id = ?, updated_at = datetime('now', 'subsec') WHERE task_group_id = ?",
+        )
+        .bind(target_id)
+        .bind(source_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // Delete the source group
+        sqlx::query("DELETE FROM task_groups WHERE id = ?")
+            .bind(source_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+
+        // Re-fetch target to get updated_at if needed (though it wasn't modified)
+        Self::find_by_id(pool, target_id)
+            .await?
+            .ok_or(MergeError::TargetNotFound)
     }
 
     pub async fn get_stats_for_project(

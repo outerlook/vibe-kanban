@@ -66,6 +66,8 @@ export type CreateTaskGroup = { project_id: string, name: string, base_branch: s
 
 export type UpdateTaskGroup = { name: string | null, base_branch: string | null, };
 
+export type MergeTaskGroupRequest = { target_group_id: string, };
+
 export type CreateTask = { project_id: string, title: string, description: string | null, status: TaskStatus | null, parent_workspace_id: string | null, image_ids: Array<string> | null, shared_task_id: string | null, task_group_id: string | null, };
 
 export type UpdateTask = { title: string | null, description: string | null, status: TaskStatus | null, parent_workspace_id: string | null, image_ids: Array<string> | null, task_group_id: string | null, };
