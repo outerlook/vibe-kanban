@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                task_id as \"task_id!: Uuid\",\n                needs_embedding as \"needs_embedding!: bool\",\n                last_embedded_at as \"last_embedded_at: DateTime<Utc>\",\n                embedding_model\n            FROM task_embedding_status\n            WHERE needs_embedding = 1\n            LIMIT $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "task_id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "needs_embedding!: bool",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "last_embedded_at: DateTime<Utc>",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "embedding_model",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "a030c5656ac9609aa4e310b48f0c9ad82f1768b82f5b79df6001369de98bb3e6"
+}

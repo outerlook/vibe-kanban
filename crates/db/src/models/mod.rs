@@ -2,6 +2,7 @@ pub mod app_settings;
 pub mod coding_agent_turn;
 pub mod conversation_message;
 pub mod conversation_session;
+pub mod embedding;
 pub mod execution_process;
 pub mod execution_process_logs;
 pub mod execution_process_normalized_entry;

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE task_embedding_status\n               SET needs_embedding = 0,\n                   last_embedded_at = CURRENT_TIMESTAMP,\n                   embedding_model = $2\n               WHERE task_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "1ac6442557be161eab374e13cc9c78a38a8002b723cdf73e4c4dd7d485f4b90c"
+}
