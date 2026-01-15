@@ -47,6 +47,8 @@ import {
   useProjectTasks,
   type SharedTaskRecord,
 } from '@/hooks/useProjectTasks';
+import { GroupView } from '@/components/tasks/GroupView';
+import { ViewToggle, type ViewMode } from '@/components/tasks/ViewToggle';
 import { useUnreadSync } from '@/hooks/useUnreadSync';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useHotkeysContext } from 'react-hotkeys-hook';
@@ -276,6 +278,33 @@ export function ProjectTasks() {
       } else {
         params.set('view', newMode);
       }
+      setSearchParams(params, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
+
+  // View mode: 'kanban' or 'groups'
+  const rawViewMode = searchParams.get('view_mode') as ViewMode | null;
+  const viewMode: ViewMode = rawViewMode === 'groups' ? 'groups' : 'kanban';
+
+  const setViewMode = useCallback(
+    (newViewMode: ViewMode) => {
+      const params = new URLSearchParams(searchParams);
+      if (newViewMode === 'kanban') {
+        params.delete('view_mode');
+      } else {
+        params.set('view_mode', newViewMode);
+      }
+      setSearchParams(params, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
+
+  const handleGroupClick = useCallback(
+    (groupId: string) => {
+      const params = new URLSearchParams(searchParams);
+      params.set('group', groupId);
+      params.delete('view_mode');
       setSearchParams(params, { replace: true });
     },
     [searchParams, setSearchParams]
@@ -680,22 +709,39 @@ export function ProjectTasks() {
   };
 
   const kanbanContent =
-    tasks.length === 0 && !hasSharedTasks ? (
-      <div className="max-w-7xl mx-auto mt-8">
-        <Card>
-          <CardContent className="text-center py-8">
-            <p className="text-muted-foreground">{t('empty.noTasks')}</p>
-            <Button className="mt-4" onClick={handleCreateNewTask}>
-              <Plus className="h-4 w-4 mr-2" />
-              {t('empty.createFirst')}
-            </Button>
-          </CardContent>
-        </Card>
+    viewMode === 'groups' ? (
+      <div className="flex flex-col h-full">
+        <div className="shrink-0 px-4 py-2 flex items-center justify-end">
+          <ViewToggle value={viewMode} onChange={setViewMode} />
+        </div>
+        <div className="flex-1 min-h-0 overflow-auto px-4 pb-4">
+          <GroupView projectId={projectId!} onGroupClick={handleGroupClick} />
+        </div>
+      </div>
+    ) : tasks.length === 0 && !hasSharedTasks ? (
+      <div className="flex flex-col h-full">
+        <div className="shrink-0 px-4 py-2 flex items-center justify-end">
+          <ViewToggle value={viewMode} onChange={setViewMode} />
+        </div>
+        <div className="max-w-7xl mx-auto mt-8">
+          <Card>
+            <CardContent className="text-center py-8">
+              <p className="text-muted-foreground">{t('empty.noTasks')}</p>
+              <Button className="mt-4" onClick={handleCreateNewTask}>
+                <Plus className="h-4 w-4 mr-2" />
+                {t('empty.createFirst')}
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     ) : (
       <div className="flex flex-col h-full">
-        <div className="shrink-0 px-4">
-          <TaskFilterBar />
+        <div className="shrink-0 px-4 flex items-center gap-2">
+          <div className="flex-1">
+            <TaskFilterBar />
+          </div>
+          <ViewToggle value={viewMode} onChange={setViewMode} />
         </div>
         {!hasVisibleLocalTasks && !hasVisibleSharedTasks ? (
           <div className="max-w-7xl mx-auto mt-8">

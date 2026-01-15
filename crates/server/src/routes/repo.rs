@@ -6,8 +6,8 @@ use axum::{
 };
 use db::models::repo::Repo;
 use deployment::Deployment;
-use serde::Deserialize;
-use services::services::git::GitBranch;
+use serde::{Deserialize, Serialize};
+use services::services::git::{GitBranch, GitServiceError};
 use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
@@ -40,6 +40,19 @@ pub struct CloneRepoRequest {
 pub struct CreateBranchRequest {
     pub name: String,
     pub base_branch: Option<String>,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[ts(export)]
+pub struct CheckBranchAncestorRequest {
+    pub branch_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct BranchAncestorStatus {
+    pub is_ancestor: bool,
+    pub error: Option<String>,
 }
 
 pub async fn register_repo(
@@ -149,6 +162,38 @@ pub async fn create_branch(
     Ok(ResponseJson(ApiResponse::success(created_branch)))
 }
 
+pub async fn check_branch_ancestor(
+    State(deployment): State<DeploymentImpl>,
+    Path(repo_id): Path<Uuid>,
+    ResponseJson(payload): ResponseJson<CheckBranchAncestorRequest>,
+) -> Result<ResponseJson<ApiResponse<BranchAncestorStatus>>, ApiError> {
+    let repo = deployment
+        .repo()
+        .get_by_id(&deployment.db().pool, repo_id)
+        .await?;
+
+    let result = deployment
+        .git()
+        .is_branch_ancestor_of_head(&repo.path, &payload.branch_name);
+
+    let status = match result {
+        Ok(is_ancestor) => BranchAncestorStatus {
+            is_ancestor,
+            error: None,
+        },
+        Err(GitServiceError::BranchNotFound(_)) => BranchAncestorStatus {
+            is_ancestor: false,
+            error: Some("Branch not found".to_string()),
+        },
+        Err(e) => BranchAncestorStatus {
+            is_ancestor: false,
+            error: Some(e.to_string()),
+        },
+    };
+
+    Ok(ResponseJson(ApiResponse::success(status)))
+}
+
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/repos", post(register_repo))
@@ -157,5 +202,9 @@ pub fn router() -> Router<DeploymentImpl> {
         .route(
             "/repos/{repo_id}/branches",
             get(get_repo_branches).post(create_branch),
+        )
+        .route(
+            "/repos/{repo_id}/branches/check-ancestor",
+            post(check_branch_ancestor),
         )
 }

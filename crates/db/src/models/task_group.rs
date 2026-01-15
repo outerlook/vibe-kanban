@@ -4,6 +4,23 @@ use sqlx::{FromRow, SqlitePool};
 use ts_rs::TS;
 use uuid::Uuid;
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+pub struct TaskStatusCounts {
+    pub todo: i64,
+    pub inprogress: i64,
+    pub inreview: i64,
+    pub done: i64,
+    pub cancelled: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct TaskGroupWithStats {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub group: TaskGroup,
+    pub task_counts: TaskStatusCounts,
+}
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct TaskGroup {
     pub id: Uuid,
@@ -153,5 +170,69 @@ impl TaskGroup {
 
         let result = query_builder.build().execute(pool).await?;
         Ok(result.rows_affected())
+    }
+
+    pub async fn get_stats_for_project(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<Vec<TaskGroupWithStats>, sqlx::Error> {
+        #[derive(FromRow)]
+        struct Row {
+            id: Uuid,
+            project_id: Uuid,
+            name: String,
+            base_branch: Option<String>,
+            created_at: DateTime<Utc>,
+            updated_at: DateTime<Utc>,
+            todo: i64,
+            inprogress: i64,
+            inreview: i64,
+            done: i64,
+            cancelled: i64,
+        }
+
+        let rows: Vec<Row> = sqlx::query_as(
+            r#"SELECT
+                tg.id,
+                tg.project_id,
+                tg.name,
+                tg.base_branch,
+                tg.created_at,
+                tg.updated_at,
+                COALESCE(SUM(CASE WHEN t.status = 'todo' THEN 1 ELSE 0 END), 0) AS todo,
+                COALESCE(SUM(CASE WHEN t.status = 'inprogress' THEN 1 ELSE 0 END), 0) AS inprogress,
+                COALESCE(SUM(CASE WHEN t.status = 'inreview' THEN 1 ELSE 0 END), 0) AS inreview,
+                COALESCE(SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END), 0) AS done,
+                COALESCE(SUM(CASE WHEN t.status = 'cancelled' THEN 1 ELSE 0 END), 0) AS cancelled
+            FROM task_groups tg
+            LEFT JOIN tasks t ON t.task_group_id = tg.id
+            WHERE tg.project_id = ?1
+            GROUP BY tg.id
+            ORDER BY tg.created_at DESC"#,
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| TaskGroupWithStats {
+                group: TaskGroup {
+                    id: row.id,
+                    project_id: row.project_id,
+                    name: row.name,
+                    base_branch: row.base_branch,
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                },
+                task_counts: TaskStatusCounts {
+                    todo: row.todo,
+                    inprogress: row.inprogress,
+                    inreview: row.inreview,
+                    done: row.done,
+                    cancelled: row.cancelled,
+                },
+            })
+            .collect())
     }
 }
