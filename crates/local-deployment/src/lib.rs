@@ -125,8 +125,8 @@ impl Deployment for LocalDeployment {
         };
 
         // Initialize embedding service (loads the model - may take a few seconds on first run)
-        let embedding = EmbeddingService::new()
-            .map_err(|e| DeploymentError::Embedding(e.to_string()))?;
+        let embedding =
+            EmbeddingService::new().map_err(|e| DeploymentError::Embedding(e.to_string()))?;
 
         let image = ImageService::new(db.clone().pool).await?;
         {

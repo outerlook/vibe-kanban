@@ -506,7 +506,9 @@ pub struct SearchSimilarTasksRequest {
     pub status: Option<String>,
     #[schemars(description = "Maximum number of results to return (default: 10, max: 50)")]
     pub limit: Option<i32>,
-    #[schemars(description = "Use hybrid search combining vector similarity and keyword matching (default: true)")]
+    #[schemars(
+        description = "Use hybrid search combining vector similarity and keyword matching (default: true)"
+    )]
     pub hybrid: Option<bool>,
 }
 

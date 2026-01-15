@@ -5,11 +5,8 @@ use db::models::task::Task;
 use embed_anything::{
     config::TextEmbedConfig,
     embed_query,
-    embeddings::embed::{EmbedData, EmbeddingResult, Embedder, EmbedderBuilder},
+    embeddings::embed::{EmbedData, Embedder, EmbedderBuilder, EmbeddingResult},
 };
-
-/// Expected embedding dimension for BGE-small-en-v1.5
-pub const EMBEDDING_DIMENSION: usize = 384;
 
 /// Default model ID for text embeddings
 const DEFAULT_MODEL_ID: &str = "BAAI/bge-small-en-v1.5";
@@ -65,10 +62,9 @@ impl EmbeddingService {
 
         // embed_query is async and handles batching internally
         let config = TextEmbedConfig::default();
-        let embed_data: Vec<EmbedData> =
-            embed_query(&queries, &embedder, Some(&config))
-                .await
-                .context("Failed to generate embeddings")?;
+        let embed_data: Vec<EmbedData> = embed_query(&queries, &embedder, Some(&config))
+            .await
+            .context("Failed to generate embeddings")?;
 
         let embeddings: Vec<Vec<f32>> = embed_data
             .into_iter()
@@ -110,6 +106,8 @@ fn format_task_text(task: &Task) -> String {
 
 #[cfg(test)]
 mod tests {
+    use db::models::embedding::EMBEDDING_DIMENSION;
+
     use super::*;
 
     #[tokio::test]
@@ -162,7 +160,10 @@ mod tests {
             .await
             .expect("Failed to embed empty batch");
 
-        assert!(embeddings.is_empty(), "Empty input should return empty output");
+        assert!(
+            embeddings.is_empty(),
+            "Empty input should return empty output"
+        );
     }
 
     #[tokio::test]

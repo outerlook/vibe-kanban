@@ -37,7 +37,6 @@ fn generate_types_content() -> String {
         db::models::task::TaskWithAttemptStatus::decl(),
         db::models::task::TaskRelationships::decl(),
         db::models::embedding::EmbeddingStatus::decl(),
-        db::models::embedding::SimilarTask::decl(),
         db::models::task_dependency::TaskDependency::decl(),
         db::models::task_group::TaskGroup::decl(),
         db::models::task_group::TaskStatusCounts::decl(),

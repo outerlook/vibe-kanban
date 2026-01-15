@@ -942,7 +942,7 @@ LIMIT ?4"#,
         status: Option<TaskStatus>,
         limit: i64,
     ) -> Result<Vec<(TaskWithAttemptStatus, f64)>, sqlx::Error> {
-        use super::embedding::{TaskEmbedding, EMBEDDING_DIMENSION};
+        use super::embedding::{EMBEDDING_DIMENSION, TaskEmbedding};
 
         if query_embedding.len() != EMBEDDING_DIMENSION {
             return Err(sqlx::Error::Protocol(format!(
@@ -1292,7 +1292,10 @@ mod tests {
     #[test]
     fn test_escape_fts5_query_whitespace() {
         // Multiple spaces should be collapsed
-        assert_eq!(Task::escape_fts5_query("  hello   world  "), r#""hello" "world""#);
+        assert_eq!(
+            Task::escape_fts5_query("  hello   world  "),
+            r#""hello" "world""#
+        );
     }
 
     #[test]
@@ -1316,15 +1319,8 @@ mod tests {
 
         // Test with wrong dimension (too short)
         let wrong_embedding: Vec<f32> = vec![0.0; 100];
-        let result = Task::search_hybrid(
-            &pool,
-            project_id,
-            &wrong_embedding,
-            "test query",
-            None,
-            10,
-        )
-        .await;
+        let result =
+            Task::search_hybrid(&pool, project_id, &wrong_embedding, "test query", None, 10).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -1332,15 +1328,8 @@ mod tests {
 
         // Test with wrong dimension (too long)
         let wrong_embedding: Vec<f32> = vec![0.0; 500];
-        let result = Task::search_hybrid(
-            &pool,
-            project_id,
-            &wrong_embedding,
-            "test query",
-            None,
-            10,
-        )
-        .await;
+        let result =
+            Task::search_hybrid(&pool, project_id, &wrong_embedding, "test query", None, 10).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();

@@ -42,7 +42,10 @@ impl EmbeddingWorker {
 
     /// Spawn the embedding worker as a background task.
     /// Returns a JoinHandle that can be used to await or abort the worker.
-    pub fn spawn(embedding_service: EmbeddingService, db: DBService) -> tokio::task::JoinHandle<()> {
+    pub fn spawn(
+        embedding_service: EmbeddingService,
+        db: DBService,
+    ) -> tokio::task::JoinHandle<()> {
         let worker = Self::new(
             embedding_service,
             db,

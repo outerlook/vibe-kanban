@@ -137,8 +137,9 @@ impl DBService {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use sqlx::Row;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_sqlite_vec_available() {
