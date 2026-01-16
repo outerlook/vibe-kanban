@@ -13,6 +13,7 @@ import DisplayConversationEntry from '../NormalizedConversation/DisplayConversat
 import { useEntries } from '@/contexts/EntriesContext';
 import {
   AddEntryType,
+  HistoryMode,
   PatchTypeWithKey,
   useConversationHistory,
 } from '@/hooks/useConversationHistory';
@@ -20,15 +21,19 @@ import { ArrowDown, Loader2 } from 'lucide-react';
 import { TaskWithAttemptStatus } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { ApprovalFormProvider } from '@/contexts/ApprovalFormContext';
+import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
+import type { ExecutionProcessesSource } from '@/hooks/useExecutionProcesses';
+
+type VirtualizedListMode =
+  | { type: 'workspace'; attempt: WorkspaceWithSession; task?: TaskWithAttemptStatus }
+  | { type: 'conversation'; conversationSessionId: string };
 
 interface VirtualizedListProps {
-  attempt: WorkspaceWithSession;
-  task?: TaskWithAttemptStatus;
+  mode: VirtualizedListMode;
 }
 
 interface MessageListContext {
-  attempt: WorkspaceWithSession;
-  task?: TaskWithAttemptStatus;
+  mode: VirtualizedListMode;
 }
 
 const INITIAL_TOP_ITEM = { index: 'LAST' as const, align: 'end' as const };
@@ -41,8 +46,7 @@ const ItemContent: VirtuosoMessageListProps<
   PatchTypeWithKey,
   MessageListContext
 >['ItemContent'] = ({ data, context }) => {
-  const attempt = context?.attempt;
-  const task = context?.task;
+  const mode = context?.mode;
 
   if (data.type === 'STDOUT') {
     return <p>{data.content}</p>;
@@ -50,14 +54,14 @@ const ItemContent: VirtuosoMessageListProps<
   if (data.type === 'STDERR') {
     return <p>{data.content}</p>;
   }
-  if (data.type === 'NORMALIZED_ENTRY' && attempt) {
+  if (data.type === 'NORMALIZED_ENTRY') {
     return (
       <DisplayConversationEntry
         expansionKey={data.patchKey}
         entry={data.content}
         executionProcessId={data.executionProcessId}
-        taskAttempt={attempt}
-        task={task}
+        taskAttempt={mode?.type === 'workspace' ? mode.attempt : undefined}
+        task={mode?.type === 'workspace' ? mode.task : undefined}
       />
     );
   }
@@ -70,7 +74,7 @@ const computeItemKey: VirtuosoMessageListProps<
   MessageListContext
 >['computeItemKey'] = ({ data }) => `l-${data.patchKey}`;
 
-const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
+const VirtualizedListInner = ({ mode }: VirtualizedListProps) => {
   const [channelData, setChannelData] =
     useState<DataWithScrollModifier<PatchTypeWithKey> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,6 +86,10 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
   const messageListRef = useRef<VirtuosoMessageListMethods | null>(null);
   const { setEntries, reset } = useEntries();
 
+  // Derive modeId for dependency tracking
+  const modeId =
+    mode.type === 'workspace' ? mode.attempt.id : mode.conversationSessionId;
+
   useEffect(() => {
     setLoading(true);
     setChannelData(null);
@@ -91,7 +99,7 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
     setAtBottom(true);
     setUnseenMessages(0);
     reset();
-  }, [attempt.id, reset]);
+  }, [modeId, reset]);
 
   useEffect(() => {
     if (atBottom) {
@@ -151,11 +159,14 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
     }
   };
 
+  // Convert VirtualizedListMode to HistoryMode
+  const historyMode: HistoryMode =
+    mode.type === 'workspace'
+      ? { type: 'workspace', attempt: mode.attempt }
+      : { type: 'conversation', conversationSessionId: mode.conversationSessionId };
+
   const { loadMoreHistory, hasMoreHistory, isLoadingMore } =
-    useConversationHistory({
-      mode: { type: 'workspace', attempt },
-      onEntriesUpdated,
-    });
+    useConversationHistory({ mode: historyMode, onEntriesUpdated });
 
   const handleScroll = useCallback(
     ({
@@ -181,10 +192,7 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
     [hasMoreHistory, isLoadingMore, loadMoreHistory, loading]
   );
 
-  const messageListContext = useMemo(
-    () => ({ attempt, task }),
-    [attempt, task]
-  );
+  const messageListContext = useMemo(() => ({ mode }), [mode]);
 
   const StickyFooter: VirtuosoMessageListProps<
     PatchTypeWithKey,
@@ -274,4 +282,19 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
   );
 };
 
+const VirtualizedList = ({ mode }: VirtualizedListProps) => {
+  // Convert mode to ExecutionProcessesSource
+  const source: ExecutionProcessesSource =
+    mode.type === 'workspace'
+      ? { type: 'workspace', workspaceId: mode.attempt.id }
+      : { type: 'conversation', conversationSessionId: mode.conversationSessionId };
+
+  return (
+    <ExecutionProcessesProvider source={source}>
+      <VirtualizedListInner mode={mode} />
+    </ExecutionProcessesProvider>
+  );
+};
+
 export default VirtualizedList;
+export type { VirtualizedListMode };
