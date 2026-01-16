@@ -1,7 +1,8 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `crates/`: Rust workspace crates — `server` (API + bins), `db` (SQLx models/migrations), `executors`, `services`, `utils`, `deployment`, `local-deployment`, `remote`.
+- `crates/`: Rust workspace crates — `server` (API + bins), `db` (SQLx models/migrations), `executors`, `services`, `utils`, `deployment`, `local-deployment`, `remote`, `tauri-app` (Tauri desktop app).
+- `crates/tauri-app/`: Tauri 2.x desktop application that embeds the server and frontend.
 - `frontend/`: React + TypeScript app (Vite, Tailwind). Source in `frontend/src`.
 - `frontend/src/components/dialogs`: Dialog components for the frontend.
 - `remote-frontend/`: Remote deployment frontend.
@@ -17,8 +18,11 @@ When making changes to the types, you can regenerate them using `pnpm run genera
 Do not manually edit shared/types.ts, instead edit crates/server/src/bin/generate_types.rs
 
 ## Build, Test, and Development Commands
-- Install: `pnpm i`
-- Run dev (frontend + backend with ports auto-assigned): `pnpm run dev`
+- Install dependencies: `pnpm i`
+- Install Tauri CLI: `cargo install tauri-cli@2.0`
+- **Tauri dev (desktop app)**: `cargo tauri dev`
+- **Tauri build (production)**: `cargo tauri build`
+- Web dev (frontend + backend): `pnpm run dev`
 - Backend (watch): `pnpm run backend:dev:watch`
 - Frontend (dev): `pnpm run frontend:dev`
 - Type checks: `pnpm run check` (frontend) and `pnpm run backend:check` (Rust cargo check)

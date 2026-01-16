@@ -10,7 +10,7 @@
 
 <p align="center">Get 10X more out of Claude Code, Gemini CLI, Codex, Amp and other coding agents...</p>
 <p align="center">
-  <a href="https://www.npmjs.com/package/vibe-kanban"><img alt="npm" src="https://img.shields.io/npm/v/vibe-kanban?style=flat-square" /></a>
+  <a href="https://github.com/BloopAI/vibe-kanban/releases"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/BloopAI/vibe-kanban?style=flat-square" /></a>
   <a href="https://github.com/BloopAI/vibe-kanban/blob/main/.github/workflows/publish.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/BloopAI/vibe-kanban/.github%2Fworkflows%2Fpublish.yml" /></a>
   <a href="https://deepwiki.com/BloopAI/vibe-kanban"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </p>
@@ -36,7 +36,16 @@ You can watch a video overview [here](https://youtu.be/TFT3KnZOOAk).
 
 ## Installation
 
-Make sure you have authenticated with your favourite coding agent. A full list of supported coding agents can be found in the [docs](https://vibekanban.com/docs). Download Vibe Kanban from the [releases page](https://github.com/BloopAI/vibe-kanban/releases).
+Download the native desktop app for your platform from the [releases page](https://github.com/BloopAI/vibe-kanban/releases):
+
+| Platform | Download |
+|----------|----------|
+| macOS (Apple Silicon) | `.dmg` (aarch64) |
+| macOS (Intel) | `.dmg` (x64) |
+| Windows | `.msi` or `.exe` |
+| Linux | `.deb`, `.rpm`, or `.AppImage` |
+
+Make sure you have authenticated with your favourite coding agent. A full list of supported coding agents can be found in the [docs](https://vibekanban.com/docs).
 
 ## Documentation
 
@@ -62,6 +71,7 @@ Additional development tools:
 ```bash
 cargo install cargo-watch
 cargo install sqlx-cli
+cargo install tauri-cli@2.0
 ```
 
 Install dependencies:
@@ -69,15 +79,35 @@ Install dependencies:
 pnpm i
 ```
 
-### Running the dev server
+### Running the Tauri Desktop App (Development)
+
+```bash
+cargo tauri dev
+```
+
+This starts the Tauri desktop app in development mode with hot-reload for both frontend and backend.
+
+### Running Web Development Server
+
+For web-only development without the Tauri wrapper:
 
 ```bash
 pnpm run dev
 ```
 
-This will start the backend. A blank DB will be copied from the `dev_assets_seed` folder.
+This starts the backend server and frontend dev server. A blank DB will be copied from the `dev_assets_seed` folder.
 
-### Building the frontend
+### Building the Desktop App
+
+To build the production desktop app:
+
+```bash
+cargo tauri build
+```
+
+This creates platform-specific installers in `target/release/bundle/`.
+
+### Building the Frontend Only
 
 To build just the frontend:
 
