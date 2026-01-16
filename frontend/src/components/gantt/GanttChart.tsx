@@ -39,11 +39,7 @@ interface GanttChartProps {
   onSelectTask?: (taskId: string) => void;
 }
 
-export function GanttChart({
-  tasks,
-  links,
-  onSelectTask,
-}: GanttChartProps) {
+export function GanttChart({ tasks, links, onSelectTask }: GanttChartProps) {
   const apiRef = useRef<IApi | null>(null);
 
   const handleInit = useCallback(

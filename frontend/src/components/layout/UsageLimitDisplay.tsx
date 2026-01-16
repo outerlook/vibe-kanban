@@ -50,7 +50,9 @@ export function UsageLimitDisplay({
     <div className="space-y-1">
       <div className="flex items-center justify-between text-xs">
         <span>{label}</span>
-        <span className="text-muted-foreground">{Math.round(clampedPercent)}%</span>
+        <span className="text-muted-foreground">
+          {Math.round(clampedPercent)}%
+        </span>
       </div>
       <Progress value={clampedPercent} className="h-1.5" />
       <div className="text-xs text-muted-foreground">{resetText}</div>

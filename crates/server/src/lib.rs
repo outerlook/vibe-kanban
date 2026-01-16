@@ -4,6 +4,7 @@ pub mod middleware;
 pub mod routes;
 
 use std::net::SocketAddr;
+
 use thiserror::Error;
 use tokio::task::JoinHandle;
 

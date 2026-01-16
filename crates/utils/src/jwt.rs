@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use jsonwebtoken::dangerous::insecure_decode;
-use serde::de::DeserializeOwned;
-use serde::Deserialize;
+use serde::{Deserialize, de::DeserializeOwned};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -65,8 +64,9 @@ pub fn extract_custom_claims<T: DeserializeOwned>(token: &str) -> Result<T, Toke
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde::Deserialize;
+
+    use super::*;
 
     // Test JWT with payload: {"sub": "550e8400-e29b-41d4-a716-446655440000", "exp": 1893456000}
     const VALID_JWT: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1NTBlODQwMC1lMjliLTQxZDQtYTcxNi00NDY2NTU0NDAwMDAiLCJleHAiOjE4OTM0NTYwMDB9.signature";

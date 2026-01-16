@@ -86,7 +86,10 @@ export function OpenInIdeSplitButton({
   }, [baseOptions, customEditorsLoading, selectedEditor]);
 
   const options = useMemo(
-    () => (missingCustomSelection ? [...baseOptions, missingCustomSelection] : baseOptions),
+    () =>
+      missingCustomSelection
+        ? [...baseOptions, missingCustomSelection]
+        : baseOptions,
     [baseOptions, missingCustomSelection]
   );
 
@@ -111,19 +114,17 @@ export function OpenInIdeSplitButton({
       (option) => option.value === selectedEditor
     );
 
-    if (!hasSelection && !(customEditorsLoading && isCustomEditorValue(selectedEditor))) {
+    if (
+      !hasSelection &&
+      !(customEditorsLoading && isCustomEditorValue(selectedEditor))
+    ) {
       const fallback = preferredFromConfig ?? options[0]?.value ?? '';
       if (fallback && fallback !== selectedEditor) {
         setSelectedEditor(fallback);
         localStorage.setItem(PREFERRED_EDITOR_KEY, fallback);
       }
     }
-  }, [
-    customEditorsLoading,
-    options,
-    preferredFromConfig,
-    selectedEditor,
-  ]);
+  }, [customEditorsLoading, options, preferredFromConfig, selectedEditor]);
 
   const handleSelect = (value: string) => {
     setSelectedEditor(value);

@@ -18,9 +18,7 @@ use rmcp::{
     model::{
         CallToolResult, Content, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
     },
-    tool,
-    tool_handler,
-    tool_router,
+    tool, tool_handler, tool_router,
 };
 use schemars;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};

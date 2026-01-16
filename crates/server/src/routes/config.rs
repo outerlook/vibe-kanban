@@ -235,7 +235,10 @@ async fn list_sounds(
 
     let custom = list_custom_sounds().await;
 
-    ResponseJson(ApiResponse::success(AvailableSoundsResponse { bundled, custom }))
+    ResponseJson(ApiResponse::success(AvailableSoundsResponse {
+        bundled,
+        custom,
+    }))
 }
 
 /// Serves a sound file by identifier.
@@ -248,10 +251,7 @@ async fn get_sound(Path(identifier): Path<String>) -> Result<Response, ApiError>
             .parse()
             .map_err(|_| ApiError::NotFound(format!("Unknown bundled sound: {}", variant)))?;
 
-        let sound = sound_file
-            .serve()
-            .await
-            .map_err(DeploymentError::Other)?;
+        let sound = sound_file.serve().await.map_err(DeploymentError::Other)?;
 
         let response = Response::builder()
             .status(http::StatusCode::OK)
@@ -971,14 +971,17 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let response: ApiResponse<AvailableSoundsResponse> =
-            serde_json::from_slice(&body).unwrap();
+        let response: ApiResponse<AvailableSoundsResponse> = serde_json::from_slice(&body).unwrap();
         assert!(response.is_success());
 
         let data = response.into_data().unwrap();
         // Should have all bundled sounds
-        assert_eq!(data.bundled.len(), 7); // All SoundFile variants
-        assert!(data.bundled.iter().any(|s| s.identifier == "bundled:COW_MOOING"));
+        assert_eq!(data.bundled.len(), 8); // All SoundFile variants
+        assert!(
+            data.bundled
+                .iter()
+                .any(|s| s.identifier == "bundled:COW_MOOING")
+        );
         assert!(data.bundled.iter().any(|s| s.display_name == "Cow Mooing"));
 
         // Custom sounds depend on user's alerts directory - just verify it doesn't panic
@@ -1002,10 +1005,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            response.headers().get("content-type").unwrap(),
-            "audio/wav"
-        );
+        assert_eq!(response.headers().get("content-type").unwrap(), "audio/wav");
 
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         assert!(!body.is_empty());

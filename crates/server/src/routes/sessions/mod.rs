@@ -277,9 +277,9 @@ pub async fn follow_up(
         );
     }
 
-    Ok(ResponseJson(ApiResponse::success(FollowUpResult::Started {
-        execution_process,
-    })))
+    Ok(ResponseJson(ApiResponse::success(
+        FollowUpResult::Started { execution_process },
+    )))
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {

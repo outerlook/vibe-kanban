@@ -4,6 +4,7 @@
 //! The MCP server connects to the backend (embedded or remote) for task management.
 
 use std::process::Stdio;
+
 use tauri::{AppHandle, Manager};
 use thiserror::Error;
 use tokio::process::{Child, Command};

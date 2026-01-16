@@ -60,7 +60,10 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                         };
                         msg_store.push_patch(ConversationPatch::add_normalized_entry(idx, entry));
                     }
-                    AcpEvent::Done { stop_reason: _, meta } => {
+                    AcpEvent::Done {
+                        stop_reason: _,
+                        meta,
+                    } => {
                         streaming.assistant_text = None;
                         streaming.thinking_text = None;
 

@@ -833,19 +833,23 @@ function DisplayConversationEntry({
             })}
           </span>
         </div>
-        {metadata && typeof metadata === 'object' && !Array.isArray(metadata) && (
-          <div className="mt-1 ml-5 opacity-70">
-            {Object.entries(metadata).map(([key, value]) => {
-              if (key === 'usage') return null; // Already shown
-              return (
-                <div key={key}>
-                  <span className="font-medium">{key}:</span>{' '}
-                  {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        {metadata &&
+          typeof metadata === 'object' &&
+          !Array.isArray(metadata) && (
+            <div className="mt-1 ml-5 opacity-70">
+              {Object.entries(metadata).map(([key, value]) => {
+                if (key === 'usage') return null; // Already shown
+                return (
+                  <div key={key}>
+                    <span className="font-medium">{key}:</span>{' '}
+                    {typeof value === 'object'
+                      ? JSON.stringify(value)
+                      : String(value)}
+                  </div>
+                );
+              })}
+            </div>
+          )}
       </div>
     );
   }
@@ -868,7 +872,6 @@ function DisplayConversationEntry({
       </div>
     </div>
   );
-
 }
 
 export default DisplayConversationEntryMaxWidth;

@@ -148,11 +148,11 @@ export function NextActionCard({
     )
   );
 
-  const setupHelpText = providedSetupHelpText 
+  const setupHelpText = providedSetupHelpText
     ? providedSetupHelpText
-    : (canAutoSetup
+    : canAutoSetup
       ? t('attempt.setupHelpText', { agent: attempt?.session?.executor })
-      : null);
+      : null;
 
   const editorName = getIdeName(config?.editor?.editor_type);
 

@@ -1,11 +1,12 @@
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
-use tokio::process::Child;
-use tokio::sync::{Mutex, RwLock};
-use tokio::task::JoinHandle;
+use tokio::{
+    process::Child,
+    sync::{Mutex, RwLock},
+    task::JoinHandle,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "mode", rename_all = "lowercase")]
@@ -65,9 +66,8 @@ impl AppState {
     }
 
     pub fn save_to_config(&self) -> anyhow::Result<()> {
-        let config_path = Self::config_path().ok_or_else(|| {
-            anyhow::anyhow!("Could not determine config directory")
-        })?;
+        let config_path = Self::config_path()
+            .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?;
 
         if let Some(parent) = config_path.parent() {
             std::fs::create_dir_all(parent)?;

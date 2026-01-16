@@ -7,9 +7,11 @@
 
 use tauri::{AppHandle, State};
 
-use crate::embedded_server::start_embedded_server;
-use crate::mcp_launcher;
-use crate::state::{AppState, ServerMode};
+use crate::{
+    embedded_server::start_embedded_server,
+    mcp_launcher,
+    state::{AppState, ServerMode},
+};
 
 /// Returns the current server URL.
 ///
@@ -110,10 +112,7 @@ pub async fn initialize_local_mode(state: &AppState) -> Result<(), String> {
 /// The MCP server connects to the current backend (embedded or remote).
 /// If an MCP server is already running, it will be stopped first.
 #[tauri::command]
-pub async fn launch_mcp_server(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn launch_mcp_server(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     // Stop existing MCP server if running
     {
         let mut handle_guard = state.mcp_process_handle.lock().await;

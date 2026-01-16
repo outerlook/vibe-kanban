@@ -60,11 +60,7 @@ export function AddDependencyDialog({
   const addDependency = useAddDependency();
   const isMutating = addDependency.isPending;
 
-  const {
-    tasks,
-    isLoading,
-    error: tasksError,
-  } = useProjectTasks(projectId);
+  const { tasks, isLoading, error: tasksError } = useProjectTasks(projectId);
 
   useEffect(() => {
     if (!open) return;
@@ -182,7 +178,11 @@ export function AddDependencyDialog({
               data={availableTasks}
               columns={taskColumns}
               keyExtractor={(task) => task.id}
-              onRowClick={canSelectTask ? (task) => handleAddDependency(task.id) : undefined}
+              onRowClick={
+                canSelectTask
+                  ? (task) => handleAddDependency(task.id)
+                  : undefined
+              }
               isLoading={isTableLoading}
               emptyState={emptyState}
             />

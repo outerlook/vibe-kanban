@@ -2,12 +2,7 @@ import { useState, type Dispatch, type SetStateAction } from 'react';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import {
-  ChevronDown,
-  ChevronRight,
-  Check,
-  Star,
-} from 'lucide-react';
+import { ChevronDown, ChevronRight, Check, Star } from 'lucide-react';
 import {
   Dialog,
   DialogContent,

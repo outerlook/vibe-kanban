@@ -18,10 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Plus } from 'lucide-react';
-import {
-  useTaskGroups,
-  useAssignTasksToGroup,
-} from '@/hooks/useTaskGroups';
+import { useTaskGroups, useAssignTasksToGroup } from '@/hooks/useTaskGroups';
 import { TaskGroupFormDialog } from './TaskGroupFormDialog';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
@@ -106,7 +103,9 @@ const BulkAssignGroupDialogImpl = NiceModal.create<BulkAssignGroupDialogProps>(
               {t('bulkAssignGroupDialog.title', { count: taskIds.length })}
             </DialogTitle>
             <DialogDescription>
-              {t('bulkAssignGroupDialog.description', { count: taskIds.length })}
+              {t('bulkAssignGroupDialog.description', {
+                count: taskIds.length,
+              })}
             </DialogDescription>
           </DialogHeader>
 

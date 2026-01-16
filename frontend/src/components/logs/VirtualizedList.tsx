@@ -191,8 +191,7 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
     const methods = useVirtuosoMethods();
 
     const shouldShowButton =
-      unseenMessages > 0 ||
-      location.bottomOffset > BUTTON_VISIBILITY_THRESHOLD;
+      unseenMessages > 0 || location.bottomOffset > BUTTON_VISIBILITY_THRESHOLD;
 
     if (!shouldShowButton) {
       return null;

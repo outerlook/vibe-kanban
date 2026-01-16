@@ -1,6 +1,4 @@
-use std::env;
-use std::fs;
-use std::path::PathBuf;
+use std::{env, fs, path::PathBuf};
 
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -48,14 +46,15 @@ fn main() {
         });
 
     // Also check non-cross-compiled location
-    let source_binary_alt = workspace_root
-        .join("target")
-        .join(&profile)
-        .join(if target.contains("windows") {
-            "mcp_task_server.exe"
-        } else {
-            "mcp_task_server"
-        });
+    let source_binary_alt =
+        workspace_root
+            .join("target")
+            .join(&profile)
+            .join(if target.contains("windows") {
+                "mcp_task_server.exe"
+            } else {
+                "mcp_task_server"
+            });
 
     let dest_binary = binaries_dir.join(&binary_name);
 
@@ -84,9 +83,7 @@ fn main() {
     if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         println!(
             "cargo:rerun-if-changed={}",
-            PathBuf::from(manifest_dir)
-                .join("binaries")
-                .display()
+            PathBuf::from(manifest_dir).join("binaries").display()
         );
     }
 

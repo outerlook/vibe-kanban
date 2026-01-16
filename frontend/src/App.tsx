@@ -240,7 +240,9 @@ function App() {
           <ClickedElementsProvider>
             <ProjectProvider>
               <TaskSelectionProvider>
-                <HotkeysProvider initiallyActiveScopes={['*', 'global', 'kanban']}>
+                <HotkeysProvider
+                  initiallyActiveScopes={['*', 'global', 'kanban']}
+                >
                   <NiceModal.Provider>
                     <AppContent />
                     <BulkActionsBar />

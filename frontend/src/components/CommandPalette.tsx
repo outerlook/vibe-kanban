@@ -29,16 +29,13 @@ export function CommandPalette() {
     'flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm outline-none data-[selected]:bg-muted data-[selected]:text-foreground aria-selected:bg-muted aria-selected:text-foreground';
   const iconClassName = 'h-4 w-4 text-muted-foreground';
 
-  useKeyOpenCommandPalette(
-    () => setOpen(true),
-    {
-      scope: Scope.GLOBAL,
-      enableOnFormTags: true,
-      enableOnContentEditable: true,
-      preventDefault: true,
-      when: !open,
-    }
-  );
+  useKeyOpenCommandPalette(() => setOpen(true), {
+    scope: Scope.GLOBAL,
+    enableOnFormTags: true,
+    enableOnContentEditable: true,
+    preventDefault: true,
+    when: !open,
+  });
 
   useKeyExit(
     (event) => {
@@ -82,10 +79,7 @@ export function CommandPalette() {
             </Command.Empty>
 
             {projects.length > 0 && (
-              <Command.Group
-                heading="Projects"
-                className={groupClassName}
-              >
+              <Command.Group heading="Projects" className={groupClassName}>
                 {projects.map((project) => (
                   <Command.Item
                     key={project.id}
@@ -105,10 +99,7 @@ export function CommandPalette() {
             )}
 
             {projectId && tasks.length > 0 && (
-              <Command.Group
-                heading="Tasks"
-                className={groupClassName}
-              >
+              <Command.Group heading="Tasks" className={groupClassName}>
                 {tasks.map((task) => (
                   <Command.Item
                     key={task.id}
@@ -127,10 +118,7 @@ export function CommandPalette() {
               </Command.Group>
             )}
 
-            <Command.Group
-              heading="Commands"
-              className={groupClassName}
-            >
+            <Command.Group heading="Commands" className={groupClassName}>
               <Command.Item
                 value="command projects"
                 onSelect={() => runCommand(() => navigate('/projects'))}

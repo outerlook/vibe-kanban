@@ -1,8 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::Manager;
-use tauri_app_lib::commands::initialize_local_mode;
-use tauri_app_lib::state::AppState;
+use tauri_app_lib::{commands::initialize_local_mode, state::AppState};
 
 fn main() {
     // Initialize tracing for logging

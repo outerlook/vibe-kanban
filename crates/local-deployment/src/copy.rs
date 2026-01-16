@@ -172,7 +172,11 @@ fn copy_single_entry(
         // Read the symlink target and recreate it
         let link_target = fs::read_link(source_path)?;
         if let Err(e) = create_symlink(&link_target, &target_path) {
-            tracing::warn!("Failed to create symlink {:?} -> {:?}: {e}", target_path, link_target);
+            tracing::warn!(
+                "Failed to create symlink {:?} -> {:?}: {e}",
+                target_path,
+                link_target
+            );
         }
     } else {
         fs::copy(source_path, &target_path)?;
@@ -393,7 +397,10 @@ mod tests {
         assert!(dst.path().join("real.txt").exists());
         let link_path = dst.path().join("link.txt");
         assert!(link_path.symlink_metadata().unwrap().is_symlink());
-        assert_eq!(fs::read_link(&link_path).unwrap().to_str().unwrap(), "real.txt");
+        assert_eq!(
+            fs::read_link(&link_path).unwrap().to_str().unwrap(),
+            "real.txt"
+        );
         // Reading through the symlink should work
         assert_eq!(fs::read_to_string(&link_path).unwrap(), "content");
     }
@@ -435,7 +442,10 @@ mod tests {
         // The broken symlink should be copied
         let link_path = dst.path().join("broken.txt");
         assert!(link_path.symlink_metadata().unwrap().is_symlink());
-        assert_eq!(fs::read_link(&link_path).unwrap().to_str().unwrap(), "nonexistent.txt");
+        assert_eq!(
+            fs::read_link(&link_path).unwrap().to_str().unwrap(),
+            "nonexistent.txt"
+        );
     }
 
     #[cfg(unix)]
@@ -458,6 +468,9 @@ mod tests {
         assert!(dst.path().join("config/base.yml").exists());
         let link_path = dst.path().join("config/current.yml");
         assert!(link_path.symlink_metadata().unwrap().is_symlink());
-        assert_eq!(fs::read_link(&link_path).unwrap().to_str().unwrap(), "base.yml");
+        assert_eq!(
+            fs::read_link(&link_path).unwrap().to_str().unwrap(),
+            "base.yml"
+        );
     }
 }
