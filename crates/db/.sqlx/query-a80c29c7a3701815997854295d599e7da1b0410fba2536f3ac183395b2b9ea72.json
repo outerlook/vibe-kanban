@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO conversation_messages (id, conversation_session_id, execution_process_id, role, content, metadata)\n               VALUES ($1, $2, $3, $4, $5, $6)\n               RETURNING id AS \"id!: Uuid\",\n                         conversation_session_id AS \"conversation_session_id!: Uuid\",\n                         execution_process_id AS \"execution_process_id: Uuid\",\n                         role AS \"role!: MessageRole\",\n                         content,\n                         metadata,\n                         created_at AS \"created_at!: DateTime<Utc>\",\n                         updated_at AS \"updated_at!: DateTime<Utc>\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "conversation_session_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "execution_process_id: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob"
+      },
+      {
+        "name": "role!: MessageRole",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "content",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "metadata",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 7,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "a80c29c7a3701815997854295d599e7da1b0410fba2536f3ac183395b2b9ea72"
+}

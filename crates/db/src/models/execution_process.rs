@@ -56,6 +56,7 @@ pub enum ExecutionProcessRunReason {
     CodingAgent,
     DevServer,
     InternalAgent,
+    DisposableConversation,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]

@@ -76,6 +76,20 @@ export type CreateTaskGroup = { project_id: string, name: string, base_branch: s
 
 export type UpdateTaskGroup = { name: string | null, base_branch: string | null, };
 
+export type ConversationSession = { id: string, project_id: string, title: string, status: ConversationSessionStatus, executor: string | null, created_at: string, updated_at: string, };
+
+export type ConversationSessionStatus = "active" | "archived";
+
+export type CreateConversationSession = { project_id: string, title: string, executor: string | null, };
+
+export type UpdateConversationSession = { title: string | null, status: ConversationSessionStatus | null, executor: string | null, };
+
+export type ConversationMessage = { id: string, conversation_session_id: string, execution_process_id: string | null, role: MessageRole, content: string, metadata: string | null, created_at: string, updated_at: string, };
+
+export type MessageRole = "user" | "assistant";
+
+export type CreateConversationMessage = { conversation_session_id: string, execution_process_id: string | null, role: MessageRole, content: string, metadata: string | null, };
+
 export type MergeTaskGroupRequest = { target_group_id: string, };
 
 export type CreateTask = { project_id: string, title: string, description: string | null, status: TaskStatus | null, parent_workspace_id: string | null, image_ids: Array<string> | null, shared_task_id: string | null, task_group_id: string | null, };
@@ -112,7 +126,7 @@ dropped: boolean, input_tokens: bigint | null, output_tokens: bigint | null, sta
 
 export enum ExecutionProcessStatus { running = "running", completed = "completed", failed = "failed", killed = "killed" }
 
-export type ExecutionProcessRunReason = "setupscript" | "cleanupscript" | "codingagent" | "devserver" | "internalagent";
+export type ExecutionProcessRunReason = "setupscript" | "cleanupscript" | "codingagent" | "devserver" | "internalagent" | "disposableconversation";
 
 export type ExecutionProcessRepoState = { id: string, execution_process_id: string, repo_id: string, before_head_commit: string | null, after_head_commit: string | null, merge_commit: string | null, created_at: Date, updated_at: Date, };
 
