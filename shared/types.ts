@@ -90,6 +90,10 @@ export type MessageRole = "user" | "assistant";
 
 export type CreateConversationMessage = { conversation_session_id: string, execution_process_id: string | null, role: MessageRole, content: string, metadata: string | null, };
 
+export type ConversationWithMessages = { messages: Array<ConversationMessage>, id: string, project_id: string, title: string, status: ConversationSessionStatus, executor: string | null, created_at: string, updated_at: string, };
+
+export type SendMessageResponse = { user_message: ConversationMessage, execution_process_id: string, };
+
 export type MergeTaskGroupRequest = { target_group_id: string, };
 
 export type CreateTask = { project_id: string, title: string, description: string | null, status: TaskStatus | null, parent_workspace_id: string | null, image_ids: Array<string> | null, shared_task_id: string | null, task_group_id: string | null, };
@@ -116,7 +120,15 @@ export type Workspace = { id: string, task_id: string, container_ref: string | n
 
 export type Session = { id: string, workspace_id: string, executor: string | null, created_at: string, updated_at: string, };
 
-export type ExecutionProcess = { id: string, session_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: bigint | null, 
+export type ExecutionProcess = { id: string, 
+/**
+ * Session ID for workspace-based executions (nullable for conversation-based)
+ */
+session_id: string | null, 
+/**
+ * Conversation session ID for disposable conversations (nullable for workspace-based)
+ */
+conversation_session_id: string | null, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: bigint | null, 
 /**
  * dropped: true if this process is excluded from the current
  * history view (due to restore/trimming). Hidden from logs/timeline;

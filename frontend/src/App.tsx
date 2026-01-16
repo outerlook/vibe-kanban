@@ -78,6 +78,11 @@ const GanttView = lazy(() =>
     default: module.GanttView,
   }))
 );
+const ProjectConversations = lazy(() =>
+  import('@/pages/ProjectConversations').then((module) => ({
+    default: module.ProjectConversations,
+  }))
+);
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
@@ -186,6 +191,10 @@ function AppContent() {
                   <Route
                     path="/projects/:projectId/tasks"
                     element={<ProjectTasks />}
+                  />
+                  <Route
+                    path="/projects/:projectId/conversations"
+                    element={<ProjectConversations />}
                   />
                   <Route
                     path="/projects/:projectId/gantt"

@@ -88,6 +88,9 @@ export function Navbar() {
   const { t } = useTranslation(['tasks', 'common']);
   // Navbar is global, but the share tasks toggle only makes sense on the tasks route
   const isTasksRoute = /^\/projects\/[^/]+\/tasks/.test(location.pathname);
+  const isConversationsRoute = /^\/projects\/[^/]+\/conversations/.test(
+    location.pathname
+  );
   const isGanttRoute = /^\/projects\/[^/]+\/gantt/.test(location.pathname);
   const showSharedTasks = searchParams.get('shared') !== 'off';
   const shouldShowSharedToggle =
@@ -205,6 +208,17 @@ export function Navbar() {
             {projectId ? (
               <>
                 <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={`h-9 w-9 ${isConversationsRoute ? 'bg-accent' : ''}`}
+                    asChild
+                    aria-label="Conversations"
+                  >
+                    <Link to={paths.projectConversations(projectId)}>
+                      <MessageCircle className="h-4 w-4" />
+                    </Link>
+                  </Button>
                   <Button
                     variant="ghost"
                     size="icon"

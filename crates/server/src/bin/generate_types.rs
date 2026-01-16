@@ -56,6 +56,8 @@ fn generate_types_content() -> String {
         db::models::conversation_message::ConversationMessage::decl(),
         db::models::conversation_message::MessageRole::decl(),
         db::models::conversation_message::CreateConversationMessage::decl(),
+        services::services::conversation::ConversationWithMessages::decl(),
+        services::services::conversation::SendMessageResponse::decl(),
         server::routes::task_groups::MergeTaskGroupRequest::decl(),
         db::models::task::CreateTask::decl(),
         db::models::task::UpdateTask::decl(),

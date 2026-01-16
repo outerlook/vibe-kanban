@@ -110,6 +110,11 @@ import {
   Notification,
   NotificationStats,
   UpdateNotification,
+  ConversationSession,
+  ConversationSessionStatus,
+  ConversationMessage,
+  ConversationWithMessages,
+  SendMessageResponse,
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { createWorkspaceWithSession } from '@/types/attempt';
@@ -1706,5 +1711,113 @@ export const notificationsApi = {
     }
     params.set('include_snapshot', 'true');
     return `/api/notifications/stream/ws?${params.toString()}`;
+  },
+};
+
+// Conversations API
+export interface CreateConversationRequest {
+  title: string;
+  initial_message: string;
+  executor?: string;
+}
+
+export interface CreateConversationResponse {
+  session: ConversationSession;
+  initial_message: ConversationMessage;
+}
+
+export interface UpdateConversationRequest {
+  title?: string;
+  status?: ConversationSessionStatus;
+}
+
+export interface SendConversationMessageRequest {
+  content: string;
+  variant?: string;
+}
+
+export const conversationsApi = {
+  list: async (projectId: string): Promise<ConversationSession[]> => {
+    const response = await makeRequest(
+      `/api/projects/${projectId}/conversations?project_id=${encodeURIComponent(projectId)}`
+    );
+    return handleApiResponse<ConversationSession[]>(response);
+  },
+
+  create: async (
+    projectId: string,
+    data: CreateConversationRequest
+  ): Promise<CreateConversationResponse> => {
+    const response = await makeRequest(
+      `/api/projects/${projectId}/conversations`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<CreateConversationResponse>(response);
+  },
+
+  get: async (conversationId: string): Promise<ConversationWithMessages> => {
+    const response = await makeRequest(
+      `/api/conversations/${conversationId}`
+    );
+    return handleApiResponse<ConversationWithMessages>(response);
+  },
+
+  update: async (
+    conversationId: string,
+    data: UpdateConversationRequest
+  ): Promise<ConversationSession> => {
+    const response = await makeRequest(
+      `/api/conversations/${conversationId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<ConversationSession>(response);
+  },
+
+  delete: async (conversationId: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/conversations/${conversationId}`,
+      {
+        method: 'DELETE',
+      }
+    );
+    return handleApiResponse<void>(response);
+  },
+
+  getMessages: async (
+    conversationId: string
+  ): Promise<ConversationMessage[]> => {
+    const response = await makeRequest(
+      `/api/conversations/${conversationId}/messages`
+    );
+    return handleApiResponse<ConversationMessage[]>(response);
+  },
+
+  sendMessage: async (
+    conversationId: string,
+    data: SendConversationMessageRequest
+  ): Promise<SendMessageResponse> => {
+    const response = await makeRequest(
+      `/api/conversations/${conversationId}/messages`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<SendMessageResponse>(response);
+  },
+
+  getExecutions: async (
+    conversationId: string
+  ): Promise<ExecutionProcess[]> => {
+    const response = await makeRequest(
+      `/api/conversations/${conversationId}/executions`
+    );
+    return handleApiResponse<ExecutionProcess[]>(response);
   },
 };
