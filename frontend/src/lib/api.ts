@@ -1,5 +1,6 @@
 // Import all necessary types from shared types
 
+import { isTauriEnvironment, getServerUrl } from './tauri-api';
 import {
   AccountInfo,
   ApprovalStatus,
@@ -158,13 +159,43 @@ export type TaskDependencyTreeNode = {
 
 export type DependencyDirection = 'blocked_by' | 'blocking';
 
+// Cached base URL for API requests (resolved once on first call)
+let apiBaseUrl: string | null = null;
+
+async function getApiBaseUrl(): Promise<string> {
+  if (apiBaseUrl !== null) return apiBaseUrl;
+  if (isTauriEnvironment()) {
+    apiBaseUrl = await getServerUrl();
+  } else {
+    apiBaseUrl = ''; // relative URLs for dev (Vite proxy)
+  }
+  return apiBaseUrl;
+}
+
+/**
+ * Get the base URL synchronously. Returns cached value or empty string.
+ * Use this for synchronous URL construction (e.g., image URLs).
+ * Call initApiBaseUrl() during app startup to ensure this is populated.
+ */
+export function getApiBaseUrlSync(): string {
+  return apiBaseUrl ?? '';
+}
+
+/**
+ * Initialize the API base URL. Call this during app startup.
+ */
+export async function initApiBaseUrl(): Promise<string> {
+  return getApiBaseUrl();
+}
+
 const makeRequest = async (url: string, options: RequestInit = {}) => {
+  const baseUrl = await getApiBaseUrl();
   const headers = new Headers(options.headers ?? {});
   if (!headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
 
-  return fetch(url, {
+  return fetch(`${baseUrl}${url}`, {
     ...options,
     headers,
   });
@@ -1289,10 +1320,11 @@ export const profilesApi = {
 // Images API
 export const imagesApi = {
   upload: async (file: File): Promise<ImageResponse> => {
+    const baseUrl = await getApiBaseUrl();
     const formData = new FormData();
     formData.append('image', file);
 
-    const response = await fetch('/api/images/upload', {
+    const response = await fetch(`${baseUrl}/api/images/upload`, {
       method: 'POST',
       body: formData,
       credentials: 'include',
@@ -1311,10 +1343,11 @@ export const imagesApi = {
   },
 
   uploadForTask: async (taskId: string, file: File): Promise<ImageResponse> => {
+    const baseUrl = await getApiBaseUrl();
     const formData = new FormData();
     formData.append('image', file);
 
-    const response = await fetch(`/api/images/task/${taskId}/upload`, {
+    const response = await fetch(`${baseUrl}/api/images/task/${taskId}/upload`, {
       method: 'POST',
       body: formData,
       credentials: 'include',
@@ -1340,11 +1373,12 @@ export const imagesApi = {
     attemptId: string,
     file: File
   ): Promise<ImageResponse> => {
+    const baseUrl = await getApiBaseUrl();
     const formData = new FormData();
     formData.append('image', file);
 
     const response = await fetch(
-      `/api/task-attempts/${attemptId}/images/upload`,
+      `${baseUrl}/api/task-attempts/${attemptId}/images/upload`,
       {
         method: 'POST',
         body: formData,
@@ -1377,7 +1411,7 @@ export const imagesApi = {
   },
 
   getImageUrl: (imageId: string): string => {
-    return `/api/images/${imageId}/file`;
+    return `${getApiBaseUrlSync()}/api/images/${imageId}/file`;
   },
 };
 
@@ -1590,8 +1624,12 @@ export const scratchApi = {
     return handleApiResponse<void>(response);
   },
 
-  getStreamUrl: (scratchType: ScratchType, id: string): string =>
-    `/api/scratch/${scratchType}/${id}/stream/ws`,
+  getStreamUrl: (scratchType: ScratchType, id: string): string => {
+    const baseUrl = getApiBaseUrlSync();
+    // Convert http(s):// to ws(s):// for WebSocket URLs
+    const wsBaseUrl = baseUrl.replace(/^http/, 'ws');
+    return `${wsBaseUrl}/api/scratch/${scratchType}/${id}/stream/ws`;
+  },
 };
 
 // Queue API for session follow-up messages
