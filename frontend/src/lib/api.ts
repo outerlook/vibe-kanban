@@ -188,6 +188,23 @@ export async function initApiBaseUrl(): Promise<string> {
   return getApiBaseUrl();
 }
 
+/**
+ * Reset the cached API base URL. Call this after changing server mode
+ * so the next API request will re-fetch the URL from Tauri.
+ */
+export function resetApiBaseUrl(): void {
+  apiBaseUrl = null;
+}
+
+/**
+ * Refresh the API base URL. Call this after switching server modes.
+ * Clears the cache and re-initializes from the current server URL.
+ */
+export async function refreshApiBaseUrl(): Promise<string> {
+  resetApiBaseUrl();
+  return getApiBaseUrl();
+}
+
 const makeRequest = async (url: string, options: RequestInit = {}) => {
   const baseUrl = await getApiBaseUrl();
   const headers = new Headers(options.headers ?? {});

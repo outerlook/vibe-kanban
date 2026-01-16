@@ -1,6 +1,10 @@
 import { invoke } from '@tauri-apps/api/core'
 
-export type ServerMode = 'Embedded' | 'Remote'
+/**
+ * Server mode configuration - matches Rust `ServerMode` enum.
+ * Uses tagged union serialization: `{ mode: "local" }` or `{ mode: "remote", url: "..." }`
+ */
+export type ServerMode = { mode: 'local' } | { mode: 'remote'; url: string }
 
 declare global {
   interface Window {
@@ -28,10 +32,14 @@ export async function setServerMode(mode: ServerMode): Promise<void> {
   return invoke<void>('set_server_mode', { mode })
 }
 
-export async function getRemoteUrl(): Promise<string | null> {
-  return invoke<string | null>('get_remote_url')
+export async function launchMcpServer(): Promise<void> {
+  return invoke<void>('launch_mcp_server')
 }
 
-export async function setRemoteUrl(url: string): Promise<void> {
-  return invoke<void>('set_remote_url', { url })
+export async function stopMcpServer(): Promise<void> {
+  return invoke<void>('stop_mcp_server')
+}
+
+export async function isMcpServerRunning(): Promise<boolean> {
+  return invoke<boolean>('is_mcp_server_running')
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Card,
   CardContent,
@@ -17,21 +18,31 @@ import {
   isTauriEnvironment,
   getServerMode,
   setServerMode,
-  getRemoteUrl,
-  setRemoteUrl,
   type ServerMode,
 } from '@/lib/tauri-api'
+import { refreshApiBaseUrl } from '@/lib/api'
+
+/** Helper to check if mode is local */
+function isLocalMode(mode: ServerMode): boolean {
+  return mode.mode === 'local'
+}
+
+/** Helper to extract URL from remote mode */
+function getRemoteUrlFromMode(mode: ServerMode): string {
+  return mode.mode === 'remote' ? mode.url : ''
+}
 
 export function ServerModeSettings() {
   const { t } = useTranslation(['settings'])
+  const queryClient = useQueryClient()
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
-  const [mode, setMode] = useState<ServerMode>('Embedded')
-  const [remoteUrl, setRemoteUrlState] = useState('')
+  const [mode, setMode] = useState<ServerMode>({ mode: 'local' })
+  const [remoteUrlInput, setRemoteUrlInput] = useState('')
   const [urlError, setUrlError] = useState<string | null>(null)
 
   // Only render in Tauri environment
@@ -49,12 +60,12 @@ export function ServerModeSettings() {
       setLoading(true)
       setError(null)
       try {
-        const [currentMode, currentUrl] = await Promise.all([
-          getServerMode(),
-          getRemoteUrl(),
-        ])
+        const currentMode = await getServerMode()
         setMode(currentMode)
-        setRemoteUrlState(currentUrl ?? '')
+        // Pre-populate the URL input if in remote mode
+        if (currentMode.mode === 'remote') {
+          setRemoteUrlInput(currentMode.url)
+        }
       } catch (err) {
         console.error('Failed to load server mode settings:', err)
         setError(t('settings.serverMode.loadError', { defaultValue: 'Failed to load settings' }))
@@ -82,16 +93,18 @@ export function ServerModeSettings() {
   }, [t])
 
   const handleModeChange = async (checked: boolean) => {
-    const newMode: ServerMode = checked ? 'Remote' : 'Embedded'
-
-    // Validate URL before switching to remote mode
-    if (newMode === 'Remote') {
-      const validationError = validateUrl(remoteUrl)
+    // When switching to remote, validate URL first
+    if (checked) {
+      const validationError = validateUrl(remoteUrlInput)
       if (validationError) {
         setUrlError(validationError)
         return
       }
     }
+
+    const newMode: ServerMode = checked
+      ? { mode: 'remote', url: remoteUrlInput }
+      : { mode: 'local' }
 
     setSaving(true)
     setError(null)
@@ -99,6 +112,10 @@ export function ServerModeSettings() {
 
     try {
       await setServerMode(newMode)
+      // Refresh the API base URL cache after mode change
+      await refreshApiBaseUrl()
+      // Invalidate all queries so they refetch with the new server URL
+      await queryClient.invalidateQueries()
       setMode(newMode)
       setSuccess(true)
       setTimeout(() => setSuccess(false), 3000)
@@ -111,31 +128,43 @@ export function ServerModeSettings() {
   }
 
   const handleUrlChange = (value: string) => {
-    setRemoteUrlState(value)
+    setRemoteUrlInput(value)
     if (urlError) {
       setUrlError(validateUrl(value))
     }
   }
 
   const handleUrlBlur = () => {
-    if (mode === 'Remote' || remoteUrl.trim()) {
-      setUrlError(validateUrl(remoteUrl))
+    if (!isLocalMode(mode) || remoteUrlInput.trim()) {
+      setUrlError(validateUrl(remoteUrlInput))
     }
   }
 
   const handleSaveUrl = async () => {
-    const validationError = validateUrl(remoteUrl)
+    const validationError = validateUrl(remoteUrlInput)
     if (validationError) {
       setUrlError(validationError)
       return
     }
+
+    // Only save if we're already in remote mode
+    if (mode.mode !== 'remote') {
+      return
+    }
+
+    const newMode: ServerMode = { mode: 'remote', url: remoteUrlInput }
 
     setSaving(true)
     setError(null)
     setSuccess(false)
 
     try {
-      await setRemoteUrl(remoteUrl)
+      await setServerMode(newMode)
+      // Refresh the API base URL cache after URL change
+      await refreshApiBaseUrl()
+      // Invalidate all queries so they refetch with the new server URL
+      await queryClient.invalidateQueries()
+      setMode(newMode)
       setSuccess(true)
       setTimeout(() => setSuccess(false), 3000)
     } catch (err) {
@@ -166,6 +195,8 @@ export function ServerModeSettings() {
     )
   }
 
+  const isLocal = isLocalMode(mode)
+
   return (
     <Card>
       <CardHeader>
@@ -192,19 +223,19 @@ export function ServerModeSettings() {
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {mode === 'Embedded' ? (
+            {isLocal ? (
               <Server className="h-5 w-5 text-muted-foreground" />
             ) : (
               <Globe className="h-5 w-5 text-muted-foreground" />
             )}
             <div className="space-y-0.5">
               <Label htmlFor="server-mode" className="text-base">
-                {mode === 'Embedded'
+                {isLocal
                   ? t('settings.serverMode.local.label', { defaultValue: 'Local Mode' })
                   : t('settings.serverMode.remote.label', { defaultValue: 'Remote Mode' })}
               </Label>
               <p className="text-sm text-muted-foreground">
-                {mode === 'Embedded'
+                {isLocal
                   ? t('settings.serverMode.local.description', { defaultValue: 'Server runs embedded within the app' })
                   : t('settings.serverMode.remote.description', { defaultValue: 'Connect to an external server' })}
               </p>
@@ -212,14 +243,14 @@ export function ServerModeSettings() {
           </div>
           <Switch
             id="server-mode"
-            checked={mode === 'Remote'}
+            checked={!isLocal}
             onCheckedChange={handleModeChange}
             disabled={saving}
             aria-label={t('settings.serverMode.switchLabel', { defaultValue: 'Toggle server mode' })}
           />
         </div>
 
-        {mode === 'Embedded' && (
+        {isLocal && (
           <div className="rounded-lg bg-muted/50 p-3">
             <div className="flex items-center gap-2 text-sm">
               <div className="h-2 w-2 rounded-full bg-green-500" />
@@ -230,7 +261,7 @@ export function ServerModeSettings() {
           </div>
         )}
 
-        {mode === 'Remote' && (
+        {!isLocal && (
           <div className="space-y-3">
             <div className="space-y-2">
               <Label htmlFor="remote-url">
@@ -241,7 +272,7 @@ export function ServerModeSettings() {
                   id="remote-url"
                   type="url"
                   placeholder={t('settings.serverMode.remote.urlPlaceholder', { defaultValue: 'https://your-server.example.com' })}
-                  value={remoteUrl}
+                  value={remoteUrlInput}
                   onChange={(e) => handleUrlChange(e.target.value)}
                   onBlur={handleUrlBlur}
                   aria-invalid={!!urlError}
@@ -249,7 +280,7 @@ export function ServerModeSettings() {
                 />
                 <Button
                   onClick={handleSaveUrl}
-                  disabled={saving || !!urlError}
+                  disabled={saving || !!urlError || remoteUrlInput === getRemoteUrlFromMode(mode)}
                   size="sm"
                 >
                   {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
