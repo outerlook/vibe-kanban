@@ -4,7 +4,7 @@ use db::{
     DBService,
     models::{
         execution_process::ExecutionProcess, notification::Notification, project::Project,
-        scratch::Scratch, task::Task, workspace::Workspace,
+        scratch::Scratch, task::Task, task_dependency::TaskDependency, workspace::Workspace,
     },
 };
 use serde_json::json;
@@ -256,6 +256,21 @@ impl EventService {
                         _ => task_patch::replace(&task_with_status), // fallback
                     };
                     msg_store.push_patch(patch);
+
+                    // Push updates for tasks that depend on this one.
+                    // Their is_blocked status may have changed.
+                    if let Ok(dependent_tasks) = TaskDependency::find_blocking(&db.pool, task.id).await
+                    {
+                        for dep_task in dependent_tasks {
+                            let _ = Self::push_task_update_for_task(
+                                &db.pool,
+                                msg_store.clone(),
+                                dep_task.id,
+                            )
+                            .await;
+                        }
+                    }
+
                     return;
                 }
             }
