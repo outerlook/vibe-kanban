@@ -98,6 +98,10 @@ import {
   SharedTaskResponse,
   SharedTaskDetails,
   QueueStatus,
+  QueueMergeRequest,
+  QueueMergeError,
+  MergeQueue,
+  MergeQueueCountResponse,
   FollowUpResult,
   PrCommentsResponse,
   NormalizedEntry,
@@ -499,6 +503,15 @@ export const projectsApi = {
   getPullRequests: async (projectId: string): Promise<ProjectPrsResponse> => {
     const response = await makeRequest(`/api/projects/${projectId}/prs`);
     return handleApiResponse<ProjectPrsResponse>(response);
+  },
+
+  getMergeQueueCount: async (
+    projectId: string
+  ): Promise<MergeQueueCountResponse> => {
+    const response = await makeRequest(
+      `/api/projects/${projectId}/merge-queue-count`
+    );
+    return handleApiResponse<MergeQueueCountResponse>(response);
   },
 };
 
@@ -1050,6 +1063,37 @@ export const attemptsApi = {
       `/api/task-attempts/${attemptId}/pr/comments?repo_id=${encodeURIComponent(repoId)}`
     );
     return handleApiResponse<PrCommentsResponse>(response);
+  },
+
+  queueMerge: async (
+    attemptId: string,
+    data: QueueMergeRequest
+  ): Promise<Result<MergeQueue, QueueMergeError>> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/queue-merge`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponseAsResult<MergeQueue, QueueMergeError>(response);
+  },
+
+  cancelQueuedMerge: async (attemptId: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/queue-merge`,
+      {
+        method: 'DELETE',
+      }
+    );
+    return handleApiResponse<void>(response);
+  },
+
+  getQueueStatus: async (attemptId: string): Promise<MergeQueue | null> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/queue-status`
+    );
+    return handleApiResponse<MergeQueue | null>(response);
   },
 };
 

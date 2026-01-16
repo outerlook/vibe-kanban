@@ -23,6 +23,13 @@ export { useRebase } from './useRebase';
 export { useChangeTargetBranch } from './useChangeTargetBranch';
 export { useRenameBranch } from './useRenameBranch';
 export { useMerge } from './useMerge';
+export {
+  mergeQueueKeys,
+  useQueueMerge,
+  useCancelQueuedMerge,
+  useQueueStatus,
+  useProjectQueueCount,
+} from './useMergeQueue';
 export { useGenerateCommitMessage } from './useGenerateCommitMessage';
 export { usePush } from './usePush';
 export { useAttemptConflicts } from './useAttemptConflicts';
