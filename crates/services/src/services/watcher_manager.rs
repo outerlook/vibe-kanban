@@ -219,7 +219,7 @@ impl WatcherManager {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs, time::Duration};
 
     use tempfile::TempDir;
 
@@ -282,5 +282,38 @@ mod tests {
 
         // We should receive some event (the exact event depends on debouncing)
         assert!(result.is_ok(), "Should receive an event within timeout");
+    }
+
+    #[tokio::test]
+    async fn test_watcher_thread_exits_on_subscriber_drop() {
+        let manager = WatcherManager::new();
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().to_path_buf();
+
+        // Create and immediately drop subscription
+        {
+            let _sub = manager.subscribe(path.clone()).unwrap();
+            assert_eq!(
+                manager.active_watcher_count(),
+                1,
+                "Should have one active watcher after subscription"
+            );
+        }
+
+        // Wait for thread to exit (should happen within 30s timeout + buffer)
+        let cleanup_result = tokio::time::timeout(Duration::from_secs(35), async {
+            loop {
+                if manager.active_watcher_count() == 0 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+        })
+        .await;
+
+        assert!(
+            cleanup_result.is_ok(),
+            "Watcher thread should exit within 35s of last subscriber drop"
+        );
     }
 }
