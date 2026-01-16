@@ -50,6 +50,7 @@ function formatRelativeTime(dateString: string): string {
 
 interface NotificationMetadata {
   task_id?: string;
+  conversation_session_id?: string;
   [key: string]: JsonValue | undefined;
 }
 
@@ -80,8 +81,16 @@ export function NotificationItem({
     const projectId = notification.project_id;
     const taskId = metadata.task_id;
     const workspaceId = notification.workspace_id;
+    const conversationSessionId = metadata.conversation_session_id;
 
-    if (projectId && taskId && workspaceId) {
+    // Handle conversation_response notifications
+    if (
+      notification.notification_type === 'conversation_response' &&
+      projectId &&
+      conversationSessionId
+    ) {
+      navigate(paths.conversation(projectId, conversationSessionId));
+    } else if (projectId && taskId && workspaceId) {
       navigate(paths.attempt(projectId, taskId, workspaceId));
     } else if (projectId && taskId) {
       navigate(paths.task(projectId, taskId));

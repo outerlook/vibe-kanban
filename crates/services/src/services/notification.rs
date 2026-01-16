@@ -409,16 +409,32 @@ impl NotificationService {
         pool: &SqlitePool,
         project_id: Uuid,
         conversation_session_id: Uuid,
+        preview: Option<&str>,
     ) -> Result<Notification, sqlx::Error> {
+        // Create preview (first 100 chars of response)
+        let preview_text = preview.map(|p| {
+            let trimmed = p.trim();
+            if trimmed.len() > 100 {
+                format!("{}...", &trimmed[..100])
+            } else {
+                trimmed.to_string()
+            }
+        });
+
+        let message = preview_text
+            .clone()
+            .unwrap_or_else(|| "A conversation has received a new response".to_string());
+
         Notification::create(
             pool,
             &CreateNotification {
                 project_id: Some(project_id),
                 notification_type: NotificationType::ConversationResponse,
                 title: "New Conversation Response".to_string(),
-                message: "A conversation has received a new response".to_string(),
+                message,
                 metadata: Some(json!({
-                    "conversation_session_id": conversation_session_id.to_string()
+                    "conversation_session_id": conversation_session_id.to_string(),
+                    "preview": preview_text
                 })),
                 workspace_id: None,
                 session_id: Some(conversation_session_id),
