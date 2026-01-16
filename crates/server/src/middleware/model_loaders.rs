@@ -6,8 +6,8 @@ use axum::{
 };
 use db::models::{
     conversation_session::ConversationSession, execution_process::ExecutionProcess,
-    project::Project, session::Session, tag::Tag, task::Task, task_group::TaskGroup,
-    workspace::Workspace,
+    notification::Notification, project::Project, session::Session, tag::Tag, task::Task,
+    task_group::TaskGroup, workspace::Workspace,
 };
 use deployment::Deployment;
 use uuid::Uuid;
@@ -217,5 +217,28 @@ pub async fn load_conversation_middleware(
         };
 
     request.extensions_mut().insert(conversation);
+    Ok(next.run(request).await)
+}
+
+pub async fn load_notification_middleware(
+    State(deployment): State<DeploymentImpl>,
+    Path(notification_id): Path<Uuid>,
+    mut request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let notification = match Notification::find_by_id(&deployment.db().pool, notification_id).await
+    {
+        Ok(Some(notification)) => notification,
+        Ok(None) => {
+            tracing::warn!("Notification {} not found", notification_id);
+            return Err(StatusCode::NOT_FOUND);
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch notification {}: {}", notification_id, e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    request.extensions_mut().insert(notification);
     Ok(next.run(request).await)
 }

@@ -18,6 +18,7 @@ pub mod frontend;
 pub mod gantt;
 pub mod health;
 pub mod images;
+pub mod notifications;
 pub mod oauth;
 pub mod organizations;
 pub mod projects;
@@ -43,6 +44,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(task_attempts::router(&deployment))
         .merge(task_dependencies::router(&deployment))
         .merge(task_groups::router(&deployment))
+        .merge(notifications::router(&deployment))
         .merge(conversations::router(&deployment))
         .merge(execution_processes::router(&deployment))
         .merge(gantt::router(&deployment))
