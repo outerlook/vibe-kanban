@@ -55,6 +55,10 @@ fst = "0.4"
 secrecy = "0.10.3"
 moka = { version = "0.12", features = ["future"] }
 futures-timer = "3.0"
+octocrab = "0.44"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "2"
+
+[dev-dependencies]
+rustls = "0.23"

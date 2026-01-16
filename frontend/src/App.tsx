@@ -63,6 +63,11 @@ const OrganizationSettings = lazy(() =>
     default: module.OrganizationSettings,
   }))
 );
+const GitHubSettings = lazy(() =>
+  import('@/pages/settings/GitHubSettings').then((module) => ({
+    default: module.GitHubSettings,
+  }))
+);
 const AgentSettings = lazy(() =>
   import('@/pages/settings/AgentSettings').then((module) => ({
     default: module.AgentSettings,
@@ -81,6 +86,11 @@ const GanttView = lazy(() =>
 const ProjectConversations = lazy(() =>
   import('@/pages/ProjectConversations').then((module) => ({
     default: module.ProjectConversations,
+  }))
+);
+const PrOverview = lazy(() =>
+  import('@/pages/PrOverview').then((module) => ({
+    default: module.PrOverview,
   }))
 );
 
@@ -208,6 +218,10 @@ function AppContent() {
                     path="/projects/:projectId/gantt/:taskId/attempts/:attemptId"
                     element={<GanttView />}
                   />
+                  <Route
+                    path="/projects/:projectId/prs"
+                    element={<PrOverview />}
+                  />
                   <Route path="/settings/*" element={<SettingsLayout />}>
                     <Route index element={<Navigate to="general" replace />} />
                     <Route path="general" element={<GeneralSettings />} />
@@ -216,6 +230,7 @@ function AppContent() {
                       path="organizations"
                       element={<OrganizationSettings />}
                     />
+                    <Route path="github" element={<GitHubSettings />} />
                     <Route path="agents" element={<AgentSettings />} />
                     <Route path="mcp" element={<McpSettings />} />
                   </Route>

@@ -116,6 +116,8 @@ export type Image = { id: string, file_path: string, original_name: string, mime
 
 export type CreateImage = { file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, };
 
+export type GitHubSettingsStatus = { configured: boolean, };
+
 export type Workspace = { id: string, task_id: string, container_ref: string | null, branch: string, agent_working_dir: string | null, setup_completed_at: string | null, created_at: string, updated_at: string, };
 
 export type Session = { id: string, workspace_id: string, executor: string | null, created_at: string, updated_at: string, };
@@ -234,6 +236,12 @@ export type CreateRemoteProjectRequest = { organization_id: string, name: string
 
 export type LinkToExistingRequest = { remote_project_id: string, };
 
+export type PrWithComments = { unresolved_count: number, number: bigint, title: string, url: string, author: string, head_branch: string, base_branch: string, created_at: string, updated_at: string, };
+
+export type RepoPrs = { repo_id: string, repo_name: string, display_name: string, pull_requests: Array<PrWithComments>, };
+
+export type ProjectPrsResponse = { repos: Array<RepoPrs>, };
+
 export type RegisterRepoRequest = { path: string, display_name: string | null, };
 
 export type InitRepoRequest = { parent_path: string, folder_name: string, };
@@ -291,6 +299,10 @@ identifier: string,
 display_name: string, };
 
 export type AvailableSoundsResponse = { bundled: Array<BundledSoundInfo>, custom: Array<CustomSoundInfo>, };
+
+export type SetGitHubTokenRequest = { token: string, };
+
+export type GitHubImportResponse = { success: boolean, message: string, };
 
 export type AccountInfo = { claude: ClaudeAccountInfo | null, codex: CodexAccountInfo | null, };
 
@@ -409,6 +421,8 @@ export type GetPrCommentsError = { "type": "no_pr_attached" } | { "type": "githu
 export type GetPrCommentsQuery = { repo_id: string, };
 
 export type UnifiedPrComment = { "comment_type": "general", id: string, author: string, author_association: string, body: string, created_at: string, url: string, } | { "comment_type": "review", id: bigint, author: string, author_association: string, body: string, created_at: string, url: string, path: string, line: bigint | null, diff_hunk: string, };
+
+export type PullRequestSummary = { number: bigint, title: string, url: string, author: string, head_branch: string, base_branch: string, created_at: string, updated_at: string, };
 
 export type RepoBranchStatus = { repo_id: string, repo_name: string, commits_behind: number | null, commits_ahead: number | null, has_uncommitted_changes: boolean | null, head_oid: string | null, uncommitted_count: number | null, untracked_count: number | null, target_branch_name: string, remote_commits_behind: number | null, remote_commits_ahead: number | null, merges: Array<Merge>, 
 /**
