@@ -286,6 +286,30 @@
           "description": "Reset the onboarding flow.",
           "button": "Reset"
         }
+      },
+      "serverMode": {
+        "title": "Server Mode",
+        "description": "Choose how the app connects to the backend server",
+        "loadError": "Failed to load settings",
+        "saveError": "Failed to save settings",
+        "saveSuccess": "Settings saved",
+        "switchLabel": "Toggle server mode",
+        "local": {
+          "label": "Local Mode",
+          "description": "Server runs embedded within the app",
+          "status": "Embedded server running"
+        },
+        "remote": {
+          "label": "Remote Mode",
+          "description": "Connect to an external server",
+          "urlLabel": "Server URL",
+          "urlPlaceholder": "https://your-server.example.com",
+          "urlHelper": "Enter the URL of the remote Vibe Kanban server",
+          "urlRequired": "Server URL is required",
+          "urlInvalidProtocol": "URL must start with http:// or https://",
+          "urlInvalid": "Invalid URL format",
+          "save": "Save"
+        }
       }
     },
     "agents": {

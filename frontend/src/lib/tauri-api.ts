@@ -27,3 +27,11 @@ export async function getServerMode(): Promise<ServerMode> {
 export async function setServerMode(mode: ServerMode): Promise<void> {
   return invoke<void>('set_server_mode', { mode })
 }
+
+export async function getRemoteUrl(): Promise<string | null> {
+  return invoke<string | null>('get_remote_url')
+}
+
+export async function setRemoteUrl(url: string): Promise<void> {
+  return invoke<void>('set_remote_url', { url })
+}
