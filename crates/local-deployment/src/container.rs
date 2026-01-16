@@ -839,6 +839,97 @@ impl LocalContainerService {
         Ok(())
     }
 
+    /// Spawn exit monitor for conversation executions (no workspace context needed)
+    pub fn spawn_conversation_exit_monitor(
+        &self,
+        exec_id: &Uuid,
+        exit_signal: Option<ExecutorExitSignal>,
+    ) -> JoinHandle<()> {
+        let exec_id = *exec_id;
+        let child_store = self.child_store.clone();
+        let msg_stores = self.msg_stores.clone();
+        let db = self.db.clone();
+
+        let mut process_exit_rx = self.spawn_os_exit_watcher(exec_id);
+
+        tokio::spawn(async move {
+            let mut exit_signal_future = exit_signal
+                .map(|rx| rx.boxed())
+                .unwrap_or_else(|| std::future::pending().boxed());
+
+            let status_result: std::io::Result<std::process::ExitStatus>;
+
+            tokio::select! {
+                exit_result = &mut exit_signal_future => {
+                    if let Some(child_lock) = child_store.read().await.get(&exec_id).cloned() {
+                        let mut child = child_lock.write().await;
+                        if let Err(err) = command::kill_process_group(&mut child).await {
+                            tracing::error!("Failed to kill process group after exit signal: {} {}", exec_id, err);
+                        }
+                    }
+                    status_result = match exit_result {
+                        Ok(ExecutorExitResult::Success) => Ok(success_exit_status()),
+                        Ok(ExecutorExitResult::Failure) => Ok(failure_exit_status()),
+                        Err(_) => Ok(success_exit_status()),
+                    };
+                }
+                exit_status_result = &mut process_exit_rx => {
+                    status_result = exit_status_result.unwrap_or_else(|e| Err(std::io::Error::other(e)));
+                }
+            }
+
+            let (exit_code, status) = match status_result {
+                Ok(exit_status) => {
+                    let code = exit_status.code().unwrap_or(-1) as i64;
+                    let status = if exit_status.success() {
+                        ExecutionProcessStatus::Completed
+                    } else {
+                        ExecutionProcessStatus::Failed
+                    };
+                    (Some(code), status)
+                }
+                Err(_) => (None, ExecutionProcessStatus::Failed),
+            };
+
+            if !ExecutionProcess::was_stopped(&db.pool, exec_id).await
+                && let Err(e) =
+                    ExecutionProcess::update_completion(&db.pool, exec_id, status, exit_code).await
+            {
+                tracing::error!("Failed to update execution process completion: {}", e);
+            }
+
+            // Cleanup msg store
+            if let Some(msg_arc) = msg_stores.write().await.remove(&exec_id) {
+                if let Some((input_tokens, output_tokens)) =
+                    extract_token_usage_from_msg_store(&msg_arc)
+                    && let Err(e) = ExecutionProcess::update_token_usage(
+                        &db.pool,
+                        exec_id,
+                        Some(input_tokens),
+                        Some(output_tokens),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to update token usage for {}: {}", exec_id, e);
+                }
+
+                msg_arc.push_finished();
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                match Arc::try_unwrap(msg_arc) {
+                    Ok(inner) => drop(inner),
+                    Err(arc) => tracing::error!(
+                        "There are still {} strong Arcs to MsgStore for {}",
+                        Arc::strong_count(&arc),
+                        exec_id
+                    ),
+                }
+            }
+
+            // Cleanup child handle
+            child_store.write().await.remove(&exec_id);
+        })
+    }
+
     /// Start a follow-up execution from a queued message
     async fn start_queued_follow_up(
         &self,
@@ -1411,6 +1502,52 @@ impl ContainerService for LocalContainerService {
                 );
             }
         }
+
+        Ok(())
+    }
+
+    async fn start_conversation_execution_inner(
+        &self,
+        execution_process: &ExecutionProcess,
+        executor_action: &ExecutorAction,
+    ) -> Result<(), ContainerError> {
+        // For conversation executions, use a temporary working directory
+        // This avoids needing git/workspace context
+        let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/tmp"));
+
+        // Use noop approvals service for conversation executions
+        let approvals_service: Arc<dyn ExecutorApprovalService> =
+            Arc::new(NoopExecutorApprovalService {});
+
+        // Build ExecutionEnv with minimal context (no VK_* workspace variables)
+        let env = ExecutionEnv::new();
+
+        // Spawn the executor
+        let mut spawned = tokio::time::timeout(
+            Duration::from_secs(30),
+            executor_action.spawn(&current_dir, approvals_service, &env),
+        )
+        .await
+        .map_err(|_| {
+            ContainerError::Other(anyhow!(
+                "Timeout: process took more than 30 seconds to start"
+            ))
+        })??;
+
+        self.track_child_msgs_in_store(execution_process.id, &mut spawned.child)
+            .await;
+
+        self.add_child_to_store(execution_process.id, spawned.child)
+            .await;
+
+        // Store interrupt sender for graceful shutdown
+        if let Some(interrupt_sender) = spawned.interrupt_sender {
+            self.add_interrupt_sender(execution_process.id, interrupt_sender)
+                .await;
+        }
+
+        // Spawn exit monitor for conversation execution
+        self.spawn_conversation_exit_monitor(&execution_process.id, spawned.exit_signal);
 
         Ok(())
     }

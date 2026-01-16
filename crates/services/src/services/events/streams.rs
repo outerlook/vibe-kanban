@@ -93,7 +93,8 @@ fn record_task_cache_result(hit: bool) {
 }
 
 /// Look up task_id from session_id via session -> workspace -> task
-async fn get_task_id_for_execution_process(db: &SqlitePool, session_id: Uuid) -> Option<Uuid> {
+async fn get_task_id_for_execution_process(db: &SqlitePool, session_id: Option<Uuid>) -> Option<Uuid> {
+    let session_id = session_id?;
     if let Ok(Some(session)) = Session::find_by_id(db, session_id).await
         && let Ok(Some(workspace)) = Workspace::find_by_id(db, session.workspace_id).await
     {
@@ -405,7 +406,7 @@ impl EventService {
                                                 serde_json::from_value::<ExecutionProcess>(
                                                     op.value.clone(),
                                                 )
-                                                && session_ids.contains(&process.session_id)
+                                                && process.session_id.is_some_and(|sid| session_ids.contains(&sid))
                                             {
                                                 if !show_soft_deleted && process.dropped {
                                                     let remove_patch =
@@ -423,7 +424,7 @@ impl EventService {
                                                 serde_json::from_value::<ExecutionProcess>(
                                                     op.value.clone(),
                                                 )
-                                                && session_ids.contains(&process.session_id)
+                                                && process.session_id.is_some_and(|sid| session_ids.contains(&sid))
                                             {
                                                 if !show_soft_deleted && process.dropped {
                                                     let remove_patch =
@@ -450,7 +451,7 @@ impl EventService {
                                 {
                                     match &event_patch.value.record {
                                         RecordTypes::ExecutionProcess(process) => {
-                                            if session_ids.contains(&process.session_id) {
+                                            if process.session_id.is_some_and(|sid| session_ids.contains(&sid)) {
                                                 if !show_soft_deleted && process.dropped {
                                                     let remove_patch =
                                                         execution_process_patch::remove(process.id);

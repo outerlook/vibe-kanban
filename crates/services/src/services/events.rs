@@ -332,12 +332,14 @@ impl EventService {
                 };
                 msg_store.push_patch(patch);
 
-                if let Err(err) = Self::push_task_update_for_session(
-                    &db.pool,
-                    msg_store.clone(),
-                    process.session_id,
-                )
-                .await
+                // Only push task update for workspace-based executions
+                if let Some(session_id) = process.session_id
+                    && let Err(err) = Self::push_task_update_for_session(
+                        &db.pool,
+                        msg_store.clone(),
+                        session_id,
+                    )
+                    .await
                 {
                     tracing::error!(
                         "Failed to push task update after execution process change: {:?}",

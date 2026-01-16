@@ -181,7 +181,7 @@ pub async fn follow_up(
                 .ok_or(ApiError::Workspace(WorkspaceError::ValidationError(
                     "Process not found".to_string(),
                 )))?;
-        if process.session_id != session.id {
+        if process.session_id != Some(session.id) {
             return Err(ApiError::Workspace(WorkspaceError::ValidationError(
                 "Process does not belong to this session".to_string(),
             )));
@@ -204,7 +204,7 @@ pub async fn follow_up(
         deployment.container().try_stop(&workspace, false).await;
 
         // Soft-drop the target process and all later processes in that session
-        let _ = ExecutionProcess::drop_at_and_after(pool, process.session_id, proc_id).await?;
+        let _ = ExecutionProcess::drop_at_and_after(pool, session.id, proc_id).await?;
     }
 
     let latest_agent_session_id =
