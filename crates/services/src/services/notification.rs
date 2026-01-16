@@ -1,7 +1,11 @@
 use std::sync::{Arc, OnceLock};
 
+use db::models::notification::{CreateNotification, Notification, NotificationType};
+use serde_json::json;
+use sqlx::SqlitePool;
 use tokio::sync::RwLock;
 use utils;
+use uuid::Uuid;
 
 use crate::services::config::{Config, EffectiveSound, NotificationConfig, SoundFile};
 
@@ -325,6 +329,102 @@ impl NotificationService {
             );
             None
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // In-App Notification Helpers
+    // -------------------------------------------------------------------------
+
+    /// Create an in-app notification when an agent completes successfully.
+    pub async fn notify_agent_complete(
+        pool: &SqlitePool,
+        project_id: Uuid,
+        workspace_id: Uuid,
+        task_title: &str,
+    ) -> Result<Notification, sqlx::Error> {
+        Notification::create(
+            pool,
+            &CreateNotification {
+                project_id: Some(project_id),
+                notification_type: NotificationType::AgentComplete,
+                title: format!("Task Complete: {}", task_title),
+                message: format!("'{}' completed successfully", task_title),
+                metadata: Some(json!({ "workspace_id": workspace_id.to_string() })),
+                workspace_id: Some(workspace_id),
+                session_id: None,
+            },
+        )
+        .await
+    }
+
+    /// Create an in-app notification when an agent needs approval.
+    pub async fn notify_agent_approval_needed(
+        pool: &SqlitePool,
+        project_id: Uuid,
+        workspace_id: Uuid,
+        tool_name: &str,
+    ) -> Result<Notification, sqlx::Error> {
+        Notification::create(
+            pool,
+            &CreateNotification {
+                project_id: Some(project_id),
+                notification_type: NotificationType::AgentApprovalNeeded,
+                title: "Approval Needed".to_string(),
+                message: format!("Tool '{}' requires approval", tool_name),
+                metadata: Some(json!({
+                    "workspace_id": workspace_id.to_string(),
+                    "tool_name": tool_name
+                })),
+                workspace_id: Some(workspace_id),
+                session_id: None,
+            },
+        )
+        .await
+    }
+
+    /// Create an in-app notification when an agent encounters an error.
+    pub async fn notify_agent_error(
+        pool: &SqlitePool,
+        project_id: Uuid,
+        workspace_id: Uuid,
+        task_title: &str,
+    ) -> Result<Notification, sqlx::Error> {
+        Notification::create(
+            pool,
+            &CreateNotification {
+                project_id: Some(project_id),
+                notification_type: NotificationType::AgentError,
+                title: format!("Task Failed: {}", task_title),
+                message: format!("'{}' execution failed", task_title),
+                metadata: Some(json!({ "workspace_id": workspace_id.to_string() })),
+                workspace_id: Some(workspace_id),
+                session_id: None,
+            },
+        )
+        .await
+    }
+
+    /// Create an in-app notification for a new conversation response.
+    pub async fn notify_conversation_response(
+        pool: &SqlitePool,
+        project_id: Uuid,
+        conversation_session_id: Uuid,
+    ) -> Result<Notification, sqlx::Error> {
+        Notification::create(
+            pool,
+            &CreateNotification {
+                project_id: Some(project_id),
+                notification_type: NotificationType::ConversationResponse,
+                title: "New Conversation Response".to_string(),
+                message: "A conversation has received a new response".to_string(),
+                metadata: Some(json!({
+                    "conversation_session_id": conversation_session_id.to_string()
+                })),
+                workspace_id: None,
+                session_id: Some(conversation_session_id),
+            },
+        )
+        .await
     }
 }
 

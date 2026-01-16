@@ -518,16 +518,40 @@ pub trait ContainerService {
                     "✅ '{}' completed successfully\nBranch: {:?}\nExecutor: {:?}",
                     ctx.task.title, ctx.workspace.branch, ctx.session.executor
                 );
+                // OS notification
                 self.notification_service().notify(&title, &message).await;
+                // In-app notification
+                if let Err(e) = NotificationService::notify_agent_complete(
+                    &self.db().pool,
+                    ctx.project.id,
+                    ctx.workspace.id,
+                    &ctx.task.title,
+                )
+                .await
+                {
+                    tracing::warn!("Failed to create in-app completion notification: {}", e);
+                }
             }
             ExecutionProcessStatus::Failed => {
                 let message = format!(
                     "❌ '{}' execution failed\nBranch: {:?}\nExecutor: {:?}",
                     ctx.task.title, ctx.workspace.branch, ctx.session.executor
                 );
+                // OS notification
                 self.notification_service()
                     .notify_error(&title, &message)
                     .await;
+                // In-app notification
+                if let Err(e) = NotificationService::notify_agent_error(
+                    &self.db().pool,
+                    ctx.project.id,
+                    ctx.workspace.id,
+                    &ctx.task.title,
+                )
+                .await
+                {
+                    tracing::warn!("Failed to create in-app error notification: {}", e);
+                }
             }
             _ => {
                 tracing::warn!(
