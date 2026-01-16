@@ -7,9 +7,11 @@ use std::{
     collections::HashMap,
     path::PathBuf,
     sync::{Arc, Weak},
+    time::Duration,
 };
 
-use futures::StreamExt;
+use futures::{select, FutureExt, StreamExt};
+use futures_timer::Delay;
 use notify_debouncer_full::DebounceEventResult;
 use parking_lot::RwLock;
 use thiserror::Error;
@@ -158,14 +160,16 @@ impl WatcherManager {
             let _debouncer = debouncer_arc;
             let mut rx = watcher_rx;
 
-            while let Some(result) = futures::executor::block_on(rx.next()) {
-                // Wrap in Arc for cheap cloning to all subscribers
-                let event = Arc::new(result);
+            loop {
+                let result = futures::executor::block_on(async {
+                    select! {
+                        event = rx.next().fuse() => event,
+                        _ = Delay::new(Duration::from_secs(30)).fuse() => None,
+                    }
+                });
 
-                // If send fails, no subscribers - but we keep running
-                // in case new subscribers join later
+                // Check subscriber count on both event receipt and timeout
                 if tx_clone.receiver_count() == 0 {
-                    // No subscribers, exit the loop
                     tracing::debug!(
                         "No subscribers for watcher at {:?}, stopping",
                         canonical_clone
@@ -173,7 +177,10 @@ impl WatcherManager {
                     break;
                 }
 
-                let _ = tx_clone.send(event);
+                // Forward event if we received one (not a timeout)
+                if let Some(event) = result {
+                    let _ = tx_clone.send(Arc::new(event));
+                }
             }
 
             tracing::debug!("Watcher thread exiting for {:?}", canonical_clone);
