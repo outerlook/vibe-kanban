@@ -58,6 +58,16 @@ export type TaskStatusCounts = { todo: bigint, inprogress: bigint, inreview: big
 
 export type TaskGroupWithStats = { task_counts: TaskStatusCounts, id: string, project_id: string, name: string, base_branch: string | null, created_at: string, updated_at: string, };
 
+export type Notification = { id: string, project_id: string | null, notification_type: NotificationType, title: string, message: string, is_read: boolean, metadata: JsonValue | null, workspace_id: string | null, session_id: string | null, created_at: string, updated_at: string, };
+
+export type NotificationType = "agent_complete" | "agent_approval_needed" | "agent_error" | "conversation_response";
+
+export type CreateNotification = { project_id: string | null, notification_type: NotificationType, title: string, message: string, metadata: JsonValue | null, workspace_id: string | null, session_id: string | null, };
+
+export type UpdateNotification = { title: string | null, message: string | null, is_read: boolean | null, metadata: JsonValue | null, };
+
+export type NotificationStats = { total: bigint, unread: bigint, };
+
 export type GanttTask = { id: string, name: string, start: string, end: string, progress: number, dependencies: Array<string>, task_status: TaskStatus, task_group_id: string | null, total_input_tokens: bigint | null, total_output_tokens: bigint | null, token_usage_metadata: JsonValue | null, };
 
 export type PaginatedGanttTasks = { tasks: Array<GanttTask>, total: bigint, hasMore: boolean, };
