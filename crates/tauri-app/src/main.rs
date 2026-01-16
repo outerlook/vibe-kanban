@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+pub mod embedded_server;
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())

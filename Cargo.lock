@@ -7668,6 +7668,7 @@ dependencies = [
  "tauri-plugin-fs",
  "tauri-plugin-process",
  "tauri-plugin-shell",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "tracing-subscriber",
