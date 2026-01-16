@@ -490,6 +490,66 @@ pub struct BulkAssignTasksToGroupResponse {
     pub updated_count: u64,
 }
 
+// ============================================================================
+// Search Similar Tasks MCP Types
+// ============================================================================
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SearchSimilarTasksRequest {
+    #[schemars(description = "The ID of the project to search tasks in")]
+    pub project_id: Uuid,
+    #[schemars(description = "Natural language query to find similar tasks")]
+    pub query: String,
+    #[schemars(
+        description = "Optional status filter: 'todo', 'inprogress', 'inreview', 'done', 'cancelled'"
+    )]
+    pub status: Option<String>,
+    #[schemars(description = "Maximum number of results to return (default: 10, max: 50)")]
+    pub limit: Option<i32>,
+    #[schemars(
+        description = "Use hybrid search combining vector similarity and keyword matching (default: true)"
+    )]
+    pub hybrid: Option<bool>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct SimilarTaskMatch {
+    #[schemars(description = "The unique identifier of the task")]
+    pub id: String,
+    #[schemars(description = "The title of the task")]
+    pub title: String,
+    #[schemars(description = "The description of the task")]
+    pub description: Option<String>,
+    #[schemars(description = "Current status of the task")]
+    pub status: String,
+    #[schemars(description = "When the task was created")]
+    pub created_at: String,
+    #[schemars(description = "When the task was last updated")]
+    pub updated_at: String,
+    #[schemars(description = "Whether the task has an in-progress execution attempt")]
+    pub has_in_progress_attempt: Option<bool>,
+    #[schemars(description = "Whether the last execution attempt failed")]
+    pub last_attempt_failed: Option<bool>,
+    #[schemars(description = "The task group this task belongs to, if any")]
+    pub task_group_id: Option<String>,
+    #[schemars(description = "Similarity score (0.0 to 1.0, higher is more similar)")]
+    pub similarity_score: f64,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct SearchSimilarTasksResponse {
+    #[schemars(description = "Tasks matching the query, ranked by similarity")]
+    pub matches: Vec<SimilarTaskMatch>,
+    #[schemars(description = "Number of matches returned")]
+    pub count: usize,
+    #[schemars(description = "The project ID that was searched")]
+    pub project_id: String,
+    #[schemars(description = "The query that was used for searching")]
+    pub query: String,
+    #[schemars(description = "The search method used: 'hybrid', 'vector', or 'keyword'")]
+    pub search_method: String,
+}
+
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct HealthCheckResponse {
     #[schemars(description = "Overall health status: 'healthy', 'degraded', or 'unhealthy'")]
@@ -1669,12 +1729,121 @@ impl TaskServer {
 
         TaskServer::success(&response)
     }
+
+    // ========================================================================
+    // Semantic Search Tools
+    // ========================================================================
+
+    #[tool(
+        description = "Search for tasks using semantic similarity. Finds tasks related in meaning to your query, not just keyword matches. Use this to discover related work, find duplicates, or explore tasks by concept. Examples: 'authentication bugs', 'database performance', 'user onboarding flow'."
+    )]
+    async fn search_similar_tasks(
+        &self,
+        Parameters(SearchSimilarTasksRequest {
+            project_id,
+            query,
+            status,
+            limit,
+            hybrid,
+        }): Parameters<SearchSimilarTasksRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        // Validate query is not empty
+        let query_trimmed = query.trim();
+        if query_trimmed.is_empty() {
+            return Self::err("Query cannot be empty".to_string(), None::<String>);
+        }
+
+        // Validate status if provided
+        let status_filter = if let Some(ref status_str) = status {
+            match TaskStatus::from_str(status_str) {
+                Ok(s) => Some(s),
+                Err(_) => {
+                    return Self::err(
+                        "Invalid status filter. Valid values: 'todo', 'inprogress', 'inreview', 'done', 'cancelled'".to_string(),
+                        Some(status_str.to_string()),
+                    );
+                }
+            }
+        } else {
+            None
+        };
+
+        // Build the request payload
+        let payload = serde_json::json!({
+            "projectId": project_id,
+            "query": query_trimmed,
+            "status": status_filter,
+            "limit": limit.unwrap_or(10).clamp(1, 50),
+            "hybrid": hybrid.unwrap_or(true),
+        });
+
+        let url = self.url("/api/tasks/search");
+
+        // Response structure from the API
+        #[derive(Debug, Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ApiSearchResponse {
+            matches: Vec<ApiTaskMatch>,
+            #[allow(dead_code)]
+            count: usize,
+            search_method: String,
+        }
+
+        #[derive(Debug, Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ApiTaskMatch {
+            id: Uuid,
+            title: String,
+            description: Option<String>,
+            status: String,
+            created_at: chrono::DateTime<chrono::Utc>,
+            updated_at: chrono::DateTime<chrono::Utc>,
+            has_in_progress_attempt: bool,
+            last_attempt_failed: bool,
+            task_group_id: Option<Uuid>,
+            similarity_score: f64,
+        }
+
+        let api_response: ApiSearchResponse =
+            match self.send_json(self.client.post(&url).json(&payload)).await {
+                Ok(r) => r,
+                Err(e) => return Ok(e),
+            };
+
+        // Convert to MCP response format
+        let matches: Vec<SimilarTaskMatch> = api_response
+            .matches
+            .into_iter()
+            .map(|m| SimilarTaskMatch {
+                id: m.id.to_string(),
+                title: m.title,
+                description: m.description,
+                status: m.status,
+                created_at: m.created_at.to_rfc3339(),
+                updated_at: m.updated_at.to_rfc3339(),
+                has_in_progress_attempt: Some(m.has_in_progress_attempt),
+                last_attempt_failed: Some(m.last_attempt_failed),
+                task_group_id: m.task_group_id.map(|id| id.to_string()),
+                similarity_score: m.similarity_score,
+            })
+            .collect();
+
+        let response = SearchSimilarTasksResponse {
+            count: matches.len(),
+            matches,
+            project_id: project_id.to_string(),
+            query: query_trimmed.to_string(),
+            search_method: api_response.search_method,
+        };
+
+        TaskServer::success(&response)
+    }
 }
 
 #[tool_handler]
 impl ServerHandler for TaskServer {
     fn get_info(&self) -> ServerInfo {
-        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`. TOOLS: 'health_check', 'list_projects', 'list_tasks', 'create_task', 'bulk_create_tasks', 'create_task_with_dependencies', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree', 'list_task_groups', 'create_task_group', 'get_task_group', 'update_task_group', 'delete_task_group', 'bulk_assign_tasks_to_group'. Make sure to pass `project_id`, `task_id`, or `group_id` where required. You can use list tools to get the available ids.".to_string();
+        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`. TOOLS: 'health_check', 'list_projects', 'list_tasks', 'search_similar_tasks', 'create_task', 'bulk_create_tasks', 'create_task_with_dependencies', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree', 'list_task_groups', 'create_task_group', 'get_task_group', 'update_task_group', 'delete_task_group', 'bulk_assign_tasks_to_group'. Make sure to pass `project_id`, `task_id`, or `group_id` where required. You can use list tools to get the available ids.".to_string();
         if self.context.is_some() {
             let context_instruction = "Use 'get_context' to fetch project/task/workspace metadata for the active Vibe Kanban workspace session when available.";
             instruction = format!("{} {}", context_instruction, instruction);

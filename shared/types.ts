@@ -50,6 +50,8 @@ export type TaskWithAttemptStatus = { has_in_progress_attempt: boolean, last_att
 
 export type TaskRelationships = { parent_task: Task | null, current_workspace: Workspace, children: Array<Task>, };
 
+export type EmbeddingStatus = { task_id: string, needs_embedding: boolean, last_embedded_at: string | null, embedding_model: string | null, };
+
 export type TaskDependency = { id: string, task_id: string, depends_on_id: string, created_at: string, };
 
 export type TaskGroup = { id: string, project_id: string, name: string, base_branch: string | null, created_at: string, updated_at: string, };

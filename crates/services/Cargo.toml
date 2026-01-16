@@ -54,6 +54,7 @@ sha2 = "0.10"
 fst = "0.4"
 secrecy = "0.10.3"
 moka = { version = "0.12", features = ["future"] }
+embed_anything = "0.6"
 futures-timer = "3.0"
 octocrab = "0.44"
 
