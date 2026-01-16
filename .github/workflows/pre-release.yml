@@ -15,7 +15,7 @@ on:
           - prerelease
 
 concurrency:
-  group: release-${{ github.ref_name }} # allow concurrent prerelease from different branches
+  group: release-${{ github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -59,7 +59,6 @@ jobs:
         id: branch
         run: |
           branch_name="${{ github.ref_name }}"
-          # Get last 6 characters of branch name, remove all special chars (including dashes)
           suffix=$(echo "$branch_name" | tail -c 7 | sed 's/[^a-zA-Z0-9]//g' | tr '[:upper:]' '[:lower:]')
           echo "Branch: $branch_name"
           echo "Suffix: $suffix"
@@ -68,21 +67,17 @@ jobs:
       - name: Determine and update versions
         id: version
         run: |
-          # Get the latest version from npm registry
           latest_npm_version=$(npm view vibe-kanban version 2>/dev/null || echo "0.0.0")
           echo "Latest npm version: $latest_npm_version"
 
           timestamp=$(date +%Y%m%d%H%M%S)
 
-          # Update root package.json based on npm version, not current package.json
           if [[ "${{ github.event.inputs.version_type }}" == "prerelease" ]]; then
-            # For prerelease, use current package.json version and add branch suffix
             npm version prerelease --preid="${{ steps.branch.outputs.suffix }}" --no-git-tag-version
 
             new_version=$(node -p "require('./package.json').version")
             new_tag="v${new_version}.${timestamp}"
           else
-            # For regular releases, use npm version and bump it
             npm version $latest_npm_version --no-git-tag-version --allow-same-version
             npm version ${{ github.event.inputs.version_type }} --no-git-tag-version
 
@@ -90,12 +85,17 @@ jobs:
             new_tag="v${new_version}-${timestamp}"
           fi
 
-          # Update frontend package.json to match
           cd frontend
           npm version $new_version --no-git-tag-version --allow-same-version
           cd ..
 
           cargo set-version --workspace "$new_version"
+
+          # Update tauri.conf.json version
+          cd crates/tauri-app
+          jq --arg version "$new_version" '.version = $version' tauri.conf.json > tauri.conf.json.tmp
+          mv tauri.conf.json.tmp tauri.conf.json
+          cd ../..
 
           echo "New version: $new_version"
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
@@ -107,66 +107,209 @@ jobs:
           git config --local user.name "GitHub Action"
           git add package.json pnpm-lock.yaml frontend/package.json Cargo.lock
           git add $(find . -name Cargo.toml)
+          git add crates/tauri-app/tauri.conf.json
           git commit -m "chore: bump version to ${{ steps.version.outputs.new_version }}"
           git tag -a ${{ steps.version.outputs.new_tag }} -m "Release ${{ steps.version.outputs.new_tag }}"
           git push
           git push --tags
 
-  build-frontend:
+  build-tauri:
     needs: bump-version
-    runs-on: ubuntu-latest-m
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS ARM64 (Apple Silicon)
+          - platform: macos-15-xlarge
+            target: aarch64-apple-darwin
+            name: macos-arm64
+          # macOS x64 (Intel)
+          - platform: macos-15-xlarge
+            target: x86_64-apple-darwin
+            name: macos-x64
+          # Windows x64
+          - platform: windows-latest-l
+            target: x86_64-pc-windows-msvc
+            name: windows-x64
+          # Linux x64
+          - platform: ubuntu-latest-x64-l
+            target: x86_64-unknown-linux-gnu
+            name: linux-x64
+          # Linux ARM64 (using self-hosted ARM runner)
+          - platform: ubuntu-latest-arm64-l
+            target: aarch64-unknown-linux-gnu
+            name: linux-arm64
+
     env:
       VITE_PUBLIC_REACT_VIRTUOSO_LICENSE_KEY: ${{ secrets.PUBLIC_REACT_VIRTUOSO_LICENSE_KEY }}
       VITE_VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
+      POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+      POSTHOG_API_ENDPOINT: ${{ secrets.POSTHOG_API_ENDPOINT }}
+      VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
+
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.bump-version.outputs.new_tag }}
 
       - name: Setup Node
-        uses: ./.github/actions/setup-node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install dependencies
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+          prefix-key: "tauri-cache-v1"
+          key: ${{ matrix.target }}_${{ matrix.platform }}
+          cache-on-failure: true
+          shared-key: "tauri-shared"
+          cache-all-crates: true
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libssl-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev
+
+      - name: Install pnpm dependencies
         run: pnpm install
 
-      - name: Lint frontend
-        run: cd frontend && npm run lint
-
-      - name: Type check frontend
-        run: cd frontend && npx tsc --noEmit
-
-      - name: Build frontend
-        run: cd frontend && npm run build
+      # macOS code signing setup
+      - name: Import Apple Developer Certificate (macOS)
+        if: runner.os == 'macOS'
         env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o $CERTIFICATE_PATH
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          security import $CERTIFICATE_PATH -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+          # Verify certificate
+          security find-identity -v -p codesigning $KEYCHAIN_PATH
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS code signing
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # macOS notarization (API Key method)
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
+          # Frontend build env
           VITE_POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
           VITE_POSTHOG_API_ENDPOINT: ${{ secrets.POSTHOG_API_ENDPOINT }}
-
-      - name: Create Sentry release
-        uses: getsentry/action-release@v3
-        env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         with:
-          release: ${{ needs.bump-version.outputs.new_version }}
-          environment: production
-          sourcemaps: "./frontend/dist"
-          ignore_missing: true
+          projectPath: crates/tauri-app
+          args: --target ${{ matrix.target }}
+          # Don't create release here - we collect artifacts and create release in separate job
+          tagName: ""
+          releaseName: ""
+          includeRelease: false
 
-      - name: Upload frontend artifact
+      - name: Setup Sentry CLI
+        uses: matbour/setup-sentry-cli@v2
+        with:
+          token: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          organization: ${{ secrets.SENTRY_ORG }}
+          project: ${{ secrets.SENTRY_PROJECT }}
+          version: 2.21.2
+
+      - name: Upload debug files to Sentry
+        run: sentry-cli debug-files upload --include-sources target/${{ matrix.target }}/release
+        continue-on-error: true
+
+      - name: Rename artifacts for release
+        shell: bash
+        run: |
+          VERSION="${{ needs.bump-version.outputs.new_version }}"
+          TARGET="${{ matrix.target }}"
+          NAME="${{ matrix.name }}"
+
+          mkdir -p release-artifacts
+
+          # For workspace projects, bundles are in workspace root target dir
+          BUNDLE_DIR="target/$TARGET/release/bundle"
+
+          echo "Looking for bundles in: $BUNDLE_DIR"
+          ls -la "$BUNDLE_DIR" 2>/dev/null || echo "Bundle dir not found at expected location"
+          # Also check workspace root
+          find target -name "bundle" -type d 2>/dev/null | head -5
+
+          # Find and rename artifacts based on platform
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            # DMG files
+            find "$BUNDLE_DIR/dmg" -name "*.dmg" -exec cp {} "release-artifacts/vibe-kanban_${VERSION}_${NAME}.dmg" \; 2>/dev/null || true
+          elif [[ "${{ runner.os }}" == "Windows" ]]; then
+            # MSI files
+            find "$BUNDLE_DIR/msi" -name "*.msi" -exec cp {} "release-artifacts/vibe-kanban_${VERSION}_${NAME}.msi" \; 2>/dev/null || true
+            # NSIS setup.exe
+            find "$BUNDLE_DIR/nsis" -name "*.exe" -exec cp {} "release-artifacts/vibe-kanban_${VERSION}_${NAME}-setup.exe" \; 2>/dev/null || true
+          elif [[ "${{ runner.os }}" == "Linux" ]]; then
+            # AppImage files
+            find "$BUNDLE_DIR/appimage" -name "*.AppImage" -exec cp {} "release-artifacts/vibe-kanban_${VERSION}_${NAME}.AppImage" \; 2>/dev/null || true
+            # Deb files
+            find "$BUNDLE_DIR/deb" -name "*.deb" -exec cp {} "release-artifacts/vibe-kanban_${VERSION}_${NAME}.deb" \; 2>/dev/null || true
+          fi
+
+          echo "Artifacts created:"
+          ls -la release-artifacts/
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-dist
-          path: frontend/dist/
+          name: tauri-${{ matrix.name }}
+          path: release-artifacts/*
           retention-days: 1
 
-  build-backend:
-    needs: [bump-version, build-frontend]
+      # Clean up macOS keychain
+      - name: Cleanup keychain (macOS)
+        if: runner.os == 'macOS' && always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+
+  # Also build the MCP server binaries (standalone, not bundled in Tauri)
+  build-mcp-binaries:
+    needs: bump-version
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
     strategy:
-      # Platform matrix for build targets
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-musl
@@ -180,7 +323,6 @@ jobs:
           - target: x86_64-pc-windows-msvc
             os: windows-latest-l
             name: windows-x64
-          # Intel-only runner; last supported x86_64 image (EOL Aug 2027)
           - target: x86_64-apple-darwin
             os: macos-15-xlarge
             name: macos-x64
@@ -190,6 +332,7 @@ jobs:
           - target: aarch64-pc-windows-msvc
             os: windows-latest-l
             name: windows-arm64
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -200,7 +343,6 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
-          components: rustfmt, clippy
 
       - name: Install libclang (Linux)
         if: runner.os == 'Linux'
@@ -212,22 +354,15 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "."
-          prefix-key: "cache-v1.0"
+          prefix-key: "mcp-cache-v1"
           key: ${{ matrix.target }}_${{ matrix.os }}
           cache-on-failure: true
-          shared-key: "shared"
+          shared-key: "mcp-shared"
           cache-all-crates: true
 
-      - name: Download frontend artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist/
-
-      - name: Build backend (Linux)
+      - name: Build MCP server (Linux)
         if: runner.os == 'Linux'
         run: |
-          cargo zigbuild --release --target ${{ matrix.target }} -p server
           cargo zigbuild --release --target ${{ matrix.target }} --bin mcp_task_server
           cargo zigbuild --release --target ${{ matrix.target }} -p review
         env:
@@ -235,10 +370,9 @@ jobs:
           POSTHOG_API_ENDPOINT: ${{ secrets.POSTHOG_API_ENDPOINT }}
           VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
 
-      - name: Build backend (non-Linux)
+      - name: Build MCP server (non-Linux)
         if: runner.os != 'Linux'
         run: |
-          cargo build --release --target ${{ matrix.target }} -p server
           cargo build --release --target ${{ matrix.target }} --bin mcp_task_server
           cargo build --release --target ${{ matrix.target }} -p review
         env:
@@ -254,7 +388,7 @@ jobs:
           project: ${{ secrets.SENTRY_PROJECT }}
           version: 2.21.2
 
-      - name: Upload source maps to Sentry
+      - name: Upload debug files to Sentry
         run: sentry-cli debug-files upload --include-sources target/${{ matrix.target }}/release
 
       - name: Prepare binaries (non-macOS)
@@ -263,51 +397,24 @@ jobs:
         run: |
           mkdir -p dist
           if [[ "${{ matrix.os }}" == "windows-latest-l" ]]; then
-            cp target/${{ matrix.target }}/release/server.exe dist/vibe-kanban-${{ matrix.name }}.exe
             cp target/${{ matrix.target }}/release/mcp_task_server.exe dist/vibe-kanban-mcp-${{ matrix.name }}.exe
             cp target/${{ matrix.target }}/release/review.exe dist/vibe-kanban-review-${{ matrix.name }}.exe
           else
-            cp target/${{ matrix.target }}/release/server dist/vibe-kanban-${{ matrix.name }}
             cp target/${{ matrix.target }}/release/mcp_task_server dist/vibe-kanban-mcp-${{ matrix.name }}
             cp target/${{ matrix.target }}/release/review dist/vibe-kanban-review-${{ matrix.name }}
           fi
 
-      # Code signing for macOS only
+      # Code signing for macOS MCP binaries
       - name: Prepare Apple certificate (macOS)
         if: runner.os == 'macOS'
         run: |
           echo "${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}" | base64 --decode > certificate.p12
 
-      - name: Write API Key to file
+      - name: Write API Key to file (macOS)
         if: runner.os == 'macOS'
         env:
           API_KEY: ${{ secrets.APP_STORE_API_KEY }}
         run: echo $API_KEY > app_store_key.json
-
-      - name: Sign main binary (macOS)
-        if: runner.os == 'macOS'
-        uses: indygreg/apple-code-sign-action@v1
-        with:
-          input_path: target/${{ matrix.target }}/release/server
-          output_path: vibe-kanban
-          p12_file: certificate.p12
-          p12_password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          sign: true
-          sign_args: "--code-signature-flags=runtime"
-
-      - name: Package main binary (macOS)
-        if: runner.os == 'macOS'
-        run: zip vibe-kanban.zip vibe-kanban
-
-      - name: Notarize signed binary (macOS)
-        if: runner.os == 'macOS'
-        uses: indygreg/apple-code-sign-action@v1
-        continue-on-error: true
-        with:
-          input_path: vibe-kanban.zip
-          sign: false
-          notarize: true
-          app_store_connect_api_key_json_file: app_store_key.json
 
       - name: Sign MCP binary (macOS)
         if: runner.os == 'macOS'
@@ -324,7 +431,7 @@ jobs:
         if: runner.os == 'macOS'
         run: zip vibe-kanban-mcp.zip vibe-kanban-mcp
 
-      - name: Notarize signed MCP binary (macOS)
+      - name: Notarize MCP binary (macOS)
         if: runner.os == 'macOS'
         uses: indygreg/apple-code-sign-action@v1
         continue-on-error: true
@@ -349,7 +456,7 @@ jobs:
         if: runner.os == 'macOS'
         run: zip vibe-kanban-review.zip vibe-kanban-review
 
-      - name: Notarize signed Review binary (macOS)
+      - name: Notarize Review binary (macOS)
         if: runner.os == 'macOS'
         uses: indygreg/apple-code-sign-action@v1
         continue-on-error: true
@@ -363,7 +470,6 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           mkdir -p dist
-          cp vibe-kanban.zip dist/vibe-kanban-${{ matrix.name }}.zip
           cp vibe-kanban-mcp.zip dist/vibe-kanban-mcp-${{ matrix.name }}.zip
           cp vibe-kanban-review.zip dist/vibe-kanban-review-${{ matrix.name }}.zip
 
@@ -373,37 +479,61 @@ jobs:
           rm -f certificate.p12
           rm -rf private_keys/
 
-      - name: Upload binary artifact
+      - name: Upload MCP artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: backend-binary-${{ matrix.name }}
+          name: mcp-binary-${{ matrix.name }}
           path: dist/
           retention-days: 1
 
   create-prerelease:
-    needs: [bump-version, build-frontend, build-backend]
+    needs: [bump-version, build-tauri, build-mcp-binaries]
     runs-on: ubuntu-latest-m
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.bump-version.outputs.new_tag }}
 
-      - name: Download frontend artifact
+      - name: Download all Tauri artifacts
         uses: actions/download-artifact@v4
         with:
-          name: frontend-dist
-          path: frontend/dist/
+          pattern: tauri-*
+          path: tauri-artifacts
+          merge-multiple: true
+
+      - name: Download all MCP artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mcp-binary-*
+          path: mcp-artifacts
+          merge-multiple: true
 
       - name: List downloaded artifacts
         run: |
-          echo "Frontend dist:"
-          find frontend/dist
+          echo "Tauri artifacts:"
+          find tauri-artifacts -type f 2>/dev/null || echo "No Tauri artifacts"
+          echo ""
+          echo "MCP artifacts:"
+          find mcp-artifacts -type f 2>/dev/null || echo "No MCP artifacts"
 
-      - name: Zip frontend
+      - name: Prepare release assets
         run: |
-          mkdir vibe-kanban-${{ needs.bump-version.outputs.new_tag }}
-          mv frontend/dist vibe-kanban-${{ needs.bump-version.outputs.new_tag }}
-          zip -r vibe-kanban-${{ needs.bump-version.outputs.new_tag }}.zip vibe-kanban-${{ needs.bump-version.outputs.new_tag }}
+          mkdir -p release-assets
+          cp tauri-artifacts/* release-assets/ 2>/dev/null || true
+          cp mcp-artifacts/* release-assets/ 2>/dev/null || true
+          echo "Final release assets:"
+          ls -la release-assets/
+
+      - name: Create Sentry release
+        uses: getsentry/action-release@v3
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        with:
+          version: ${{ needs.bump-version.outputs.new_version }}
+          environment: production
+          ignore_missing: true
 
       - name: Create GitHub Pre-Release
         uses: softprops/action-gh-release@v2
@@ -413,4 +543,4 @@ jobs:
           prerelease: true
           generate_release_notes: true
           files: |
-            vibe-kanban-${{ needs.bump-version.outputs.new_tag }}.zip
+            release-assets/*
