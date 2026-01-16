@@ -374,6 +374,11 @@ mod tests {
             task_group_id: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
+            is_blocked: false,
+            has_in_progress_attempt: false,
+            last_attempt_failed: false,
+            is_queued: false,
+            last_executor: String::new(),
         };
 
         let message = generate_commit_message_for_test(&task, "main");
@@ -395,6 +400,11 @@ mod tests {
             task_group_id: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
+            is_blocked: false,
+            has_in_progress_attempt: false,
+            last_attempt_failed: false,
+            is_queued: false,
+            last_executor: String::new(),
         };
 
         let message = generate_commit_message_for_test(&task, "develop");
@@ -416,6 +426,11 @@ mod tests {
             task_group_id: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
+            is_blocked: false,
+            has_in_progress_attempt: false,
+            last_attempt_failed: false,
+            is_queued: false,
+            last_executor: String::new(),
         };
 
         let message = generate_commit_message_for_test(&task, "main");

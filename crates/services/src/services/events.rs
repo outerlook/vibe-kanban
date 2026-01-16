@@ -107,6 +107,20 @@ impl EventService {
         Ok(())
     }
 
+    async fn update_materialized_status_for_session(
+        pool: &SqlitePool,
+        session_id: Uuid,
+    ) -> Result<(), SqlxError> {
+        use db::models::session::Session;
+        if let Some(session) = Session::find_by_id(pool, session_id).await?
+            && let Some(workspace) = Workspace::find_by_id(pool, session.workspace_id).await?
+        {
+            Task::update_materialized_status(pool, workspace.task_id).await?;
+        }
+
+        Ok(())
+    }
+
     /// Spawns the event worker and returns a handle for shutdown.
     /// Must be called before `create_hook` to get the sender.
     pub fn spawn_event_worker(
@@ -261,6 +275,18 @@ impl EventService {
                     // Their is_blocked status may have changed.
                     if let Ok(dependent_tasks) = TaskDependency::find_blocking(&db.pool, task.id).await
                     {
+                        // Update materialized status for dependent tasks (is_blocked column)
+                        let dependent_task_ids: Vec<Uuid> =
+                            dependent_tasks.iter().map(|t| t.id).collect();
+                        if let Err(err) =
+                            Task::update_materialized_status_bulk(&db.pool, &dependent_task_ids).await
+                        {
+                            tracing::error!(
+                                "Failed to update materialized status for dependent tasks: {:?}",
+                                err
+                            );
+                        }
+
                         for dep_task in dependent_tasks {
                             let _ = Self::push_task_update_for_task(
                                 &db.pool,
@@ -318,6 +344,16 @@ impl EventService {
                 };
                 msg_store.push_patch(workspace_patch);
 
+                // Update materialized status columns for the task
+                if let Err(err) =
+                    Task::update_materialized_status(&db.pool, workspace.task_id).await
+                {
+                    tracing::error!(
+                        "Failed to update materialized status for task after workspace change: {:?}",
+                        err
+                    );
+                }
+
                 // Then, update the parent task with fresh data
                 if let Ok(Some(task_with_status)) =
                     Task::find_by_id_with_attempt_status(&db.pool, workspace.task_id).await
@@ -332,6 +368,14 @@ impl EventService {
                 task_id: Some(task_id),
                 ..
             } => {
+                // Update materialized status columns for the task
+                if let Err(err) = Task::update_materialized_status(&db.pool, *task_id).await {
+                    tracing::error!(
+                        "Failed to update materialized status for task after workspace deletion: {:?}",
+                        err
+                    );
+                }
+
                 // Workspace deletion should update the parent task with fresh data
                 if let Ok(Some(task_with_status)) =
                     Task::find_by_id_with_attempt_status(&db.pool, *task_id).await
@@ -350,15 +394,27 @@ impl EventService {
                 msg_store.push_patch(patch);
 
                 // Only push task update for workspace-based executions
-                if let Some(session_id) = process.session_id
-                    && let Err(err) =
+                if let Some(session_id) = process.session_id {
+                    // Update materialized status columns first
+                    if let Err(err) =
+                        Self::update_materialized_status_for_session(&db.pool, session_id).await
+                    {
+                        tracing::error!(
+                            "Failed to update materialized status after execution process change: {:?}",
+                            err
+                        );
+                    }
+
+                    // Then push task update via WebSocket
+                    if let Err(err) =
                         Self::push_task_update_for_session(&db.pool, msg_store.clone(), session_id)
                             .await
-                {
-                    tracing::error!(
-                        "Failed to push task update after execution process change: {:?}",
-                        err
-                    );
+                    {
+                        tracing::error!(
+                            "Failed to push task update after execution process change: {:?}",
+                            err
+                        );
+                    }
                 }
 
                 return;
@@ -371,15 +427,27 @@ impl EventService {
                 let patch = execution_process_patch::remove(*process_id);
                 msg_store.push_patch(patch);
 
-                if let Some(session_id) = session_id
-                    && let Err(err) =
+                if let Some(session_id) = session_id {
+                    // Update materialized status columns first
+                    if let Err(err) =
+                        Self::update_materialized_status_for_session(&db.pool, *session_id).await
+                    {
+                        tracing::error!(
+                            "Failed to update materialized status after execution process removal: {:?}",
+                            err
+                        );
+                    }
+
+                    // Then push task update via WebSocket
+                    if let Err(err) =
                         Self::push_task_update_for_session(&db.pool, msg_store.clone(), *session_id)
                             .await
-                {
-                    tracing::error!(
-                        "Failed to push task update after execution process removal: {:?}",
-                        err
-                    );
+                    {
+                        tracing::error!(
+                            "Failed to push task update after execution process removal: {:?}",
+                            err
+                        );
+                    }
                 }
 
                 return;
