@@ -131,6 +131,52 @@ impl MergeQueue {
         Ok(entry)
     }
 
+    /// Claim the next queued entry for processing by atomically updating its status to 'merging'.
+    /// Unlike `pop_next`, this preserves the entry in the database for status tracking.
+    /// Returns None if no queued entries exist for the project.
+    pub async fn claim_next(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        // Get the oldest queued entry for this project
+        let entry = sqlx::query_as!(
+            MergeQueue,
+            r#"SELECT
+                id AS "id!: Uuid",
+                project_id AS "project_id!: Uuid",
+                workspace_id AS "workspace_id!: Uuid",
+                repo_id AS "repo_id!: Uuid",
+                queued_at AS "queued_at!: DateTime<Utc>",
+                status AS "status!: MergeQueueStatus",
+                conflict_message,
+                started_at AS "started_at: DateTime<Utc>",
+                completed_at AS "completed_at: DateTime<Utc>"
+            FROM merge_queue
+            WHERE project_id = ? AND status = 'queued'
+            ORDER BY queued_at ASC
+            LIMIT 1"#,
+            project_id
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        // If found, update status to 'merging' to claim it
+        if let Some(ref e) = entry {
+            let now = Utc::now();
+            sqlx::query!(
+                r#"UPDATE merge_queue
+                   SET status = 'merging', started_at = ?
+                   WHERE id = ?"#,
+                now,
+                e.id
+            )
+            .execute(pool)
+            .await?;
+        }
+
+        Ok(entry)
+    }
+
     /// Update the status of a merge queue entry
     pub async fn update_status(
         pool: &SqlitePool,
