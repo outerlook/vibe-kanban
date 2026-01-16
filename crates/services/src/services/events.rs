@@ -3,8 +3,8 @@ use std::{str::FromStr, sync::Arc};
 use db::{
     DBService,
     models::{
-        execution_process::ExecutionProcess, project::Project, scratch::Scratch, task::Task,
-        workspace::Workspace,
+        execution_process::ExecutionProcess, notification::Notification, project::Project,
+        scratch::Scratch, task::Task, workspace::Workspace,
     },
 };
 use serde_json::json;
@@ -21,7 +21,8 @@ mod streams;
 pub mod types;
 
 pub use patches::{
-    execution_process_patch, project_patch, scratch_patch, task_patch, workspace_patch,
+    execution_process_patch, notification_patch, project_patch, scratch_patch, task_patch,
+    workspace_patch,
 };
 pub use types::{EventError, EventPatch, EventPatchInner, HookTables, RecordTypes};
 
@@ -220,6 +221,17 @@ impl EventService {
                     return;
                 }
             },
+            HookTables::Notifications => match Notification::find_by_rowid(&db.pool, *rowid).await {
+                Ok(Some(notification)) => RecordTypes::Notification(notification),
+                Ok(None) => RecordTypes::DeletedNotification {
+                    rowid: *rowid,
+                    notification_id: None,
+                },
+                Err(e) => {
+                    tracing::error!("Failed to fetch notification: {:?}", e);
+                    return;
+                }
+            },
         };
 
         let db_op: &str = match operation {
@@ -356,6 +368,23 @@ impl EventService {
 
                 return;
             }
+            RecordTypes::Notification(notification) => {
+                let patch = match operation {
+                    SqliteOperation::Insert => notification_patch::add(notification),
+                    SqliteOperation::Update => notification_patch::replace(notification),
+                    _ => notification_patch::replace(notification),
+                };
+                msg_store.push_patch(patch);
+                return;
+            }
+            RecordTypes::DeletedNotification {
+                notification_id: Some(notification_id),
+                ..
+            } => {
+                let patch = notification_patch::remove(*notification_id);
+                msg_store.push_patch(patch);
+                return;
+            }
             _ => {}
         }
 
@@ -448,6 +477,15 @@ impl EventService {
                                         <String as Decode<Sqlite>>::decode(type_val)
                                 {
                                     let patch = scratch_patch::remove(scratch_id, &type_str);
+                                    msg_store_for_preupdate.push_patch(patch);
+                                }
+                            }
+                            "notifications" => {
+                                if let Ok(value) = preupdate.get_old_column_value(0)
+                                    && let Ok(notification_id) =
+                                        <Uuid as Decode<Sqlite>>::decode(value)
+                                {
+                                    let patch = notification_patch::remove(notification_id);
                                     msg_store_for_preupdate.push_patch(patch);
                                 }
                             }

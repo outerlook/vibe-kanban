@@ -1,6 +1,6 @@
 use db::models::{
-    execution_process::ExecutionProcess, project::Project, scratch::Scratch,
-    task::TaskWithAttemptStatus, workspace::Workspace,
+    execution_process::ExecutionProcess, notification::Notification, project::Project,
+    scratch::Scratch, task::TaskWithAttemptStatus, workspace::Workspace,
 };
 use json_patch::{AddOperation, Patch, PatchOperation, RemoveOperation, ReplaceOperation};
 use uuid::Uuid;
@@ -214,6 +214,49 @@ pub mod scratch_patch {
                 "payload": { "type": scratch_type_str },
                 "deleted": true
             }),
+        })])
+    }
+}
+
+/// Helper functions for creating notification-specific patches
+pub mod notification_patch {
+    use super::*;
+
+    fn notification_path(notification_id: Uuid) -> String {
+        format!(
+            "/notifications/{}",
+            escape_pointer_segment(&notification_id.to_string())
+        )
+    }
+
+    /// Create patch for adding a new notification
+    pub fn add(notification: &Notification) -> Patch {
+        Patch(vec![PatchOperation::Add(AddOperation {
+            path: notification_path(notification.id)
+                .try_into()
+                .expect("Notification path should be valid"),
+            value: serde_json::to_value(notification)
+                .expect("Notification serialization should not fail"),
+        })])
+    }
+
+    /// Create patch for updating an existing notification
+    pub fn replace(notification: &Notification) -> Patch {
+        Patch(vec![PatchOperation::Replace(ReplaceOperation {
+            path: notification_path(notification.id)
+                .try_into()
+                .expect("Notification path should be valid"),
+            value: serde_json::to_value(notification)
+                .expect("Notification serialization should not fail"),
+        })])
+    }
+
+    /// Create patch for removing a notification
+    pub fn remove(notification_id: Uuid) -> Patch {
+        Patch(vec![PatchOperation::Remove(RemoveOperation {
+            path: notification_path(notification_id)
+                .try_into()
+                .expect("Notification path should be valid"),
         })])
     }
 }
