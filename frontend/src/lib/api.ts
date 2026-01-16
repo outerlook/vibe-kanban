@@ -107,6 +107,9 @@ import {
   Session,
   Workspace,
   AvailableSoundsResponse,
+  Notification,
+  NotificationStats,
+  UpdateNotification,
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { createWorkspaceWithSession } from '@/types/attempt';
@@ -1634,5 +1637,74 @@ export const soundsApi = {
   list: async (): Promise<AvailableSoundsResponse> => {
     const response = await makeRequest('/api/sounds');
     return handleApiResponse<AvailableSoundsResponse>(response);
+  },
+};
+
+// Notifications API
+export const notificationsApi = {
+  list: async (params?: {
+    projectId?: string;
+    limit?: number;
+  }): Promise<Notification[]> => {
+    const search = new URLSearchParams();
+    if (params?.projectId) {
+      search.set('project_id', params.projectId);
+    }
+    if (params?.limit !== undefined) {
+      search.set('limit', params.limit.toString());
+    }
+    const queryString = search.toString();
+    const url = `/api/notifications${queryString ? `?${queryString}` : ''}`;
+    const response = await makeRequest(url);
+    return handleApiResponse<Notification[]>(response);
+  },
+
+  getStats: async (projectId?: string): Promise<NotificationStats> => {
+    const search = new URLSearchParams();
+    if (projectId) {
+      search.set('project_id', projectId);
+    }
+    const queryString = search.toString();
+    const url = `/api/notifications/stats${queryString ? `?${queryString}` : ''}`;
+    const response = await makeRequest(url);
+    return handleApiResponse<NotificationStats>(response);
+  },
+
+  markRead: async (notificationId: string): Promise<Notification> => {
+    const update: UpdateNotification = {
+      is_read: true,
+      title: null,
+      message: null,
+      metadata: null,
+    };
+    const response = await makeRequest(`/api/notifications/${notificationId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(update),
+    });
+    return handleApiResponse<Notification>(response);
+  },
+
+  markAllRead: async (projectId?: string): Promise<number> => {
+    const response = await makeRequest('/api/notifications/mark-all-read', {
+      method: 'POST',
+      body: JSON.stringify({ project_id: projectId ?? null }),
+    });
+    return handleApiResponse<number>(response);
+  },
+
+  delete: async (notificationId: string): Promise<void> => {
+    const response = await makeRequest(`/api/notifications/${notificationId}`, {
+      method: 'DELETE',
+    });
+    return handleApiResponse<void>(response);
+  },
+
+  getStreamUrl: (projectId?: string): string => {
+    const params = new URLSearchParams();
+    if (projectId) {
+      params.set('project_id', projectId);
+    }
+    params.set('include_snapshot', 'true');
+    return `/api/notifications/stream/ws?${params.toString()}`;
   },
 };

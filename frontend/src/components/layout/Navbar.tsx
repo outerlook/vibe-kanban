@@ -42,6 +42,7 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { oauthApi } from '@/lib/api';
 import { ProjectSwitcher } from '@/components/layout/ProjectSwitcher';
 import { AccountInfoIndicator } from '@/components/layout/AccountInfoIndicator';
+import { NotificationBell, ProjectNotificationBadge } from '@/components/notifications';
 
 const INTERNAL_NAV = [{ label: 'Projects', icon: FolderOpen, to: '/projects' }];
 
@@ -145,6 +146,7 @@ export function Navbar() {
               <>
                 <span className="mx-2 text-muted-foreground">/</span>
                 <ProjectSwitcher />
+                <ProjectNotificationBadge projectId={projectId} className="ml-1.5" />
               </>
             ) : null}
             <a
@@ -236,6 +238,7 @@ export function Navbar() {
 
             <div className="flex items-center gap-1">
               <AccountInfoIndicator />
+              <NotificationBell />
               <Button
                 variant="ghost"
                 size="icon"
