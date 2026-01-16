@@ -161,6 +161,10 @@ impl WatcherManager {
             let mut rx = watcher_rx;
 
             loop {
+                // Use a 30s timeout to periodically check subscriber count even when
+                // no filesystem events occur. Without this, the thread would block
+                // indefinitely on rx.next(), preventing cleanup when all subscribers
+                // drop (causing FD leaks).
                 let result = futures::executor::block_on(async {
                     select! {
                         event = rx.next().fuse() => event,
@@ -168,7 +172,7 @@ impl WatcherManager {
                     }
                 });
 
-                // Check subscriber count on both event receipt and timeout
+                // Exit if no subscribers remain
                 if tx_clone.receiver_count() == 0 {
                     tracing::debug!(
                         "No subscribers for watcher at {:?}, stopping",
