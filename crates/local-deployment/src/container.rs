@@ -1343,17 +1343,65 @@ impl ContainerService for LocalContainerService {
         execution_process: &ExecutionProcess,
         status: ExecutionProcessStatus,
     ) -> Result<(), ContainerError> {
-        let child = self
-            .get_child_from_store(&execution_process.id)
-            .await
-            .ok_or_else(|| {
-                ContainerError::Other(anyhow!("Child process not found for execution"))
-            })?;
         let exit_code = if status == ExecutionProcessStatus::Completed {
             Some(0)
         } else {
             None
         };
+
+        // Try to get the child process from the in-memory store
+        let child = self.get_child_from_store(&execution_process.id).await;
+
+        // If child not found but process is still marked as running in DB,
+        // this is an orphaned process (e.g., server crashed). Just update DB status.
+        if child.is_none() {
+            tracing::info!(
+                "Child process not found in store for execution {}, marking as orphaned and updating DB status",
+                execution_process.id
+            );
+            ExecutionProcess::update_completion(
+                &self.db.pool,
+                execution_process.id,
+                status,
+                exit_code,
+            )
+            .await?;
+
+            // Clean up any stale msg_store entry
+            if let Some(msg) = self.msg_stores.write().await.remove(&execution_process.id) {
+                msg.push_finished();
+            }
+
+            // Update task status to InReview for orphaned processes too
+            if let Ok(ctx) =
+                ExecutionProcess::load_context(&self.db.pool, execution_process.id).await
+                && !matches!(
+                    ctx.execution_process.run_reason,
+                    ExecutionProcessRunReason::DevServer
+                )
+            {
+                if let Err(e) =
+                    Task::update_status(&self.db.pool, ctx.task.id, TaskStatus::InReview).await
+                {
+                    tracing::error!("Failed to update task status to InReview: {e}");
+                } else if let Some(publisher) = self.share_publisher()
+                    && let Err(err) = publisher.update_shared_task_by_id(ctx.task.id).await
+                {
+                    tracing::warn!(
+                        ?err,
+                        "Failed to propagate shared task update for {}",
+                        ctx.task.id
+                    );
+                }
+            }
+
+            // Try to capture after-head commits if worktree still exists
+            self.update_after_head_commits(execution_process.id).await;
+
+            return Ok(());
+        }
+
+        let child = child.unwrap();
 
         ExecutionProcess::update_completion(&self.db.pool, execution_process.id, status, exit_code)
             .await?;
