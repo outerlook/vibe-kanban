@@ -26,6 +26,7 @@ use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
     execution_process_normalized_entry::ExecutionProcessNormalizedEntry,
     merge::{Merge, MergeStatus, PrMerge, PullRequestInfo},
+    merge_queue::MergeQueue,
     project_repo::ProjectRepo,
     repo::{Repo, RepoError},
     session::{CreateSession, Session},
@@ -49,6 +50,7 @@ use services::services::{
     container::{ContainerService, StartWorkspaceResult},
     git::{ConflictOp, GitCliError, GitServiceError},
     github::GitHubService,
+    merge_queue_processor::MergeQueueProcessor,
 };
 use sqlx::Error as SqlxError;
 use ts_rs::TS;
@@ -1706,6 +1708,165 @@ pub async fn get_task_attempt_repos(
     Ok(ResponseJson(ApiResponse::success(repos)))
 }
 
+// ============================================================================
+// Merge Queue Endpoints
+// ============================================================================
+
+#[derive(Debug, Deserialize, Serialize, TS)]
+pub struct QueueMergeRequest {
+    pub repo_id: Uuid,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[ts(tag = "type", rename_all = "snake_case")]
+pub enum QueueMergeError {
+    NoCommitsAhead,
+    HasConflicts,
+    AlreadyMerged,
+    AlreadyQueued,
+    WorkspaceRepoNotFound,
+}
+
+/// POST /task-attempts/{id}/queue-merge - Queue a task attempt for merge
+#[axum::debug_handler]
+pub async fn queue_merge(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<QueueMergeRequest>,
+) -> Result<ResponseJson<ApiResponse<MergeQueue, QueueMergeError>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    // Load workspace repo
+    let workspace_repo =
+        WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, request.repo_id)
+            .await?
+            .ok_or(RepoError::NotFound)?;
+
+    let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
+
+    // Check if already queued
+    if let Some(_existing) = MergeQueue::find_by_workspace(pool, workspace.id).await? {
+        return Ok(ResponseJson(ApiResponse::error_with_data(
+            QueueMergeError::AlreadyQueued,
+        )));
+    }
+
+    // Check if already merged
+    let merges = Merge::find_by_workspace_id(pool, workspace.id).await?;
+    let has_completed_merge = merges.iter().any(|m| match m {
+        Merge::Direct(_) => true,
+        Merge::Pr(pr) => matches!(pr.pr_info.status, MergeStatus::Merged),
+    });
+    if has_completed_merge {
+        return Ok(ResponseJson(ApiResponse::error_with_data(
+            QueueMergeError::AlreadyMerged,
+        )));
+    }
+
+    // Check commits ahead using git service
+    let (commits_ahead, _commits_behind) = deployment.git().get_branch_status(
+        &repo.path,
+        &workspace.branch,
+        &workspace_repo.target_branch,
+    )?;
+
+    if commits_ahead == 0 {
+        return Ok(ResponseJson(ApiResponse::error_with_data(
+            QueueMergeError::NoCommitsAhead,
+        )));
+    }
+
+    // Check for conflicts by examining the worktree
+    let container_ref = deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
+    let workspace_path = Path::new(&container_ref);
+    let worktree_path = workspace_path.join(&repo.name);
+
+    let conflicted_files = deployment.git().get_conflicted_files(&worktree_path)?;
+    if !conflicted_files.is_empty() {
+        return Ok(ResponseJson(ApiResponse::error_with_data(
+            QueueMergeError::HasConflicts,
+        )));
+    }
+
+    // Get the project ID from the task
+    let task = workspace
+        .parent_task(pool)
+        .await?
+        .ok_or(ApiError::Workspace(WorkspaceError::TaskNotFound))?;
+
+    // Create the merge queue entry
+    let entry = MergeQueue::create(pool, task.project_id, workspace.id, request.repo_id).await?;
+
+    // Spawn background processor
+    let processor_pool = pool.clone();
+    let processor_git = deployment.git().clone();
+    let project_id = task.project_id;
+    tokio::spawn(async move {
+        let processor = MergeQueueProcessor::new(processor_pool, processor_git);
+        if let Err(e) = processor.process_project_queue(project_id).await {
+            tracing::error!(
+                %project_id,
+                error = %e,
+                "Failed to process merge queue"
+            );
+        }
+    });
+
+    deployment
+        .track_if_analytics_allowed(
+            "merge_queue_entry_created",
+            serde_json::json!({
+                "workspace_id": workspace.id.to_string(),
+                "repo_id": request.repo_id.to_string(),
+                "project_id": task.project_id.to_string(),
+            }),
+        )
+        .await;
+
+    Ok(ResponseJson(ApiResponse::success(entry)))
+}
+
+/// DELETE /task-attempts/{id}/queue-merge - Cancel a queued merge
+#[axum::debug_handler]
+pub async fn cancel_queue_merge(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    MergeQueue::delete_by_workspace(pool, workspace.id).await?;
+
+    deployment
+        .track_if_analytics_allowed(
+            "merge_queue_entry_cancelled",
+            serde_json::json!({
+                "workspace_id": workspace.id.to_string(),
+            }),
+        )
+        .await;
+
+    Ok(ResponseJson(ApiResponse::success(())))
+}
+
+/// GET /task-attempts/{id}/queue-status - Get merge queue status for a workspace
+#[axum::debug_handler]
+pub async fn get_queue_status(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<Option<MergeQueue>>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    let entry = MergeQueue::find_by_workspace(pool, workspace.id).await?;
+
+    Ok(ResponseJson(ApiResponse::success(entry)))
+}
+
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let task_attempt_id_router = Router::new()
         .route("/", get(get_task_attempt))
@@ -1731,6 +1892,11 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/change-target-branch", post(change_target_branch))
         .route("/rename-branch", post(rename_branch))
         .route("/repos", get(get_task_attempt_repos))
+        .route(
+            "/queue-merge",
+            post(queue_merge).delete(cancel_queue_merge),
+        )
+        .route("/queue-status", get(get_queue_status))
         .layer(from_fn_with_state(
             deployment.clone(),
             load_workspace_middleware,

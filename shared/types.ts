@@ -438,6 +438,12 @@ conflict_op: ConflictOp | null,
  */
 conflicted_files: Array<string>, };
 
+export type QueueMergeRequest = { repo_id: string, };
+
+export type QueueMergeError = { "type": "no_commits_ahead" } | { "type": "has_conflicts" } | { "type": "already_merged" } | { "type": "already_queued" } | { "type": "workspace_repo_not_found" };
+
+export type MergeQueueCountResponse = { count: bigint, };
+
 export type DirectoryEntry = { name: string, path: string, is_directory: boolean, is_git_repo: boolean, last_modified: bigint | null, };
 
 export type DirectoryListResponse = { entries: Array<DirectoryEntry>, current_path: string, };

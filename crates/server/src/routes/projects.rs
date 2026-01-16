@@ -13,6 +13,7 @@ use axum::{
     routing::{get, post},
 };
 use db::models::{
+    merge_queue::MergeQueue,
     project::{CreateProject, Project, ProjectError, SearchResult, UpdateProject},
     project_repo::{CreateProjectRepo, ProjectRepo, UpdateProjectRepo},
     repo::Repo,
@@ -721,6 +722,24 @@ pub async fn get_project_prs(
     })))
 }
 
+/// Response for GET /api/projects/:id/merge-queue-count
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct MergeQueueCountResponse {
+    pub count: i64,
+}
+
+/// GET /api/projects/:id/merge-queue-count - Get the number of entries in the merge queue
+pub async fn get_merge_queue_count(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<MergeQueueCountResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let count = MergeQueue::count_by_project(pool, project.id).await?;
+    Ok(ResponseJson(ApiResponse::success(MergeQueueCountResponse {
+        count,
+    })))
+}
+
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let project_id_router = Router::new()
         .route(
@@ -740,6 +759,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             get(get_project_repositories).post(add_project_repository),
         )
         .route("/prs", get(get_project_prs))
+        .route("/merge-queue-count", get(get_merge_queue_count))
         .layer(from_fn_with_state(
             deployment.clone(),
             load_project_middleware,
