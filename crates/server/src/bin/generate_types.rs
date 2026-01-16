@@ -149,6 +149,8 @@ fn generate_types_content() -> String {
         server::routes::sessions::CreateFollowUpAttempt::decl(),
         server::routes::sessions::FollowUpResult::decl(),
         db::models::execution_queue::ExecutionQueue::decl(),
+        db::models::merge_queue::MergeQueue::decl(),
+        db::models::merge_queue::MergeQueueStatus::decl(),
         server::routes::task_attempts::ChangeTargetBranchRequest::decl(),
         server::routes::task_attempts::ChangeTargetBranchResponse::decl(),
         server::routes::task_attempts::MergeTaskAttemptRequest::decl(),

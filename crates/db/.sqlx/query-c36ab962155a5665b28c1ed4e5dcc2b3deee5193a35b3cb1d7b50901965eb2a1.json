@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE merge_queue\n               SET status = ?,\n                   conflict_message = ?,\n                   started_at = COALESCE(?, started_at),\n                   completed_at = COALESCE(?, completed_at)\n               WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "c36ab962155a5665b28c1ed4e5dcc2b3deee5193a35b3cb1d7b50901965eb2a1"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM merge_queue WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "135a31d36981049ff884a311d86bd7af56dbe9d4e9e8352d7cd97c6c1ae249b4"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM merge_queue WHERE workspace_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "afa3d398dbcd0308f056d42c191f35148d187453806aa224a05ef16a5f94f981"
+}
