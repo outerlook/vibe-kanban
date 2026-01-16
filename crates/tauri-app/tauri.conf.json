@@ -17,7 +17,7 @@
       "icons/icon.png"
     ],
     "externalBin": ["binaries/mcp_task_server"],
-    "targets": "all",
+    "targets": ["deb"],
     "publisher": "Bloop AI",
     "copyright": "Copyright © 2024 Bloop AI. All rights reserved.",
     "category": "DeveloperTool",
