@@ -61,6 +61,7 @@
     }
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "Vibe Kanban",
@@ -80,15 +81,7 @@
   },
   "plugins": {
     "shell": {
-      "open": true,
-      "scope": []
-    },
-    "fs": {
-      "scope": ["$APPDATA", "$APPDATA/**", "$HOME/**"]
-    },
-    "process": {},
-    "dialog": {
-      "all": true
+      "open": true
     }
   }
 }

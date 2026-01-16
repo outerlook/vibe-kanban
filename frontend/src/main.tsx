@@ -9,6 +9,7 @@ import * as Sentry from '@sentry/react';
 import i18n from './i18n';
 import posthog from 'posthog-js';
 import { PostHogProvider } from 'posthog-js/react';
+import { initApiBaseUrl } from './lib/api';
 // Import modal type definitions
 import './types/modals';
 
@@ -107,7 +108,10 @@ const queryClient = new QueryClient({
   },
 });
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+// Initialize API base URL before rendering to ensure getApiBaseUrlSync() works
+// This is critical for Tauri where the server runs on a dynamic port
+initApiBaseUrl().then(() => {
+  ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <AnalyticsInitializer />
     <QueryClientProvider client={queryClient}>
@@ -125,4 +129,5 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       </PostHogProvider>
     </QueryClientProvider>
   </React.StrictMode>
-);
+  );
+});

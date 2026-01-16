@@ -68,8 +68,24 @@ fn main() {
     };
 
     if let Some(src) = source {
-        fs::copy(&src, &dest_binary).expect("Failed to copy mcp_task_server binary");
-        println!("cargo:warning=Copied mcp_task_server to {:?}", dest_binary);
+        // Only copy if dest doesn't exist or source is newer
+        let should_copy = if dest_binary.exists() {
+            let src_meta = fs::metadata(&src).ok();
+            let dest_meta = fs::metadata(&dest_binary).ok();
+            match (src_meta, dest_meta) {
+                (Some(s), Some(d)) => {
+                    s.modified().ok() > d.modified().ok() || s.len() != d.len()
+                }
+                _ => true,
+            }
+        } else {
+            true
+        };
+
+        if should_copy {
+            fs::copy(&src, &dest_binary).expect("Failed to copy mcp_task_server binary");
+            println!("cargo:warning=Copied mcp_task_server to {:?}", dest_binary);
+        }
     } else {
         // During development, the binary might not exist yet
         // Print a warning but don't fail the build

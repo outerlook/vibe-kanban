@@ -13,6 +13,7 @@ tauri-plugin-shell = "2.0"
 tauri-plugin-fs = "2.0"
 tauri-plugin-process = "2.0"
 tauri-plugin-dialog = "2.0"
+tauri-plugin-mcp-bridge = "0.8"
 
 server = { path = "../server" }
 local-deployment = { path = "../local-deployment" }
@@ -30,8 +31,9 @@ directories = "6.0.0"
 
 [lib]
 name = "tauri_app_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Only rlib needed for desktop app (staticlib/cdylib are for iOS/Android)
+crate-type = ["rlib"]
 
 [[bin]]
-name = "tauri-app"
+name = "vibe-kanban"
 path = "src/main.rs"
