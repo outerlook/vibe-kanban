@@ -6,7 +6,7 @@ import { useLiveQuery, eq, isNull } from '@tanstack/react-db';
 import { sharedTasksCollection } from '@/lib/electric/sharedTasksCollection';
 import { useAssigneeUserNames } from './useAssigneeUserName';
 import { useAutoLinkSharedTasks } from './useAutoLinkSharedTasks';
-import { tasksApi } from '@/lib/api';
+import { tasksApi, getApiBaseUrlSync } from '@/lib/api';
 import type { Operation } from 'rfc6902';
 import type {
   SharedTask,
@@ -331,7 +331,9 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
       const endpoint = `/api/tasks/stream/ws?project_id=${encodeURIComponent(
         projectId
       )}&include_snapshot=false`;
-      const wsEndpoint = endpoint.replace(/^http/, 'ws');
+      // Prepend base URL for Tauri (where server runs on dynamic port)
+      const fullEndpoint = getApiBaseUrlSync() + endpoint;
+      const wsEndpoint = fullEndpoint.replace(/^http/, 'ws');
       ws = new WebSocket(wsEndpoint);
 
       ws.onopen = () => {

@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { applyPatch } from 'rfc6902';
 import type { Operation } from 'rfc6902';
+import { getApiBaseUrlSync } from '@/lib/api';
 
 type WsJsonPatchMsg = { JsonPatch: Operation[] };
 type WsFinishedMsg = { finished: boolean };
@@ -98,8 +99,15 @@ export const useJsonPatchWsStream = <T extends object>(
       // Reset finished flag for new connection
       finishedRef.current = false;
 
-      // Convert HTTP endpoint to WebSocket endpoint
-      const wsEndpoint = endpoint.replace(/^http/, 'ws');
+      // Build full WebSocket URL from endpoint
+      // If endpoint is relative (starts with /), prepend the API base URL
+      let fullEndpoint = endpoint;
+      if (endpoint.startsWith('/')) {
+        const baseUrl = getApiBaseUrlSync();
+        fullEndpoint = baseUrl + endpoint;
+      }
+      // Convert HTTP to WebSocket protocol
+      const wsEndpoint = fullEndpoint.replace(/^http/, 'ws');
       const ws = new WebSocket(wsEndpoint);
 
       ws.onopen = () => {

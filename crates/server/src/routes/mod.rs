@@ -2,6 +2,7 @@ use axum::{
     Router,
     routing::{IntoMakeService, get},
 };
+use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 
 use crate::DeploymentImpl;
 
@@ -65,5 +66,12 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .route("/", get(frontend::serve_frontend_root))
         .route("/{*path}", get(frontend::serve_frontend))
         .nest("/api", base_routes)
+        .layer(
+            CorsLayer::new()
+                .allow_origin(AllowOrigin::mirror_request())
+                .allow_methods(AllowMethods::mirror_request())
+                .allow_headers(AllowHeaders::mirror_request())
+                .allow_credentials(true),
+        )
         .into_make_service()
 }

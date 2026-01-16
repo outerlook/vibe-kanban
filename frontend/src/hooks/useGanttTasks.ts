@@ -5,7 +5,7 @@ import {
   type SvarGanttLink,
   type TransformOptions,
 } from '@/lib/transformGantt';
-import { ganttApi } from '@/lib/api';
+import { ganttApi, getApiBaseUrlSync } from '@/lib/api';
 import type { GanttTask } from 'shared/types';
 import type { Operation } from 'rfc6902';
 
@@ -207,7 +207,10 @@ export const useGanttTasks = (
     const connect = () => {
       if (closed) return;
       const endpoint = `/api/projects/${encodeURIComponent(projectId)}/gantt/stream/ws`;
-      ws = new WebSocket(endpoint);
+      // Prepend base URL for Tauri (where server runs on dynamic port)
+      const fullEndpoint = getApiBaseUrlSync() + endpoint;
+      const wsEndpoint = fullEndpoint.replace(/^http/, 'ws');
+      ws = new WebSocket(wsEndpoint);
 
       ws.onopen = () => {
         retryAttempts = 0;

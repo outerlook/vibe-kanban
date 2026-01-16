@@ -10,11 +10,16 @@ fn main() {
     // Load saved state from config
     let app_state = AppState::load_from_config();
 
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_dialog::init());
+
+    // Enable MCP bridge plugin for AI-assisted development
+    builder = builder.plugin(tauri_plugin_mcp_bridge::init());
+
+    builder
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             tauri_app_lib::commands::get_server_url,
@@ -33,7 +38,7 @@ fn main() {
                 mcp_process_handle: state.mcp_process_handle.clone(),
             };
 
-            // Start embedded server if in Local mode
+            // Start embedded server if in Local mode - spawn async to not block webview
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = initialize_local_mode(&state_clone).await {
                     tracing::error!("Failed to initialize local mode: {}", e);

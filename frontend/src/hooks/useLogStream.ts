@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import type { PatchType } from 'shared/types';
+import { getApiBaseUrlSync } from '@/lib/api';
 
 type LogEntry = Extract<PatchType, { type: 'STDOUT' } | { type: 'STDERR' }>;
 
@@ -26,11 +27,11 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
     setError(null);
 
     const open = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      const ws = new WebSocket(
-        `${protocol}//${host}/api/execution-processes/${processId}/raw-logs/ws`
-      );
+      // Build WebSocket URL using API base URL (required for Tauri where server runs on dynamic port)
+      const endpoint = `/api/execution-processes/${processId}/raw-logs/ws`;
+      const fullEndpoint = getApiBaseUrlSync() + endpoint;
+      const wsEndpoint = fullEndpoint.replace(/^http/, 'ws');
+      const ws = new WebSocket(wsEndpoint);
       wsRef.current = ws;
       isIntentionallyClosed.current = false;
 

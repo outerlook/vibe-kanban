@@ -1,5 +1,6 @@
 // streamJsonPatchEntries.ts - WebSocket JSON patch streaming utility
 import { applyPatch, type Operation } from 'rfc6902';
+import { getApiBaseUrlSync } from '@/lib/api';
 
 type PatchContainer<E = unknown> = { entries: E[] };
 
@@ -50,8 +51,12 @@ export function streamJsonPatchEntries<E = unknown>(
   const subscribers = new Set<(entries: E[]) => void>();
   if (opts.onEntries) subscribers.add(opts.onEntries);
 
-  // Convert HTTP endpoint to WebSocket endpoint
-  const wsUrl = url.replace(/^http/, 'ws');
+  // Build full WebSocket URL (prepend base URL for Tauri where server runs on dynamic port)
+  let fullUrl = url;
+  if (url.startsWith('/')) {
+    fullUrl = getApiBaseUrlSync() + url;
+  }
+  const wsUrl = fullUrl.replace(/^http/, 'ws');
   const ws = new WebSocket(wsUrl);
 
   const notify = () => {
