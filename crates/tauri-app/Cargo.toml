@@ -26,6 +26,7 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
+directories = "6.0.0"
 
 [lib]
 name = "tauri_app_lib"

@@ -7658,6 +7658,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "deployment",
+ "directories",
  "local-deployment",
  "serde",
  "serde_json",
