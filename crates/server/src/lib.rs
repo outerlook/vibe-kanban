@@ -20,6 +20,49 @@ pub enum ServerError {
     Bind(#[from] std::io::Error),
 }
 
+/// Spawns background tasks for startup cleanup and data backfills.
+/// These tasks run asynchronously and don't block server startup.
+fn spawn_startup_tasks(deployment: &DeploymentImpl) {
+    use deployment::Deployment;
+    use services::services::container::ContainerService;
+
+    // Cleanup orphaned executions (processes that were running when the server crashed)
+    let deployment_for_orphan_cleanup = deployment.clone();
+    tokio::spawn(async move {
+        if let Err(e) = deployment_for_orphan_cleanup
+            .container()
+            .cleanup_orphan_executions()
+            .await
+        {
+            tracing::error!("Failed to cleanup orphan executions: {}", e);
+        }
+    });
+
+    // Backfill before_head_commit for legacy execution processes
+    let deployment_for_before_head_backfill = deployment.clone();
+    tokio::spawn(async move {
+        if let Err(e) = deployment_for_before_head_backfill
+            .container()
+            .backfill_before_head_commits()
+            .await
+        {
+            tracing::error!("Failed to backfill before head commits: {}", e);
+        }
+    });
+
+    // Backfill repo names for legacy workspace repos
+    let deployment_for_repo_name_backfill = deployment.clone();
+    tokio::spawn(async move {
+        if let Err(e) = deployment_for_repo_name_backfill
+            .container()
+            .backfill_repo_names()
+            .await
+        {
+            tracing::error!("Failed to backfill repo names: {}", e);
+        }
+    });
+}
+
 /// Starts the Axum HTTP server with the given deployment.
 ///
 /// This function:
@@ -37,6 +80,9 @@ pub enum ServerError {
 pub async fn start_server(
     deployment: DeploymentImpl,
 ) -> Result<(String, JoinHandle<()>), ServerError> {
+    // Spawn background tasks for startup cleanup and backfills
+    spawn_startup_tasks(&deployment);
+
     let app_router = routes::router(deployment);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
