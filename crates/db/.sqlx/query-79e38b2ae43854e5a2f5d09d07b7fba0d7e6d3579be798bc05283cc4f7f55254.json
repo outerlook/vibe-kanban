@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE notifications SET is_read = 1, updated_at = datetime('now', 'subsec') WHERE project_id = $1 AND is_read = 0",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "79e38b2ae43854e5a2f5d09d07b7fba0d7e6d3579be798bc05283cc4f7f55254"
+}

@@ -1,6 +1,6 @@
 import type { ITask } from '@svar-ui/react-gantt';
 import { Circle } from 'lucide-react';
-import type { TaskStatus } from 'shared/types';
+import type { JsonValue, TaskStatus } from 'shared/types';
 import type { SvarGanttTask } from '@/lib/transformGantt';
 import { formatTokenCount } from '@/lib/utils';
 import { statusLabels, statusBoardColors } from '@/utils/statusLabels';
@@ -115,8 +115,8 @@ export function GanttTooltipContent({ data }: GanttTooltipContentProps) {
                 <div className="pl-2 flex flex-col gap-0.5 opacity-80 scale-[0.95] origin-left">
                   {Object.entries(
                     task.tokenUsageMetadata.reduce(
-                      (acc: Record<string, number>, curr: any) => {
-                        if (curr && typeof curr === 'object') {
+                      (acc: Record<string, number>, curr: JsonValue) => {
+                        if (curr && typeof curr === 'object' && !Array.isArray(curr)) {
                           Object.entries(curr).forEach(([k, v]) => {
                             if (k === 'usage') return;
                             if (typeof v === 'number') {

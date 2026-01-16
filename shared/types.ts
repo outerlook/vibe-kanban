@@ -58,6 +58,16 @@ export type TaskStatusCounts = { todo: bigint, inprogress: bigint, inreview: big
 
 export type TaskGroupWithStats = { task_counts: TaskStatusCounts, id: string, project_id: string, name: string, base_branch: string | null, created_at: string, updated_at: string, };
 
+export type Notification = { id: string, project_id: string | null, notification_type: NotificationType, title: string, message: string, is_read: boolean, metadata: JsonValue | null, workspace_id: string | null, session_id: string | null, created_at: string, updated_at: string, };
+
+export type NotificationType = "agent_complete" | "agent_approval_needed" | "agent_error" | "conversation_response";
+
+export type CreateNotification = { project_id: string | null, notification_type: NotificationType, title: string, message: string, metadata: JsonValue | null, workspace_id: string | null, session_id: string | null, };
+
+export type UpdateNotification = { title: string | null, message: string | null, is_read: boolean | null, metadata: JsonValue | null, };
+
+export type NotificationStats = { total: bigint, unread: bigint, };
+
 export type GanttTask = { id: string, name: string, start: string, end: string, progress: number, dependencies: Array<string>, task_status: TaskStatus, task_group_id: string | null, total_input_tokens: bigint | null, total_output_tokens: bigint | null, token_usage_metadata: JsonValue | null, };
 
 export type PaginatedGanttTasks = { tasks: Array<GanttTask>, total: bigint, hasMore: boolean, };
@@ -65,6 +75,24 @@ export type PaginatedGanttTasks = { tasks: Array<GanttTask>, total: bigint, hasM
 export type CreateTaskGroup = { project_id: string, name: string, base_branch: string | null, };
 
 export type UpdateTaskGroup = { name: string | null, base_branch: string | null, };
+
+export type ConversationSession = { id: string, project_id: string, title: string, status: ConversationSessionStatus, executor: string | null, created_at: string, updated_at: string, };
+
+export type ConversationSessionStatus = "active" | "archived";
+
+export type CreateConversationSession = { project_id: string, title: string, executor: string | null, };
+
+export type UpdateConversationSession = { title: string | null, status: ConversationSessionStatus | null, executor: string | null, };
+
+export type ConversationMessage = { id: string, conversation_session_id: string, execution_process_id: string | null, role: MessageRole, content: string, metadata: string | null, created_at: string, updated_at: string, };
+
+export type MessageRole = "user" | "assistant";
+
+export type CreateConversationMessage = { conversation_session_id: string, execution_process_id: string | null, role: MessageRole, content: string, metadata: string | null, };
+
+export type ConversationWithMessages = { messages: Array<ConversationMessage>, id: string, project_id: string, title: string, status: ConversationSessionStatus, executor: string | null, created_at: string, updated_at: string, };
+
+export type SendMessageResponse = { user_message: ConversationMessage, execution_process_id: string, };
 
 export type MergeTaskGroupRequest = { target_group_id: string, };
 
@@ -92,7 +120,15 @@ export type Workspace = { id: string, task_id: string, container_ref: string | n
 
 export type Session = { id: string, workspace_id: string, executor: string | null, created_at: string, updated_at: string, };
 
-export type ExecutionProcess = { id: string, session_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: bigint | null, 
+export type ExecutionProcess = { id: string, 
+/**
+ * Session ID for workspace-based executions (nullable for conversation-based)
+ */
+session_id: string | null, 
+/**
+ * Conversation session ID for disposable conversations (nullable for workspace-based)
+ */
+conversation_session_id: string | null, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: bigint | null, 
 /**
  * dropped: true if this process is excluded from the current
  * history view (due to restore/trimming). Hidden from logs/timeline;
@@ -102,7 +138,7 @@ dropped: boolean, input_tokens: bigint | null, output_tokens: bigint | null, sta
 
 export enum ExecutionProcessStatus { running = "running", completed = "completed", failed = "failed", killed = "killed" }
 
-export type ExecutionProcessRunReason = "setupscript" | "cleanupscript" | "codingagent" | "devserver" | "internalagent";
+export type ExecutionProcessRunReason = "setupscript" | "cleanupscript" | "codingagent" | "devserver" | "internalagent" | "disposableconversation";
 
 export type ExecutionProcessRepoState = { id: string, execution_process_id: string, repo_id: string, before_head_commit: string | null, after_head_commit: string | null, merge_commit: string | null, created_at: Date, updated_at: Date, };
 

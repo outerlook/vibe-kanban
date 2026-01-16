@@ -11,6 +11,7 @@ use db::{
     DBService,
     models::{
         coding_agent_turn::{CodingAgentTurn, CreateCodingAgentTurn},
+        conversation_session::ConversationSession,
         execution_process::{
             CreateExecutionProcess, ExecutionContext, ExecutionProcess, ExecutionProcessRunReason,
             ExecutionProcessStatus,
@@ -509,16 +510,40 @@ pub trait ContainerService {
                     "✅ '{}' completed successfully\nBranch: {:?}\nExecutor: {:?}",
                     ctx.task.title, ctx.workspace.branch, ctx.session.executor
                 );
+                // OS notification
                 self.notification_service().notify(&title, &message).await;
+                // In-app notification
+                if let Err(e) = NotificationService::notify_agent_complete(
+                    &self.db().pool,
+                    ctx.project.id,
+                    ctx.workspace.id,
+                    &ctx.task.title,
+                )
+                .await
+                {
+                    tracing::warn!("Failed to create in-app completion notification: {}", e);
+                }
             }
             ExecutionProcessStatus::Failed => {
                 let message = format!(
                     "❌ '{}' execution failed\nBranch: {:?}\nExecutor: {:?}",
                     ctx.task.title, ctx.workspace.branch, ctx.session.executor
                 );
+                // OS notification
                 self.notification_service()
                     .notify_error(&title, &message)
                     .await;
+                // In-app notification
+                if let Err(e) = NotificationService::notify_agent_error(
+                    &self.db().pool,
+                    ctx.project.id,
+                    ctx.workspace.id,
+                    &ctx.task.title,
+                )
+                .await
+                {
+                    tracing::warn!("Failed to create in-app error notification: {}", e);
+                }
             }
             _ => {
                 tracing::warn!(
@@ -534,7 +559,7 @@ pub trait ContainerService {
         let running_processes = ExecutionProcess::find_running(&self.db().pool).await?;
         for process in running_processes {
             tracing::info!(
-                "Found orphaned execution process {} for session {}",
+                "Found orphaned execution process {} for session {:?}",
                 process.id,
                 process.session_id
             );
@@ -554,7 +579,7 @@ pub trait ContainerService {
                 );
                 continue;
             }
-            // Capture after-head commit OID per repository
+            // Capture after-head commit OID per repository (only for workspace-based executions)
             if let Ok(ctx) = ExecutionProcess::load_context(&self.db().pool, process.id).await
                 && let Some(ref container_ref) = ctx.workspace.container_ref
             {
@@ -582,13 +607,15 @@ pub trait ContainerService {
             // Process marked as failed
             tracing::info!("Marked orphaned execution process {} as failed", process.id);
             // Update task status to InReview for coding agent and setup script failures
-            if matches!(
-                process.run_reason,
-                ExecutionProcessRunReason::CodingAgent
-                    | ExecutionProcessRunReason::SetupScript
-                    | ExecutionProcessRunReason::CleanupScript
-            ) && let Ok(Some(session)) =
-                Session::find_by_id(&self.db().pool, process.session_id).await
+            // Skip for conversation-based executions (no session_id)
+            if let Some(session_id) = process.session_id
+                && matches!(
+                    process.run_reason,
+                    ExecutionProcessRunReason::CodingAgent
+                        | ExecutionProcessRunReason::SetupScript
+                        | ExecutionProcessRunReason::CleanupScript
+                )
+                && let Ok(Some(session)) = Session::find_by_id(&self.db().pool, session_id).await
                 && let Ok(Some(workspace)) =
                     Workspace::find_by_id(&self.db().pool, session.workspace_id).await
                 && let Ok(Some(task)) = workspace.parent_task(&self.db().pool).await
@@ -1037,14 +1064,14 @@ pub trait ContainerService {
                 Ok(Some((workspace, session))) => (workspace, session),
                 Ok(None) => {
                     tracing::error!(
-                        "No workspace/session found for session ID: {}",
+                        "No workspace/session found for session ID: {:?}",
                         process.session_id
                     );
                     return None;
                 }
                 Err(e) => {
                     tracing::error!(
-                        "Failed to fetch workspace for session {}: {}",
+                        "Failed to fetch workspace for session {:?}: {}",
                         process.session_id,
                         e
                     );
@@ -1594,4 +1621,107 @@ pub trait ContainerService {
         tracing::debug!("Started next action: {:?}", next_action);
         Ok(())
     }
+
+    /// Start a conversation execution without git context.
+    /// This creates an ExecutionProcess linked to a ConversationSession instead of a Session.
+    async fn start_conversation_execution(
+        &self,
+        conversation_session: &ConversationSession,
+        executor_action: &ExecutorAction,
+    ) -> Result<ExecutionProcess, ContainerError> {
+        use db::models::execution_process::CreateConversationExecutionProcess;
+
+        let process_id = Uuid::new_v4();
+        let create_data = CreateConversationExecutionProcess {
+            conversation_session_id: conversation_session.id,
+            executor_action: executor_action.clone(),
+        };
+
+        let execution_process =
+            ExecutionProcess::create_for_conversation(&self.db().pool, &create_data, process_id)
+                .await?;
+
+        // Create coding agent turn if this is a coding agent request
+        if let Some(prompt) = match executor_action.typ() {
+            ExecutorActionType::CodingAgentInitialRequest(request) => Some(request.prompt.clone()),
+            ExecutorActionType::CodingAgentFollowUpRequest(request) => Some(request.prompt.clone()),
+            _ => None,
+        } {
+            let create_turn = CreateCodingAgentTurn {
+                execution_process_id: execution_process.id,
+                prompt: Some(prompt),
+            };
+            CodingAgentTurn::create(&self.db().pool, &create_turn, Uuid::new_v4()).await?;
+        }
+
+        // Start the execution using a temporary directory (no git context)
+        if let Err(start_error) = self
+            .start_conversation_execution_inner(&execution_process, executor_action)
+            .await
+        {
+            // Mark process as failed
+            if let Err(update_error) = ExecutionProcess::update_completion(
+                &self.db().pool,
+                execution_process.id,
+                ExecutionProcessStatus::Failed,
+                None,
+            )
+            .await
+            {
+                tracing::error!(
+                    "Failed to mark conversation execution {} as failed: {}",
+                    execution_process.id,
+                    update_error
+                );
+            }
+
+            // Emit error log
+            let log_message = LogMsg::Stderr(format!("Failed to start execution: {start_error}"));
+            if let Ok(json_line) = serde_json::to_string(&log_message) {
+                let _ = ExecutionProcessLogs::append_log_line(
+                    &self.db().pool,
+                    execution_process.id,
+                    &format!("{json_line}\n"),
+                )
+                .await;
+            }
+
+            return Err(start_error);
+        }
+
+        // Start log streaming
+        if let Some(msg_store) = self.get_msg_store_by_id(&execution_process.id).await
+            && let Some(executor_profile_id) = match executor_action.typ() {
+                ExecutorActionType::CodingAgentInitialRequest(request) => {
+                    Some(&request.executor_profile_id)
+                }
+                ExecutorActionType::CodingAgentFollowUpRequest(request) => {
+                    Some(&request.executor_profile_id)
+                }
+                _ => None,
+            }
+        {
+            // For conversation execution, use current working directory (temp or home)
+            let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/tmp"));
+            if let Some(executor) =
+                ExecutorConfigs::get_cached().get_coding_agent(executor_profile_id)
+            {
+                executor.normalize_logs(msg_store, &current_dir);
+            }
+
+            self.spawn_stream_normalized_entries_to_db(&execution_process.id);
+        }
+
+        self.spawn_stream_raw_logs_to_db(&execution_process.id);
+
+        Ok(execution_process)
+    }
+
+    /// Start conversation execution without workspace/git context.
+    /// Used for disposable conversations that don't need git integration.
+    async fn start_conversation_execution_inner(
+        &self,
+        execution_process: &ExecutionProcess,
+        executor_action: &ExecutorAction,
+    ) -> Result<(), ContainerError>;
 }

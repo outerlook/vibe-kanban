@@ -1,4 +1,4 @@
-import type { GanttTask, TaskStatus } from '../../../shared/types';
+import type { GanttTask, JsonValue, TaskStatus } from '../../../shared/types';
 import { getTaskGroupColorClass } from './ganttColors';
 
 /**
@@ -25,7 +25,7 @@ export interface SvarGanttTask {
   type: TaskStatus | string;
   totalInputTokens: number | null;
   totalOutputTokens: number | null;
-  tokenUsageMetadata: any | null;
+  tokenUsageMetadata: JsonValue | null;
 }
 
 /**

@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                    COUNT(*) AS \"total!: i64\",\n                    SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) AS \"unread!: i64\"\n                   FROM notifications\n                   WHERE project_id IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "total!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "unread!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "e69dc82c0a22de88b8be2132074c05cad9eec5c0ae4be24bc4f9b199c77cce0f"
+}

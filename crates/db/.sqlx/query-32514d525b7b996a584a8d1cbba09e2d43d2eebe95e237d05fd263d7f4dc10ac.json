@@ -1,0 +1,80 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO notifications (id, project_id, notification_type, title, message, metadata, workspace_id, session_id)\n               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n               RETURNING id AS \"id!: Uuid\",\n                         project_id AS \"project_id: Uuid\",\n                         notification_type AS \"notification_type!: NotificationType\",\n                         title,\n                         message,\n                         is_read AS \"is_read!: bool\",\n                         metadata AS \"metadata: serde_json::Value\",\n                         workspace_id AS \"workspace_id: Uuid\",\n                         session_id AS \"session_id: Uuid\",\n                         created_at AS \"created_at!: DateTime<Utc>\",\n                         updated_at AS \"updated_at!: DateTime<Utc>\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "project_id: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "notification_type!: NotificationType",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "title",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "message",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_read!: bool",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "metadata: serde_json::Value",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "workspace_id: Uuid",
+        "ordinal": 7,
+        "type_info": "Blob"
+      },
+      {
+        "name": "session_id: Uuid",
+        "ordinal": 8,
+        "type_info": "Blob"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 10,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "32514d525b7b996a584a8d1cbba09e2d43d2eebe95e237d05fd263d7f4dc10ac"
+}

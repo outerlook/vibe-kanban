@@ -6,6 +6,7 @@ use std::{
 use db::models::{
     execution_process::ExecutionProcess,
     gantt::GanttTask,
+    notification::Notification,
     project::Project,
     scratch::Scratch,
     session::Session,
@@ -92,7 +93,11 @@ fn record_task_cache_result(hit: bool) {
 }
 
 /// Look up task_id from session_id via session -> workspace -> task
-async fn get_task_id_for_execution_process(db: &SqlitePool, session_id: Uuid) -> Option<Uuid> {
+async fn get_task_id_for_execution_process(
+    db: &SqlitePool,
+    session_id: Option<Uuid>,
+) -> Option<Uuid> {
+    let session_id = session_id?;
     if let Ok(Some(session)) = Session::find_by_id(db, session_id).await
         && let Ok(Some(workspace)) = Workspace::find_by_id(db, session.workspace_id).await
     {
@@ -404,7 +409,9 @@ impl EventService {
                                                 serde_json::from_value::<ExecutionProcess>(
                                                     op.value.clone(),
                                                 )
-                                                && session_ids.contains(&process.session_id)
+                                                && process
+                                                    .session_id
+                                                    .is_some_and(|sid| session_ids.contains(&sid))
                                             {
                                                 if !show_soft_deleted && process.dropped {
                                                     let remove_patch =
@@ -422,7 +429,9 @@ impl EventService {
                                                 serde_json::from_value::<ExecutionProcess>(
                                                     op.value.clone(),
                                                 )
-                                                && session_ids.contains(&process.session_id)
+                                                && process
+                                                    .session_id
+                                                    .is_some_and(|sid| session_ids.contains(&sid))
                                             {
                                                 if !show_soft_deleted && process.dropped {
                                                     let remove_patch =
@@ -449,7 +458,10 @@ impl EventService {
                                 {
                                     match &event_patch.value.record {
                                         RecordTypes::ExecutionProcess(process) => {
-                                            if session_ids.contains(&process.session_id) {
+                                            if process
+                                                .session_id
+                                                .is_some_and(|sid| session_ids.contains(&sid))
+                                            {
                                                 if !show_soft_deleted && process.dropped {
                                                     let remove_patch =
                                                         execution_process_patch::remove(process.id);
@@ -940,6 +952,133 @@ impl EventService {
                 }
             });
 
+        let initial_stream = futures::stream::once(async move { Ok(initial_msg) });
+        let combined_stream = initial_stream.chain(filtered_stream).boxed();
+
+        Ok(combined_stream)
+    }
+
+    /// Stream notifications with optional project filtering and initial snapshot.
+    ///
+    /// When `project_id` is Some, only notifications for that project are streamed.
+    /// When `project_id` is None, only global notifications (project_id IS NULL) are streamed.
+    /// When `include_snapshot` is true, the stream starts with the last 100 notifications.
+    pub async fn stream_notifications_raw(
+        &self,
+        project_id: Option<Uuid>,
+        include_snapshot: bool,
+    ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, EventError>
+    {
+        fn build_notifications_snapshot(notifications: Vec<Notification>) -> LogMsg {
+            let notifications_map: serde_json::Map<String, serde_json::Value> = notifications
+                .into_iter()
+                .map(|notification| {
+                    (
+                        notification.id.to_string(),
+                        serde_json::to_value(notification).unwrap(),
+                    )
+                })
+                .collect();
+
+            let patch = json!([{
+                "op": "replace",
+                "path": "/notifications",
+                "value": notifications_map
+            }]);
+
+            LogMsg::JsonPatch(serde_json::from_value(patch).unwrap())
+        }
+
+        let db_pool = self.db.pool.clone();
+
+        // Get filtered event stream (notifications only, filtered by project_id)
+        let filtered_stream =
+            BroadcastStream::new(self.msg_store.get_receiver()).filter_map(move |msg_result| {
+                let db_pool = db_pool.clone();
+                async move {
+                    match msg_result {
+                        Ok(LogMsg::JsonPatch(patch)) => {
+                            if let Some(patch_op) = patch.0.first()
+                                && patch_op.path().starts_with("/notifications/")
+                            {
+                                // Check if the notification matches our project_id filter
+                                let matches_project = match patch_op {
+                                    json_patch::PatchOperation::Add(op) => {
+                                        if let Ok(notification) =
+                                            serde_json::from_value::<Notification>(op.value.clone())
+                                        {
+                                            notification.project_id == project_id
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                    json_patch::PatchOperation::Replace(op) => {
+                                        if let Ok(notification) =
+                                            serde_json::from_value::<Notification>(op.value.clone())
+                                        {
+                                            notification.project_id == project_id
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                    json_patch::PatchOperation::Remove(_) => {
+                                        // For remove operations, we can't verify project_id
+                                        // since we don't have the notification data anymore.
+                                        // Pass through all removals and let the client handle filtering.
+                                        true
+                                    }
+                                    _ => false,
+                                };
+
+                                if matches_project {
+                                    return Some(Ok(LogMsg::JsonPatch(patch)));
+                                }
+                            }
+                            None
+                        }
+                        Ok(other) => Some(Ok(other)), // Pass through non-patch messages
+                        Err(BroadcastStreamRecvError::Lagged(skipped)) => {
+                            tracing::warn!(
+                                skipped = skipped,
+                                project_id = ?project_id,
+                                "notifications stream lagged; resyncing snapshot"
+                            );
+                            // Resync with full snapshot on lag
+                            let notifications = if let Some(pid) = project_id {
+                                Notification::find_by_project_id(&db_pool, pid, Some(100)).await
+                            } else {
+                                Notification::find_global(&db_pool, Some(100)).await
+                            };
+                            match notifications {
+                                Ok(notifs) => Some(Ok(build_notifications_snapshot(notifs))),
+                                Err(err) => {
+                                    tracing::error!(
+                                        error = %err,
+                                        "failed to resync notifications after lag"
+                                    );
+                                    Some(Err(std::io::Error::other(format!(
+                                        "failed to resync notifications after lag: {err}"
+                                    ))))
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+        if !include_snapshot {
+            return Ok(filtered_stream.boxed());
+        }
+
+        // Get initial snapshot of notifications (last 100)
+        let notifications = if let Some(pid) = project_id {
+            Notification::find_by_project_id(&self.db.pool, pid, Some(100)).await?
+        } else {
+            Notification::find_global(&self.db.pool, Some(100)).await?
+        };
+        let initial_msg = build_notifications_snapshot(notifications);
+
+        // Start with initial snapshot, then live updates
         let initial_stream = futures::stream::once(async move { Ok(initial_msg) });
         let combined_stream = initial_stream.chain(filtered_stream).boxed();
 

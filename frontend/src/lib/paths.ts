@@ -1,6 +1,10 @@
 export const paths = {
   projects: () => '/projects',
   projectTasks: (projectId: string) => `/projects/${projectId}/tasks`,
+  projectConversations: (projectId: string) =>
+    `/projects/${projectId}/conversations`,
+  conversation: (projectId: string, conversationId: string) =>
+    `/projects/${projectId}/conversations/${conversationId}`,
   projectGantt: (projectId: string) => `/projects/${projectId}/gantt`,
   ganttTask: (projectId: string, taskId: string) =>
     `/projects/${projectId}/gantt/${taskId}`,

@@ -386,17 +386,18 @@ mod tests {
 
     #[test]
     fn notification_config_without_custom_sound_path_deserializes() {
-        // Simulate old config without custom_sound_path field (backward compat)
         let json = r#"{
             "sound_enabled": true,
             "push_enabled": false,
-            "sound_file": "COW_MOOING"
+            "sound_file": "COW_MOOING",
+            "error_sound_file": "ERROR_BUZZER"
         }"#;
 
         let config: NotificationConfig = serde_json::from_str(json).unwrap();
         assert!(config.sound_enabled);
         assert!(!config.push_enabled);
         assert_eq!(config.sound_file, SoundFile::CowMooing);
+        assert_eq!(config.error_sound_file, SoundFile::ErrorBuzzer);
         assert!(config.custom_sound_path.is_none());
     }
 
@@ -406,6 +407,7 @@ mod tests {
             "sound_enabled": true,
             "push_enabled": true,
             "sound_file": "ROOSTER",
+            "error_sound_file": "ERROR_BUZZER",
             "custom_sound_path": "mysound.wav"
         }"#;
 
@@ -413,6 +415,7 @@ mod tests {
         assert!(config.sound_enabled);
         assert!(config.push_enabled);
         assert_eq!(config.sound_file, SoundFile::Rooster);
+        assert_eq!(config.error_sound_file, SoundFile::ErrorBuzzer);
         assert_eq!(config.custom_sound_path, Some("mysound.wav".to_string()));
     }
 

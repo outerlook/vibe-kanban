@@ -42,6 +42,7 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { oauthApi } from '@/lib/api';
 import { ProjectSwitcher } from '@/components/layout/ProjectSwitcher';
 import { AccountInfoIndicator } from '@/components/layout/AccountInfoIndicator';
+import { NotificationBell, ProjectNotificationBadge } from '@/components/notifications';
 
 const INTERNAL_NAV = [{ label: 'Projects', icon: FolderOpen, to: '/projects' }];
 
@@ -87,6 +88,9 @@ export function Navbar() {
   const { t } = useTranslation(['tasks', 'common']);
   // Navbar is global, but the share tasks toggle only makes sense on the tasks route
   const isTasksRoute = /^\/projects\/[^/]+\/tasks/.test(location.pathname);
+  const isConversationsRoute = /^\/projects\/[^/]+\/conversations/.test(
+    location.pathname
+  );
   const isGanttRoute = /^\/projects\/[^/]+\/gantt/.test(location.pathname);
   const showSharedTasks = searchParams.get('shared') !== 'off';
   const shouldShowSharedToggle =
@@ -145,6 +149,7 @@ export function Navbar() {
               <>
                 <span className="mx-2 text-muted-foreground">/</span>
                 <ProjectSwitcher />
+                <ProjectNotificationBadge projectId={projectId} className="ml-1.5" />
               </>
             ) : null}
             <a
@@ -206,6 +211,17 @@ export function Navbar() {
                   <Button
                     variant="ghost"
                     size="icon"
+                    className={`h-9 w-9 ${isConversationsRoute ? 'bg-accent' : ''}`}
+                    asChild
+                    aria-label="Conversations"
+                  >
+                    <Link to={paths.projectConversations(projectId)}>
+                      <MessageCircle className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     className={`h-9 w-9 ${isGanttRoute ? 'bg-accent' : ''}`}
                     asChild
                     aria-label="Gantt view"
@@ -236,6 +252,7 @@ export function Navbar() {
 
             <div className="flex items-center gap-1">
               <AccountInfoIndicator />
+              <NotificationBell />
               <Button
                 variant="ghost"
                 size="icon"
