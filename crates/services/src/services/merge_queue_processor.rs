@@ -182,7 +182,7 @@ impl MergeQueueProcessor {
         let worktree_path = workspace
             .container_ref
             .as_ref()
-            .map(|s| std::path::PathBuf::from(s))
+            .map(std::path::PathBuf::from)
             .ok_or_else(|| {
                 MergeQueueError::WorkspaceNotFound(workspace.id) // No container_ref means no worktree
             })?;

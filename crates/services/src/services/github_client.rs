@@ -206,11 +206,11 @@ impl GitHubClient {
             .await
             .map_err(|e| GitHubClientError::ApiError(e.to_string()))?;
 
-        if let Some(errors) = response.errors {
-            if !errors.is_empty() {
-                let error_messages: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
-                return Err(GitHubClientError::ApiError(error_messages.join(", ")));
-            }
+        if let Some(errors) = response.errors
+            && !errors.is_empty()
+        {
+            let error_messages: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
+            return Err(GitHubClientError::ApiError(error_messages.join(", ")));
         }
 
         let count = response
