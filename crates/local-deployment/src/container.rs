@@ -101,8 +101,7 @@ fn extract_assistant_message_from_msg_store(msg_store: &MsgStore) -> Option<Stri
             if !content.is_empty() {
                 const MAX_CONTENT_LENGTH: usize = 4096;
                 if content.len() > MAX_CONTENT_LENGTH {
-                    let truncated =
-                        truncate_to_char_boundary(content, MAX_CONTENT_LENGTH);
+                    let truncated = truncate_to_char_boundary(content, MAX_CONTENT_LENGTH);
                     return Some(format!("{truncated}..."));
                 }
                 return Some(content.to_string());
@@ -920,14 +919,20 @@ impl LocalContainerService {
             };
 
             if !ExecutionProcess::was_stopped(&db.pool, exec_id).await
-                && let Err(e) =
-                    ExecutionProcess::update_completion(&db.pool, exec_id, status.clone(), exit_code).await
+                && let Err(e) = ExecutionProcess::update_completion(
+                    &db.pool,
+                    exec_id,
+                    status.clone(),
+                    exit_code,
+                )
+                .await
             {
                 tracing::error!("Failed to update execution process completion: {}", e);
             }
 
             // Cleanup msg store and extract assistant message before cleanup
-            let assistant_message = if let Some(msg_arc) = msg_stores.write().await.remove(&exec_id) {
+            let assistant_message = if let Some(msg_arc) = msg_stores.write().await.remove(&exec_id)
+            {
                 // Extract assistant message before cleanup
                 let assistant_content = extract_assistant_message_from_msg_store(&msg_arc);
 
@@ -964,35 +969,36 @@ impl LocalContainerService {
             child_store.write().await.remove(&exec_id);
 
             // Store assistant message and send notification on successful completion
-            if matches!(status, ExecutionProcessStatus::Completed) {
-                // Get execution process to find conversation_session_id
-                if let Ok(Some(execution_process)) = ExecutionProcess::find_by_id(&db.pool, exec_id).await {
-                    if let Some(conversation_session_id) = execution_process.conversation_session_id {
-                        // Get conversation session to get project_id
-                        if let Ok(Some(conversation)) = ConversationSession::find_by_id(&db.pool, conversation_session_id).await {
-                            // Store the assistant message
-                            if let Some(ref content) = assistant_message {
-                                if let Err(e) = ConversationService::add_assistant_message(
-                                    &db.pool,
-                                    conversation_session_id,
-                                    exec_id,
-                                    content.clone(),
-                                ).await {
-                                    tracing::error!("Failed to store assistant message: {}", e);
-                                }
-                            }
+            if matches!(status, ExecutionProcessStatus::Completed)
+                && let Ok(Some(execution_process)) =
+                    ExecutionProcess::find_by_id(&db.pool, exec_id).await
+                && let Some(conversation_session_id) = execution_process.conversation_session_id
+                && let Ok(Some(conversation)) =
+                    ConversationSession::find_by_id(&db.pool, conversation_session_id).await
+            {
+                // Store the assistant message
+                if let Some(ref content) = assistant_message
+                    && let Err(e) = ConversationService::add_assistant_message(
+                        &db.pool,
+                        conversation_session_id,
+                        exec_id,
+                        content.clone(),
+                    )
+                    .await
+                {
+                    tracing::error!("Failed to store assistant message: {}", e);
+                }
 
-                            // Send notification
-                            if let Err(e) = NotificationService::notify_conversation_response(
-                                &db.pool,
-                                conversation.project_id,
-                                conversation_session_id,
-                                assistant_message.as_deref(),
-                            ).await {
-                                tracing::error!("Failed to send conversation response notification: {}", e);
-                            }
-                        }
-                    }
+                // Send notification
+                if let Err(e) = NotificationService::notify_conversation_response(
+                    &db.pool,
+                    conversation.project_id,
+                    conversation_session_id,
+                    assistant_message.as_deref(),
+                )
+                .await
+                {
+                    tracing::error!("Failed to send conversation response notification: {}", e);
                 }
             }
         })

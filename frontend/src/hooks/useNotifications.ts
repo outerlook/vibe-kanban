@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { useJsonPatchWsStream } from './useJsonPatchWsStream';
 import { notificationsApi } from '@/lib/api';
-import type { Notification, NotificationStats } from 'shared/types';
+import type { Notification } from 'shared/types';
 
 type NotificationsState = {
   notifications: Record<string, Notification>;
@@ -78,28 +78,4 @@ export const useNotifications = (
     markAllRead,
     deleteNotification,
   };
-};
-
-interface UseNotificationStatsResult {
-  stats: NotificationStats | null;
-  isLoading: boolean;
-  refetch: () => Promise<void>;
-}
-
-/**
- * Fetch notification stats (total and unread counts).
- * For cases where you only need counts without the full notification stream.
- */
-export const useNotificationStats = (): UseNotificationStatsResult => {
-  // This hook is kept simple - the streaming approach via useNotifications
-  // is preferred for real-time updates. This is useful for static displays.
-  const stats: NotificationStats | null = null;
-  const isLoading = false;
-
-  const refetch = useCallback(async () => {
-    // Stats are computed from the stream in useNotifications
-    // This hook is a fallback for cases where streaming is not needed
-  }, []);
-
-  return { stats, isLoading, refetch };
 };

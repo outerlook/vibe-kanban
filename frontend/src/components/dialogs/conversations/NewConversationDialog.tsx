@@ -80,8 +80,7 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
 
         modal.resolve(result.session);
         modal.hide();
-      } catch (err) {
-        console.error('Failed to create conversation:', err);
+      } catch {
         setError(
           t('conversations.errors.createFailed', {
             defaultValue: 'Failed to create conversation',

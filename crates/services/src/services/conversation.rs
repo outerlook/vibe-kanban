@@ -165,9 +165,11 @@ impl ConversationService {
         pool: &SqlitePool,
         conversation_session_id: Uuid,
     ) -> Result<Option<String>, ConversationServiceError> {
-        let agent_session_id =
-            ExecutionProcess::find_latest_conversation_agent_session_id(pool, conversation_session_id)
-                .await?;
+        let agent_session_id = ExecutionProcess::find_latest_conversation_agent_session_id(
+            pool,
+            conversation_session_id,
+        )
+        .await?;
         Ok(agent_session_id)
     }
 }

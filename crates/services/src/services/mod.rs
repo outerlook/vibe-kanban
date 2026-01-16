@@ -1,9 +1,9 @@
 pub mod analytics;
 pub mod approvals;
 pub mod auth;
-pub mod conversation;
 pub mod config;
 pub mod container;
+pub mod conversation;
 pub mod diff_stream;
 pub mod events;
 pub mod file_ranker;

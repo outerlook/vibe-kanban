@@ -1,12 +1,8 @@
 use std::str::FromStr;
 
 use axum::{
-    Extension, Json, Router,
-    extract::State,
-    http::StatusCode,
-    middleware::from_fn_with_state,
-    response::Json as ResponseJson,
-    routing::get,
+    Extension, Json, Router, extract::State, http::StatusCode, middleware::from_fn_with_state,
+    response::Json as ResponseJson, routing::get,
 };
 use db::models::{
     conversation_message::ConversationMessage,
@@ -18,8 +14,7 @@ use db::models::{
 use deployment::Deployment;
 use executors::{
     actions::{
-        ExecutorAction, ExecutorActionType,
-        coding_agent_follow_up::CodingAgentFollowUpRequest,
+        ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
         coding_agent_initial::CodingAgentInitialRequest,
     },
     executors::BaseCodingAgent,
@@ -105,7 +100,9 @@ pub async fn get_conversation(
         ConversationService::get_conversation_with_messages(&deployment.db().pool, conversation.id)
             .await?;
 
-    Ok(ResponseJson(ApiResponse::success(conversation_with_messages)))
+    Ok(ResponseJson(ApiResponse::success(
+        conversation_with_messages,
+    )))
 }
 
 pub async fn update_conversation(
@@ -161,9 +158,8 @@ pub async fn send_message(
 
     // Parse executor name to BaseCodingAgent
     let normalized_executor = executor_name.replace('-', "_").to_ascii_uppercase();
-    let base_executor = BaseCodingAgent::from_str(&normalized_executor).map_err(|_| {
-        ApiError::BadRequest(format!("Unknown executor: {}", executor_name))
-    })?;
+    let base_executor = BaseCodingAgent::from_str(&normalized_executor)
+        .map_err(|_| ApiError::BadRequest(format!("Unknown executor: {}", executor_name)))?;
 
     // Build executor profile
     let executor_profile_id = ExecutorProfileId {
@@ -249,11 +245,9 @@ pub async fn get_executions(
     Extension(conversation): Extension<ConversationSession>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<ExecutionProcess>>>, ApiError> {
-    let executions = ExecutionProcess::find_by_conversation_session_id(
-        &deployment.db().pool,
-        conversation.id,
-    )
-    .await?;
+    let executions =
+        ExecutionProcess::find_by_conversation_session_id(&deployment.db().pool, conversation.id)
+            .await?;
 
     Ok(ResponseJson(ApiResponse::success(executions)))
 }
@@ -273,10 +267,13 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             load_conversation_middleware,
         ));
 
-    let project_conversations = Router::new()
-        .route("/", get(list_conversations).post(create_conversation));
+    let project_conversations =
+        Router::new().route("/", get(list_conversations).post(create_conversation));
 
     Router::new()
-        .nest("/projects/{project_id}/conversations", project_conversations)
+        .nest(
+            "/projects/{project_id}/conversations",
+            project_conversations,
+        )
         .nest("/conversations/{conversation_id}", conversation_actions)
 }

@@ -68,17 +68,15 @@ impl ExecutorApprovalService for ExecutorApprovalBridge {
         // In-app notification when approval is needed
         if let Ok(ctx) =
             ExecutionProcess::load_context(&self.db.pool, self.execution_process_id).await
-        {
-            if let Err(e) = NotificationService::notify_agent_approval_needed(
+            && let Err(e) = NotificationService::notify_agent_approval_needed(
                 &self.db.pool,
                 ctx.project.id,
                 ctx.workspace.id,
                 tool_name,
             )
             .await
-            {
-                tracing::warn!("Failed to create in-app approval notification: {}", e);
-            }
+        {
+            tracing::warn!("Failed to create in-app approval notification: {}", e);
         }
 
         let status = waiter.clone().await;

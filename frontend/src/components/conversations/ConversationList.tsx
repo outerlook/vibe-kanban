@@ -6,7 +6,7 @@ import { Loader } from '@/components/ui/loader';
 import { useConversations, useDeleteConversation } from '@/hooks/useConversations';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import type { ConversationSession } from 'shared/types';
-import { cn } from '@/lib/utils';
+import { cn, formatRelativeTime } from '@/lib/utils';
 
 interface ConversationListProps {
   projectId: string;
@@ -32,35 +32,6 @@ export function ConversationList({
         new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
     );
   }, [conversations]);
-
-  const formatTimeAgo = (iso: string) => {
-    const d = new Date(iso);
-    const diffMs = Date.now() - d.getTime();
-    const absSec = Math.round(Math.abs(diffMs) / 1000);
-
-    const rtf =
-      typeof Intl !== 'undefined' &&
-      typeof Intl.RelativeTimeFormat === 'function'
-        ? new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
-        : null;
-
-    const to = (value: number, unit: Intl.RelativeTimeFormatUnit) =>
-      rtf
-        ? rtf.format(-value, unit)
-        : `${value} ${unit}${value !== 1 ? 's' : ''} ago`;
-
-    if (absSec < 60) return to(Math.round(absSec), 'second');
-    const mins = Math.round(absSec / 60);
-    if (mins < 60) return to(mins, 'minute');
-    const hours = Math.round(mins / 60);
-    if (hours < 24) return to(hours, 'hour');
-    const days = Math.round(hours / 24);
-    if (days < 30) return to(days, 'day');
-    const months = Math.round(days / 30);
-    if (months < 12) return to(months, 'month');
-    const years = Math.round(months / 12);
-    return to(years, 'year');
-  };
 
   const handleDelete = async (
     e: React.MouseEvent,
@@ -151,7 +122,7 @@ export function ConversationList({
                     </div>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-xs text-muted-foreground">
-                        {formatTimeAgo(conversation.updated_at)}
+                        {formatRelativeTime(conversation.updated_at)}
                       </span>
                       {conversation.executor && (
                         <span className="text-xs text-muted-foreground px-1.5 py-0.5 bg-muted rounded">

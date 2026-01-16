@@ -10,13 +10,13 @@ use db::models::{
     project_repo::ProjectRepoError, repo::RepoError, scratch::ScratchError, session::SessionError,
     workspace::WorkspaceError,
 };
-use services::services::conversation::ConversationServiceError;
 use deployment::{DeploymentError, RemoteClientNotConfigured};
 use executors::executors::ExecutorError;
 use git2::Error as Git2Error;
 use services::services::{
     config::{ConfigError, EditorOpenError},
     container::ContainerError,
+    conversation::ConversationServiceError,
     git::GitServiceError,
     github::GitHubServiceError,
     image::ImageError,
@@ -126,19 +126,28 @@ impl IntoResponse for ApiError {
                 ConversationSessionError::NotFound => {
                     (StatusCode::NOT_FOUND, "ConversationSessionError")
                 }
-                _ => (StatusCode::INTERNAL_SERVER_ERROR, "ConversationSessionError"),
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "ConversationSessionError",
+                ),
             },
             ApiError::ConversationMessage(err) => match err {
                 ConversationMessageError::NotFound => {
                     (StatusCode::NOT_FOUND, "ConversationMessageError")
                 }
-                _ => (StatusCode::INTERNAL_SERVER_ERROR, "ConversationMessageError"),
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "ConversationMessageError",
+                ),
             },
             ApiError::ConversationService(err) => match err {
                 ConversationServiceError::NotFound => {
                     (StatusCode::NOT_FOUND, "ConversationServiceError")
                 }
-                _ => (StatusCode::INTERNAL_SERVER_ERROR, "ConversationServiceError"),
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "ConversationServiceError",
+                ),
             },
             // Promote certain GitService errors to conflict status with concise messages
             ApiError::GitService(git_err) => match git_err {

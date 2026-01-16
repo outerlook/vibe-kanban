@@ -20,3 +20,36 @@ export function formatTokenCount(n: bigint | number | null | undefined): string 
   if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
   return num.toString();
 }
+
+/**
+ * Format an ISO date string as a human-readable relative time (e.g., "5 minutes ago").
+ * Uses Intl.RelativeTimeFormat when available for localized output.
+ */
+export function formatRelativeTime(iso: string): string {
+  const d = new Date(iso);
+  const diffMs = Date.now() - d.getTime();
+  const absSec = Math.round(Math.abs(diffMs) / 1000);
+
+  const rtf =
+    typeof Intl !== 'undefined' &&
+    typeof Intl.RelativeTimeFormat === 'function'
+      ? new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+      : null;
+
+  const to = (value: number, unit: Intl.RelativeTimeFormatUnit) =>
+    rtf
+      ? rtf.format(-value, unit)
+      : `${value} ${unit}${value !== 1 ? 's' : ''} ago`;
+
+  if (absSec < 60) return to(Math.round(absSec), 'second');
+  const mins = Math.round(absSec / 60);
+  if (mins < 60) return to(mins, 'minute');
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return to(hours, 'hour');
+  const days = Math.round(hours / 24);
+  if (days < 30) return to(days, 'day');
+  const months = Math.round(days / 30);
+  if (months < 12) return to(months, 'month');
+  const years = Math.round(months / 12);
+  return to(years, 'year');
+}

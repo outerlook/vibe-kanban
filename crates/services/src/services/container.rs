@@ -345,11 +345,7 @@ pub trait ContainerService {
                         continue;
                     }
                     Err(e) => {
-                        tracing::error!(
-                            "Failed to load session {} from queue: {}",
-                            session_id,
-                            e
-                        );
+                        tracing::error!("Failed to load session {} from queue: {}", session_id, e);
                         continue;
                     }
                 };
@@ -390,11 +386,7 @@ pub trait ContainerService {
                     .start_workspace_inner(&workspace, entry.executor_profile_id.0.clone())
                     .await
                 {
-                    tracing::error!(
-                        "Failed to start queued workspace {}: {}",
-                        workspace.id,
-                        e
-                    );
+                    tracing::error!("Failed to start queued workspace {}: {}", workspace.id, e);
                     // Continue processing other queue entries even if one fails
                 }
             }
@@ -1302,8 +1294,7 @@ pub trait ContainerService {
                 workspace.id
             );
             let queue_entry =
-                ExecutionQueue::create(&self.db().pool, workspace.id, &executor_profile_id)
-                    .await?;
+                ExecutionQueue::create(&self.db().pool, workspace.id, &executor_profile_id).await?;
             return Ok(StartWorkspaceResult::Queued(queue_entry));
         }
 
@@ -1653,9 +1644,7 @@ pub trait ContainerService {
         // Create coding agent turn if this is a coding agent request
         if let Some(prompt) = match executor_action.typ() {
             ExecutorActionType::CodingAgentInitialRequest(request) => Some(request.prompt.clone()),
-            ExecutorActionType::CodingAgentFollowUpRequest(request) => {
-                Some(request.prompt.clone())
-            }
+            ExecutorActionType::CodingAgentFollowUpRequest(request) => Some(request.prompt.clone()),
             _ => None,
         } {
             let create_turn = CreateCodingAgentTurn {

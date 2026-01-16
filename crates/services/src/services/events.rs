@@ -221,17 +221,19 @@ impl EventService {
                     return;
                 }
             },
-            HookTables::Notifications => match Notification::find_by_rowid(&db.pool, *rowid).await {
-                Ok(Some(notification)) => RecordTypes::Notification(notification),
-                Ok(None) => RecordTypes::DeletedNotification {
-                    rowid: *rowid,
-                    notification_id: None,
-                },
-                Err(e) => {
-                    tracing::error!("Failed to fetch notification: {:?}", e);
-                    return;
+            HookTables::Notifications => {
+                match Notification::find_by_rowid(&db.pool, *rowid).await {
+                    Ok(Some(notification)) => RecordTypes::Notification(notification),
+                    Ok(None) => RecordTypes::DeletedNotification {
+                        rowid: *rowid,
+                        notification_id: None,
+                    },
+                    Err(e) => {
+                        tracing::error!("Failed to fetch notification: {:?}", e);
+                        return;
+                    }
                 }
-            },
+            }
         };
 
         let db_op: &str = match operation {
@@ -334,12 +336,9 @@ impl EventService {
 
                 // Only push task update for workspace-based executions
                 if let Some(session_id) = process.session_id
-                    && let Err(err) = Self::push_task_update_for_session(
-                        &db.pool,
-                        msg_store.clone(),
-                        session_id,
-                    )
-                    .await
+                    && let Err(err) =
+                        Self::push_task_update_for_session(&db.pool, msg_store.clone(), session_id)
+                            .await
                 {
                     tracing::error!(
                         "Failed to push task update after execution process change: {:?}",

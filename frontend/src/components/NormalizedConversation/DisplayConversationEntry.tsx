@@ -625,6 +625,7 @@ function DisplayConversationEntry({
   task,
 }: Props) {
   const { t } = useTranslation('common');
+  const { t: tTasks } = useTranslation('tasks');
   const isNormalizedEntry = (
     entry: NormalizedEntry | ProcessStartPayload
   ): entry is NormalizedEntry => 'entry_type' in entry;
@@ -819,7 +820,6 @@ function DisplayConversationEntry({
   if (entry.entry_type.type === 'token_usage') {
     const { input_tokens, output_tokens } = entry.entry_type;
     const metadata = isNormalizedEntry(entry) ? entry.metadata : null;
-    const { t: tTasks } = useTranslation('tasks');
 
     return (
       <div className="px-4 py-2 text-xs text-muted-foreground border-y border-dashed bg-muted/10 my-2">
