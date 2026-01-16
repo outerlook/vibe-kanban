@@ -36,11 +36,7 @@ You can watch a video overview [here](https://youtu.be/TFT3KnZOOAk).
 
 ## Installation
 
-Make sure you have authenticated with your favourite coding agent. A full list of supported coding agents can be found in the [docs](https://vibekanban.com/docs). Then in your terminal run:
-
-```bash
-npx vibe-kanban
-```
+Make sure you have authenticated with your favourite coding agent. A full list of supported coding agents can be found in the [docs](https://vibekanban.com/docs). Download Vibe Kanban from the [releases page](https://github.com/BloopAI/vibe-kanban/releases).
 
 ## Documentation
 
@@ -89,12 +85,6 @@ To build just the frontend:
 cd frontend
 pnpm build
 ```
-
-### Build from source (macOS)
-
-1. Run `./local-build.sh`
-2. Test with `cd npx-cli && node bin/cli.js`
-
 
 ### Environment Variables
 
