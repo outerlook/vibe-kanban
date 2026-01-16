@@ -8,6 +8,7 @@ pub mod diff_stream;
 pub mod embedding;
 pub mod embedding_worker;
 pub mod events;
+pub mod feedback;
 pub mod file_ranker;
 pub mod file_search_cache;
 pub mod filesystem;
