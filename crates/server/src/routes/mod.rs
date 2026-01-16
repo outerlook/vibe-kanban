@@ -9,6 +9,7 @@ pub mod account_info;
 pub mod approvals;
 pub mod config;
 pub mod containers;
+pub mod conversations;
 pub mod filesystem;
 // pub mod github;
 pub mod events;
@@ -42,6 +43,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(task_attempts::router(&deployment))
         .merge(task_dependencies::router(&deployment))
         .merge(task_groups::router(&deployment))
+        .merge(conversations::router(&deployment))
         .merge(execution_processes::router(&deployment))
         .merge(gantt::router(&deployment))
         .merge(tags::router(&deployment))

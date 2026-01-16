@@ -5,10 +5,12 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use db::models::{
+    conversation_message::ConversationMessageError, conversation_session::ConversationSessionError,
     execution_process::ExecutionProcessError, project::ProjectError,
     project_repo::ProjectRepoError, repo::RepoError, scratch::ScratchError, session::SessionError,
     workspace::WorkspaceError,
 };
+use services::services::conversation::ConversationServiceError;
 use deployment::{DeploymentError, RemoteClientNotConfigured};
 use executors::executors::ExecutorError;
 use git2::Error as Git2Error;
@@ -42,6 +44,12 @@ pub enum ApiError {
     ScratchError(#[from] ScratchError),
     #[error(transparent)]
     ExecutionProcess(#[from] ExecutionProcessError),
+    #[error(transparent)]
+    ConversationSession(#[from] ConversationSessionError),
+    #[error(transparent)]
+    ConversationMessage(#[from] ConversationMessageError),
+    #[error(transparent)]
+    ConversationService(#[from] ConversationServiceError),
     #[error(transparent)]
     GitService(#[from] GitServiceError),
     #[error(transparent)]
@@ -113,6 +121,24 @@ impl IntoResponse for ApiError {
                     (StatusCode::NOT_FOUND, "ExecutionProcessError")
                 }
                 _ => (StatusCode::INTERNAL_SERVER_ERROR, "ExecutionProcessError"),
+            },
+            ApiError::ConversationSession(err) => match err {
+                ConversationSessionError::NotFound => {
+                    (StatusCode::NOT_FOUND, "ConversationSessionError")
+                }
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, "ConversationSessionError"),
+            },
+            ApiError::ConversationMessage(err) => match err {
+                ConversationMessageError::NotFound => {
+                    (StatusCode::NOT_FOUND, "ConversationMessageError")
+                }
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, "ConversationMessageError"),
+            },
+            ApiError::ConversationService(err) => match err {
+                ConversationServiceError::NotFound => {
+                    (StatusCode::NOT_FOUND, "ConversationServiceError")
+                }
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, "ConversationServiceError"),
             },
             // Promote certain GitService errors to conflict status with concise messages
             ApiError::GitService(git_err) => match git_err {

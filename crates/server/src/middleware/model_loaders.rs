@@ -5,8 +5,9 @@ use axum::{
     response::Response,
 };
 use db::models::{
-    execution_process::ExecutionProcess, project::Project, session::Session, tag::Tag, task::Task,
-    task_group::TaskGroup, workspace::Workspace,
+    conversation_session::ConversationSession, execution_process::ExecutionProcess,
+    project::Project, session::Session, tag::Tag, task::Task, task_group::TaskGroup,
+    workspace::Workspace,
 };
 use deployment::Deployment;
 use uuid::Uuid;
@@ -189,5 +190,32 @@ pub async fn load_task_group_middleware(
     };
 
     request.extensions_mut().insert(task_group);
+    Ok(next.run(request).await)
+}
+
+pub async fn load_conversation_middleware(
+    State(deployment): State<DeploymentImpl>,
+    Path(conversation_id): Path<Uuid>,
+    mut request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let conversation =
+        match ConversationSession::find_by_id(&deployment.db().pool, conversation_id).await {
+            Ok(Some(session)) => session,
+            Ok(None) => {
+                tracing::warn!("ConversationSession {} not found", conversation_id);
+                return Err(StatusCode::NOT_FOUND);
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to fetch conversation session {}: {}",
+                    conversation_id,
+                    e
+                );
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
+
+    request.extensions_mut().insert(conversation);
     Ok(next.run(request).await)
 }
