@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:webview:allow-set-webview-zoom",
+    "shell:allow-open",
+    "fs:default",
+    "process:default",
+    "dialog:default",
+    "mcp-bridge:default"
+  ]
+}
