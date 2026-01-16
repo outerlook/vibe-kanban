@@ -206,7 +206,7 @@ export const useConversationHistory = ({
           nextBeforeIndex: page.next_before_index,
         };
       } catch (err) {
-        console.warn!(
+        console.warn(
           `Error loading normalized entries for execution process ${executionProcess.id}`,
           err
         );
@@ -234,7 +234,7 @@ export const useConversationHistory = ({
               resolve(allEntries);
             },
             onError: (err) => {
-              console.warn!(
+              console.warn(
                 `Error loading entries for historic execution process ${executionProcess.id}`,
                 err
               );
