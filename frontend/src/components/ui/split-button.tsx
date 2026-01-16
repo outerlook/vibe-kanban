@@ -13,6 +13,7 @@ export type SplitButtonOption<T extends string = string> = {
   value: T;
   label: string;
   icon?: React.ReactNode;
+  disabled?: boolean;
 };
 
 type SplitButtonProps<T extends string = string> = {
@@ -82,6 +83,7 @@ export function SplitButton<T extends string = string>({
               key={option.value}
               onClick={() => onSelect(option.value)}
               className="gap-2"
+              disabled={option.disabled}
             >
               {option.icon}
               <span className="flex-1">{option.label}</span>

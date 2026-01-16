@@ -3,6 +3,7 @@ import {
   GitBranch as GitBranchIcon,
   GitMerge,
   GitPullRequest,
+  ListOrdered,
   RefreshCw,
   Settings,
   AlertTriangle,
@@ -35,6 +36,7 @@ import { useTranslation } from 'react-i18next';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useGitOperations } from '@/hooks/useGitOperations';
 import { useRepoBranches, useGenerateCommitMessage } from '@/hooks';
+import { useQueueMerge, useQueueStatus } from '@/hooks/useMergeQueue';
 import {
   SplitButton,
   type SplitButtonOption,
@@ -42,7 +44,7 @@ import {
 
 const MERGE_ACTION_STORAGE_KEY = 'vk-merge-action-preference';
 
-type MergeAction = 'merge' | 'generate-preview' | 'generate-merge';
+type MergeAction = 'merge' | 'generate-preview' | 'generate-merge' | 'queue-merge';
 
 const mergeActionOptions: SplitButtonOption<MergeAction>[] = [
   {
@@ -59,6 +61,11 @@ const mergeActionOptions: SplitButtonOption<MergeAction>[] = [
     value: 'generate-merge',
     label: 'Generate & Merge',
     icon: <Sparkles className="h-3.5 w-3.5" />,
+  },
+  {
+    value: 'queue-merge',
+    label: 'Queue & Merge',
+    icon: <ListOrdered className="h-3.5 w-3.5" />,
   },
 ];
 
@@ -89,6 +96,8 @@ function GitOperations({
   const git = useGitOperations(selectedAttempt.id, selectedRepoId ?? undefined);
   const { data: branches = [] } = useRepoBranches(selectedRepoId);
   const generateCommitMessage = useGenerateCommitMessage(selectedAttempt.id);
+  const queueMerge = useQueueMerge(selectedAttempt.id);
+  const { data: queueStatus } = useQueueStatus(selectedAttempt.id);
   const isChangingTargetBranch = git.states.changeTargetBranchPending;
 
   // Local state for git operations
@@ -96,8 +105,10 @@ function GitOperations({
   const [pushing, setPushing] = useState(false);
   const [rebasing, setRebasing] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [queuing, setQueuing] = useState(false);
   const [mergeSuccess, setMergeSuccess] = useState(false);
   const [pushSuccess, setPushSuccess] = useState(false);
+  const [queueSuccess, setQueueSuccess] = useState(false);
 
   // Merge action preference state
   const [selectedMergeAction, setSelectedMergeAction] =
@@ -106,7 +117,7 @@ function GitOperations({
   // Load merge action preference from localStorage on mount
   useEffect(() => {
     const stored = localStorage.getItem(MERGE_ACTION_STORAGE_KEY);
-    if (stored && ['merge', 'generate-preview', 'generate-merge'].includes(stored)) {
+    if (stored && ['merge', 'generate-preview', 'generate-merge', 'queue-merge'].includes(stored)) {
       setSelectedMergeAction(stored as MergeAction);
     }
   }, []);
@@ -212,6 +223,15 @@ function GitOperations({
     return t('git.states.createPr');
   }, [mergeInfo.hasOpenPR, pushSuccess, pushing, t]);
 
+  const isAlreadyQueued = queueStatus?.status === 'queued' || queueStatus?.status === 'merging';
+
+  const computedMergeActionOptions = useMemo(() => {
+    return mergeActionOptions.map((option) => ({
+      ...option,
+      disabled: option.value === 'queue-merge' && isAlreadyQueued,
+    }));
+  }, [isAlreadyQueued]);
+
   const handleMergeClick = async (action: MergeAction) => {
     const repoId = getSelectedRepoId();
     if (!repoId) return;
@@ -225,6 +245,9 @@ function GitOperations({
         break;
       case 'generate-merge':
         await performGenerateAndMerge(repoId);
+        break;
+      case 'queue-merge':
+        await performQueueMerge(repoId);
         break;
     }
   };
@@ -309,6 +332,17 @@ function GitOperations({
       setTimeout(() => setMergeSuccess(false), 2000);
     } finally {
       setMerging(false);
+    }
+  };
+
+  const performQueueMerge = async (repoId: string) => {
+    try {
+      setQueuing(true);
+      await queueMerge.mutateAsync({ repoId });
+      setQueueSuccess(true);
+      setTimeout(() => setQueueSuccess(false), 2000);
+    } finally {
+      setQueuing(false);
     }
   };
 
@@ -579,7 +613,7 @@ function GitOperations({
         {selectedRepoStatus && (
           <div className={actionsClasses}>
             <SplitButton
-              options={mergeActionOptions}
+              options={computedMergeActionOptions}
               selectedValue={selectedMergeAction}
               onSelect={handleMergeActionSelect}
               onPrimaryClick={handleMergeClick}
@@ -590,12 +624,19 @@ function GitOperations({
                 isAttemptRunning ||
                 ((selectedRepoStatus?.commits_ahead ?? 0) === 0 &&
                   !pushSuccess &&
-                  !mergeSuccess)
+                  !mergeSuccess &&
+                  !queueSuccess)
               }
-              loading={merging || generating}
-              loadingLabel={generating ? t('git.states.generating', 'Generating...') : t('git.states.merging')}
-              successLabel={t('git.states.merged')}
-              showSuccess={mergeSuccess}
+              loading={merging || generating || queuing}
+              loadingLabel={
+                queuing
+                  ? t('git.states.queuing', 'Queuing...')
+                  : generating
+                    ? t('git.states.generating', 'Generating...')
+                    : t('git.states.merging')
+              }
+              successLabel={queueSuccess ? t('git.states.queued', 'Queued') : t('git.states.merged')}
+              showSuccess={mergeSuccess || queueSuccess}
               variant="outline"
               size="xs"
               className="shrink-0 border-success text-success [&_button]:border-success [&_button]:text-success [&_button:hover]:bg-success"
