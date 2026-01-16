@@ -54,18 +54,44 @@ pub struct Task {
     pub task_group_id: Option<Uuid>, // Foreign key to TaskGroup
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    // Materialized status columns (cached values to avoid expensive subqueries)
+    pub is_blocked: bool,
+    pub has_in_progress_attempt: bool,
+    pub last_attempt_failed: bool,
+    pub is_queued: bool,
+    pub last_executor: String,
 }
 
+/// Wrapper around Task that exposes attempt status fields.
+/// Note: With materialized columns, these fields are now stored directly in Task.
+/// This struct exists for API compatibility - it flattens Task and re-exports
+/// the materialized columns under their expected names.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct TaskWithAttemptStatus {
     #[serde(flatten)]
     #[ts(flatten)]
     pub task: Task,
+    // These fields are serialized separately for API compatibility
+    // (they overlap with task's materialized columns but use different names in some cases)
     pub has_in_progress_attempt: bool,
     pub last_attempt_failed: bool,
     pub is_blocked: bool,
     pub is_queued: bool,
     pub executor: String,
+}
+
+impl TaskWithAttemptStatus {
+    /// Create a TaskWithAttemptStatus from a Task, using its materialized columns
+    pub fn from_task(task: Task) -> Self {
+        Self {
+            has_in_progress_attempt: task.has_in_progress_attempt,
+            last_attempt_failed: task.last_attempt_failed,
+            is_blocked: task.is_blocked,
+            is_queued: task.is_queued,
+            executor: task.last_executor.clone(),
+            task,
+        }
+    }
 }
 
 impl std::ops::Deref for TaskWithAttemptStatus {
@@ -165,188 +191,65 @@ impl Task {
         pool: &SqlitePool,
         project_id: Uuid,
     ) -> Result<Vec<TaskWithAttemptStatus>, sqlx::Error> {
-        let records = sqlx::query!(
+        let tasks: Vec<Task> = sqlx::query_as!(
+            Task,
             r#"SELECT
-  t.id                            AS "id!: Uuid",
-  t.project_id                    AS "project_id!: Uuid",
-  t.title,
-  t.description,
-  t.status                        AS "status!: TaskStatus",
-  t.parent_workspace_id           AS "parent_workspace_id: Uuid",
-  t.shared_task_id                AS "shared_task_id: Uuid",
-  t.task_group_id                 AS "task_group_id: Uuid",
-  t.created_at                    AS "created_at!: DateTime<Utc>",
-  t.updated_at                    AS "updated_at!: DateTime<Utc>",
-
-  CASE WHEN EXISTS (
-    SELECT 1
-      FROM task_dependencies td
-      JOIN tasks dep ON dep.id = td.depends_on_id
-     WHERE td.task_id = t.id
-       AND dep.status != 'done'
-  ) THEN 1 ELSE 0 END            AS "is_blocked!: i64",
-
-  CASE WHEN EXISTS (
-    SELECT 1
-      FROM workspaces w
-      JOIN sessions s ON s.workspace_id = w.id
-      JOIN execution_processes ep ON ep.session_id = s.id
-     WHERE w.task_id       = t.id
-       AND ep.status        = 'running'
-       AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-     LIMIT 1
-  ) THEN 1 ELSE 0 END            AS "has_in_progress_attempt!: i64",
-
-  CASE WHEN (
-    SELECT ep.status
-      FROM workspaces w
-      JOIN sessions s ON s.workspace_id = w.id
-      JOIN execution_processes ep ON ep.session_id = s.id
-     WHERE w.task_id       = t.id
-     AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-     ORDER BY ep.created_at DESC
-     LIMIT 1
-  ) IN ('failed','killed') THEN 1 ELSE 0 END
-                                 AS "last_attempt_failed!: i64",
-
-  CASE WHEN EXISTS (
-    SELECT 1 FROM workspaces w
-    JOIN execution_queue eq ON eq.workspace_id = w.id
-    WHERE w.task_id = t.id
-    LIMIT 1
-  ) THEN 1 ELSE 0 END            AS "is_queued!: i64",
-
-  ( SELECT s.executor
-      FROM workspaces w
-      JOIN sessions s ON s.workspace_id = w.id
-      WHERE w.task_id = t.id
-     ORDER BY s.created_at DESC
-      LIMIT 1
-    )                               AS "executor!: String"
-
-FROM tasks t
-WHERE t.project_id = $1
-ORDER BY t.created_at DESC"#,
+                id AS "id!: Uuid",
+                project_id AS "project_id!: Uuid",
+                title,
+                description,
+                status AS "status!: TaskStatus",
+                parent_workspace_id AS "parent_workspace_id: Uuid",
+                shared_task_id AS "shared_task_id: Uuid",
+                task_group_id AS "task_group_id: Uuid",
+                created_at AS "created_at!: DateTime<Utc>",
+                updated_at AS "updated_at!: DateTime<Utc>",
+                is_blocked AS "is_blocked!: bool",
+                has_in_progress_attempt AS "has_in_progress_attempt!: bool",
+                last_attempt_failed AS "last_attempt_failed!: bool",
+                is_queued AS "is_queued!: bool",
+                last_executor AS "last_executor!: String"
+            FROM tasks
+            WHERE project_id = $1
+            ORDER BY created_at DESC"#,
             project_id
         )
         .fetch_all(pool)
         .await?;
 
-        let tasks = records
-            .into_iter()
-            .map(|rec| TaskWithAttemptStatus {
-                task: Task {
-                    id: rec.id,
-                    project_id: rec.project_id,
-                    title: rec.title,
-                    description: rec.description,
-                    status: rec.status,
-                    parent_workspace_id: rec.parent_workspace_id,
-                    shared_task_id: rec.shared_task_id,
-                    task_group_id: rec.task_group_id,
-                    created_at: rec.created_at,
-                    updated_at: rec.updated_at,
-                },
-                has_in_progress_attempt: rec.has_in_progress_attempt != 0,
-                last_attempt_failed: rec.last_attempt_failed != 0,
-                is_blocked: rec.is_blocked != 0,
-                is_queued: rec.is_queued != 0,
-                executor: rec.executor,
-            })
-            .collect();
-
-        Ok(tasks)
+        Ok(tasks.into_iter().map(TaskWithAttemptStatus::from_task).collect())
     }
 
     pub async fn find_by_id_with_attempt_status(
         pool: &SqlitePool,
         task_id: Uuid,
     ) -> Result<Option<TaskWithAttemptStatus>, sqlx::Error> {
-        let rec = sqlx::query!(
+        let task = sqlx::query_as!(
+            Task,
             r#"SELECT
-  t.id                            AS "id!: Uuid",
-  t.project_id                    AS "project_id!: Uuid",
-  t.title,
-  t.description,
-  t.status                        AS "status!: TaskStatus",
-  t.parent_workspace_id           AS "parent_workspace_id: Uuid",
-  t.shared_task_id                AS "shared_task_id: Uuid",
-  t.task_group_id                 AS "task_group_id: Uuid",
-  t.created_at                    AS "created_at!: DateTime<Utc>",
-  t.updated_at                    AS "updated_at!: DateTime<Utc>",
-
-  CASE WHEN EXISTS (
-    SELECT 1
-      FROM task_dependencies td
-      JOIN tasks dep ON dep.id = td.depends_on_id
-     WHERE td.task_id = t.id
-       AND dep.status != 'done'
-  ) THEN 1 ELSE 0 END            AS "is_blocked!: i64",
-
-  CASE WHEN EXISTS (
-    SELECT 1
-      FROM workspaces w
-      JOIN sessions s ON s.workspace_id = w.id
-      JOIN execution_processes ep ON ep.session_id = s.id
-     WHERE w.task_id       = t.id
-       AND ep.status        = 'running'
-       AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-     LIMIT 1
-  ) THEN 1 ELSE 0 END            AS "has_in_progress_attempt!: i64",
-
-  CASE WHEN (
-    SELECT ep.status
-      FROM workspaces w
-      JOIN sessions s ON s.workspace_id = w.id
-      JOIN execution_processes ep ON ep.session_id = s.id
-     WHERE w.task_id       = t.id
-     AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-     ORDER BY ep.created_at DESC
-     LIMIT 1
-  ) IN ('failed','killed') THEN 1 ELSE 0 END
-                                 AS "last_attempt_failed!: i64",
-
-  CASE WHEN EXISTS (
-    SELECT 1 FROM workspaces w
-    JOIN execution_queue eq ON eq.workspace_id = w.id
-    WHERE w.task_id = t.id
-    LIMIT 1
-  ) THEN 1 ELSE 0 END            AS "is_queued!: i64",
-
-  ( SELECT s.executor
-      FROM workspaces w
-      JOIN sessions s ON s.workspace_id = w.id
-      WHERE w.task_id = t.id
-     ORDER BY s.created_at DESC
-      LIMIT 1
-    )                               AS "executor!: String"
-
-FROM tasks t
-WHERE t.id = $1"#,
+                id AS "id!: Uuid",
+                project_id AS "project_id!: Uuid",
+                title,
+                description,
+                status AS "status!: TaskStatus",
+                parent_workspace_id AS "parent_workspace_id: Uuid",
+                shared_task_id AS "shared_task_id: Uuid",
+                task_group_id AS "task_group_id: Uuid",
+                created_at AS "created_at!: DateTime<Utc>",
+                updated_at AS "updated_at!: DateTime<Utc>",
+                is_blocked AS "is_blocked!: bool",
+                has_in_progress_attempt AS "has_in_progress_attempt!: bool",
+                last_attempt_failed AS "last_attempt_failed!: bool",
+                is_queued AS "is_queued!: bool",
+                last_executor AS "last_executor!: String"
+            FROM tasks
+            WHERE id = $1"#,
             task_id
         )
         .fetch_optional(pool)
         .await?;
 
-        Ok(rec.map(|rec| TaskWithAttemptStatus {
-            task: Task {
-                id: rec.id,
-                project_id: rec.project_id,
-                title: rec.title,
-                description: rec.description,
-                status: rec.status,
-                parent_workspace_id: rec.parent_workspace_id,
-                shared_task_id: rec.shared_task_id,
-                task_group_id: rec.task_group_id,
-                created_at: rec.created_at,
-                updated_at: rec.updated_at,
-            },
-            has_in_progress_attempt: rec.has_in_progress_attempt != 0,
-            last_attempt_failed: rec.last_attempt_failed != 0,
-            is_blocked: rec.is_blocked != 0,
-            is_queued: rec.is_queued != 0,
-            executor: rec.executor,
-        }))
+        Ok(task.map(TaskWithAttemptStatus::from_task))
     }
 
     pub async fn find_paginated_by_project_id_with_attempt_status(
@@ -376,93 +279,34 @@ WHERE t.id = $1"#,
 
         let status_str = status.as_ref().map(|s| s.to_string().to_lowercase());
 
-        let query = format!(
+        // Use materialized columns instead of subqueries
+        let query_str = format!(
             r#"SELECT
-  t.id,
-  t.project_id,
-  t.title,
-  t.description,
-  t.status,
-  t.parent_workspace_id,
-  t.shared_task_id,
-  t.task_group_id,
-  t.created_at,
-  t.updated_at,
-
-  CASE WHEN EXISTS (
-    SELECT 1
-      FROM task_dependencies td
-      JOIN tasks dep ON dep.id = td.depends_on_id
-     WHERE td.task_id = t.id
-       AND dep.status != 'done'
-  ) THEN 1 ELSE 0 END AS is_blocked,
-
-  CASE WHEN EXISTS (
-    SELECT 1
-      FROM workspaces w
-      JOIN sessions s ON s.workspace_id = w.id
-      JOIN execution_processes ep ON ep.session_id = s.id
-     WHERE w.task_id       = t.id
-       AND ep.status        = 'running'
-       AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-     LIMIT 1
-  ) THEN 1 ELSE 0 END AS has_in_progress_attempt,
-
-  CASE WHEN (
-    SELECT ep.status
-      FROM workspaces w
-      JOIN sessions s ON s.workspace_id = w.id
-      JOIN execution_processes ep ON ep.session_id = s.id
-     WHERE w.task_id       = t.id
-     AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-     ORDER BY ep.created_at DESC
-     LIMIT 1
-  ) IN ('failed','killed') THEN 1 ELSE 0 END AS last_attempt_failed,
-
-  CASE WHEN EXISTS (
-    SELECT 1 FROM workspaces w
-    JOIN execution_queue eq ON eq.workspace_id = w.id
-    WHERE w.task_id = t.id
-    LIMIT 1
-  ) THEN 1 ELSE 0 END AS is_queued,
-
-  COALESCE(( SELECT s.executor
-      FROM workspaces w
-      JOIN sessions s ON s.workspace_id = w.id
-      WHERE w.task_id = t.id
-     ORDER BY s.created_at DESC
-      LIMIT 1
-    ), '') AS executor
-
-FROM tasks t
-WHERE t.project_id = ?1
-  AND (?2 IS NULL OR t.status = ?2)
-  AND (?5 IS NULL OR t.title LIKE ?5 OR t.description LIKE ?5)
-ORDER BY {}
-LIMIT ?3 OFFSET ?4"#,
+                t.id,
+                t.project_id,
+                t.title,
+                t.description,
+                t.status,
+                t.parent_workspace_id,
+                t.shared_task_id,
+                t.task_group_id,
+                t.created_at,
+                t.updated_at,
+                t.is_blocked,
+                t.has_in_progress_attempt,
+                t.last_attempt_failed,
+                t.is_queued,
+                t.last_executor
+            FROM tasks t
+            WHERE t.project_id = ?1
+              AND (?2 IS NULL OR t.status = ?2)
+              AND (?5 IS NULL OR t.title LIKE ?5 OR t.description LIKE ?5)
+            ORDER BY {}
+            LIMIT ?3 OFFSET ?4"#,
             order_by.to_sql()
         );
 
-        #[derive(FromRow)]
-        struct TaskWithAttemptStatusRow {
-            id: Uuid,
-            project_id: Uuid,
-            title: String,
-            description: Option<String>,
-            status: TaskStatus,
-            parent_workspace_id: Option<Uuid>,
-            shared_task_id: Option<Uuid>,
-            task_group_id: Option<Uuid>,
-            created_at: DateTime<Utc>,
-            updated_at: DateTime<Utc>,
-            is_blocked: i64,
-            has_in_progress_attempt: i64,
-            last_attempt_failed: i64,
-            is_queued: i64,
-            executor: String,
-        }
-
-        let records: Vec<TaskWithAttemptStatusRow> = sqlx::query_as(&query)
+        let records: Vec<Task> = sqlx::query_as(&query_str)
             .bind(project_id)
             .bind(status_str)
             .bind(limit)
@@ -473,25 +317,7 @@ LIMIT ?3 OFFSET ?4"#,
 
         let tasks = records
             .into_iter()
-            .map(|rec| TaskWithAttemptStatus {
-                task: Task {
-                    id: rec.id,
-                    project_id: rec.project_id,
-                    title: rec.title,
-                    description: rec.description,
-                    status: rec.status,
-                    parent_workspace_id: rec.parent_workspace_id,
-                    shared_task_id: rec.shared_task_id,
-                    task_group_id: rec.task_group_id,
-                    created_at: rec.created_at,
-                    updated_at: rec.updated_at,
-                },
-                has_in_progress_attempt: rec.has_in_progress_attempt != 0,
-                last_attempt_failed: rec.last_attempt_failed != 0,
-                is_blocked: rec.is_blocked != 0,
-                is_queued: rec.is_queued != 0,
-                executor: rec.executor,
-            })
+            .map(TaskWithAttemptStatus::from_task)
             .collect();
 
         Ok((tasks, total))
@@ -500,7 +326,7 @@ LIMIT ?3 OFFSET ?4"#,
     pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
             Task,
-            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>"
+            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String"
                FROM tasks
                WHERE id = $1"#,
             id
@@ -512,7 +338,7 @@ LIMIT ?3 OFFSET ?4"#,
     pub async fn find_by_rowid(pool: &SqlitePool, rowid: i64) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
             Task,
-            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>"
+            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String"
                FROM tasks
                WHERE rowid = $1"#,
             rowid
@@ -530,7 +356,7 @@ LIMIT ?3 OFFSET ?4"#,
     {
         sqlx::query_as!(
             Task,
-            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>"
+            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String"
                FROM tasks
                WHERE shared_task_id = $1
                LIMIT 1"#,
@@ -543,7 +369,7 @@ LIMIT ?3 OFFSET ?4"#,
     pub async fn find_all_shared(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as!(
             Task,
-            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>"
+            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String"
                FROM tasks
                WHERE shared_task_id IS NOT NULL"#
         )
@@ -561,7 +387,7 @@ LIMIT ?3 OFFSET ?4"#,
             Task,
             r#"INSERT INTO tasks (id, project_id, title, description, status, parent_workspace_id, shared_task_id, task_group_id)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>""#,
+               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String""#,
             task_id,
             data.project_id,
             data.title,
@@ -591,7 +417,7 @@ LIMIT ?3 OFFSET ?4"#,
             r#"UPDATE tasks
                SET title = $3, description = $4, status = $5, parent_workspace_id = $6, task_group_id = $7
                WHERE id = $1 AND project_id = $2
-               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>""#,
+               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String""#,
             id,
             project_id,
             title,
@@ -752,7 +578,7 @@ LIMIT ?3 OFFSET ?4"#,
         // Find only child tasks that have this workspace as their parent
         sqlx::query_as!(
             Task,
-            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>"
+            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String"
                FROM tasks
                WHERE parent_workspace_id = $1
                ORDER BY created_at DESC"#,
@@ -1247,6 +1073,133 @@ LIMIT ?4"#,
             current_workspace: workspace.clone(),
             children,
         })
+    }
+
+    /// Recalculate and update all materialized status columns for a single task.
+    /// This should be called when events occur that might change the task's status:
+    /// - Dependency task status changes (affects is_blocked)
+    /// - Execution process status changes (affects has_in_progress_attempt, last_attempt_failed)
+    /// - Execution queue changes (affects is_queued)
+    /// - Session creation (affects last_executor)
+    pub async fn update_materialized_status(pool: &SqlitePool, task_id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"UPDATE tasks SET
+                is_blocked = (
+                    SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END
+                    FROM task_dependencies td
+                    JOIN tasks dep ON dep.id = td.depends_on_id
+                    WHERE td.task_id = tasks.id AND dep.status != 'done'
+                ),
+                has_in_progress_attempt = (
+                    SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    JOIN execution_processes ep ON ep.session_id = s.id
+                    WHERE w.task_id = tasks.id
+                      AND ep.status = 'running'
+                      AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')
+                ),
+                last_attempt_failed = COALESCE((
+                    SELECT CASE WHEN ep_status IN ('failed', 'killed') THEN 1 ELSE 0 END
+                    FROM (
+                        SELECT ep.status AS ep_status
+                        FROM workspaces w
+                        JOIN sessions s ON s.workspace_id = w.id
+                        JOIN execution_processes ep ON ep.session_id = s.id
+                        WHERE w.task_id = tasks.id
+                          AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')
+                        ORDER BY ep.created_at DESC
+                        LIMIT 1
+                    )
+                ), 0),
+                is_queued = (
+                    SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END
+                    FROM workspaces w
+                    JOIN execution_queue eq ON eq.workspace_id = w.id
+                    WHERE w.task_id = tasks.id
+                ),
+                last_executor = COALESCE((
+                    SELECT s.executor
+                    FROM workspaces w
+                    JOIN sessions s ON s.workspace_id = w.id
+                    WHERE w.task_id = tasks.id
+                    ORDER BY s.created_at DESC
+                    LIMIT 1
+                ), '')
+            WHERE id = $1"#,
+            task_id
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Recalculate and update materialized status columns for multiple tasks in a transaction.
+    /// More efficient than calling update_materialized_status in a loop.
+    pub async fn update_materialized_status_bulk(
+        pool: &SqlitePool,
+        task_ids: &[Uuid],
+    ) -> Result<(), sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(());
+        }
+
+        let mut tx = pool.begin().await?;
+
+        for task_id in task_ids {
+            sqlx::query!(
+                r#"UPDATE tasks SET
+                    is_blocked = (
+                        SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END
+                        FROM task_dependencies td
+                        JOIN tasks dep ON dep.id = td.depends_on_id
+                        WHERE td.task_id = tasks.id AND dep.status != 'done'
+                    ),
+                    has_in_progress_attempt = (
+                        SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END
+                        FROM workspaces w
+                        JOIN sessions s ON s.workspace_id = w.id
+                        JOIN execution_processes ep ON ep.session_id = s.id
+                        WHERE w.task_id = tasks.id
+                          AND ep.status = 'running'
+                          AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')
+                    ),
+                    last_attempt_failed = COALESCE((
+                        SELECT CASE WHEN ep_status IN ('failed', 'killed') THEN 1 ELSE 0 END
+                        FROM (
+                            SELECT ep.status AS ep_status
+                            FROM workspaces w
+                            JOIN sessions s ON s.workspace_id = w.id
+                            JOIN execution_processes ep ON ep.session_id = s.id
+                            WHERE w.task_id = tasks.id
+                              AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')
+                            ORDER BY ep.created_at DESC
+                            LIMIT 1
+                        )
+                    ), 0),
+                    is_queued = (
+                        SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END
+                        FROM workspaces w
+                        JOIN execution_queue eq ON eq.workspace_id = w.id
+                        WHERE w.task_id = tasks.id
+                    ),
+                    last_executor = COALESCE((
+                        SELECT s.executor
+                        FROM workspaces w
+                        JOIN sessions s ON s.workspace_id = w.id
+                        WHERE w.task_id = tasks.id
+                        ORDER BY s.created_at DESC
+                        LIMIT 1
+                    ), '')
+                WHERE id = $1"#,
+                task_id
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
     }
 }
 

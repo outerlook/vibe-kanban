@@ -91,7 +91,12 @@ impl TaskDependency {
                       t.shared_task_id as "shared_task_id: Uuid",
                       t.task_group_id as "task_group_id: Uuid",
                       t.created_at as "created_at!: DateTime<Utc>",
-                      t.updated_at as "updated_at!: DateTime<Utc>"
+                      t.updated_at as "updated_at!: DateTime<Utc>",
+                      t.is_blocked as "is_blocked!: bool",
+                      t.has_in_progress_attempt as "has_in_progress_attempt!: bool",
+                      t.last_attempt_failed as "last_attempt_failed!: bool",
+                      t.is_queued as "is_queued!: bool",
+                      t.last_executor as "last_executor!: String"
                FROM task_dependencies td
                JOIN tasks t ON t.id = td.depends_on_id
                WHERE td.task_id = $1
@@ -114,7 +119,12 @@ impl TaskDependency {
                       t.shared_task_id as "shared_task_id: Uuid",
                       t.task_group_id as "task_group_id: Uuid",
                       t.created_at as "created_at!: DateTime<Utc>",
-                      t.updated_at as "updated_at!: DateTime<Utc>"
+                      t.updated_at as "updated_at!: DateTime<Utc>",
+                      t.is_blocked as "is_blocked!: bool",
+                      t.has_in_progress_attempt as "has_in_progress_attempt!: bool",
+                      t.last_attempt_failed as "last_attempt_failed!: bool",
+                      t.is_queued as "is_queued!: bool",
+                      t.last_executor as "last_executor!: String"
                FROM task_dependencies td
                JOIN tasks t ON t.id = td.task_id
                WHERE td.depends_on_id = $1

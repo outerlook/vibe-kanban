@@ -1,0 +1,104 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                id AS \"id!: Uuid\",\n                project_id AS \"project_id!: Uuid\",\n                title,\n                description,\n                status AS \"status!: TaskStatus\",\n                parent_workspace_id AS \"parent_workspace_id: Uuid\",\n                shared_task_id AS \"shared_task_id: Uuid\",\n                task_group_id AS \"task_group_id: Uuid\",\n                created_at AS \"created_at!: DateTime<Utc>\",\n                updated_at AS \"updated_at!: DateTime<Utc>\",\n                is_blocked AS \"is_blocked!: bool\",\n                has_in_progress_attempt AS \"has_in_progress_attempt!: bool\",\n                last_attempt_failed AS \"last_attempt_failed!: bool\",\n                is_queued AS \"is_queued!: bool\",\n                last_executor AS \"last_executor!: String\"\n            FROM tasks\n            WHERE project_id = $1\n            ORDER BY created_at DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "project_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "title",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "description",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "status!: TaskStatus",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "parent_workspace_id: Uuid",
+        "ordinal": 5,
+        "type_info": "Blob"
+      },
+      {
+        "name": "shared_task_id: Uuid",
+        "ordinal": 6,
+        "type_info": "Blob"
+      },
+      {
+        "name": "task_group_id: Uuid",
+        "ordinal": 7,
+        "type_info": "Blob"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_blocked!: bool",
+        "ordinal": 10,
+        "type_info": "Integer"
+      },
+      {
+        "name": "has_in_progress_attempt!: bool",
+        "ordinal": 11,
+        "type_info": "Integer"
+      },
+      {
+        "name": "last_attempt_failed!: bool",
+        "ordinal": 12,
+        "type_info": "Integer"
+      },
+      {
+        "name": "is_queued!: bool",
+        "ordinal": 13,
+        "type_info": "Integer"
+      },
+      {
+        "name": "last_executor!: String",
+        "ordinal": 14,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1fbde18a8305dc310a9e24d4cc1f70c5930a3caa3d23781bcb7452b862a8b1d2"
+}
