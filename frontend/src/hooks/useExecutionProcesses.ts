@@ -3,6 +3,10 @@ import { useJsonPatchWsStream } from './useJsonPatchWsStream';
 import type { ExecutionProcess } from 'shared/types';
 import { shouldShowInLogs } from '@/constants/processes';
 
+export type ExecutionProcessesSource =
+  | { type: 'workspace'; workspaceId: string }
+  | { type: 'conversation'; conversationSessionId: string };
+
 type ExecutionProcessState = {
   execution_processes: Record<string, ExecutionProcess>;
 };
@@ -17,19 +21,24 @@ interface UseExecutionProcessesResult {
 }
 
 /**
- * Stream execution processes for a task attempt via WebSocket (JSON Patch) and expose as array + map.
+ * Stream execution processes for a workspace or conversation via WebSocket (JSON Patch) and expose as array + map.
  * Server sends initial snapshot: replace /execution_processes with an object keyed by id.
  * Live updates arrive at /execution_processes/<id> via add/replace/remove operations.
  */
 export const useExecutionProcesses = (
-  taskAttemptId: string | undefined,
+  source: ExecutionProcessesSource | undefined,
   opts?: { showSoftDeleted?: boolean }
 ): UseExecutionProcessesResult => {
   const showSoftDeleted = opts?.showSoftDeleted;
   let endpoint: string | undefined;
 
-  if (taskAttemptId) {
-    const params = new URLSearchParams({ workspace_id: taskAttemptId });
+  if (source) {
+    const params = new URLSearchParams();
+    if (source.type === 'workspace') {
+      params.set('workspace_id', source.workspaceId);
+    } else {
+      params.set('conversation_session_id', source.conversationSessionId);
+    }
     if (typeof showSoftDeleted === 'boolean') {
       params.set('show_soft_deleted', String(showSoftDeleted));
     }
@@ -42,11 +51,7 @@ export const useExecutionProcesses = (
   );
 
   const { data, isConnected, error } =
-    useJsonPatchWsStream<ExecutionProcessState>(
-      endpoint,
-      !!taskAttemptId,
-      initialData
-    );
+    useJsonPatchWsStream<ExecutionProcessState>(endpoint, !!source, initialData);
 
   const executionProcessesById = data?.execution_processes ?? {};
   const executionProcesses = Object.values(executionProcessesById).sort(
@@ -58,7 +63,7 @@ export const useExecutionProcesses = (
     (process) =>
       shouldShowInLogs(process.run_reason) && process.status === 'running'
   );
-  const isLoading = !!taskAttemptId && !data && !error; // until first snapshot
+  const isLoading = !!source && !data && !error; // until first snapshot
 
   return {
     executionProcesses,

@@ -31,7 +31,10 @@ export const ExecutionProcessesProvider: React.FC<{
     isLoading,
     isConnected,
     error,
-  } = useExecutionProcesses(attemptId, { showSoftDeleted: true });
+  } = useExecutionProcesses(
+    attemptId ? { type: 'workspace', workspaceId: attemptId } : undefined,
+    { showSoftDeleted: true }
+  );
 
   const visible = useMemo(
     () => executionProcesses.filter((p) => !p.dropped),
