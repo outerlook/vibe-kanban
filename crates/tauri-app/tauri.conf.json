@@ -14,7 +14,8 @@
       "icons/icon.icns",
       "icons/icon.ico",
       "icons/icon.png"
-    ]
+    ],
+    "externalBin": ["binaries/mcp_task_server"]
   },
   "app": {
     "windows": [

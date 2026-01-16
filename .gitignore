@@ -85,3 +85,5 @@ vibe-kanban-cloud/
 
 # Tauri
 crates/tauri-app/gen/
+crates/tauri-app/binaries/*
+!crates/tauri-app/binaries/.gitkeep
