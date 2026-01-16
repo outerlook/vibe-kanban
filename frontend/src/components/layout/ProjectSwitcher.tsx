@@ -52,9 +52,7 @@ export function ProjectSwitcher() {
                     <Circle className="h-2.5 w-2.5 fill-amber-500 text-amber-500 shrink-0" />
                   )}
                 </span>
-                {isCurrent ? (
-                  <Check className="h-4 w-4 text-primary" />
-                ) : null}
+                {isCurrent ? <Check className="h-4 w-4 text-primary" /> : null}
               </DropdownMenuItem>
             );
           })

@@ -91,8 +91,8 @@ impl ExecutionQueue {
 
         let executor_profile_json = serde_json::to_string(&executor_profile_id)
             .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
-        let executor_action_json = serde_json::to_string(executor_action)
-            .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
+        let executor_action_json =
+            serde_json::to_string(executor_action).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
 
         sqlx::query!(
             r#"INSERT INTO execution_queue (id, workspace_id, executor_profile_id, session_id, executor_action)
@@ -198,9 +198,10 @@ impl ExecutionQueue {
 
     /// Get total count of entries in the queue
     pub async fn count(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
-        let result = sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!: i64" FROM execution_queue"#)
-            .fetch_one(pool)
-            .await?;
+        let result =
+            sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!: i64" FROM execution_queue"#)
+                .fetch_one(pool)
+                .await?;
         Ok(result)
     }
 }

@@ -13,10 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import BranchSelector from '@/components/tasks/BranchSelector';
 import { useProjectRepos, useRepoBranches } from '@/hooks';
-import {
-  useCreateTaskGroup,
-  useUpdateTaskGroup,
-} from '@/hooks/useTaskGroups';
+import { useCreateTaskGroup, useUpdateTaskGroup } from '@/hooks/useTaskGroups';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal, type SaveResult } from '@/lib/modals';
 import type { TaskGroup } from 'shared/types';
@@ -174,9 +171,7 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
               </div>
             )}
 
-            {error && (
-              <div className="text-sm text-destructive">{error}</div>
-            )}
+            {error && <div className="text-sm text-destructive">{error}</div>}
           </div>
 
           <DialogFooter>

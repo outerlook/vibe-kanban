@@ -445,7 +445,8 @@ impl AcpAgentHarness {
                                     let stop_reason = serde_json::to_string(&resp.stop_reason)
                                         .unwrap_or_default();
                                     let meta = serde_json::to_value(&resp.meta).ok();
-                                    let _ = log_tx.send(AcpEvent::Done { stop_reason, meta }.to_string());
+                                    let _ = log_tx
+                                        .send(AcpEvent::Done { stop_reason, meta }.to_string());
                                 }
                                 Err(e) => {
                                     tracing::debug!("error {} {e} {:?}", e.code, e.data);

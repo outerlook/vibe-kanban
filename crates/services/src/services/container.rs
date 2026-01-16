@@ -344,11 +344,7 @@ pub trait ContainerService {
                         continue;
                     }
                     Err(e) => {
-                        tracing::error!(
-                            "Failed to load session {} from queue: {}",
-                            session_id,
-                            e
-                        );
+                        tracing::error!("Failed to load session {} from queue: {}", session_id, e);
                         continue;
                     }
                 };
@@ -389,11 +385,7 @@ pub trait ContainerService {
                     .start_workspace_inner(&workspace, entry.executor_profile_id.0.clone())
                     .await
                 {
-                    tracing::error!(
-                        "Failed to start queued workspace {}: {}",
-                        workspace.id,
-                        e
-                    );
+                    tracing::error!("Failed to start queued workspace {}: {}", workspace.id, e);
                     // Continue processing other queue entries even if one fails
                 }
             }
@@ -1275,8 +1267,7 @@ pub trait ContainerService {
                 workspace.id
             );
             let queue_entry =
-                ExecutionQueue::create(&self.db().pool, workspace.id, &executor_profile_id)
-                    .await?;
+                ExecutionQueue::create(&self.db().pool, workspace.id, &executor_profile_id).await?;
             return Ok(StartWorkspaceResult::Queued(queue_entry));
         }
 

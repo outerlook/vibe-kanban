@@ -156,7 +156,9 @@ pub async fn merge_task_group(
     )
     .await
     .map_err(|err| match err {
-        MergeError::SameGroup => ApiError::BadRequest("Cannot merge a group into itself".to_string()),
+        MergeError::SameGroup => {
+            ApiError::BadRequest("Cannot merge a group into itself".to_string())
+        }
         MergeError::SourceNotFound => ApiError::NotFound("Source task group not found".to_string()),
         MergeError::TargetNotFound => ApiError::NotFound("Target task group not found".to_string()),
         MergeError::DifferentProjects => {

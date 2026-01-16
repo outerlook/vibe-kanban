@@ -157,9 +157,14 @@ pub struct NotificationConfig {
     pub sound_enabled: bool,
     pub push_enabled: bool,
     pub sound_file: SoundFile,
+    #[serde(default = "default_error_sound_file")]
     pub error_sound_file: SoundFile,
     #[serde(default)]
     pub custom_sound_path: Option<String>,
+}
+
+fn default_error_sound_file() -> SoundFile {
+    SoundFile::ErrorBuzzer
 }
 
 impl From<v1::Config> for NotificationConfig {
@@ -227,7 +232,9 @@ impl GitHubConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, EnumString, strum_macros::EnumIter)]
+#[derive(
+    Debug, Clone, PartialEq, Serialize, Deserialize, TS, EnumString, strum_macros::EnumIter,
+)]
 #[ts(use_ts_enum)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
@@ -271,7 +278,10 @@ impl SoundFile {
 
     /// Returns the identifier used in API paths (e.g., "bundled:COW_MOOING")
     pub fn to_identifier(&self) -> String {
-        format!("bundled:{}", serde_json::to_value(self).unwrap().as_str().unwrap())
+        format!(
+            "bundled:{}",
+            serde_json::to_value(self).unwrap().as_str().unwrap()
+        )
     }
 
     // load the sound file from the embedded assets or cache

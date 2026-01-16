@@ -9,7 +9,13 @@ interface GanttTooltipContentProps {
   data: ITask;
 }
 
-const STATUS_VALUES = new Set<string>(['todo', 'inprogress', 'inreview', 'done', 'cancelled']);
+const STATUS_VALUES = new Set<string>([
+  'todo',
+  'inprogress',
+  'inreview',
+  'done',
+  'cancelled',
+]);
 
 function isTaskStatus(value: string): value is TaskStatus {
   return STATUS_VALUES.has(value);

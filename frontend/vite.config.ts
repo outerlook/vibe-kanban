@@ -5,6 +5,9 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import fs from "fs";
 
+// Tauri 2.x sets TAURI_ENV_* environment variables during `cargo tauri dev`
+const isTauriDev = process.env.TAURI_ENV_DEBUG === "true";
+
 const manualChunkGroups: Record<string, string[]> = {
   "react-vendor": ["react", "react-dom", "react-router-dom"],
   "ui-vendor": [
@@ -128,12 +131,15 @@ export default defineConfig({
   },
   server: {
     port: parseInt(process.env.FRONTEND_PORT || "3000"),
+    strictPort: false,
+    // Don't clear console in Tauri dev mode (interferes with Tauri logs)
+    clearScreen: !isTauriDev,
     proxy: {
       "/api": {
         target: `http://localhost:${process.env.BACKEND_PORT || "3001"}`,
         changeOrigin: true,
         ws: true,
-      }
+      },
     },
     fs: {
       allow: [path.resolve(__dirname, "."), path.resolve(__dirname, "..")],

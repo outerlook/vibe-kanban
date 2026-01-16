@@ -1,0 +1,94 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Vibe Kanban",
+  "version": "0.1.0",
+  "identifier": "ai.bloop.vibe-kanban",
+  "build": {
+    "frontendDist": "../../frontend/dist"
+  },
+  "bundle": {
+    "active": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "externalBin": ["binaries/mcp_task_server"],
+    "targets": "all",
+    "publisher": "Bloop AI",
+    "copyright": "Copyright © 2024 Bloop AI. All rights reserved.",
+    "category": "DeveloperTool",
+    "shortDescription": "AI-powered kanban board for development teams",
+    "longDescription": "Vibe Kanban is an AI-powered kanban board designed for development teams. It integrates with AI coding agents to automate task execution and streamline your development workflow.",
+    "licenseFile": "../../LICENSE",
+    "macOS": {
+      "entitlements": null,
+      "signingIdentity": null,
+      "providerShortName": null,
+      "minimumSystemVersion": "10.15"
+    },
+    "windows": {
+      "digestAlgorithm": "sha256",
+      "certificateThumbprint": null,
+      "timestampUrl": "http://timestamp.digicert.com",
+      "allowDowngrades": true,
+      "wix": null,
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "headerImage": null,
+        "sidebarImage": null,
+        "installMode": "currentUser",
+        "languages": ["English"],
+        "displayLanguageSelector": false
+      }
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      },
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"],
+        "section": "devel",
+        "priority": "optional"
+      },
+      "rpm": {
+        "release": "1",
+        "epoch": 0
+      }
+    }
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Vibe Kanban",
+        "width": 1400,
+        "height": 900,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/**", "$HOME/**"]
+      }
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true,
+      "scope": []
+    },
+    "fs": {
+      "scope": ["$APPDATA", "$APPDATA/**", "$HOME/**"]
+    },
+    "process": {},
+    "dialog": {
+      "all": true
+    }
+  }
+}

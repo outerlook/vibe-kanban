@@ -564,7 +564,10 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
             </form.Field>
             {editMode && (
               <div className="pt-4">
-                <DependencySection taskId={props.task.id} projectId={projectId} />
+                <DependencySection
+                  taskId={props.task.id}
+                  projectId={projectId}
+                />
               </div>
             )}
           </div>

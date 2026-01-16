@@ -28,10 +28,10 @@ impl NotificationService {
     /// Send error notification with error sound file
     pub async fn notify_error(&self, title: &str, message: &str) {
         let config = self.config.read().await.notifications.clone();
-        if config.sound_enabled {
-            if let Some(path) = Self::bundled_sound_path(&config.error_sound_file).await {
-                Self::play_sound_file(&path).await;
-            }
+        if config.sound_enabled
+            && let Some(path) = Self::bundled_sound_path(&config.error_sound_file).await
+        {
+            Self::play_sound_file(&path).await;
         }
         if config.push_enabled {
             Self::send_push_notification(title, message).await;
@@ -162,11 +162,7 @@ impl NotificationService {
                 match tokio::fs::metadata(&custom_path).await {
                     Ok(_) => Some(custom_path),
                     Err(error) => {
-                        tracing::warn!(
-                            "Custom sound file not found: {} ({})",
-                            filename,
-                            error
-                        );
+                        tracing::warn!("Custom sound file not found: {} ({})", filename, error);
                         Self::bundled_sound_path(&SoundFile::CowMooing).await
                     }
                 }

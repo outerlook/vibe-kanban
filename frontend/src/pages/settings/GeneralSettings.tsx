@@ -43,6 +43,7 @@ import { TagManager } from '@/components/TagManager';
 import { FolderPickerDialog } from '@/components/dialogs/shared/FolderPickerDialog';
 import ExecutorProfileSelector from '@/components/settings/ExecutorProfileSelector';
 import { CustomEditorsList } from '@/components/settings/CustomEditorsList';
+import { ServerModeSettings } from '@/components/settings/ServerModeSettings';
 import { soundsApi } from '@/lib/api';
 
 export function GeneralSettings() {
@@ -271,6 +272,8 @@ export function GeneralSettings() {
           </AlertDescription>
         </Alert>
       )}
+
+      <ServerModeSettings />
 
       <Card>
         <CardHeader>

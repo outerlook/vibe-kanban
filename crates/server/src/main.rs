@@ -1,6 +1,6 @@
 use anyhow::{self, Error as AnyhowError};
 use deployment::{Deployment, DeploymentError};
-use server::{DeploymentImpl, routes};
+use server::{DeploymentImpl, perform_cleanup_actions, routes, shutdown_signal};
 use services::services::container::ContainerService;
 use sqlx::Error as SqlxError;
 use strip_ansi_escapes::strip;
@@ -159,48 +159,4 @@ async fn main() -> Result<(), VibeKanbanError> {
     perform_cleanup_actions(&deployment).await;
 
     Ok(())
-}
-
-pub async fn shutdown_signal() {
-    // Always wait for Ctrl+C
-    let ctrl_c = async {
-        if let Err(e) = tokio::signal::ctrl_c().await {
-            tracing::error!("Failed to install Ctrl+C handler: {e}");
-        }
-    };
-
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::{SignalKind, signal};
-
-        // Try to install SIGTERM handler, but don't panic if it fails
-        let terminate = async {
-            if let Ok(mut sigterm) = signal(SignalKind::terminate()) {
-                sigterm.recv().await;
-            } else {
-                tracing::error!("Failed to install SIGTERM handler");
-                // Fallback: never resolves
-                std::future::pending::<()>().await;
-            }
-        };
-
-        tokio::select! {
-            _ = ctrl_c => {},
-            _ = terminate => {},
-        }
-    }
-
-    #[cfg(not(unix))]
-    {
-        // Only ctrl_c is available, so just await it
-        ctrl_c.await;
-    }
-}
-
-pub async fn perform_cleanup_actions(deployment: &DeploymentImpl) {
-    deployment
-        .container()
-        .kill_all_running_processes()
-        .await
-        .expect("Failed to cleanly kill running execution processes");
 }

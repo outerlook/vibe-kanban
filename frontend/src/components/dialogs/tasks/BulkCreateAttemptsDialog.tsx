@@ -128,11 +128,11 @@ const BulkCreateAttemptsDialogImpl =
 
     const canCreate = Boolean(
       effectiveProfile &&
-        allBranchesSelected &&
-        projectRepos.length > 0 &&
-        !isCreating &&
-        !isLoadingInitial &&
-        !isCompleted
+      allBranchesSelected &&
+      projectRepos.length > 0 &&
+      !isCreating &&
+      !isLoadingInitial &&
+      !isCompleted
     );
 
     const createAttemptForTask = useCallback(
@@ -343,7 +343,7 @@ const BulkCreateAttemptsDialogImpl =
     );
   });
 
-export const BulkCreateAttemptsDialog =
-  defineModal<BulkCreateAttemptsDialogProps, void>(
-    BulkCreateAttemptsDialogImpl
-  );
+export const BulkCreateAttemptsDialog = defineModal<
+  BulkCreateAttemptsDialogProps,
+  void
+>(BulkCreateAttemptsDialogImpl);
