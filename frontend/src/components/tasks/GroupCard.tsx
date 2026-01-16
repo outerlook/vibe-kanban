@@ -18,7 +18,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { useBranchAncestorStatus } from '@/hooks';
+import { useBranchAncestorStatus, useProjectQueueCount } from '@/hooks';
 import { useDeleteTaskGroup } from '@/hooks/useTaskGroups';
 import { StatusCountBadge } from './StatusCountBadge';
 import {
@@ -52,6 +52,7 @@ export function GroupCard({
   const { t } = useTranslation('tasks');
   const { data: branchStatus, isLoading: isBranchLoading } =
     useBranchAncestorStatus(repoId, group.base_branch ?? undefined);
+  const { data: queueCount } = useProjectQueueCount(projectId);
 
   const deleteMutation = useDeleteTaskGroup();
 
@@ -145,6 +146,14 @@ export function GroupCard({
                 count={counts[status]}
               />
             ))}
+            {queueCount && Number(queueCount.count) > 0 && (
+              <Badge
+                variant="secondary"
+                className="bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300"
+              >
+                {Number(queueCount.count)} in queue
+              </Badge>
+            )}
           </div>
         </div>
       </Card>

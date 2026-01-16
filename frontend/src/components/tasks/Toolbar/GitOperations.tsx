@@ -11,6 +11,7 @@ import {
   Eye,
   Sparkles,
 } from 'lucide-react';
+import { QueueStatusBadge } from '../QueueStatusBadge';
 import { Button } from '@/components/ui/button.tsx';
 import {
   Tooltip,
@@ -549,6 +550,7 @@ function GitOperations({
             <div className="flex flex-wrap items-center gap-2 min-w-0">
               {branchChips}
               {statusChips}
+              <QueueStatusBadge workspaceId={selectedAttempt.id} />
             </div>
           </>
         ) : (
@@ -568,6 +570,7 @@ function GitOperations({
                 {branchChips}
               </div>
               {statusChips}
+              <QueueStatusBadge workspaceId={selectedAttempt.id} />
             </div>
           </>
         )}
