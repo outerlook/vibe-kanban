@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useMemo } from 'react';
-import { useExecutionProcesses } from '@/hooks/useExecutionProcesses';
+import {
+  useExecutionProcesses,
+  type ExecutionProcessesSource,
+} from '@/hooks/useExecutionProcesses';
 import type { ExecutionProcess } from 'shared/types';
 import { shouldShowInLogs } from '@/constants/processes';
 
@@ -21,9 +24,9 @@ const ExecutionProcessesContext =
   createContext<ExecutionProcessesContextType | null>(null);
 
 export const ExecutionProcessesProvider: React.FC<{
-  attemptId: string | undefined;
+  source: ExecutionProcessesSource | undefined;
   children: React.ReactNode;
-}> = ({ attemptId, children }) => {
+}> = ({ source, children }) => {
   const {
     executionProcesses,
     executionProcessesById,
@@ -31,10 +34,7 @@ export const ExecutionProcessesProvider: React.FC<{
     isLoading,
     isConnected,
     error,
-  } = useExecutionProcesses(
-    attemptId ? { type: 'workspace', workspaceId: attemptId } : undefined,
-    { showSoftDeleted: true }
-  );
+  } = useExecutionProcesses(source, { showSoftDeleted: true });
 
   const visible = useMemo(
     () => executionProcesses.filter((p) => !p.dropped),
