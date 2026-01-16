@@ -2,4 +2,5 @@
 
 pub mod commands;
 pub mod embedded_server;
+pub mod mcp_launcher;
 pub mod state;

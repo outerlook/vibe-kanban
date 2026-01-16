@@ -3,10 +3,12 @@
 //! These commands allow the frontend to:
 //! - Get the current server URL (embedded or remote)
 //! - Get/set the server mode (local or remote)
+//! - Launch/stop the MCP server
 
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::embedded_server::start_embedded_server;
+use crate::mcp_launcher;
 use crate::state::{AppState, ServerMode};
 
 /// Returns the current server URL.
@@ -101,4 +103,68 @@ pub async fn initialize_local_mode(state: &AppState) -> Result<(), String> {
     *state.embedded_server_handle.lock().await = Some(handle);
 
     Ok(())
+}
+
+/// Launches the MCP server as a child process.
+///
+/// The MCP server connects to the current backend (embedded or remote).
+/// If an MCP server is already running, it will be stopped first.
+#[tauri::command]
+pub async fn launch_mcp_server(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    // Stop existing MCP server if running
+    {
+        let mut handle_guard = state.mcp_process_handle.lock().await;
+        if let Some(mut child) = handle_guard.take() {
+            tracing::info!("Stopping existing MCP server before launching new one...");
+            if let Err(e) = mcp_launcher::stop_mcp_server(&mut child).await {
+                tracing::warn!("Failed to stop existing MCP server: {}", e);
+            }
+        }
+    }
+
+    // Get current backend URL
+    let backend_url = state.server_url.read().await.clone();
+    if backend_url.is_empty() {
+        return Err("Backend URL not configured. Start the server first.".to_string());
+    }
+
+    // Launch MCP server
+    let child = mcp_launcher::launch_mcp_server(&app, &backend_url)
+        .await
+        .map_err(|e| format!("Failed to launch MCP server: {}", e))?;
+
+    // Store handle
+    *state.mcp_process_handle.lock().await = Some(child);
+
+    tracing::info!("MCP server launched successfully");
+    Ok(())
+}
+
+/// Stops the running MCP server.
+///
+/// If no MCP server is running, this is a no-op.
+#[tauri::command]
+pub async fn stop_mcp_server(state: State<'_, AppState>) -> Result<(), String> {
+    let mut handle_guard = state.mcp_process_handle.lock().await;
+
+    if let Some(mut child) = handle_guard.take() {
+        mcp_launcher::stop_mcp_server(&mut child)
+            .await
+            .map_err(|e| format!("Failed to stop MCP server: {}", e))?;
+        tracing::info!("MCP server stopped");
+    } else {
+        tracing::debug!("No MCP server running");
+    }
+
+    Ok(())
+}
+
+/// Returns whether the MCP server is currently running.
+#[tauri::command]
+pub async fn is_mcp_server_running(state: State<'_, AppState>) -> Result<bool, String> {
+    let handle_guard = state.mcp_process_handle.lock().await;
+    Ok(handle_guard.is_some())
 }

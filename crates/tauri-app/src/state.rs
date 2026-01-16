@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
+use tokio::process::Child;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 
@@ -23,6 +24,8 @@ pub struct AppState {
     pub mode: Arc<RwLock<ServerMode>>,
     pub embedded_server_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     pub server_url: Arc<RwLock<String>>,
+    /// Handle to the MCP server child process, if running
+    pub mcp_process_handle: Arc<Mutex<Option<Child>>>,
 }
 
 impl AppState {
@@ -31,6 +34,7 @@ impl AppState {
             mode: Arc::new(RwLock::new(ServerMode::Local)),
             embedded_server_handle: Arc::new(Mutex::new(None)),
             server_url: Arc::new(RwLock::new(String::new())),
+            mcp_process_handle: Arc::new(Mutex::new(None)),
         }
     }
 

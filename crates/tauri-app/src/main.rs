@@ -20,7 +20,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             tauri_app_lib::commands::get_server_url,
             tauri_app_lib::commands::get_server_mode,
-            tauri_app_lib::commands::set_server_mode
+            tauri_app_lib::commands::set_server_mode,
+            tauri_app_lib::commands::launch_mcp_server,
+            tauri_app_lib::commands::stop_mcp_server,
+            tauri_app_lib::commands::is_mcp_server_running
         ])
         .setup(|app| {
             let state = app.state::<AppState>();
@@ -28,6 +31,7 @@ fn main() {
                 mode: state.mode.clone(),
                 embedded_server_handle: state.embedded_server_handle.clone(),
                 server_url: state.server_url.clone(),
+                mcp_process_handle: state.mcp_process_handle.clone(),
             };
 
             // Start embedded server if in Local mode
