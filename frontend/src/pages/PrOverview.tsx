@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { RefreshCw, GitPullRequest, Settings, FolderGit2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -14,12 +14,9 @@ import { useProject } from '@/contexts/ProjectContext';
 import { useProjectPrs, prKeys } from '@/hooks/useProjectPrs';
 import { useTaskGroups } from '@/hooks/useTaskGroups';
 import { useQueryClient } from '@tanstack/react-query';
-import type { PrWithComments } from '@/lib/api';
+import { ApiError, type PrWithComments } from '@/lib/api';
 
-function mapPrWithCommentsToPrData(
-  pr: PrWithComments,
-  repoId: string
-): PrData {
+function toPrData(pr: PrWithComments, repoId: string): PrData {
   return {
     id: `${repoId}-${pr.number}`,
     title: pr.title,
@@ -30,6 +27,41 @@ function mapPrWithCommentsToPrData(
     unresolvedComments: pr.unresolved_count,
     createdAt: pr.created_at,
   };
+}
+
+interface PageHeaderProps {
+  onRefresh?: () => void;
+  refreshLabel?: string;
+  disabled?: boolean;
+  subtitle?: ReactNode;
+}
+
+function PageHeader({
+  onRefresh,
+  refreshLabel = 'Refresh',
+  disabled,
+  subtitle,
+}: PageHeaderProps) {
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <GitPullRequest className="h-6 w-6" />
+        <h1 className="text-2xl font-semibold">Pull Requests</h1>
+        {subtitle}
+      </div>
+      {onRefresh && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRefresh}
+          disabled={disabled}
+        >
+          <RefreshCw className="h-4 w-4 mr-2" />
+          {refreshLabel}
+        </Button>
+      )}
+    </div>
+  );
 }
 
 export function PrOverview() {
@@ -93,7 +125,7 @@ export function PrOverview() {
       if (filteredPrs.length > 0) {
         grouped.set(
           repo.display_name,
-          filteredPrs.map((pr) => mapPrWithCommentsToPrData(pr, repo.repo_id))
+          filteredPrs.map((pr) => toPrData(pr, repo.repo_id))
         );
       }
     }
@@ -108,30 +140,23 @@ export function PrOverview() {
 
   // Check if error is due to GitHub not configured (400 status)
   const isGitHubNotConfigured =
-    prsError &&
-    'status' in prsError &&
-    (prsError as { status?: number }).status === 400;
+    prsError instanceof ApiError && prsError.status === 400;
 
   // Check if there are no task groups with base branches
   const hasNoBaseBranches = !taskGroupsLoading && baseBranches.length === 0;
+
+  // Compute filtered count for display (used in success state)
+  const filteredCount = Array.from(groupedPrs.values()).reduce(
+    (sum, prs) => sum + prs.length,
+    0
+  );
 
   // Loading state
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <GitPullRequest className="h-6 w-6" />
-            <h1 className="text-2xl font-semibold">Pull Requests</h1>
-          </div>
-          <Button variant="outline" size="sm" disabled>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
-        </div>
-
+        <PageHeader onRefresh={handleRefresh} disabled />
         <PrFiltersSkeleton />
-
         <div className="space-y-4">
           <RepoSectionSkeleton prCount={2} />
           <RepoSectionSkeleton prCount={3} />
@@ -144,13 +169,7 @@ export function PrOverview() {
   if (isGitHubNotConfigured) {
     return (
       <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <GitPullRequest className="h-6 w-6" />
-            <h1 className="text-2xl font-semibold">Pull Requests</h1>
-          </div>
-        </div>
-
+        <PageHeader />
         <Alert>
           <Settings className="h-4 w-4" />
           <AlertTitle>GitHub not configured</AlertTitle>
@@ -171,20 +190,10 @@ export function PrOverview() {
   }
 
   // General error state
-  if (prsError && !isGitHubNotConfigured) {
+  if (prsError) {
     return (
       <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <GitPullRequest className="h-6 w-6" />
-            <h1 className="text-2xl font-semibold">Pull Requests</h1>
-          </div>
-          <Button variant="outline" size="sm" onClick={handleRefresh}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Retry
-          </Button>
-        </div>
-
+        <PageHeader onRefresh={handleRefresh} refreshLabel="Retry" />
         <Alert variant="destructive">
           <AlertTitle>Failed to load pull requests</AlertTitle>
           <AlertDescription>
@@ -201,17 +210,7 @@ export function PrOverview() {
   if (hasNoBaseBranches) {
     return (
       <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <GitPullRequest className="h-6 w-6" />
-            <h1 className="text-2xl font-semibold">Pull Requests</h1>
-          </div>
-          <Button variant="outline" size="sm" onClick={handleRefresh}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
-        </div>
-
+        <PageHeader onRefresh={handleRefresh} />
         <Alert>
           <FolderGit2 className="h-4 w-4" />
           <AlertTitle>No task groups with base branches</AlertTitle>
@@ -226,28 +225,16 @@ export function PrOverview() {
     );
   }
 
-  // Compute filtered count for display
-  const filteredCount = Array.from(groupedPrs.values()).reduce(
-    (sum, prs) => sum + prs.length,
-    0
-  );
-
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <GitPullRequest className="h-6 w-6" />
-          <h1 className="text-2xl font-semibold">Pull Requests</h1>
+      <PageHeader
+        onRefresh={handleRefresh}
+        subtitle={
           <span className="text-sm text-muted-foreground">
             ({filteredCount} of {totalPrCount})
           </span>
-        </div>
-        <Button variant="outline" size="sm" onClick={handleRefresh}>
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
-        </Button>
-      </div>
+        }
+      />
 
       {/* Filters */}
       <PrFilters
