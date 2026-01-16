@@ -152,7 +152,10 @@ const VirtualizedList = ({ attempt, task }: VirtualizedListProps) => {
   };
 
   const { loadMoreHistory, hasMoreHistory, isLoadingMore } =
-    useConversationHistory({ attempt, onEntriesUpdated });
+    useConversationHistory({
+      mode: { type: 'workspace', attempt },
+      onEntriesUpdated,
+    });
 
   const handleScroll = useCallback(
     ({

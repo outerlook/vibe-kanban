@@ -41,7 +41,7 @@ export function FullAttemptLogsPage() {
               <ReviewProvider key={attempt.id}>
                 <ExecutionProcessesProvider
                   key={attempt.id}
-                  attemptId={attempt.id}
+                  source={{ type: 'workspace', workspaceId: attempt.id }}
                 >
                   <TaskAttemptPanel attempt={attempt} task={task}>
                     {({ logs, followUp }) => (
