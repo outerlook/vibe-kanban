@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n                      ep.id              as \"id!: Uuid\",\n                      ep.session_id      as \"session_id: Uuid\",\n                      ep.conversation_session_id as \"conversation_session_id: Uuid\",\n                      ep.run_reason      as \"run_reason!: ExecutionProcessRunReason\",\n                      ep.executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\",\n                      ep.status          as \"status!: ExecutionProcessStatus\",\n                      ep.exit_code,\n                      ep.dropped as \"dropped!: bool\",\n                      ep.input_tokens,\n                      ep.output_tokens,\n                      ep.started_at      as \"started_at!: DateTime<Utc>\",\n                      ep.completed_at    as \"completed_at?: DateTime<Utc>\",\n                      ep.created_at      as \"created_at!: DateTime<Utc>\",\n                      ep.updated_at      as \"updated_at!: DateTime<Utc>\"\n               FROM execution_processes ep\n               WHERE ep.conversation_session_id = ?\n               ORDER BY ep.created_at ASC",
+  "query": "SELECT\n                      ep.id              as \"id!: Uuid\",\n                      ep.session_id      as \"session_id: Uuid\",\n                      ep.conversation_session_id as \"conversation_session_id: Uuid\",\n                      ep.run_reason      as \"run_reason!: ExecutionProcessRunReason\",\n                      ep.executor_action as \"executor_action!: sqlx::types::Json<ExecutorActionField>\",\n                      ep.status          as \"status!: ExecutionProcessStatus\",\n                      ep.exit_code,\n                      ep.dropped as \"dropped!: bool\",\n                      ep.input_tokens,\n                      ep.output_tokens,\n                      ep.started_at      as \"started_at!: DateTime<Utc>\",\n                      ep.completed_at    as \"completed_at?: DateTime<Utc>\",\n                      ep.created_at      as \"created_at!: DateTime<Utc>\",\n                      ep.updated_at      as \"updated_at!: DateTime<Utc>\"\n               FROM execution_processes ep\n               WHERE ep.conversation_session_id = ?\n                 AND (? OR ep.dropped = FALSE)\n               ORDER BY ep.created_at ASC",
   "describe": {
     "columns": [
       {
@@ -75,7 +75,7 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
       true,
@@ -94,5 +94,5 @@
       false
     ]
   },
-  "hash": "a3468dc0a99bce5c4e903243dd29dee8d8b21ef62a8482bc1686ee28c6b8f123"
+  "hash": "878043ac3645f4bdb8255250e9e7eab3f1babc4f5003411ae537a1b6ab23e8c2"
 }

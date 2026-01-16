@@ -50,8 +50,12 @@ type HistoricEntriesPage = {
   nextBeforeIndex: number | null;
 };
 
+export type HistoryMode =
+  | { type: 'workspace'; attempt: Workspace }
+  | { type: 'conversation'; conversationSessionId: string };
+
 interface UseConversationHistoryParams {
-  attempt: Workspace;
+  mode: HistoryMode;
   onEntriesUpdated: OnEntriesUpdated;
 }
 
@@ -107,11 +111,16 @@ const nextActionPatch: (
 });
 
 export const useConversationHistory = ({
-  attempt,
+  mode,
   onEntriesUpdated,
 }: UseConversationHistoryParams): UseConversationHistoryResult => {
+  // For conversation mode, we don't have execution processes context
+  // For workspace mode, we use the existing execution processes context
   const { executionProcessesVisible: executionProcessesRaw } =
     useExecutionProcessesContext();
+
+  // Derive mode-specific values
+  const modeId = mode.type === 'workspace' ? mode.attempt.id : mode.conversationSessionId;
   const executionProcesses = useRef<ExecutionProcess[]>(executionProcessesRaw);
   const displayedExecutionProcesses = useRef<ExecutionProcessStateStore>({});
   const loadedInitialEntries = useRef(false);
@@ -197,7 +206,7 @@ export const useConversationHistory = ({
           nextBeforeIndex: page.next_before_index,
         };
       } catch (err) {
-        console.warn!(
+        console.warn(
           `Error loading normalized entries for execution process ${executionProcess.id}`,
           err
         );
@@ -225,7 +234,7 @@ export const useConversationHistory = ({
               resolve(allEntries);
             },
             onError: (err) => {
-              console.warn!(
+              console.warn(
                 `Error loading entries for historic execution process ${executionProcess.id}`,
                 err
               );
@@ -740,7 +749,7 @@ export const useConversationHistory = ({
       cancelled = true;
     };
   }, [
-    attempt.id,
+    modeId,
     idListKey,
     loadInitialEntries,
     emitEntries,
@@ -775,7 +784,7 @@ export const useConversationHistory = ({
       }
     }
   }, [
-    attempt.id,
+    modeId,
     idStatusKey,
     emitEntries,
     ensureProcessVisible,
@@ -797,9 +806,9 @@ export const useConversationHistory = ({
         });
       });
     }
-  }, [attempt.id, idListKey, executionProcessesRaw]);
+  }, [modeId, idListKey, executionProcessesRaw]);
 
-  // Reset state when attempt changes
+  // Reset state when mode changes
   useEffect(() => {
     displayedExecutionProcesses.current = {};
     loadedInitialEntries.current = false;
@@ -808,7 +817,7 @@ export const useConversationHistory = ({
     setHasMoreHistory(false);
     setIsLoadingMore(false);
     emitEntries(displayedExecutionProcesses.current, 'initial', true);
-  }, [attempt.id, emitEntries]);
+  }, [modeId, emitEntries]);
 
   return {
     loadMoreHistory,

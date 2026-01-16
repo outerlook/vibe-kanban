@@ -17,7 +17,7 @@ use db::models::{
     execution_process_repo_state::ExecutionProcessRepoState,
 };
 use deployment::Deployment;
-use futures_util::{SinkExt, StreamExt, TryStreamExt};
+use futures_util::{SinkExt, StreamExt, TryStreamExt, stream::BoxStream};
 use serde::Deserialize;
 use services::services::container::{ContainerError, ContainerService};
 use utils::{log_msg::LogMsg, response::ApiResponse};
@@ -27,7 +27,8 @@ use crate::{DeploymentImpl, error::ApiError, middleware::load_execution_process_
 
 #[derive(Debug, Deserialize)]
 pub struct ExecutionProcessQuery {
-    pub workspace_id: Uuid,
+    pub workspace_id: Option<Uuid>,
+    pub conversation_session_id: Option<Uuid>,
     /// If true, include soft-deleted (dropped) processes in results/stream
     #[serde(default)]
     pub show_soft_deleted: Option<bool>,
@@ -229,35 +230,65 @@ pub async fn stream_execution_processes_ws(
     ws: WebSocketUpgrade,
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<ExecutionProcessQuery>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| async move {
-        if let Err(e) = handle_execution_processes_ws(
-            socket,
-            deployment,
-            query.workspace_id,
-            query.show_soft_deleted.unwrap_or(false),
-        )
-        .await
-        {
-            tracing::warn!("execution processes WS closed: {}", e);
-        }
-    })
+) -> Result<impl IntoResponse, ApiError> {
+    let show_soft_deleted = query.show_soft_deleted.unwrap_or(false);
+
+    match (query.workspace_id, query.conversation_session_id) {
+        (Some(workspace_id), None) => Ok(ws.on_upgrade(move |socket| async move {
+            if let Err(e) =
+                handle_workspace_execution_processes_ws(socket, deployment, workspace_id, show_soft_deleted).await
+            {
+                tracing::warn!("execution processes WS closed: {}", e);
+            }
+        })),
+        (None, Some(conversation_session_id)) => Ok(ws.on_upgrade(move |socket| async move {
+            if let Err(e) =
+                handle_conversation_execution_processes_ws(socket, deployment, conversation_session_id, show_soft_deleted).await
+            {
+                tracing::warn!("execution processes WS closed: {}", e);
+            }
+        })),
+        (Some(_), Some(_)) => Err(ApiError::BadRequest(
+            "Cannot specify both workspace_id and conversation_session_id".to_string(),
+        )),
+        (None, None) => Err(ApiError::BadRequest(
+            "Must specify either workspace_id or conversation_session_id".to_string(),
+        )),
+    }
 }
 
-async fn handle_execution_processes_ws(
+async fn handle_workspace_execution_processes_ws(
     socket: WebSocket,
     deployment: DeploymentImpl,
-    workspace_id: uuid::Uuid,
+    workspace_id: Uuid,
     show_soft_deleted: bool,
 ) -> anyhow::Result<()> {
-    // Get the raw stream and convert LogMsg to WebSocket messages
-    let mut stream = deployment
+    let stream = deployment
         .events()
         .stream_execution_processes_for_workspace_raw(workspace_id, show_soft_deleted)
-        .await?
-        .map_ok(|msg| msg.to_ws_message_unchecked());
+        .await?;
+    stream_execution_processes_to_ws(socket, stream).await
+}
 
-    // Split socket into sender and receiver
+async fn handle_conversation_execution_processes_ws(
+    socket: WebSocket,
+    deployment: DeploymentImpl,
+    conversation_session_id: Uuid,
+    show_soft_deleted: bool,
+) -> anyhow::Result<()> {
+    let stream = deployment
+        .events()
+        .stream_execution_processes_for_conversation_raw(conversation_session_id, show_soft_deleted)
+        .await?;
+    stream_execution_processes_to_ws(socket, stream).await
+}
+
+async fn stream_execution_processes_to_ws(
+    socket: WebSocket,
+    stream: BoxStream<'static, Result<LogMsg, std::io::Error>>,
+) -> anyhow::Result<()> {
+    let mut stream = stream.map_ok(|msg| msg.to_ws_message_unchecked());
+
     let (mut sender, mut receiver) = socket.split();
 
     // Drain (and ignore) any client->server messages so pings/pongs work

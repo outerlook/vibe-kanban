@@ -926,7 +926,13 @@ export function ProjectTasks() {
         <GitOperationsProvider attemptId={attempt?.id}>
           <ClickedElementsProvider attempt={attempt}>
             <ReviewProvider attemptId={attempt?.id}>
-              <ExecutionProcessesProvider attemptId={attempt?.id}>
+              <ExecutionProcessesProvider
+                source={
+                  attempt?.id
+                    ? { type: 'workspace', workspaceId: attempt.id }
+                    : undefined
+                }
+              >
                 <TasksLayout
                   kanban={kanbanContent}
                   attempt={attemptContent}

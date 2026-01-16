@@ -628,6 +628,7 @@ impl ExecutionProcess {
     pub async fn find_by_conversation_session_id(
         pool: &SqlitePool,
         conversation_session_id: Uuid,
+        show_soft_deleted: bool,
     ) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as!(
             ExecutionProcess,
@@ -648,8 +649,10 @@ impl ExecutionProcess {
                       ep.updated_at      as "updated_at!: DateTime<Utc>"
                FROM execution_processes ep
                WHERE ep.conversation_session_id = ?
+                 AND (? OR ep.dropped = FALSE)
                ORDER BY ep.created_at ASC"#,
-            conversation_session_id
+            conversation_session_id,
+            show_soft_deleted
         )
         .fetch_all(pool)
         .await

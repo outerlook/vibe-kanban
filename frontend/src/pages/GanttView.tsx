@@ -392,7 +392,13 @@ export function GanttView() {
     <GitOperationsProvider attemptId={attempt?.id}>
       <ClickedElementsProvider attempt={attempt}>
         <ReviewProvider attemptId={attempt?.id}>
-          <ExecutionProcessesProvider attemptId={attempt?.id}>
+          <ExecutionProcessesProvider
+            source={
+              attempt?.id
+                ? { type: 'workspace', workspaceId: attempt.id }
+                : undefined
+            }
+          >
             <TasksLayout
               kanban={ganttContent}
               attempt={attemptContent}
