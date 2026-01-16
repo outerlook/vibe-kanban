@@ -86,3 +86,6 @@ vibe-kanban-cloud/
 
 .jj
 .osgrep
+
+# Tauri
+crates/tauri-app/gen/

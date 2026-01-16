@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Vibe Kanban",
+  "version": "0.1.0",
+  "identifier": "ai.bloop.vibe-kanban",
+  "build": {
+    "frontendDist": "../../frontend/dist"
+  },
+  "bundle": {
+    "icon": []
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Vibe Kanban",
+        "width": 1400,
+        "height": 900,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/**", "$HOME/**"]
+      }
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true,
+      "scope": []
+    },
+    "fs": {
+      "scope": ["$APPDATA", "$APPDATA/**", "$HOME/**"]
+    },
+    "process": {},
+    "dialog": {
+      "all": true
+    }
+  }
+}
