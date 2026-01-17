@@ -13,14 +13,21 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { KanbanViewSettingsMenu } from './KanbanViewSettingsMenu';
 
 const ALL_GROUPS_VALUE = '__all__';
 
 export function TaskFilterBar() {
   const { t } = useTranslation('tasks');
-  const { filters, setSearch, setGroupId, clearFilters, hasActiveFilters } =
-    useTaskFilters();
+  const {
+    filters,
+    setSearch,
+    setGroupId,
+    setHideBlocked,
+    clearFilters,
+    hasActiveFilters,
+  } = useTaskFilters();
   const { groups } = useTaskGroupsContext();
   const { registerInputRef } = useSearch();
 
@@ -72,6 +79,13 @@ export function TaskFilterBar() {
     [setGroupId]
   );
 
+  const handleHideBlockedChange = useCallback(
+    (checked: boolean) => {
+      setHideBlocked(checked);
+    },
+    [setHideBlocked]
+  );
+
   return (
     <div className="flex flex-wrap items-center gap-3 py-2">
       {/* Group Dropdown */}
@@ -106,6 +120,15 @@ export function TaskFilterBar() {
           className="pl-9 h-9 rounded-md"
         />
       </div>
+
+      {/* Hide Blocked Toggle */}
+      <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+        <Checkbox
+          checked={filters.hideBlocked}
+          onCheckedChange={handleHideBlockedChange}
+        />
+        {t('taskFilterBar.hideBlocked', 'Hide blocked')}
+      </label>
 
       {/* Clear Filters Button */}
       {hasActiveFilters && (
