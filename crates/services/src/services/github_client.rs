@@ -167,6 +167,67 @@ impl GitHubClient {
         Ok(all_prs)
     }
 
+    /// List open pull requests filtered by head branch.
+    ///
+    /// Fetches all pages of results for repos with many PRs.
+    /// The head_ref parameter should be in the format "owner:branch" (e.g., "usherlabs:FIET-540").
+    pub async fn list_open_prs_by_head(
+        &self,
+        owner: &str,
+        repo: &str,
+        head_ref: &str,
+    ) -> Result<Vec<PullRequestSummary>, GitHubClientError> {
+        let mut all_prs = Vec::new();
+        let mut page_num = 1u32;
+
+        loop {
+            let page = self
+                .inner
+                .pulls(owner, repo)
+                .list()
+                .state(params::State::Open)
+                .head(head_ref)
+                .per_page(100)
+                .page(page_num)
+                .send()
+                .await
+                .map_err(|e| GitHubClientError::ApiError(e.to_string()))?;
+
+            let items = page.items;
+            if items.is_empty() {
+                break;
+            }
+
+            for pr in items {
+                let summary = PullRequestSummary {
+                    number: pr.number,
+                    title: pr.title.unwrap_or_default(),
+                    url: pr
+                        .html_url
+                        .map(|u| u.to_string())
+                        .unwrap_or_default(),
+                    author: pr
+                        .user
+                        .map(|u| u.login)
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    head_branch: pr.head.ref_field,
+                    base_branch: pr.base.ref_field,
+                    created_at: pr.created_at.unwrap_or_default(),
+                    updated_at: pr.updated_at.unwrap_or_default(),
+                };
+                all_prs.push(summary);
+            }
+
+            // Check if there are more pages
+            if page.next.is_none() {
+                break;
+            }
+            page_num += 1;
+        }
+
+        Ok(all_prs)
+    }
+
     /// Get the count of unresolved review threads for a pull request.
     ///
     /// Uses GitHub's GraphQL API to fetch review threads with their resolved status.

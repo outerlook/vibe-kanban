@@ -28,6 +28,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
 directories = "6.0.0"
+rustls = { version = "0.23", features = ["ring"] }
 
 [lib]
 name = "tauri_app_lib"

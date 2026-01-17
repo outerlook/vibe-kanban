@@ -4,6 +4,12 @@ use tauri::Manager;
 use tauri_app_lib::{commands::initialize_local_mode, state::AppState};
 
 fn main() {
+    // Install rustls crypto provider before any HTTPS requests are made.
+    // This is required when running inside Tauri as the provider isn't auto-detected.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     // Initialize tracing for logging
     tracing_subscriber::fmt::init();
 

@@ -663,10 +663,12 @@ pub async fn get_project_prs(
 
         let mut all_prs = Vec::new();
 
-        // Fetch PRs for each base branch
-        for base_branch in &base_branches {
+        // Fetch PRs for each head branch (task group base_branch represents the feature branch)
+        for head_branch in &base_branches {
+            // Format head ref as "owner:branch" for GitHub API
+            let head_ref = format!("{}:{}", repo_info.owner, head_branch);
             match github_client
-                .list_open_prs_by_base(&repo_info.owner, &repo_info.repo_name, base_branch)
+                .list_open_prs_by_head(&repo_info.owner, &repo_info.repo_name, &head_ref)
                 .await
             {
                 Ok(prs) => {
@@ -696,10 +698,10 @@ pub async fn get_project_prs(
                 }
                 Err(e) => {
                     tracing::warn!(
-                        "Failed to fetch PRs for {}/{} (base: {}): {}",
+                        "Failed to fetch PRs for {}/{} (head: {}): {}",
                         repo_info.owner,
                         repo_info.repo_name,
-                        base_branch,
+                        head_branch,
                         e
                     );
                 }
