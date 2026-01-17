@@ -1629,6 +1629,23 @@ impl ContainerService for LocalContainerService {
         env.insert("VK_WORKSPACE_ID", workspace.id.to_string());
         env.insert("VK_WORKSPACE_BRANCH", &workspace.branch);
 
+        // Inject Langfuse credentials if enabled (for executors with hook support)
+        {
+            let config_guard = self.config.read().await;
+            if config_guard.langfuse_enabled {
+                env.insert("TRACE_TO_LANGFUSE", "true");
+                if let Some(ref key) = config_guard.langfuse_public_key {
+                    env.insert("LANGFUSE_PUBLIC_KEY", key);
+                }
+                if let Some(ref key) = config_guard.langfuse_secret_key {
+                    env.insert("LANGFUSE_SECRET_KEY", key);
+                }
+                if let Some(ref host) = config_guard.langfuse_host {
+                    env.insert("LANGFUSE_HOST", host);
+                }
+            }
+        }
+
         // Create the child and stream, add to execution tracker with timeout
         let mut spawned = tokio::time::timeout(
             Duration::from_secs(30),
