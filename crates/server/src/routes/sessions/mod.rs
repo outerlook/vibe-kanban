@@ -13,6 +13,7 @@ use db::models::{
     project_repo::ProjectRepo,
     scratch::{Scratch, ScratchType},
     session::{CreateSession, Session},
+    task::Task,
     workspace::{Workspace, WorkspaceError},
 };
 use deployment::Deployment;
@@ -251,6 +252,14 @@ pub async fn follow_up(
         );
         let queue_entry =
             ExecutionQueue::create_follow_up(pool, workspace.id, session.id, &action).await?;
+        // Update materialized is_queued status for the task
+        if let Err(e) = Task::update_materialized_status(pool, workspace.task_id).await {
+            tracing::error!(
+                "Failed to update materialized status after queueing follow-up for workspace {}: {}",
+                workspace.id,
+                e
+            );
+        }
         return Ok(ResponseJson(ApiResponse::success(FollowUpResult::Queued {
             queue_entry,
         })));
