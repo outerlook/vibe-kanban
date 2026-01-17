@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { taskDependenciesApi } from '@/lib/api';
 import type { DependencyDirection, TaskDependencyTreeNode } from '@/lib/api';
 import type { Task, TaskDependency } from 'shared/types';
+import { invalidateTaskQueries } from '@/lib/queryInvalidation';
 
 export const taskDependenciesKeys = {
   all: ['taskDependencies'] as const,
@@ -93,6 +94,7 @@ export function useAddDependency() {
         queryClient.invalidateQueries({
           queryKey: taskDependencyTreeKeys.byTask(id),
         });
+        invalidateTaskQueries(queryClient, id);
       });
     },
     onError: (err) => {
@@ -115,6 +117,7 @@ export function useRemoveDependency() {
         queryClient.invalidateQueries({
           queryKey: taskDependencyTreeKeys.byTask(id),
         });
+        invalidateTaskQueries(queryClient, id);
       });
     },
     onError: (err) => {
