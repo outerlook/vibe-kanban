@@ -12,6 +12,12 @@ import {
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -120,9 +126,31 @@ export function GroupCard({
                 {isBranchLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 ) : branchStatus?.is_ancestor ? (
-                  <Check className="h-4 w-4 text-emerald-500" />
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div>
+                          <Check className="h-4 w-4 text-emerald-500" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        Base branch is up to date
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 ) : (
-                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div>
+                          <AlertTriangle className="h-4 w-4 text-amber-500" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        Base branch needs updating
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 )}
               </div>
             )}
