@@ -6,6 +6,7 @@ import type {
   UpdateTaskGroup,
 } from 'shared/types';
 import { taskKeys } from './useTask';
+import { projectTasksKeys } from './useProjectTasks';
 
 export const taskGroupKeys = {
   all: ['taskGroups'] as const,
@@ -104,6 +105,10 @@ export function useDeleteTaskGroup() {
       queryClient.invalidateQueries({
         queryKey: taskKeys.all,
       });
+      // Invalidate project tasks for kanban board refresh
+      queryClient.invalidateQueries({
+        queryKey: projectTasksKeys.byProject(projectId),
+      });
     },
     onError: (err) => {
       console.error('Failed to delete task group:', err);
@@ -136,6 +141,10 @@ export function useAssignTasksToGroup() {
       queryClient.invalidateQueries({
         queryKey: taskGroupKeys.byProject(projectId),
       });
+      // Invalidate project tasks for kanban board refresh
+      queryClient.invalidateQueries({
+        queryKey: projectTasksKeys.byProject(projectId),
+      });
     },
     onError: (err) => {
       console.error('Failed to assign tasks to group:', err);
@@ -165,6 +174,10 @@ export function useMergeTaskGroup() {
       // Invalidate tasks since their group assignments changed
       queryClient.invalidateQueries({
         queryKey: taskKeys.all,
+      });
+      // Invalidate project tasks for kanban board refresh
+      queryClient.invalidateQueries({
+        queryKey: projectTasksKeys.byProject(projectId),
       });
     },
     onError: (err) => {

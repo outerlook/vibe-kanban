@@ -73,15 +73,12 @@ export function useProjectMutations(options?: UseProjectMutationsOptions) {
       data: LinkToExistingRequest;
     }) => projectsApi.linkToExisting(localProjectId, data),
     onSuccess: (project: Project) => {
+      // Update caches with fresh server data
       queryClient.setQueryData(['project', project.id], project);
       queryClient.setQueryData<Project[]>(['projects'], (old) => {
         if (!old) return old;
         return old.map((p) => (p.id === project.id ? project : p));
       });
-
-      // Invalidate to ensure fresh data from server
-      queryClient.invalidateQueries({ queryKey: ['project', project.id] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
 
       // Invalidate organization projects queries since linking affects remote projects
       queryClient.invalidateQueries({
@@ -114,15 +111,12 @@ export function useProjectMutations(options?: UseProjectMutationsOptions) {
       data: CreateRemoteProjectRequest;
     }) => projectsApi.createAndLink(localProjectId, data),
     onSuccess: (project: Project) => {
+      // Update caches with fresh server data
       queryClient.setQueryData(['project', project.id], project);
       queryClient.setQueryData<Project[]>(['projects'], (old) => {
         if (!old) return old;
         return old.map((p) => (p.id === project.id ? project : p));
       });
-
-      // Invalidate to ensure fresh data from server
-      queryClient.invalidateQueries({ queryKey: ['project', project.id] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
 
       // Invalidate organization projects queries since linking affects remote projects
       queryClient.invalidateQueries({
