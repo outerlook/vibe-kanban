@@ -87,14 +87,9 @@ export function useAddDependency() {
     mutationFn: ({ taskId, dependsOnId }) =>
       taskDependenciesApi.addDependency(taskId, dependsOnId),
     onSuccess: (_dependency, { taskId, dependsOnId }) => {
+      // Invalidate task and dependency queries for both affected tasks
       [taskId, dependsOnId].forEach((id) => {
-        queryClient.invalidateQueries({
-          queryKey: taskDependenciesKeys.byTask(id),
-        });
-        queryClient.invalidateQueries({
-          queryKey: taskDependencyTreeKeys.byTask(id),
-        });
-        invalidateTaskQueries(queryClient, id);
+        invalidateTaskQueries(queryClient, id, { includeDependencies: true });
       });
     },
     onError: (err) => {
@@ -110,14 +105,9 @@ export function useRemoveDependency() {
     mutationFn: ({ taskId, dependsOnId }) =>
       taskDependenciesApi.removeDependency(taskId, dependsOnId),
     onSuccess: (_data, { taskId, dependsOnId }) => {
+      // Invalidate task and dependency queries for both affected tasks
       [taskId, dependsOnId].forEach((id) => {
-        queryClient.invalidateQueries({
-          queryKey: taskDependenciesKeys.byTask(id),
-        });
-        queryClient.invalidateQueries({
-          queryKey: taskDependencyTreeKeys.byTask(id),
-        });
-        invalidateTaskQueries(queryClient, id);
+        invalidateTaskQueries(queryClient, id, { includeDependencies: true });
       });
     },
     onError: (err) => {

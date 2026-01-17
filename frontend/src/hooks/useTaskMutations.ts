@@ -83,6 +83,10 @@ export function useTaskMutations(projectId?: string) {
 
   const shareTask = useMutation({
     mutationFn: (taskId: string) => tasksApi.share(taskId),
+    onSuccess: (_data, taskId: string) => {
+      // Invalidate task cache to reflect the shared_task_id update
+      invalidateTaskQueries(queryClient, taskId, { projectId });
+    },
     onError: (err) => {
       console.error('Failed to share task:', err);
     },
