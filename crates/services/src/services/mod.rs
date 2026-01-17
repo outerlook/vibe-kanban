@@ -10,6 +10,7 @@ pub mod embedding_worker;
 pub mod events;
 pub mod feedback;
 pub mod file_ranker;
+pub mod langfuse;
 pub mod file_search_cache;
 pub mod filesystem;
 pub mod filesystem_watcher;
