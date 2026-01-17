@@ -1254,16 +1254,13 @@ impl LocalContainerService {
                 }
             };
 
-            // Store the feedback in the database
+            // Store the feedback in the database as JSON
+            let feedback_json = serde_json::to_string(&parsed).ok();
             let create_feedback = CreateAgentFeedback {
                 execution_process_id: feedback_exec_id,
                 task_id,
                 workspace_id,
-                task_clarity: parsed.task_clarity,
-                missing_tools: parsed.missing_tools,
-                integration_problems: parsed.integration_problems,
-                improvement_suggestions: parsed.improvement_suggestions,
-                agent_documentation: parsed.agent_documentation,
+                feedback_json,
             };
 
             match AgentFeedback::create(&db.pool, &create_feedback, Uuid::new_v4()).await {

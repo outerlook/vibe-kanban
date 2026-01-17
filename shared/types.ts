@@ -70,9 +70,9 @@ export type UpdateNotification = { title: string | null, message: string | null,
 
 export type NotificationStats = { total: bigint, unread: bigint, };
 
-export type AgentFeedback = { id: string, execution_process_id: string, task_id: string, workspace_id: string, task_clarity: string | null, missing_tools: string | null, integration_problems: string | null, improvement_suggestions: string | null, agent_documentation: string | null, collected_at: string, created_at: string, updated_at: string, };
+export type AgentFeedback = { id: string, execution_process_id: string, task_id: string, workspace_id: string, feedback_json: string | null, collected_at: string, created_at: string, updated_at: string, };
 
-export type CreateAgentFeedback = { execution_process_id: string, task_id: string, workspace_id: string, task_clarity: string | null, missing_tools: string | null, integration_problems: string | null, improvement_suggestions: string | null, agent_documentation: string | null, };
+export type CreateAgentFeedback = { execution_process_id: string, task_id: string, workspace_id: string, feedback_json: string | null, };
 
 export type GanttTask = { id: string, name: string, start: string, end: string, progress: number, dependencies: Array<string>, task_status: TaskStatus, task_group_id: string | null, total_input_tokens: bigint | null, total_output_tokens: bigint | null, token_usage_metadata: JsonValue | null, };
 
