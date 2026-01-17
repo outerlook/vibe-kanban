@@ -46,6 +46,8 @@ fn generate_types_content() -> String {
         db::models::notification::CreateNotification::decl(),
         db::models::notification::UpdateNotification::decl(),
         db::models::notification::NotificationStats::decl(),
+        db::models::agent_feedback::AgentFeedback::decl(),
+        db::models::agent_feedback::CreateAgentFeedback::decl(),
         db::models::gantt::GanttTask::decl(),
         server::routes::gantt::PaginatedGanttTasks::decl(),
         db::models::task_group::CreateTaskGroup::decl(),

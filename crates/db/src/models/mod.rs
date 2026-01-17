@@ -1,3 +1,4 @@
+pub mod agent_feedback;
 pub mod app_settings;
 pub mod coding_agent_turn;
 pub mod conversation_message;

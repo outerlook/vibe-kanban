@@ -12,6 +12,7 @@ use command_group::AsyncGroupChild;
 use db::{
     DBService,
     models::{
+        agent_feedback::{AgentFeedback, CreateAgentFeedback},
         coding_agent_turn::CodingAgentTurn,
         conversation_session::ConversationSession,
         execution_process::{
@@ -48,6 +49,7 @@ use services::services::{
     container::{ContainerError, ContainerRef, ContainerService},
     conversation::ConversationService,
     diff_stream::{self, DiffStreamHandle},
+    feedback::FeedbackService,
     git::{Commit, GitCli, GitService},
     image::ImageService,
     notification::NotificationService,
@@ -489,6 +491,55 @@ impl LocalContainerService {
                             true
                         }
                     };
+
+                    // Collect feedback from CodingAgent after successful execution (non-blocking)
+                    if matches!(
+                        ctx.execution_process.run_reason,
+                        ExecutionProcessRunReason::CodingAgent
+                    ) && exit_code == Some(0)
+                    {
+                        // Get the agent session ID for feedback collection
+                        match CodingAgentTurn::find_by_execution_process_id(&db.pool, exec_id).await
+                        {
+                            Ok(Some(turn)) if turn.agent_session_id.is_some() => {
+                                let agent_session_id = turn.agent_session_id.unwrap();
+                                let feedback_container = container.clone();
+                                let feedback_ctx = ctx.clone();
+
+                                // Spawn feedback collection as a non-blocking background task
+                                tokio::spawn(async move {
+                                    if let Err(e) = feedback_container
+                                        .collect_agent_feedback(&feedback_ctx, &agent_session_id)
+                                        .await
+                                    {
+                                        tracing::warn!(
+                                            "Failed to start feedback collection for execution {}: {}",
+                                            exec_id,
+                                            e
+                                        );
+                                    }
+                                });
+                            }
+                            Ok(Some(_)) => {
+                                tracing::debug!(
+                                    "No agent session ID found for execution {}, skipping feedback",
+                                    exec_id
+                                );
+                            }
+                            Ok(None) => {
+                                tracing::debug!(
+                                    "No coding agent turn found for execution {}, skipping feedback",
+                                    exec_id
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to query coding agent turn for feedback: {}",
+                                    e
+                                );
+                            }
+                        }
+                    }
 
                     let should_start_next = if matches!(
                         ctx.execution_process.run_reason,
@@ -1065,6 +1116,169 @@ impl LocalContainerService {
             &ExecutionProcessRunReason::CodingAgent,
         )
         .await
+    }
+
+    /// Collect feedback from the coding agent after successful execution.
+    ///
+    /// This sends a follow-up prompt to the agent asking for structured feedback
+    /// about the task, and spawns a background task to parse and store the response.
+    ///
+    /// # Arguments
+    /// * `ctx` - The execution context from the completed CodingAgent execution
+    /// * `agent_session_id` - The session ID to continue the conversation with
+    ///
+    /// # Returns
+    /// The execution process for the feedback collection, or an error if starting fails
+    async fn collect_agent_feedback(
+        &self,
+        ctx: &ExecutionContext,
+        agent_session_id: &str,
+    ) -> Result<ExecutionProcess, ContainerError> {
+        // Get executor profile from the original CodingAgent process
+        let executor_profile_id =
+            ExecutionProcess::latest_executor_profile_for_session(&self.db.pool, ctx.session.id)
+                .await
+                .map_err(|e| {
+                    ContainerError::Other(anyhow!("Failed to get executor profile: {e}"))
+                })?;
+
+        // Get working directory from workspace
+        let working_dir = ctx
+            .workspace
+            .agent_working_dir
+            .as_ref()
+            .filter(|dir| !dir.is_empty())
+            .cloned();
+
+        // Create the feedback action
+        let action = FeedbackService::create_feedback_action(
+            agent_session_id.to_string(),
+            executor_profile_id,
+            working_dir,
+        );
+
+        // Start the feedback execution with InternalAgent run reason
+        let feedback_exec = self
+            .start_execution(
+                &ctx.workspace,
+                &ctx.session,
+                &action,
+                &ExecutionProcessRunReason::InternalAgent,
+            )
+            .await?;
+
+        // Spawn background task to monitor and parse the feedback response
+        self.spawn_feedback_parser(feedback_exec.id, ctx.task.id, ctx.workspace.id);
+
+        Ok(feedback_exec)
+    }
+
+    /// Spawn a background task that monitors a feedback execution and parses the response.
+    ///
+    /// When the feedback execution completes, this task extracts the assistant message,
+    /// parses it using `FeedbackService::parse_feedback_response`, and stores the result
+    /// in the `agent_feedback` table.
+    ///
+    /// Failures are logged but don't affect task finalization.
+    fn spawn_feedback_parser(&self, feedback_exec_id: Uuid, task_id: Uuid, workspace_id: Uuid) {
+        let db = self.db.clone();
+        let msg_stores = self.msg_stores.clone();
+
+        tokio::spawn(async move {
+            // Wait for the feedback execution to complete
+            // Poll the execution status periodically
+            loop {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+
+                let exec = match ExecutionProcess::find_by_id(&db.pool, feedback_exec_id).await {
+                    Ok(Some(exec)) => exec,
+                    Ok(None) => {
+                        tracing::warn!(
+                            "Feedback execution {} not found, stopping parser",
+                            feedback_exec_id
+                        );
+                        return;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to query feedback execution {}: {}",
+                            feedback_exec_id,
+                            e
+                        );
+                        return;
+                    }
+                };
+
+                match exec.status {
+                    ExecutionProcessStatus::Running => continue,
+                    ExecutionProcessStatus::Completed => break,
+                    ExecutionProcessStatus::Failed | ExecutionProcessStatus::Killed => {
+                        tracing::warn!(
+                            "Feedback execution {} ended with status {:?}, skipping parsing",
+                            feedback_exec_id,
+                            exec.status
+                        );
+                        return;
+                    }
+                }
+            }
+
+            // Extract the assistant message from MsgStore
+            let assistant_message = {
+                let stores = msg_stores.read().await;
+                if let Some(store) = stores.get(&feedback_exec_id) {
+                    extract_assistant_message_from_msg_store(store)
+                } else {
+                    None
+                }
+            };
+
+            let Some(message) = assistant_message else {
+                tracing::warn!(
+                    "No assistant message found for feedback execution {}",
+                    feedback_exec_id
+                );
+                return;
+            };
+
+            // Parse the feedback response
+            let parsed = match FeedbackService::parse_feedback_response(&message) {
+                Ok(parsed) => parsed,
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to parse feedback response for execution {}: {}",
+                        feedback_exec_id,
+                        e
+                    );
+                    return;
+                }
+            };
+
+            // Store the feedback in the database
+            let create_feedback = CreateAgentFeedback {
+                execution_process_id: feedback_exec_id,
+                task_id,
+                workspace_id,
+                task_clarity: parsed.task_clarity,
+                missing_tools: parsed.missing_tools,
+                integration_problems: parsed.integration_problems,
+                improvement_suggestions: parsed.improvement_suggestions,
+                agent_documentation: parsed.agent_documentation,
+            };
+
+            match AgentFeedback::create(&db.pool, &create_feedback, Uuid::new_v4()).await {
+                Ok(feedback) => {
+                    tracing::info!(
+                        "Successfully stored agent feedback {} for task {}",
+                        feedback.id,
+                        task_id
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to store agent feedback for task {}: {}", task_id, e);
+                }
+            }
+        });
     }
 }
 
