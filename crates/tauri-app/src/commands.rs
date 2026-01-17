@@ -78,7 +78,7 @@ pub async fn set_server_mode(mode: ServerMode, state: State<'_, AppState>) -> Re
         ServerMode::Local => {
             tracing::info!("Switching to Local mode, starting embedded server...");
 
-            let (url, handle) = start_embedded_server()
+            let (url, handle) = start_embedded_server(state.backend_port)
                 .await
                 .map_err(|e| format!("Failed to start embedded server: {}", e))?;
 
@@ -116,7 +116,7 @@ pub async fn initialize_local_mode(state: &AppState) -> Result<(), String> {
 
     tracing::info!("Initializing Local mode, starting embedded server...");
 
-    let (url, handle) = start_embedded_server()
+    let (url, handle) = start_embedded_server(state.backend_port)
         .await
         .map_err(|e| format!("Failed to start embedded server: {}", e))?;
 

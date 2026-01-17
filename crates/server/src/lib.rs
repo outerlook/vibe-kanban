@@ -67,25 +67,27 @@ fn spawn_startup_tasks(deployment: &DeploymentImpl) {
 ///
 /// This function:
 /// - Creates the Axum router from the deployment
-/// - Binds to `127.0.0.1:0` (auto-assign port)
+/// - Binds to `127.0.0.1:<port>` (0 = auto-assign port)
 /// - Spawns the server task with graceful shutdown handling
 /// - Returns the server URL and a `JoinHandle` for the server task
 ///
 /// # Arguments
 /// * `deployment` - A pre-created `DeploymentImpl` instance
+/// * `port` - Port to bind to (0 for auto-assign)
 ///
 /// # Returns
 /// * `Ok((url, handle))` - The server URL (e.g., `http://127.0.0.1:54321`) and a `JoinHandle`
 /// * `Err(ServerError)` - If binding to the address fails
 pub async fn start_server(
     deployment: DeploymentImpl,
+    port: u16,
 ) -> Result<(String, JoinHandle<()>), ServerError> {
     // Spawn background tasks for startup cleanup and backfills
     spawn_startup_tasks(&deployment);
 
     let app_router = routes::router(deployment);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
     let addr: SocketAddr = listener.local_addr()?;
     let url = format!("http://{}", addr);
 

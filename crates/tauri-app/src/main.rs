@@ -9,6 +9,7 @@ fn main() {
 
     // Load saved state from config
     let app_state = AppState::load_from_config();
+    let mcp_port = app_state.mcp_port;
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -16,8 +17,12 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init());
 
-    // Enable MCP bridge plugin for AI-assisted development
-    builder = builder.plugin(tauri_plugin_mcp_bridge::init());
+    // Enable MCP bridge plugin with configured port
+    builder = builder.plugin(
+        tauri_plugin_mcp_bridge::Builder::new()
+            .base_port(mcp_port)
+            .build(),
+    );
 
     builder
         .manage(app_state)
@@ -36,6 +41,8 @@ fn main() {
                 embedded_server_handle: state.embedded_server_handle.clone(),
                 server_url: state.server_url.clone(),
                 mcp_process_handle: state.mcp_process_handle.clone(),
+                mcp_port: state.mcp_port,
+                backend_port: state.backend_port,
             };
 
             // Start embedded server if in Local mode - spawn async to not block webview

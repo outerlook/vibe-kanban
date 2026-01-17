@@ -25,8 +25,11 @@ pub enum EmbeddedServerError {
 ///
 /// This function:
 /// - Creates a new `LocalDeployment` instance with all required services
-/// - Starts the Axum HTTP server on an auto-assigned port
+/// - Starts the Axum HTTP server on the specified port (0 = auto-assign)
 /// - Returns the server URL and a join handle for the background task
+///
+/// # Arguments
+/// * `port` - Port to bind to (0 for auto-assign)
 ///
 /// # Returns
 /// * `Ok((url, handle))` - The server URL (e.g., `http://127.0.0.1:54321`) and task handle
@@ -34,18 +37,18 @@ pub enum EmbeddedServerError {
 ///
 /// # Example
 /// ```ignore
-/// let (url, handle) = start_embedded_server().await?;
+/// let (url, handle) = start_embedded_server(8080).await?;
 /// println!("Server running at {}", url);
 /// // Later, to wait for server shutdown:
 /// handle.await?;
 /// ```
-pub async fn start_embedded_server() -> Result<(String, JoinHandle<()>), EmbeddedServerError> {
-    tracing::info!("Initializing embedded server...");
+pub async fn start_embedded_server(port: u16) -> Result<(String, JoinHandle<()>), EmbeddedServerError> {
+    tracing::info!("Initializing embedded server on port {}...", port);
 
     let deployment = LocalDeployment::new().await?;
     tracing::info!("Deployment initialized successfully");
 
-    let (url, handle) = server::start_server(deployment).await?;
+    let (url, handle) = server::start_server(deployment, port).await?;
     tracing::info!("Embedded server started at {}", url);
 
     Ok((url, handle))
