@@ -88,6 +88,8 @@ export type UpdateConversationSession = { title: string | null, status: Conversa
 
 export type ConversationMessage = { id: string, conversation_session_id: string, execution_process_id: string | null, role: MessageRole, content: string, metadata: string | null, created_at: string, updated_at: string, };
 
+export type ConversationMessagesPage = { messages: Array<ConversationMessage>, next_cursor: string | null, has_more: boolean, };
+
 export type MessageRole = "user" | "assistant";
 
 export type CreateConversationMessage = { conversation_session_id: string, execution_process_id: string | null, role: MessageRole, content: string, metadata: string | null, };

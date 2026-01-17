@@ -55,6 +55,7 @@ fn generate_types_content() -> String {
         db::models::conversation_session::CreateConversationSession::decl(),
         db::models::conversation_session::UpdateConversationSession::decl(),
         db::models::conversation_message::ConversationMessage::decl(),
+        db::models::conversation_message::ConversationMessagesPage::decl(),
         db::models::conversation_message::MessageRole::decl(),
         db::models::conversation_message::CreateConversationMessage::decl(),
         services::services::conversation::ConversationWithMessages::decl(),

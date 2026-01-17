@@ -120,6 +120,7 @@ import {
   ConversationSession,
   ConversationSessionStatus,
   ConversationMessage,
+  ConversationMessagesPage,
   ConversationWithMessages,
   SendMessageResponse,
   ProjectPrsResponse,
@@ -1902,12 +1903,20 @@ export const conversationsApi = {
   },
 
   getMessages: async (
-    conversationId: string
-  ): Promise<ConversationMessage[]> => {
-    const response = await makeRequest(
-      `/api/conversations/${conversationId}/messages`
-    );
-    return handleApiResponse<ConversationMessage[]>(response);
+    conversationId: string,
+    params?: { cursor?: string; limit?: number }
+  ): Promise<ConversationMessagesPage> => {
+    const search = new URLSearchParams();
+    if (params?.cursor) {
+      search.set('cursor', params.cursor);
+    }
+    if (params?.limit !== undefined) {
+      search.set('limit', params.limit.toString());
+    }
+    const queryString = search.toString();
+    const url = `/api/conversations/${conversationId}/messages${queryString ? `?${queryString}` : ''}`;
+    const response = await makeRequest(url);
+    return handleApiResponse<ConversationMessagesPage>(response);
   },
 
   sendMessage: async (
