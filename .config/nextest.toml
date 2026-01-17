@@ -1,0 +1,20 @@
+# Nextest configuration for vibe-kanban
+# https://nexte.st/book/configuration.html
+
+[store]
+# Directory for storing nextest data
+dir = "target/nextest"
+
+# Default test profile
+[profile.default]
+# Run tests with moderate parallelism
+test-threads = "num-cpus"
+
+# Tests that require access to the shared dev_assets/db.sqlite need to run
+# serially to avoid migration race conditions.
+# Using test-group with global-threads ensures they run alone.
+[[profile.default.overrides]]
+# Match tests in server crate that use LocalDeployment (which accesses shared DB)
+filter = 'package(server) & test(/routes::config::tests::/)'
+test-group = '@global'
+threads-required = 'num-cpus'
