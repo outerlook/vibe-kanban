@@ -39,6 +39,7 @@ aes-gcm = "0.10"
 base64 = "0.22"
 sentry = { version = "0.41.0", features = ["anyhow", "backtrace", "panic", "debug-images"] }
 reqwest = { version = "0.12", features = ["json"] }
+rustls = { version = "0.23", features = ["ring"] }
 strip-ansi-escapes = "0.2.1"
 thiserror = { workspace = true }
 os_info = "3.12.0"
