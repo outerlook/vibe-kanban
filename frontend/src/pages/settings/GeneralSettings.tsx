@@ -938,6 +938,89 @@ export function GeneralSettings() {
 
       <Card>
         <CardHeader>
+          <CardTitle>{t('settings.general.observability.title')}</CardTitle>
+          <CardDescription>
+            {t('settings.general.observability.description')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="langfuse-enabled"
+              checked={draft?.langfuse_enabled ?? false}
+              onCheckedChange={(checked: boolean) =>
+                updateDraft({ langfuse_enabled: checked })
+              }
+            />
+            <div className="space-y-0.5">
+              <Label htmlFor="langfuse-enabled" className="cursor-pointer">
+                {t('settings.general.observability.langfuse.enabled.label')}
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                {t('settings.general.observability.langfuse.enabled.helper')}
+              </p>
+            </div>
+          </div>
+          {draft?.langfuse_enabled && (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="langfuse-public-key">
+                  {t('settings.general.observability.langfuse.publicKey.label')}
+                </Label>
+                <Input
+                  id="langfuse-public-key"
+                  type="text"
+                  placeholder={t('settings.general.observability.langfuse.publicKey.placeholder')}
+                  value={draft?.langfuse_public_key ?? ''}
+                  onChange={(e) =>
+                    updateDraft({ langfuse_public_key: e.target.value || null })
+                  }
+                />
+                <p className="text-sm text-muted-foreground">
+                  {t('settings.general.observability.langfuse.publicKey.helper')}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="langfuse-secret-key">
+                  {t('settings.general.observability.langfuse.secretKey.label')}
+                </Label>
+                <Input
+                  id="langfuse-secret-key"
+                  type="password"
+                  placeholder={t('settings.general.observability.langfuse.secretKey.placeholder')}
+                  value={draft?.langfuse_secret_key ?? ''}
+                  onChange={(e) =>
+                    updateDraft({ langfuse_secret_key: e.target.value || null })
+                  }
+                />
+                <p className="text-sm text-muted-foreground">
+                  {t('settings.general.observability.langfuse.secretKey.helper')}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="langfuse-host">
+                  {t('settings.general.observability.langfuse.host.label')}
+                </Label>
+                <Input
+                  id="langfuse-host"
+                  type="text"
+                  placeholder="https://cloud.langfuse.com"
+                  value={draft?.langfuse_host ?? ''}
+                  onChange={(e) =>
+                    updateDraft({ langfuse_host: e.target.value || null })
+                  }
+                />
+                <p className="text-sm text-muted-foreground">
+                  {t('settings.general.observability.langfuse.host.helper')}
+                </p>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>{t('settings.general.privacy.title')}</CardTitle>
           <CardDescription>
             {t('settings.general.privacy.description')}
