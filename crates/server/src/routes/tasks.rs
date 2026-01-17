@@ -444,19 +444,20 @@ pub async fn create_task_and_start(
         )
         .await;
 
-    let task = Task::find_by_id(pool, task.id)
+    let mut task = Task::find_by_id(pool, task.id)
         .await?
         .ok_or(ApiError::Database(SqlxError::RowNotFound))?;
 
+    // Update task fields with current attempt state for the response
+    // (materialized columns may not be updated yet)
+    task.has_in_progress_attempt = is_attempt_running;
+    task.last_attempt_failed = false;
+    task.is_blocked = false;
+    task.is_queued = !is_attempt_running;
+    task.last_executor = payload.executor_profile_id.executor.to_string();
+
     tracing::info!("Started attempt for task {}", task.id);
-    Ok(ResponseJson(ApiResponse::success(TaskWithAttemptStatus {
-        task,
-        has_in_progress_attempt: is_attempt_running,
-        last_attempt_failed: false,
-        is_blocked: false,
-        is_queued: !is_attempt_running,
-        executor: payload.executor_profile_id.executor.to_string(),
-    })))
+    Ok(ResponseJson(ApiResponse::success(TaskWithAttemptStatus::from_task(task))))
 }
 
 pub async fn update_task(

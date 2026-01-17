@@ -5,12 +5,16 @@ use std::{
 };
 
 use sqlx::{
-    Error, Pool, Sqlite,
+    Error, Pool, Row, Sqlite,
+    migrate::MigrateError,
     sqlite::{
         SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePoolOptions,
         SqliteSynchronous,
     },
 };
+
+// Re-export for external use
+pub use sqlx::migrate::MigrateError as SqlxMigrateError;
 use utils::assets::asset_dir;
 
 pub mod models;
@@ -93,6 +97,95 @@ impl DBService {
             .synchronous(SqliteSynchronous::Normal))
     }
 
+    /// Attempts to repair a renamed migration by updating the version in the database.
+    /// Returns Ok(true) if repair was successful, Ok(false) if no repair was needed/possible.
+    async fn try_repair_renamed_migration(
+        pool: &Pool<Sqlite>,
+        missing_version: i64,
+    ) -> Result<bool, Error> {
+        // Get the description of the missing migration from the database
+        let row = sqlx::query(
+            "SELECT description FROM _sqlx_migrations WHERE version = ?",
+        )
+        .bind(missing_version)
+        .fetch_optional(pool)
+        .await?;
+
+        let Some(row) = row else {
+            return Ok(false);
+        };
+
+        let description: String = row.get("description");
+
+        // Get the list of available migrations from the compiled migrator
+        let migrator = sqlx::migrate!("./migrations");
+
+        // Find a migration with the same description but different version
+        for migration in migrator.migrations.iter() {
+            if migration.description == description && migration.version != missing_version {
+                tracing::warn!(
+                    "Detected renamed migration: {} -> {} ({}). Auto-repairing...",
+                    missing_version,
+                    migration.version,
+                    description
+                );
+
+                // Update the version in the database
+                sqlx::query(
+                    "UPDATE _sqlx_migrations SET version = ? WHERE version = ?",
+                )
+                .bind(migration.version)
+                .bind(missing_version)
+                .execute(pool)
+                .await?;
+
+                tracing::info!(
+                    "Migration version updated from {} to {}",
+                    missing_version,
+                    migration.version
+                );
+
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Run migrations with automatic repair of renamed migrations.
+    async fn run_migrations_with_repair(pool: &Pool<Sqlite>) -> Result<(), Error> {
+        let migrator = sqlx::migrate!("./migrations");
+
+        match migrator.run(pool).await {
+            Ok(()) => Ok(()),
+            Err(MigrateError::VersionMissing(missing_version)) => {
+                // Attempt to repair renamed migration
+                if Self::try_repair_renamed_migration(pool, missing_version).await? {
+                    // Retry migrations after repair
+                    migrator.run(pool).await?;
+                    Ok(())
+                } else {
+                    // Could not repair - provide helpful error message
+                    let db_path = asset_dir().join("db.sqlite");
+                    tracing::error!(
+                        "Migration {} is recorded in the database but no matching migration file exists.\n\
+                        This typically happens when a migration file was renamed after being applied.\n\
+                        \n\
+                        To fix manually, run:\n\
+                        sqlite3 {} \"SELECT version, description FROM _sqlx_migrations WHERE version = {};\"\n\
+                        \n\
+                        Then update the version to match an existing migration file with the same description.",
+                        missing_version,
+                        db_path.display(),
+                        missing_version
+                    );
+                    Err(MigrateError::VersionMissing(missing_version))?
+                }
+            }
+            Err(e) => Err(e)?,
+        }
+    }
+
     pub async fn new() -> Result<DBService, Error> {
         // Initialize sqlite-vec before creating any connections
         init_sqlite_vec();
@@ -100,7 +193,7 @@ impl DBService {
         let pool = Self::pool_options()
             .connect_with(Self::connect_options()?)
             .await?;
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        Self::run_migrations_with_repair(&pool).await?;
         sqlx::query("PRAGMA optimize").execute(&pool).await?;
         Ok(DBService { pool })
     }
@@ -129,7 +222,7 @@ impl DBService {
             })
             .connect_with(Self::connect_options()?)
             .await?;
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        Self::run_migrations_with_repair(&pool).await?;
         sqlx::query("PRAGMA optimize").execute(&pool).await?;
         Ok(DBService { pool })
     }

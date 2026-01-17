@@ -62,40 +62,20 @@ pub struct Task {
     pub last_executor: String,
 }
 
-/// Wrapper around Task that exposes attempt status fields.
-/// Note: With materialized columns, these fields are now stored directly in Task.
-/// This struct exists for API compatibility - it flattens Task and re-exports
-/// the materialized columns under their expected names.
+/// Wrapper around Task for API responses.
+/// Task now contains materialized status columns directly (is_blocked, has_in_progress_attempt, etc.)
+/// This wrapper provides Deref/DerefMut for convenient field access and exists for API compatibility.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct TaskWithAttemptStatus {
     #[serde(flatten)]
     #[ts(flatten)]
     pub task: Task,
-    // These fields are serialized separately for API compatibility
-    // (they overlap with task's materialized columns but use different names in some cases)
-    // Skip in ts-rs to avoid duplicate fields since Task already has these via #[ts(flatten)]
-    #[ts(skip)]
-    pub has_in_progress_attempt: bool,
-    #[ts(skip)]
-    pub last_attempt_failed: bool,
-    #[ts(skip)]
-    pub is_blocked: bool,
-    #[ts(skip)]
-    pub is_queued: bool,
-    pub executor: String,
 }
 
 impl TaskWithAttemptStatus {
-    /// Create a TaskWithAttemptStatus from a Task, using its materialized columns
+    /// Create a TaskWithAttemptStatus from a Task
     pub fn from_task(task: Task) -> Self {
-        Self {
-            has_in_progress_attempt: task.has_in_progress_attempt,
-            last_attempt_failed: task.last_attempt_failed,
-            is_blocked: task.is_blocked,
-            is_queued: task.is_queued,
-            executor: task.last_executor.clone(),
-            task,
-        }
+        Self { task }
     }
 }
 
@@ -745,13 +725,8 @@ LIMIT ?4"#,
                             has_in_progress_attempt: rec.has_in_progress_attempt != 0,
                             last_attempt_failed: rec.last_attempt_failed != 0,
                             is_queued: rec.is_queued != 0,
-                            last_executor: rec.executor.clone(),
+                            last_executor: rec.executor,
                         },
-                        has_in_progress_attempt: rec.has_in_progress_attempt != 0,
-                        last_attempt_failed: rec.last_attempt_failed != 0,
-                        is_blocked: rec.is_blocked != 0,
-                        is_queued: rec.is_queued != 0,
-                        executor: rec.executor,
                     },
                     rec.rank_score,
                 )
@@ -1040,13 +1015,8 @@ LIMIT ?4"#,
                             has_in_progress_attempt: rec.has_in_progress_attempt != 0,
                             last_attempt_failed: rec.last_attempt_failed != 0,
                             is_queued: rec.is_queued != 0,
-                            last_executor: rec.executor.clone(),
+                            last_executor: rec.executor,
                         },
-                        has_in_progress_attempt: rec.has_in_progress_attempt != 0,
-                        last_attempt_failed: rec.last_attempt_failed != 0,
-                        is_blocked: rec.is_blocked != 0,
-                        is_queued: rec.is_queued != 0,
-                        executor: rec.executor,
                     },
                     rec.hybrid_score,
                 )
@@ -1308,5 +1278,38 @@ mod tests {
     fn test_hybrid_search_embedding_dimension_constant() {
         // Ensure embedding dimension matches expected BGE-small-en-v1.5 size
         assert_eq!(EMBEDDING_DIMENSION, 384);
+    }
+}
+
+#[cfg(test)]
+mod deser_tests {
+    use super::*;
+    
+    #[test]
+    fn test_task_with_attempt_status_deserialize() {
+        let json = r#"{
+            "id": "2dad1cc5-d5ff-4d32-aa65-31b8571c73a4",
+            "project_id": "ceee1d67-b332-4695-addd-f40256e23409",
+            "title": "Test task",
+            "description": null,
+            "status": "todo",
+            "parent_workspace_id": null,
+            "shared_task_id": null,
+            "task_group_id": null,
+            "created_at": "2026-01-17T16:23:03.362Z",
+            "updated_at": "2026-01-17T16:23:03.362Z",
+            "is_blocked": true,
+            "has_in_progress_attempt": false,
+            "last_attempt_failed": false,
+            "is_queued": false,
+            "last_executor": ""
+        }"#;
+        
+        let result: Result<TaskWithAttemptStatus, _> = serde_json::from_str(json);
+        match &result {
+            Ok(task) => println!("Deserialized successfully: {:?}", task.task.title),
+            Err(e) => println!("Deserialization error: {}", e),
+        }
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result.err());
     }
 }
