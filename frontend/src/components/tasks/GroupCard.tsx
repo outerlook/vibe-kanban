@@ -24,6 +24,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { getTaskGroupColorClass } from '@/lib/ganttColors';
 import { useBranchAncestorStatus, useProjectQueueCount } from '@/hooks';
 import { useDeleteTaskGroup } from '@/hooks/useTaskGroups';
 import { StatusCountBadge } from './StatusCountBadge';
@@ -33,6 +34,19 @@ import {
   ConfirmDialog,
 } from '@/components/dialogs';
 import type { TaskGroupWithStats, TaskStatus } from 'shared/types';
+
+const BORDER_COLORS: Record<string, string> = {
+  'group-0': 'border-l-indigo-500',
+  'group-1': 'border-l-violet-500',
+  'group-2': 'border-l-pink-500',
+  'group-3': 'border-l-rose-500',
+  'group-4': 'border-l-orange-500',
+  'group-5': 'border-l-amber-500',
+  'group-6': 'border-l-emerald-500',
+  'group-7': 'border-l-teal-500',
+  'group-8': 'border-l-cyan-500',
+  'group-9': 'border-l-sky-500',
+};
 
 interface GroupCardProps {
   group: TaskGroupWithStats;
@@ -69,6 +83,8 @@ export function GroupCard({
   }>({ open: false, x: 0, y: 0 });
 
   const counts = group.task_counts;
+  const colorClass = getTaskGroupColorClass(group.id);
+  const borderColorClass = BORDER_COLORS[colorClass] ?? '';
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -112,6 +128,8 @@ export function GroupCard({
         className={cn(
           'p-4 cursor-pointer transition-colors',
           'hover:bg-accent/50 border border-border rounded-lg',
+          'border-l-4',
+          borderColorClass,
           onClick && 'hover:shadow-sm'
         )}
       >
