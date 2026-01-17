@@ -116,8 +116,11 @@ export const useConversationHistory = ({
 }: UseConversationHistoryParams): UseConversationHistoryResult => {
   // For conversation mode, we don't have execution processes context
   // For workspace mode, we use the existing execution processes context
-  const { executionProcessesVisible: executionProcessesRaw } =
-    useExecutionProcessesContext();
+  const {
+    executionProcessesVisible: executionProcessesRaw,
+    isLoading: isExecutionProcessesLoading,
+    isConnected: isExecutionProcessesConnected,
+  } = useExecutionProcessesContext();
 
   // Derive mode-specific values
   const modeId = mode.type === 'workspace' ? mode.attempt.id : mode.conversationSessionId;
@@ -729,12 +732,19 @@ export const useConversationHistory = ({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Waiting for execution processes to load
-      if (
-        executionProcesses?.current.length === 0 ||
-        loadedInitialEntries.current
-      )
+      // Already loaded initial entries
+      if (loadedInitialEntries.current) return;
+
+      // Still waiting for execution processes WebSocket to connect
+      if (isExecutionProcessesLoading || !isExecutionProcessesConnected) return;
+
+      // Execution processes have been loaded (may be empty for new conversations)
+      if (executionProcesses?.current.length === 0) {
+        // No execution processes - emit empty state with loading=false
+        emitEntries(displayedExecutionProcesses.current, 'initial', false);
+        loadedInitialEntries.current = true;
         return;
+      }
 
       // Initial entries
       const allInitialEntries = await loadInitialEntries();
@@ -751,6 +761,8 @@ export const useConversationHistory = ({
   }, [
     modeId,
     idListKey,
+    isExecutionProcessesLoading,
+    isExecutionProcessesConnected,
     loadInitialEntries,
     emitEntries,
   ]); // include idListKey so new processes trigger reload
