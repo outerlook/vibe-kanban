@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigateWithSearch } from '@/hooks';
 import { tasksApi } from '@/lib/api';
 import { paths } from '@/lib/paths';
-import { taskRelationshipsKeys } from '@/hooks/useTaskRelationships';
+import { invalidateTaskQueries } from '@/lib/queryInvalidation';
 import type {
   CreateTask,
   CreateAndStartTaskRequest,
@@ -11,31 +11,19 @@ import type {
   UpdateTask,
   SharedTaskDetails,
 } from 'shared/types';
-import { taskKeys } from './useTask';
 
 export function useTaskMutations(projectId?: string) {
   const queryClient = useQueryClient();
   const navigate = useNavigateWithSearch();
 
-  const invalidateQueries = (taskId?: string) => {
-    queryClient.invalidateQueries({ queryKey: taskKeys.all });
-    if (taskId) {
-      queryClient.invalidateQueries({ queryKey: taskKeys.byId(taskId) });
-    }
-  };
-
   const createTask = useMutation({
     mutationFn: (data: CreateTask) => tasksApi.create(data),
     onSuccess: (createdTask: Task) => {
-      invalidateQueries();
-      // Invalidate parent's relationships cache if this is a subtask
-      if (createdTask.parent_workspace_id) {
-        queryClient.invalidateQueries({
-          queryKey: taskRelationshipsKeys.byAttempt(
-            createdTask.parent_workspace_id
-          ),
-        });
-      }
+      invalidateTaskQueries(queryClient, createdTask.id, {
+        projectId,
+        includeRelationships: !!createdTask.parent_workspace_id,
+        attemptId: createdTask.parent_workspace_id ?? undefined,
+      });
       if (projectId) {
         navigate(`${paths.task(projectId, createdTask.id)}/attempts/latest`);
       }
@@ -49,15 +37,11 @@ export function useTaskMutations(projectId?: string) {
     mutationFn: (data: CreateAndStartTaskRequest) =>
       tasksApi.createAndStart(data),
     onSuccess: (createdTask: TaskWithAttemptStatus) => {
-      invalidateQueries();
-      // Invalidate parent's relationships cache if this is a subtask
-      if (createdTask.parent_workspace_id) {
-        queryClient.invalidateQueries({
-          queryKey: taskRelationshipsKeys.byAttempt(
-            createdTask.parent_workspace_id
-          ),
-        });
-      }
+      invalidateTaskQueries(queryClient, createdTask.id, {
+        projectId,
+        includeRelationships: !!createdTask.parent_workspace_id,
+        attemptId: createdTask.parent_workspace_id ?? undefined,
+      });
       if (projectId) {
         navigate(`${paths.task(projectId, createdTask.id)}/attempts/latest`);
       }
@@ -71,7 +55,10 @@ export function useTaskMutations(projectId?: string) {
     mutationFn: ({ taskId, data }: { taskId: string; data: UpdateTask }) =>
       tasksApi.update(taskId, data),
     onSuccess: (updatedTask: Task) => {
-      invalidateQueries(updatedTask.id);
+      invalidateTaskQueries(queryClient, updatedTask.id, {
+        projectId,
+        includeDependencies: true,
+      });
     },
     onError: (err) => {
       console.error('Failed to update task:', err);
@@ -81,11 +68,13 @@ export function useTaskMutations(projectId?: string) {
   const deleteTask = useMutation({
     mutationFn: (taskId: string) => tasksApi.delete(taskId),
     onSuccess: (_: unknown, taskId: string) => {
-      invalidateQueries(taskId);
+      invalidateTaskQueries(queryClient, taskId, {
+        projectId,
+        includeDependencies: true,
+        includeRelationships: true,
+      });
       // Remove single-task cache entry to avoid stale data flashes
       queryClient.removeQueries({ queryKey: ['task', taskId], exact: true });
-      // Invalidate all task relationships caches (safe approach since we don't know parent)
-      queryClient.invalidateQueries({ queryKey: taskRelationshipsKeys.all });
     },
     onError: (err) => {
       console.error('Failed to delete task:', err);
@@ -102,7 +91,7 @@ export function useTaskMutations(projectId?: string) {
   const unshareSharedTask = useMutation({
     mutationFn: (sharedTaskId: string) => tasksApi.unshare(sharedTaskId),
     onSuccess: () => {
-      invalidateQueries();
+      invalidateTaskQueries(queryClient, undefined, { projectId });
     },
     onError: (err) => {
       console.error('Failed to unshare task:', err);
@@ -114,7 +103,7 @@ export function useTaskMutations(projectId?: string) {
     onSuccess: (createdTask: Task | null) => {
       console.log('Linked shared task to local successfully', createdTask);
       if (createdTask) {
-        invalidateQueries(createdTask.id);
+        invalidateTaskQueries(queryClient, createdTask.id, { projectId });
       }
     },
     onError: (err) => {
