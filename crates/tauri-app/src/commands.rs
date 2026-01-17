@@ -17,10 +17,29 @@ use crate::{
 ///
 /// In Local mode, this is the URL of the embedded server (e.g., `http://127.0.0.1:54321`).
 /// In Remote mode, this is the configured remote server URL.
+///
+/// This function will wait for the URL to become available (up to 30 seconds) if the
+/// embedded server is still starting up.
 #[tauri::command]
 pub async fn get_server_url(state: State<'_, AppState>) -> Result<String, String> {
-    let url = state.server_url.read().await;
-    Ok(url.clone())
+    // Wait for the server URL to be populated (with timeout)
+    let max_wait = std::time::Duration::from_secs(30);
+    let poll_interval = std::time::Duration::from_millis(100);
+    let start = std::time::Instant::now();
+
+    loop {
+        let url = state.server_url.read().await;
+        if !url.is_empty() {
+            return Ok(url.clone());
+        }
+        drop(url); // Release the read lock
+
+        if start.elapsed() > max_wait {
+            return Err("Server URL not available after waiting".to_string());
+        }
+
+        tokio::time::sleep(poll_interval).await;
+    }
 }
 
 /// Returns the current server mode (Local or Remote).

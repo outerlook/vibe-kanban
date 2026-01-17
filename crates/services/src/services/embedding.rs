@@ -182,6 +182,11 @@ mod tests {
             task_group_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            is_blocked: false,
+            has_in_progress_attempt: false,
+            last_attempt_failed: false,
+            is_queued: false,
+            last_executor: String::new(),
         };
 
         let text = format_task_text(&task_with_desc);

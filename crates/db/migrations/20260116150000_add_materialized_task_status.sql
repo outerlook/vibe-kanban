@@ -28,7 +28,7 @@ UPDATE tasks SET has_in_progress_attempt = (
 );
 
 -- Populate last_attempt_failed: 1 if the most recent attempt failed or was killed
-UPDATE tasks SET last_attempt_failed = (
+UPDATE tasks SET last_attempt_failed = COALESCE((
   SELECT CASE WHEN ep_status IN ('failed', 'killed') THEN 1 ELSE 0 END
   FROM (
     SELECT ep.status AS ep_status
@@ -40,7 +40,7 @@ UPDATE tasks SET last_attempt_failed = (
     ORDER BY ep.created_at DESC
     LIMIT 1
   )
-);
+), 0);
 
 -- Populate is_queued: 1 if task has an entry in execution_queue
 UPDATE tasks SET is_queued = (
