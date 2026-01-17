@@ -1241,9 +1241,9 @@ impl LocalContainerService {
                 return;
             };
 
-            // Parse the feedback response
-            let parsed = match FeedbackService::parse_feedback_response(&message) {
-                Ok(parsed) => parsed,
+            // Extract and validate JSON from the feedback response
+            let feedback_json = match FeedbackService::parse_feedback_response(&message) {
+                Ok(json) => json,
                 Err(e) => {
                     tracing::warn!(
                         "Failed to parse feedback response for execution {}: {}",
@@ -1254,13 +1254,12 @@ impl LocalContainerService {
                 }
             };
 
-            // Store the feedback in the database as JSON
-            let feedback_json = serde_json::to_string(&parsed).ok();
+            // Store the raw JSON feedback in the database
             let create_feedback = CreateAgentFeedback {
                 execution_process_id: feedback_exec_id,
                 task_id,
                 workspace_id,
-                feedback_json,
+                feedback_json: Some(feedback_json),
             };
 
             match AgentFeedback::create(&db.pool, &create_feedback, Uuid::new_v4()).await {
