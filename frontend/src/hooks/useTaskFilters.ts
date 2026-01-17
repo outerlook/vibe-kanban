@@ -7,12 +7,14 @@ const PARAM_KEYS = {
   search: 'q',
   group: 'group',
   status: 'status',
+  blocked: 'blocked',
 } as const;
 
 export interface TaskFilters {
   search: string;
   groupId: string | null;
   statuses: TaskStatus[];
+  hideBlocked: boolean;
 }
 
 export interface TaskFiltersHook {
@@ -20,6 +22,7 @@ export interface TaskFiltersHook {
   setSearch: (query: string) => void;
   setGroupId: (groupId: string | null) => void;
   setStatuses: (statuses: TaskStatus[]) => void;
+  setHideBlocked: (value: boolean) => void;
   clearFilters: () => void;
   hasActiveFilters: boolean;
 }
@@ -45,8 +48,9 @@ export function useTaskFilters(): TaskFiltersHook {
     const search = searchParams.get(PARAM_KEYS.search) ?? '';
     const groupId = searchParams.get(PARAM_KEYS.group);
     const statuses = parseStatuses(searchParams.get(PARAM_KEYS.status));
+    const hideBlocked = searchParams.get(PARAM_KEYS.blocked) === 'hide';
 
-    return { search, groupId, statuses };
+    return { search, groupId, statuses, hideBlocked };
   }, [searchParams]);
 
   const setSearch = useCallback(
@@ -106,6 +110,24 @@ export function useTaskFilters(): TaskFiltersHook {
     [setSearchParams]
   );
 
+  const setHideBlocked = useCallback(
+    (value: boolean) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (value) {
+            next.set(PARAM_KEYS.blocked, 'hide');
+          } else {
+            next.delete(PARAM_KEYS.blocked);
+          }
+          return next;
+        },
+        { replace: true }
+      );
+    },
+    [setSearchParams]
+  );
+
   const clearFilters = useCallback(() => {
     setSearchParams(
       (prev) => {
@@ -113,6 +135,7 @@ export function useTaskFilters(): TaskFiltersHook {
         next.delete(PARAM_KEYS.search);
         next.delete(PARAM_KEYS.group);
         next.delete(PARAM_KEYS.status);
+        next.delete(PARAM_KEYS.blocked);
         return next;
       },
       { replace: true }
@@ -120,14 +143,19 @@ export function useTaskFilters(): TaskFiltersHook {
   }, [setSearchParams]);
 
   const hasActiveFilters = useMemo(() => {
-    return filters.search.trim().length > 0 || filters.groupId !== null;
-  }, [filters.search, filters.groupId]);
+    return (
+      filters.search.trim().length > 0 ||
+      filters.groupId !== null ||
+      filters.hideBlocked
+    );
+  }, [filters.search, filters.groupId, filters.hideBlocked]);
 
   return {
     filters,
     setSearch,
     setGroupId,
     setStatuses,
+    setHideBlocked,
     clearFilters,
     hasActiveFilters,
   };

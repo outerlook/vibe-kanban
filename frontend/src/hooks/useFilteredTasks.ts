@@ -64,6 +64,11 @@ export function useFilteredTasks({
       return filters.statuses.includes(status);
     };
 
+    const matchesBlocked = (isBlocked: boolean): boolean => {
+      if (!filters.hideBlocked) return true;
+      return !isBlocked;
+    };
+
     tasks.forEach((task) => {
       const statusKey = normalizeStatus(task.status);
       const sharedTask = task.shared_task_id
@@ -79,6 +84,10 @@ export function useFilteredTasks({
       }
 
       if (!matchesStatus(statusKey)) {
+        return;
+      }
+
+      if (!matchesBlocked(task.is_blocked)) {
         return;
       }
 
@@ -145,6 +154,7 @@ export function useFilteredTasks({
     userId,
     filters.groupId,
     filters.statuses,
+    filters.hideBlocked,
   ]);
 
   const visibleTasksByStatus = useMemo(() => {
