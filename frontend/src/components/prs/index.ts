@@ -5,6 +5,11 @@ export {
   type RepoSectionProps,
 } from './RepoSection';
 export {
+  BranchSection,
+  BranchSectionSkeleton,
+  type BranchSectionProps,
+} from './BranchSection';
+export {
   PrFilters,
   PrFiltersSkeleton,
   type PrFiltersProps,
