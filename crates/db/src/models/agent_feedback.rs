@@ -128,6 +128,30 @@ impl AgentFeedback {
         .await
     }
 
+    pub async fn find_by_workspace_id(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            AgentFeedback,
+            r#"SELECT
+                id as "id!: Uuid",
+                execution_process_id as "execution_process_id!: Uuid",
+                task_id as "task_id!: Uuid",
+                workspace_id as "workspace_id!: Uuid",
+                feedback_json,
+                collected_at as "collected_at!: DateTime<Utc>",
+                created_at as "created_at!: DateTime<Utc>",
+                updated_at as "updated_at!: DateTime<Utc>"
+               FROM agent_feedback
+               WHERE workspace_id = $1
+               ORDER BY collected_at DESC"#,
+            workspace_id
+        )
+        .fetch_all(pool)
+        .await
+    }
+
     pub async fn find_recent(pool: &SqlitePool, limit: i64) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as!(
             AgentFeedback,

@@ -126,6 +126,7 @@ import {
   ProjectPrsResponse,
   RepoPrs,
   PrWithComments,
+  FeedbackResponse,
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { createWorkspaceWithSession } from '@/types/attempt';
@@ -1974,5 +1975,32 @@ export const githubSettingsApi = {
       method: 'POST',
     });
     return handleApiResponse<GitHubImportResponse>(response);
+  },
+};
+
+// Feedback API
+export const feedbackApi = {
+  /** Get all feedback for a task */
+  getByTaskId: async (taskId: string): Promise<FeedbackResponse[]> => {
+    const response = await makeRequest(`/api/feedback/task/${taskId}`);
+    return handleApiResponse<FeedbackResponse[]>(response);
+  },
+
+  /** Get all feedback for a workspace (attempt) */
+  getByWorkspaceId: async (workspaceId: string): Promise<FeedbackResponse[]> => {
+    const response = await makeRequest(`/api/feedback/workspace/${workspaceId}`);
+    return handleApiResponse<FeedbackResponse[]>(response);
+  },
+
+  /** Get most recent feedback entries */
+  getRecent: async (limit?: number): Promise<FeedbackResponse[]> => {
+    const params = new URLSearchParams();
+    if (limit !== undefined) {
+      params.set('limit', limit.toString());
+    }
+    const queryString = params.toString();
+    const url = `/api/feedback/recent${queryString ? `?${queryString}` : ''}`;
+    const response = await makeRequest(url);
+    return handleApiResponse<FeedbackResponse[]>(response);
   },
 };

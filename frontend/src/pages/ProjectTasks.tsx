@@ -873,7 +873,7 @@ export function ProjectTasks() {
         <TaskPanel task={selectedTask} />
       ) : (
         <TaskAttemptPanel attempt={attempt} task={selectedTask}>
-          {({ logs, followUp }) => (
+          {({ logs, followUp, feedback }) => (
             <>
               <GitErrorBanner />
               <div className="flex-1 min-h-0 flex flex-col">
@@ -884,6 +884,8 @@ export function ProjectTasks() {
                     <TodoPanel />
                   </div>
                 </div>
+
+                <div className="shrink-0">{feedback}</div>
 
                 <div className="min-h-0 max-h-[50%] border-t overflow-hidden bg-background">
                   <div className="mx-auto w-full max-w-[50rem] h-full min-h-0">

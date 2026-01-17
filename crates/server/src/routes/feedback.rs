@@ -62,6 +62,17 @@ pub async fn get_feedback_by_task(
     Ok(Json(ApiResponse::success(response)))
 }
 
+/// GET /api/feedback/workspace/:workspace_id - Returns all feedback for a workspace
+pub async fn get_feedback_by_workspace(
+    State(deployment): State<DeploymentImpl>,
+    Path(workspace_id): Path<Uuid>,
+) -> Result<Json<ApiResponse<Vec<FeedbackResponse>>>, ApiError> {
+    let feedback_list =
+        AgentFeedback::find_by_workspace_id(&deployment.db().pool, workspace_id).await?;
+    let response: Vec<FeedbackResponse> = feedback_list.into_iter().map(Into::into).collect();
+    Ok(Json(ApiResponse::success(response)))
+}
+
 /// GET /api/feedback/recent?limit=N - Returns N most recent feedback entries
 pub async fn get_recent_feedback(
     State(deployment): State<DeploymentImpl>,
@@ -75,6 +86,7 @@ pub async fn get_recent_feedback(
 pub fn router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let inner = Router::new()
         .route("/task/{task_id}", get(get_feedback_by_task))
+        .route("/workspace/{workspace_id}", get(get_feedback_by_workspace))
         .route("/recent", get(get_recent_feedback));
 
     Router::new().nest("/feedback", inner)

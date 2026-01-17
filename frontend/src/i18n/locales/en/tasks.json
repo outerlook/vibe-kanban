@@ -137,7 +137,13 @@
     "loadingAttempts": "Loading attempts...",
     "errorLoadingAttempts": "Failed to load attempts",
     "attemptsCount": "Attempts ({{count}})",
-    "noAttempts": "No attempts yet"
+    "noAttempts": "No attempts yet",
+    "hasFeedback": "Has feedback"
+  },
+  "feedback": {
+    "title": "Agent Feedback",
+    "noFeedback": "No feedback collected for this attempt",
+    "collectedAt": "Collected {{time}}"
   },
   "processes": {
     "selectAttempt": "Select an attempt to view execution processes.",

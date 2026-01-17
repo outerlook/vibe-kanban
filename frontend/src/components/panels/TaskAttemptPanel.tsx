@@ -2,6 +2,7 @@ import type { TaskWithAttemptStatus } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import VirtualizedList from '@/components/logs/VirtualizedList';
 import { TaskFollowUpSection } from '@/components/tasks/TaskFollowUpSection';
+import { FeedbackSection } from '@/components/feedback/FeedbackSection';
 import { EntriesProvider } from '@/contexts/EntriesContext';
 import { RetryUiProvider } from '@/contexts/RetryUiContext';
 import type { ReactNode } from 'react';
@@ -9,7 +10,11 @@ import type { ReactNode } from 'react';
 interface TaskAttemptPanelProps {
   attempt: WorkspaceWithSession | undefined;
   task: TaskWithAttemptStatus | null;
-  children: (sections: { logs: ReactNode; followUp: ReactNode }) => ReactNode;
+  children: (sections: {
+    logs: ReactNode;
+    followUp: ReactNode;
+    feedback: ReactNode;
+  }) => ReactNode;
 }
 
 const TaskAttemptPanel = ({
@@ -38,6 +43,7 @@ const TaskAttemptPanel = ({
           followUp: (
             <TaskFollowUpSection task={task} session={attempt.session} />
           ),
+          feedback: <FeedbackSection workspaceId={attempt.id} />,
         })}
       </RetryUiProvider>
     </EntriesProvider>
