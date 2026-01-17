@@ -106,7 +106,7 @@ pub struct UpdateExecutionProcess {
     pub completed_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExecutionContext {
     pub execution_process: ExecutionProcess,
     pub session: Session,
