@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { AlertTriangle, Plus, X } from 'lucide-react';
 import { Loader } from '@/components/ui/loader';
-import { tasksApi } from '@/lib/api';
 import { openTaskForm } from '@/lib/openTaskForm';
 import { FeatureShowcaseDialog } from '@/components/dialogs/global/FeatureShowcaseDialog';
 import { showcases } from '@/config/showcases';
@@ -47,6 +46,7 @@ import {
   useProjectTasks,
   type SharedTaskRecord,
 } from '@/hooks/useProjectTasks';
+import { useTaskMutations } from '@/hooks/useTaskMutations';
 import { GroupView } from '@/components/tasks/GroupView';
 import { ViewToggle, type ViewMode } from '@/components/tasks/ViewToggle';
 import { useUnreadSync } from '@/hooks/useUnreadSync';
@@ -135,6 +135,8 @@ export function ProjectTasks() {
     totalByStatus,
     error: tasksError,
   } = useProjectTasks(projectId || '');
+
+  const { updateTask } = useTaskMutations(projectId || undefined);
 
   // Sync unread state for this project
   useUnreadSync({ projectId: projectId || '', tasks });
@@ -629,7 +631,7 @@ export function ProjectTasks() {
   }, [selectedTask, visibleTasksByStatus, handleViewTaskDetails]);
 
   const handleDragEnd = useCallback(
-    async (event: DragEndEvent) => {
+    (event: DragEndEvent) => {
       const { active, over } = event;
       if (!over || !active.data.current) return;
 
@@ -638,20 +640,19 @@ export function ProjectTasks() {
       const task = tasksById[draggedTaskId];
       if (!task || task.status === newStatus) return;
 
-      try {
-        await tasksApi.update(draggedTaskId, {
+      updateTask.mutate({
+        taskId: draggedTaskId,
+        data: {
           title: task.title,
           description: task.description,
           status: newStatus,
           parent_workspace_id: task.parent_workspace_id,
           image_ids: null,
           task_group_id: null,
-        });
-      } catch (err) {
-        console.error('Failed to update task status:', err);
-      }
+        },
+      });
     },
-    [tasksById]
+    [tasksById, updateTask]
   );
 
   const getSharedTask = useCallback(
