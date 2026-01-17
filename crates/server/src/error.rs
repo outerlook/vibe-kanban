@@ -135,6 +135,9 @@ impl IntoResponse for ApiError {
                 ConversationMessageError::NotFound => {
                     (StatusCode::NOT_FOUND, "ConversationMessageError")
                 }
+                ConversationMessageError::InvalidCursor(_) => {
+                    (StatusCode::BAD_REQUEST, "InvalidCursor")
+                }
                 _ => (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "ConversationMessageError",

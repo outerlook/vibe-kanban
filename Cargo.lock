@@ -2435,6 +2435,7 @@ name = "db"
 version = "0.0.143"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "executors",
  "libsqlite3-sys",

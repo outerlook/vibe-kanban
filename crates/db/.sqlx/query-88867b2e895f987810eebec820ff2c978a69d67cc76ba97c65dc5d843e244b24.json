@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE tasks SET\n                    is_blocked = (\n                        SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END\n                        FROM task_dependencies td\n                        JOIN tasks dep ON dep.id = td.depends_on_id\n                        WHERE td.task_id = tasks.id AND dep.status != 'done'\n                    ),\n                    has_in_progress_attempt = (\n                        SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END\n                        FROM workspaces w\n                        JOIN sessions s ON s.workspace_id = w.id\n                        JOIN execution_processes ep ON ep.session_id = s.id\n                        WHERE w.task_id = tasks.id\n                          AND ep.status = 'running'\n                          AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')\n                    ),\n                    last_attempt_failed = COALESCE((\n                        SELECT CASE WHEN ep_status IN ('failed', 'killed') THEN 1 ELSE 0 END\n                        FROM (\n                            SELECT ep.status AS ep_status\n                            FROM workspaces w\n                            JOIN sessions s ON s.workspace_id = w.id\n                            JOIN execution_processes ep ON ep.session_id = s.id\n                            WHERE w.task_id = tasks.id\n                              AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')\n                            ORDER BY ep.created_at DESC\n                            LIMIT 1\n                        )\n                    ), 0),\n                    is_queued = (\n                        SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END\n                        FROM workspaces w\n                        JOIN execution_queue eq ON eq.workspace_id = w.id\n                        WHERE w.task_id = tasks.id\n                    ),\n                    last_executor = COALESCE((\n                        SELECT s.executor\n                        FROM workspaces w\n                        JOIN sessions s ON s.workspace_id = w.id\n                        WHERE w.task_id = tasks.id\n                        ORDER BY s.created_at DESC\n                        LIMIT 1\n                    ), '')\n                WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "88867b2e895f987810eebec820ff2c978a69d67cc76ba97c65dc5d843e244b24"
+}

@@ -99,6 +99,9 @@ pub async fn add_dependency(
         Task::inherit_group_if_none(pool, task.id, group_id).await?;
     }
 
+    // Update materialized is_blocked status for the task that now has a new dependency
+    Task::update_materialized_status(pool, task.id).await?;
+
     Ok(ResponseJson(ApiResponse::success(dependency)))
 }
 
@@ -111,6 +114,10 @@ pub async fn remove_dependency(
     TaskDependency::delete(pool, task.id, params.dep_id)
         .await
         .map_err(map_dependency_error)?;
+
+    // Update materialized is_blocked status for the task that had a dependency removed
+    Task::update_materialized_status(pool, task.id).await?;
+
     Ok(ResponseJson(ApiResponse::success(())))
 }
 

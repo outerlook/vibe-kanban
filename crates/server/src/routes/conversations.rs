@@ -5,7 +5,7 @@ use axum::{
     response::Json as ResponseJson, routing::get,
 };
 use db::models::{
-    conversation_message::ConversationMessage,
+    conversation_message::{ConversationMessage, ConversationMessagesPage},
     conversation_session::{
         ConversationSession, ConversationSessionStatus, UpdateConversationSession,
     },
@@ -59,6 +59,12 @@ pub struct UpdateConversationRequest {
 pub struct SendMessageRequest {
     pub content: String,
     pub variant: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GetMessagesQuery {
+    pub cursor: Option<String>,
+    pub limit: Option<usize>,
 }
 
 pub async fn list_conversations(
@@ -226,18 +232,21 @@ pub async fn send_message(
     })))
 }
 
-/// Get all messages in a conversation
+/// Get paginated messages in a conversation
 pub async fn get_messages(
     Extension(conversation): Extension<ConversationSession>,
     State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<Vec<ConversationMessage>>>, ApiError> {
-    let messages = ConversationMessage::find_by_conversation_session_id(
+    axum::extract::Query(query): axum::extract::Query<GetMessagesQuery>,
+) -> Result<ResponseJson<ApiResponse<ConversationMessagesPage>>, ApiError> {
+    let page = ConversationMessage::find_paginated_by_conversation_session_id(
         &deployment.db().pool,
         conversation.id,
+        query.cursor.as_deref(),
+        query.limit,
     )
     .await?;
 
-    Ok(ResponseJson(ApiResponse::success(messages)))
+    Ok(ResponseJson(ApiResponse::success(page)))
 }
 
 /// Get execution processes for a conversation
