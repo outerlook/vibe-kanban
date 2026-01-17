@@ -1,7 +1,7 @@
-//! FeedbackService for generating prompts and parsing agent feedback responses.
+//! FeedbackService for generating prompts and extracting agent feedback responses.
 //!
 //! This service handles the prompt generation for collecting feedback from agents
-//! and parsing their JSON responses into structured data.
+//! and extracting valid JSON from their responses for storage.
 
 use executors::{
     actions::{
@@ -9,9 +9,7 @@ use executors::{
     },
     profile::ExecutorProfileId,
 };
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use ts_rs::TS;
 
 /// Errors that can occur during feedback operations.
 #[derive(Debug, Error)]
@@ -26,28 +24,6 @@ pub enum FeedbackError {
 }
 
 pub type Result<T> = std::result::Result<T, FeedbackError>;
-
-/// Parsed feedback from an agent response.
-///
-/// This structure matches the fields expected in `CreateAgentFeedback`
-/// (minus the IDs which are added at the database layer).
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
-pub struct ParsedFeedback {
-    /// Feedback on task clarity - was the task description clear?
-    pub task_clarity: Option<String>,
-
-    /// Feedback on missing tools - what tools would have helped?
-    pub missing_tools: Option<String>,
-
-    /// Feedback on integration problems - issues with the environment/setup?
-    pub integration_problems: Option<String>,
-
-    /// Suggestions for improvement - how could the system be better?
-    pub improvement_suggestions: Option<String>,
-
-    /// Documentation from the agent about what it learned or did.
-    pub agent_documentation: Option<String>,
-}
 
 /// Service for generating feedback prompts and parsing agent responses.
 #[derive(Clone, Default)]
@@ -79,20 +55,20 @@ Respond with a JSON object containing the following fields (use null for any fie
 Be specific and actionable in your feedback. If a category doesn't apply, set it to null."#.to_string()
     }
 
-    /// Parse an agent's response to extract structured feedback.
+    /// Extract valid JSON from an agent's feedback response.
     ///
     /// Handles multiple response formats:
     /// - Raw JSON object
     /// - JSON embedded in markdown code blocks
-    /// - Partial responses with some fields missing
+    /// - JSON embedded in surrounding text
     ///
     /// # Arguments
     /// * `assistant_message` - The raw text response from the agent
     ///
     /// # Returns
-    /// * `Ok(ParsedFeedback)` - Successfully parsed feedback
+    /// * `Ok(String)` - The extracted raw JSON string
     /// * `Err(FeedbackError::ParseError)` - Failed to extract valid JSON
-    pub fn parse_feedback_response(assistant_message: &str) -> Result<ParsedFeedback> {
+    pub fn parse_feedback_response(assistant_message: &str) -> Result<String> {
         let trimmed = assistant_message.trim();
 
         if trimmed.is_empty() {
@@ -101,13 +77,8 @@ Be specific and actionable in your feedback. If a category doesn't apply, set it
             ));
         }
 
-        // Try to extract JSON from the response
-        let json_str = Self::extract_json(trimmed)?;
-
-        // Parse the JSON into our struct
-        serde_json::from_str(&json_str).map_err(|e| {
-            FeedbackError::ParseError(format!("Invalid JSON structure: {}", e))
-        })
+        // Extract and validate JSON from the response
+        Self::extract_json(trimmed)
     }
 
     /// Extract JSON content from a response that might contain markdown or other text.
@@ -240,21 +211,12 @@ mod tests {
         let result = FeedbackService::parse_feedback_response(response);
         assert!(result.is_ok());
 
-        let feedback = result.unwrap();
-        assert_eq!(feedback.task_clarity, Some("The task was clear".to_string()));
-        assert_eq!(
-            feedback.missing_tools,
-            Some("Would have liked a database viewer".to_string())
-        );
-        assert_eq!(feedback.integration_problems, None);
-        assert_eq!(
-            feedback.improvement_suggestions,
-            Some("Better error messages".to_string())
-        );
-        assert_eq!(
-            feedback.agent_documentation,
-            Some("Completed the refactoring".to_string())
-        );
+        let json_str = result.unwrap();
+        // Verify it's valid JSON by parsing it
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["task_clarity"], "The task was clear");
+        assert_eq!(parsed["missing_tools"], "Would have liked a database viewer");
+        assert!(parsed["integration_problems"].is_null());
     }
 
     #[test]
@@ -276,9 +238,10 @@ Hope this helps!"#;
         let result = FeedbackService::parse_feedback_response(response);
         assert!(result.is_ok());
 
-        let feedback = result.unwrap();
-        assert_eq!(feedback.task_clarity, Some("Very clear".to_string()));
-        assert_eq!(feedback.agent_documentation, Some("All done".to_string()));
+        let json_str = result.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["task_clarity"], "Very clear");
+        assert_eq!(parsed["agent_documentation"], "All done");
     }
 
     #[test]
@@ -298,9 +261,10 @@ Hope this helps!"#;
         let result = FeedbackService::parse_feedback_response(response);
         assert!(result.is_ok());
 
-        let feedback = result.unwrap();
-        assert_eq!(feedback.task_clarity, Some("Mostly clear".to_string()));
-        assert_eq!(feedback.missing_tools, Some("Git integration".to_string()));
+        let json_str = result.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["task_clarity"], "Mostly clear");
+        assert_eq!(parsed["missing_tools"], "Git integration");
     }
 
     #[test]
@@ -316,9 +280,10 @@ Hope this helps!"#;
         let result = FeedbackService::parse_feedback_response(response);
         assert!(result.is_ok());
 
-        let feedback = result.unwrap();
-        assert_eq!(feedback.task_clarity, Some("Clear enough".to_string()));
-        assert_eq!(feedback.missing_tools, None);
+        let json_str = result.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["task_clarity"], "Clear enough");
+        assert!(parsed["missing_tools"].is_null());
     }
 
     #[test]
@@ -372,12 +337,10 @@ Let me know if you need more details."#;
         let result = FeedbackService::parse_feedback_response(response);
         assert!(result.is_ok());
 
-        let feedback = result.unwrap();
-        assert_eq!(feedback.task_clarity, Some("Good".to_string()));
-        assert_eq!(
-            feedback.integration_problems,
-            Some("Build was slow".to_string())
-        );
+        let json_str = result.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["task_clarity"], "Good");
+        assert_eq!(parsed["integration_problems"], "Build was slow");
     }
 
     #[test]
@@ -393,9 +356,10 @@ Let me know if you need more details."#;
         let result = FeedbackService::parse_feedback_response(response);
         assert!(result.is_ok());
 
-        let feedback = result.unwrap();
-        assert!(feedback.task_clarity.unwrap().contains("implement feature X"));
-        assert!(feedback.missing_tools.unwrap().contains("{curly}"));
+        let json_str = result.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert!(parsed["task_clarity"].as_str().unwrap().contains("implement feature X"));
+        assert!(parsed["missing_tools"].as_str().unwrap().contains("{curly}"));
     }
 
     #[test]

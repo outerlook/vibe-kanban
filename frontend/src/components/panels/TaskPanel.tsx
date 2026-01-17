@@ -1,18 +1,18 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQueries } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { useProject } from '@/contexts/ProjectContext';
 import { useTaskAttemptsStream } from '@/hooks/useTaskAttemptsStream';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { useNavigateWithSearch } from '@/hooks';
 import { paths } from '@/lib/paths';
-import { sessionsApi } from '@/lib/api';
+import { sessionsApi, feedbackApi } from '@/lib/api';
 import type { TaskWithAttemptStatus, Session } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { createWorkspaceWithSession } from '@/types/attempt';
 import { NewCardContent } from '../ui/new-card';
 import { Button } from '../ui/button';
-import { PlusIcon } from 'lucide-react';
+import { PlusIcon, MessageSquare } from 'lucide-react';
 import { CreateAttemptDialog } from '@/components/dialogs/tasks/CreateAttemptDialog';
 import WYSIWYGEditor from '@/components/ui/wysiwyg';
 import { DataTable, type ColumnDef } from '@/components/ui/table';
@@ -61,6 +61,23 @@ const TaskPanel = ({ task }: TaskPanelProps) => {
 
   const { data: parentAttempt, isLoading: isParentLoading } =
     useTaskAttemptWithSession(task?.parent_workspace_id || undefined);
+
+  // Fetch feedback for the task to show indicators
+  const { data: feedbackList = [] } = useQuery({
+    queryKey: ['feedback', 'byTask', task?.id],
+    queryFn: () => feedbackApi.getByTaskId(task!.id),
+    enabled: !!task?.id,
+    staleTime: 30000, // 30s
+  });
+
+  // Map feedback by workspace_id for quick lookup
+  const feedbackByWorkspaceId = useMemo(() => {
+    const map = new Map<string, boolean>();
+    feedbackList.forEach((fb) => {
+      map.set(fb.workspace_id, true);
+    });
+    return map;
+  }, [feedbackList]);
 
   const formatTimeAgo = (iso: string) => {
     const d = new Date(iso);
@@ -117,6 +134,19 @@ const TaskPanel = ({ task }: TaskPanelProps) => {
       header: '',
       accessor: (attempt) => attempt.branch || '—',
       className: 'pr-4',
+    },
+    {
+      id: 'feedback',
+      header: '',
+      accessor: (attempt) =>
+        feedbackByWorkspaceId.has(attempt.id) ? (
+          <MessageSquare
+            size={14}
+            className="text-muted-foreground"
+            aria-label={t('taskPanel.hasFeedback')}
+          />
+        ) : null,
+      className: 'w-6 pr-2',
     },
     {
       id: 'time',

@@ -124,25 +124,30 @@ async fn simulate_feedback_storage(
     workspace_id: Uuid,
     assistant_message: &str,
 ) -> Result<AgentFeedback, String> {
-    // Parse the feedback response (simulating what FeedbackService does)
-    let parsed = FeedbackService::parse_feedback_response(assistant_message)
+    // Extract and validate JSON from the feedback response (simulating what FeedbackService does)
+    let feedback_json = FeedbackService::parse_feedback_response(assistant_message)
         .map_err(|e| format!("Parse error: {}", e))?;
 
-    // Store the feedback in the database
+    // Store the raw JSON feedback in the database
     let create_feedback = CreateAgentFeedback {
         execution_process_id,
         task_id,
         workspace_id,
-        task_clarity: parsed.task_clarity,
-        missing_tools: parsed.missing_tools,
-        integration_problems: parsed.integration_problems,
-        improvement_suggestions: parsed.improvement_suggestions,
-        agent_documentation: parsed.agent_documentation,
+        feedback_json: Some(feedback_json),
     };
 
     AgentFeedback::create(pool, &create_feedback, Uuid::new_v4())
         .await
         .map_err(|e| format!("Database error: {}", e))
+}
+
+/// Helper to extract a field from the stored feedback_json
+fn get_feedback_field(feedback: &AgentFeedback, field: &str) -> Option<String> {
+    feedback.feedback_json.as_ref().and_then(|json| {
+        serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| v.get(field).and_then(|f| f.as_str().map(|s| s.to_string())))
+    })
 }
 
 // ============================================================================
@@ -180,21 +185,24 @@ async fn test_feedback_stored_after_successful_parsing() {
     assert_eq!(feedback.task_id, task_id);
     assert_eq!(feedback.workspace_id, workspace_id);
     assert_eq!(feedback.execution_process_id, exec_id);
+
+    // Verify the JSON was stored and contains expected fields
+    assert!(feedback.feedback_json.is_some());
     assert_eq!(
-        feedback.task_clarity,
+        get_feedback_field(&feedback, "task_clarity"),
         Some("The task description was clear and complete".to_string())
     );
     assert_eq!(
-        feedback.missing_tools,
+        get_feedback_field(&feedback, "missing_tools"),
         Some("Would have liked better debugging tools".to_string())
     );
-    assert_eq!(feedback.integration_problems, None);
+    assert_eq!(get_feedback_field(&feedback, "integration_problems"), None);
     assert_eq!(
-        feedback.improvement_suggestions,
+        get_feedback_field(&feedback, "improvement_suggestions"),
         Some("Add more documentation examples".to_string())
     );
     assert_eq!(
-        feedback.agent_documentation,
+        get_feedback_field(&feedback, "agent_documentation"),
         Some("Implemented the feature using pattern X".to_string())
     );
 }
@@ -230,11 +238,11 @@ Hope this helps improve the system!"#;
     assert!(result.is_ok());
     let feedback = result.unwrap();
     assert_eq!(
-        feedback.task_clarity,
+        get_feedback_field(&feedback, "task_clarity"),
         Some("Very clear instructions".to_string())
     );
     assert_eq!(
-        feedback.integration_problems,
+        get_feedback_field(&feedback, "integration_problems"),
         Some("Build system was slow".to_string())
     );
 }
@@ -518,7 +526,7 @@ async fn test_feedback_storage_independent_of_task_state() {
     let feedback = &feedbacks[0];
     assert_eq!(feedback.task_id, task_id);
     assert_eq!(
-        feedback.task_clarity,
+        get_feedback_field(feedback, "task_clarity"),
         Some("Task was clear".to_string())
     );
 }
@@ -609,7 +617,7 @@ async fn test_feedback_find_by_execution_process_id() {
     assert!(feedback.is_some());
     let feedback = feedback.unwrap();
     assert_eq!(feedback.execution_process_id, exec_id);
-    assert_eq!(feedback.task_clarity, Some("Find by exec test".to_string()));
+    assert_eq!(get_feedback_field(&feedback, "task_clarity"), Some("Find by exec test".to_string()));
 }
 
 #[tokio::test]
@@ -684,12 +692,10 @@ async fn test_feedback_with_special_characters_and_quotes() {
 
     assert!(result.is_ok());
     let feedback = result.unwrap();
-    assert!(feedback
-        .task_clarity
-        .as_ref()
+    assert!(get_feedback_field(&feedback, "task_clarity")
         .unwrap()
         .contains("implement feature X"));
-    assert!(feedback.missing_tools.as_ref().unwrap().contains("{curly}"));
+    assert!(get_feedback_field(&feedback, "missing_tools").unwrap().contains("{curly}"));
 }
 
 #[tokio::test]
@@ -716,11 +722,12 @@ async fn test_feedback_with_all_null_fields() {
 
     assert!(result.is_ok());
     let feedback = result.unwrap();
-    assert_eq!(feedback.task_clarity, None);
-    assert_eq!(feedback.missing_tools, None);
-    assert_eq!(feedback.integration_problems, None);
-    assert_eq!(feedback.improvement_suggestions, None);
-    assert_eq!(feedback.agent_documentation, None);
+    // All fields are null in the JSON, so get_feedback_field returns None for all
+    assert_eq!(get_feedback_field(&feedback, "task_clarity"), None);
+    assert_eq!(get_feedback_field(&feedback, "missing_tools"), None);
+    assert_eq!(get_feedback_field(&feedback, "integration_problems"), None);
+    assert_eq!(get_feedback_field(&feedback, "improvement_suggestions"), None);
+    assert_eq!(get_feedback_field(&feedback, "agent_documentation"), None);
 }
 
 #[tokio::test]
@@ -754,7 +761,7 @@ async fn test_feedback_find_by_id() {
     assert!(found.is_some());
     let found = found.unwrap();
     assert_eq!(found.id, created.id);
-    assert_eq!(found.task_clarity, Some("Find by ID test".to_string()));
+    assert_eq!(get_feedback_field(&found, "task_clarity"), Some("Find by ID test".to_string()));
 }
 
 #[tokio::test]

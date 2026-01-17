@@ -73,9 +73,14 @@ pub struct TaskWithAttemptStatus {
     pub task: Task,
     // These fields are serialized separately for API compatibility
     // (they overlap with task's materialized columns but use different names in some cases)
+    // Skip in ts-rs to avoid duplicate fields since Task already has these via #[ts(flatten)]
+    #[ts(skip)]
     pub has_in_progress_attempt: bool,
+    #[ts(skip)]
     pub last_attempt_failed: bool,
+    #[ts(skip)]
     pub is_blocked: bool,
+    #[ts(skip)]
     pub is_queued: bool,
     pub executor: String,
 }

@@ -10,11 +10,7 @@ pub struct AgentFeedback {
     pub execution_process_id: Uuid,
     pub task_id: Uuid,
     pub workspace_id: Uuid,
-    pub task_clarity: Option<String>,
-    pub missing_tools: Option<String>,
-    pub integration_problems: Option<String>,
-    pub improvement_suggestions: Option<String>,
-    pub agent_documentation: Option<String>,
+    pub feedback_json: Option<String>,
     pub collected_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -25,11 +21,7 @@ pub struct CreateAgentFeedback {
     pub execution_process_id: Uuid,
     pub task_id: Uuid,
     pub workspace_id: Uuid,
-    pub task_clarity: Option<String>,
-    pub missing_tools: Option<String>,
-    pub integration_problems: Option<String>,
-    pub improvement_suggestions: Option<String>,
-    pub agent_documentation: Option<String>,
+    pub feedback_json: Option<String>,
 }
 
 impl AgentFeedback {
@@ -44,21 +36,15 @@ impl AgentFeedback {
             AgentFeedback,
             r#"INSERT INTO agent_feedback (
                 id, execution_process_id, task_id, workspace_id,
-                task_clarity, missing_tools, integration_problems,
-                improvement_suggestions, agent_documentation,
-                collected_at, created_at, updated_at
+                feedback_json, collected_at, created_at, updated_at
                )
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                RETURNING
                 id as "id!: Uuid",
                 execution_process_id as "execution_process_id!: Uuid",
                 task_id as "task_id!: Uuid",
                 workspace_id as "workspace_id!: Uuid",
-                task_clarity,
-                missing_tools,
-                integration_problems,
-                improvement_suggestions,
-                agent_documentation,
+                feedback_json,
                 collected_at as "collected_at!: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
                 updated_at as "updated_at!: DateTime<Utc>""#,
@@ -66,11 +52,7 @@ impl AgentFeedback {
             data.execution_process_id,
             data.task_id,
             data.workspace_id,
-            data.task_clarity,
-            data.missing_tools,
-            data.integration_problems,
-            data.improvement_suggestions,
-            data.agent_documentation,
+            data.feedback_json,
             now,
             now,
             now
@@ -87,11 +69,7 @@ impl AgentFeedback {
                 execution_process_id as "execution_process_id!: Uuid",
                 task_id as "task_id!: Uuid",
                 workspace_id as "workspace_id!: Uuid",
-                task_clarity,
-                missing_tools,
-                integration_problems,
-                improvement_suggestions,
-                agent_documentation,
+                feedback_json,
                 collected_at as "collected_at!: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
                 updated_at as "updated_at!: DateTime<Utc>"
@@ -114,11 +92,7 @@ impl AgentFeedback {
                 execution_process_id as "execution_process_id!: Uuid",
                 task_id as "task_id!: Uuid",
                 workspace_id as "workspace_id!: Uuid",
-                task_clarity,
-                missing_tools,
-                integration_problems,
-                improvement_suggestions,
-                agent_documentation,
+                feedback_json,
                 collected_at as "collected_at!: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
                 updated_at as "updated_at!: DateTime<Utc>"
@@ -141,11 +115,7 @@ impl AgentFeedback {
                 execution_process_id as "execution_process_id!: Uuid",
                 task_id as "task_id!: Uuid",
                 workspace_id as "workspace_id!: Uuid",
-                task_clarity,
-                missing_tools,
-                integration_problems,
-                improvement_suggestions,
-                agent_documentation,
+                feedback_json,
                 collected_at as "collected_at!: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
                 updated_at as "updated_at!: DateTime<Utc>"
@@ -153,6 +123,30 @@ impl AgentFeedback {
                WHERE task_id = $1
                ORDER BY collected_at DESC"#,
             task_id
+        )
+        .fetch_all(pool)
+        .await
+    }
+
+    pub async fn find_by_workspace_id(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            AgentFeedback,
+            r#"SELECT
+                id as "id!: Uuid",
+                execution_process_id as "execution_process_id!: Uuid",
+                task_id as "task_id!: Uuid",
+                workspace_id as "workspace_id!: Uuid",
+                feedback_json,
+                collected_at as "collected_at!: DateTime<Utc>",
+                created_at as "created_at!: DateTime<Utc>",
+                updated_at as "updated_at!: DateTime<Utc>"
+               FROM agent_feedback
+               WHERE workspace_id = $1
+               ORDER BY collected_at DESC"#,
+            workspace_id
         )
         .fetch_all(pool)
         .await
@@ -166,11 +160,7 @@ impl AgentFeedback {
                 execution_process_id as "execution_process_id!: Uuid",
                 task_id as "task_id!: Uuid",
                 workspace_id as "workspace_id!: Uuid",
-                task_clarity,
-                missing_tools,
-                integration_problems,
-                improvement_suggestions,
-                agent_documentation,
+                feedback_json,
                 collected_at as "collected_at!: DateTime<Utc>",
                 created_at as "created_at!: DateTime<Utc>",
                 updated_at as "updated_at!: DateTime<Utc>"
