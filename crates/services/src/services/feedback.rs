@@ -113,22 +113,22 @@ Be specific and actionable in your feedback. If a category doesn't apply, set it
     /// Extract JSON content from a response that might contain markdown or other text.
     fn extract_json(text: &str) -> Result<String> {
         // Strategy 1: Try parsing the entire text as JSON
-        if let Ok(_) = serde_json::from_str::<serde_json::Value>(text) {
+        if serde_json::from_str::<serde_json::Value>(text).is_ok() {
             return Ok(text.to_string());
         }
 
         // Strategy 2: Look for JSON in code blocks (```json ... ``` or ``` ... ```)
-        if let Some(json) = Self::extract_from_code_block(text) {
-            if serde_json::from_str::<serde_json::Value>(&json).is_ok() {
-                return Ok(json);
-            }
+        if let Some(json) = Self::extract_from_code_block(text)
+            && serde_json::from_str::<serde_json::Value>(&json).is_ok()
+        {
+            return Ok(json);
         }
 
         // Strategy 3: Find JSON object by looking for { ... } pattern
-        if let Some(json) = Self::extract_json_object(text) {
-            if serde_json::from_str::<serde_json::Value>(&json).is_ok() {
-                return Ok(json);
-            }
+        if let Some(json) = Self::extract_json_object(text)
+            && serde_json::from_str::<serde_json::Value>(&json).is_ok()
+        {
+            return Ok(json);
         }
 
         Err(FeedbackError::ParseError(
