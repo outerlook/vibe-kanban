@@ -24,6 +24,7 @@ type QueryOptions = {
 
 type QueueMergeParams = {
   repoId: string;
+  commitMessage?: string;
 };
 
 export function useQueueMerge(
@@ -36,7 +37,10 @@ export function useQueueMerge(
   return useMutation<Result<MergeQueue, QueueMergeError>, unknown, QueueMergeParams>({
     mutationFn: (params: QueueMergeParams) => {
       if (!attemptId) return Promise.resolve({ success: false, error: undefined });
-      return attemptsApi.queueMerge(attemptId, { repo_id: params.repoId });
+      return attemptsApi.queueMerge(attemptId, {
+        repo_id: params.repoId,
+        commit_message: params.commitMessage ?? null,
+      });
     },
     onSuccess: (result) => {
       if (result.success) {
