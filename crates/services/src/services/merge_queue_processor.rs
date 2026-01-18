@@ -203,8 +203,11 @@ impl MergeQueueProcessor {
         self.rebase_if_needed(repo_path, &worktree_path, base_branch, task_branch)
             .await?;
 
-        // Step 2: Generate commit message
-        let commit_message = self.generate_commit_message(&task, base_branch);
+        // Step 2: Use stored commit message or generate one
+        let commit_message = entry
+            .commit_message
+            .clone()
+            .unwrap_or_else(|| self.generate_commit_message(&task, base_branch));
 
         // Step 3: Merge changes
         let merge_commit = self
