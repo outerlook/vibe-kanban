@@ -357,6 +357,18 @@ def parse_transcript(transcript_path: str) -> dict:
     return result
 
 
+def deterministic_uuid(namespace: str, *parts: str) -> str:
+    """
+    Generate a deterministic UUID-like string from input parts.
+
+    Used to ensure the same logical event (e.g., same generation in same trace)
+    always gets the same ID, enabling Langfuse deduplication when the same
+    transcript is sent multiple times (e.g., initial session + feedback session).
+    """
+    combined = namespace + "|" + "|".join(str(p) for p in parts)
+    return hashlib.sha256(combined.encode()).hexdigest()[:32]
+
+
 def parse_iso_timestamp(ts: str | None) -> datetime | None:
     """Parse ISO timestamp string to timezone-aware datetime."""
     if not ts:
@@ -466,6 +478,7 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
     trace_metadata = {
         "source": "claude-code",
         "hook": "langfuse-hook",
+        "session_id": session_id,  # Keep original session_id for debugging
         "model": session_metadata.get("model"),
         "git_branch": session_metadata.get("git_branch"),
         "cwd": session_metadata.get("cwd"),
@@ -485,7 +498,9 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
 
     # Build ingestion events
     events = []
-    trace_id = session_id
+    # Use vk_task_id as trace_id when available to aggregate multiple sessions
+    # (e.g., initial run + feedback) into the same trace
+    trace_id = vk_context.get("vk_task_id") or session_id
     ingestion_now = now.isoformat()
     account_id = get_claude_account_id()
 
@@ -533,7 +548,8 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
         # Determine end_time: prefer assistant_timestamp, then use start_time (instant)
         end_time = assistant_timestamp or start_time
 
-        generation_id = str(uuid.uuid4())
+        # Use deterministic ID so duplicate sends (e.g., feedback session) are deduplicated
+        generation_id = deterministic_uuid(trace_id, "generation", str(i))
 
         # Create generation event with accurate timestamps
         events.append(
@@ -562,13 +578,16 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
         )
 
         # Create span events for tool calls as children of the generation
-        for tool_call in tool_calls:
+        for j, tool_call in enumerate(tool_calls):
+            # Use tool_use_id for deterministic span ID (ensures deduplication)
+            tool_use_id = tool_call.get("tool_use_id") or f"{i}-{j}"
+            span_id = deterministic_uuid(trace_id, "span", tool_use_id)
             events.append(
                 IngestionEvent_SpanCreate(
                     id=str(uuid.uuid4()),
                     timestamp=ingestion_now,
                     body=CreateSpanBody(
-                        id=str(uuid.uuid4()),
+                        id=span_id,
                         trace_id=trace_id,
                         parent_observation_id=generation_id,
                         name=tool_call["tool_name"],
