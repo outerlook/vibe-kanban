@@ -220,6 +220,11 @@ impl MergeQueueProcessor {
         // Step 6: Update task status to Done
         Task::update_status(&self.pool, task.id, TaskStatus::Done).await?;
 
+        // Note: Agent feedback collection is not done here because:
+        // 1. MergeQueueProcessor doesn't have access to ContainerService
+        // 2. Feedback is typically collected when merge is triggered via HTTP endpoints
+        // 3. The agent session may have expired by the time the queue processes
+
         info!(
             task_id = %task.id,
             "Task marked as Done after successful merge"

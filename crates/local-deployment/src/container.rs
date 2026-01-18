@@ -22,6 +22,7 @@ use db::{
         project_repo::ProjectRepo,
         repo::Repo,
         scratch::{DraftFollowUpData, Scratch, ScratchType},
+        session::Session,
         task::{Task, TaskStatus},
         workspace::Workspace,
         workspace_repo::WorkspaceRepo,
@@ -522,55 +523,6 @@ impl LocalContainerService {
                             true
                         }
                     };
-
-                    // Collect feedback from CodingAgent after successful execution (non-blocking)
-                    if matches!(
-                        ctx.execution_process.run_reason,
-                        ExecutionProcessRunReason::CodingAgent
-                    ) && exit_code == Some(0)
-                    {
-                        // Get the agent session ID for feedback collection
-                        match CodingAgentTurn::find_by_execution_process_id(&db.pool, exec_id).await
-                        {
-                            Ok(Some(turn)) if turn.agent_session_id.is_some() => {
-                                let agent_session_id = turn.agent_session_id.unwrap();
-                                let feedback_container = container.clone();
-                                let feedback_ctx = ctx.clone();
-
-                                // Spawn feedback collection as a non-blocking background task
-                                tokio::spawn(async move {
-                                    if let Err(e) = feedback_container
-                                        .collect_agent_feedback(&feedback_ctx, &agent_session_id)
-                                        .await
-                                    {
-                                        tracing::warn!(
-                                            "Failed to start feedback collection for execution {}: {}",
-                                            exec_id,
-                                            e
-                                        );
-                                    }
-                                });
-                            }
-                            Ok(Some(_)) => {
-                                tracing::debug!(
-                                    "No agent session ID found for execution {}, skipping feedback",
-                                    exec_id
-                                );
-                            }
-                            Ok(None) => {
-                                tracing::debug!(
-                                    "No coding agent turn found for execution {}, skipping feedback",
-                                    exec_id
-                                );
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    "Failed to query coding agent turn for feedback: {}",
-                                    e
-                                );
-                            }
-                        }
-                    }
 
                     let should_start_next = if matches!(
                         ctx.execution_process.run_reason,
@@ -1525,6 +1477,124 @@ impl ContainerService for LocalContainerService {
 
     fn workspace_to_current_dir(&self, workspace: &Workspace) -> PathBuf {
         PathBuf::from(workspace.container_ref.clone().unwrap_or_default())
+    }
+
+    async fn try_collect_feedback_for_workspace(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<(), ContainerError> {
+        // Check if feedback already exists for this workspace
+        let existing_feedback =
+            AgentFeedback::find_by_workspace_id(&self.db.pool, workspace_id).await?;
+        if !existing_feedback.is_empty() {
+            tracing::debug!(
+                "Feedback already exists for workspace {}, skipping collection",
+                workspace_id
+            );
+            return Ok(());
+        }
+
+        // Find the latest session for this workspace
+        let session = match Session::find_latest_by_workspace_id(&self.db.pool, workspace_id).await
+        {
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                tracing::debug!(
+                    "No session found for workspace {}, skipping feedback",
+                    workspace_id
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to query session for workspace {}: {}",
+                    workspace_id,
+                    e
+                );
+                return Ok(());
+            }
+        };
+
+        // Find the latest agent_session_id for this session
+        let agent_session_id = match ExecutionProcess::find_latest_coding_agent_turn_session_id(
+            &self.db.pool,
+            session.id,
+        )
+        .await
+        {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                tracing::debug!(
+                    "No agent session ID found for session {}, skipping feedback",
+                    session.id
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to query agent session ID for session {}: {}",
+                    session.id,
+                    e
+                );
+                return Ok(());
+            }
+        };
+
+        // Find the latest CodingAgent execution process to load context from
+        let latest_exec = match ExecutionProcess::find_latest_by_session_and_run_reason(
+            &self.db.pool,
+            session.id,
+            &ExecutionProcessRunReason::CodingAgent,
+        )
+        .await
+        {
+            Ok(Some(exec)) => exec,
+            Ok(None) => {
+                tracing::debug!(
+                    "No CodingAgent execution found for session {}, skipping feedback",
+                    session.id
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to find latest execution for session {}: {}",
+                    session.id,
+                    e
+                );
+                return Ok(());
+            }
+        };
+
+        // Load full execution context
+        let ctx = match ExecutionProcess::load_context(&self.db.pool, latest_exec.id).await {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to load execution context for exec {}: {}",
+                    latest_exec.id,
+                    e
+                );
+                return Ok(());
+            }
+        };
+
+        // Spawn feedback collection as a non-blocking background task
+        let feedback_container = self.clone();
+        tokio::spawn(async move {
+            if let Err(e) = feedback_container
+                .collect_agent_feedback(&ctx, &agent_session_id)
+                .await
+            {
+                tracing::warn!(
+                    "Failed to start feedback collection for workspace {}: {}",
+                    workspace_id,
+                    e
+                );
+            }
+        });
+
+        Ok(())
     }
 
     async fn create(&self, workspace: &Workspace) -> Result<ContainerRef, ContainerError> {

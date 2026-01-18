@@ -563,6 +563,21 @@ pub trait ContainerService {
         }
     }
 
+    /// Try to collect agent feedback for a workspace when task transitions to Done.
+    ///
+    /// This method checks if feedback already exists for the workspace, and if not,
+    /// attempts to collect it from the agent (if a valid session exists).
+    ///
+    /// Default implementation does nothing (for services that don't support feedback).
+    /// LocalContainerService overrides this with actual feedback collection.
+    async fn try_collect_feedback_for_workspace(
+        &self,
+        _workspace_id: Uuid,
+    ) -> Result<(), ContainerError> {
+        // Default: no-op for services that don't support feedback collection
+        Ok(())
+    }
+
     /// Cleanup executions marked as running in the db, call at startup
     async fn cleanup_orphan_executions(&self) -> Result<(), ContainerError> {
         let running_processes = ExecutionProcess::find_running(&self.db().pool).await?;

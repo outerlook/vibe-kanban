@@ -130,6 +130,11 @@ impl PrMonitorService {
                 );
                 Task::update_status(&self.db.pool, workspace.task_id, TaskStatus::Done).await?;
 
+                // Note: Agent feedback collection is not done here because:
+                // 1. This service detects PRs merged externally (GitHub web UI)
+                // 2. The agent session has likely expired by the time merge is detected
+                // 3. Feedback is collected via HTTP endpoints when merge is done through the app
+
                 // Track analytics event
                 if let Some(analytics) = &self.analytics
                     && let Ok(Some(task)) = Task::find_by_id(&self.db.pool, workspace.task_id).await
