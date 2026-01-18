@@ -6,7 +6,10 @@ use axum::{
     response::Json as ResponseJson,
     routing::{get, post},
 };
-use db::models::task_group::{MergeError, TaskGroup, TaskGroupWithStats, UpdateTaskGroup};
+use db::models::{
+    merge_queue::MergeQueue,
+    task_group::{MergeError, TaskGroup, TaskGroupWithStats, UpdateTaskGroup},
+};
 use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -14,6 +17,8 @@ use utils::response::ApiResponse;
 use uuid::Uuid;
 
 use crate::{DeploymentImpl, error::ApiError, middleware::load_task_group_middleware};
+
+use super::projects::MergeQueueCountResponse;
 
 #[derive(Debug, Deserialize)]
 pub struct ListTaskGroupsQuery {
@@ -170,6 +175,18 @@ pub async fn merge_task_group(
     Ok(ResponseJson(ApiResponse::success(target)))
 }
 
+/// GET /api/task-groups/:id/merge-queue-count - Get the number of entries in the merge queue for a task group
+pub async fn get_merge_queue_count(
+    Extension(task_group): Extension<TaskGroup>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<MergeQueueCountResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let count = MergeQueue::count_by_task_group(pool, task_group.id).await?;
+    Ok(ResponseJson(ApiResponse::success(MergeQueueCountResponse {
+        count,
+    })))
+}
+
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let task_group_actions = Router::new()
         .route(
@@ -180,6 +197,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         )
         .route("/assign", post(bulk_assign_tasks))
         .route("/merge", post(merge_task_group))
+        .route("/merge-queue-count", get(get_merge_queue_count))
         .layer(from_fn_with_state(
             deployment.clone(),
             load_task_group_middleware,
