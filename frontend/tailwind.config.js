@@ -117,6 +117,17 @@ module.exports = {
           error: "hsl(var(--console-error))",
         },
       },
+      boxShadow: {
+        subtle: "var(--elevation-subtle)",
+        low: "var(--elevation-low)",
+        medium: "var(--elevation-medium)",
+      },
+      textColor: {
+        primary: "var(--text-primary)",
+        secondary: "var(--text-secondary)",
+        tertiary: "var(--text-tertiary)",
+        "on-colored": "var(--text-on-colored-bg)",
+      },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
