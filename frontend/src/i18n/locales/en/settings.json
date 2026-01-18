@@ -259,6 +259,30 @@
           "helper": "Maximum number of agents that can run at once. Set to 0 for unlimited."
         }
       },
+      "observability": {
+        "title": "Observability",
+        "description": "Configure LLM observability and tracing for coding agents.",
+        "langfuse": {
+          "enabled": {
+            "label": "Enable Langfuse",
+            "helper": "Langfuse provides observability for LLM applications, allowing you to trace and monitor coding agent interactions."
+          },
+          "publicKey": {
+            "label": "Public Key",
+            "placeholder": "pk-lf-...",
+            "helper": "Your Langfuse project public key."
+          },
+          "secretKey": {
+            "label": "Secret Key",
+            "placeholder": "sk-lf-...",
+            "helper": "Your Langfuse project secret key."
+          },
+          "host": {
+            "label": "Host (Optional)",
+            "helper": "Langfuse API host. Leave empty to use the default (https://cloud.langfuse.com)."
+          }
+        }
+      },
       "taskTemplates": {
         "title": "Tags",
         "description": "Create reusable text snippets that can be inserted into task descriptions using @tag_name."

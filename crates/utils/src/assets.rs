@@ -104,6 +104,10 @@ pub struct SoundAssets;
 #[folder = "../../assets/scripts"]
 pub struct ScriptAssets;
 
+#[derive(RustEmbed)]
+#[folder = "../../assets/agent-hooks/claude-code"]
+pub struct ClaudeCodeHookAssets;
+
 #[cfg(test)]
 mod tests {
     use std::io::Write;

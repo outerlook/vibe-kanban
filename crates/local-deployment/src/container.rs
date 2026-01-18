@@ -68,6 +68,7 @@ use utils::{
 use uuid::Uuid;
 
 use crate::{command, copy};
+use utils::assets::ClaudeCodeHookAssets;
 
 /// Extract token usage from a MsgStore by scanning history for TokenUsage entries
 fn extract_token_usage_from_msg_store(msg_store: &MsgStore) -> Option<(i64, i64)> {
@@ -917,6 +918,113 @@ impl LocalContainerService {
         Ok(())
     }
 
+    /// Deploy Claude Code hooks to each repository worktree.
+    ///
+    /// This copies hook files from embedded assets to each repo's `.claude/` directory
+    /// and adds `.claude/` to `.git/info/exclude` to prevent git tracking.
+    ///
+    /// The deployment is idempotent - existing files are overwritten to ensure the latest
+    /// hook versions are used. If assets don't exist, the function completes successfully
+    /// (graceful degradation).
+    async fn deploy_claude_code_hooks(
+        workspace_dir: &Path,
+        repos: &[Repo],
+    ) -> Result<(), ContainerError> {
+        // Check if we have any hook assets to deploy
+        let asset_files: Vec<_> = ClaudeCodeHookAssets::iter().collect();
+        if asset_files.is_empty() {
+            tracing::debug!("No Claude Code hook assets found, skipping deployment");
+            return Ok(());
+        }
+
+        for repo in repos {
+            let worktree_path = workspace_dir.join(&repo.name);
+            let claude_dir = worktree_path.join(".claude");
+
+            // Create .claude directory
+            if let Err(e) = tokio::fs::create_dir_all(&claude_dir).await {
+                tracing::warn!(
+                    "Failed to create .claude directory for repo '{}': {}",
+                    repo.name,
+                    e
+                );
+                continue;
+            }
+
+            // Copy all hook assets to .claude/
+            for asset_name in &asset_files {
+                if let Some(asset) = ClaudeCodeHookAssets::get(asset_name) {
+                    let target_path = claude_dir.join(asset_name.as_ref());
+
+                    if let Err(e) = tokio::fs::write(&target_path, &asset.data).await {
+                        tracing::warn!(
+                            "Failed to write hook file '{}' for repo '{}': {}",
+                            asset_name,
+                            repo.name,
+                            e
+                        );
+                        continue;
+                    }
+
+                    tracing::debug!(
+                        "Deployed hook file '{}' to repo '{}'",
+                        asset_name,
+                        repo.name
+                    );
+                }
+            }
+
+            // Add .claude/ to .git/info/exclude
+            let git_info_dir = worktree_path.join(".git").join("info");
+            let exclude_path = git_info_dir.join("exclude");
+
+            // Create .git/info directory if it doesn't exist
+            if let Err(e) = tokio::fs::create_dir_all(&git_info_dir).await {
+                tracing::warn!(
+                    "Failed to create .git/info directory for repo '{}': {}",
+                    repo.name,
+                    e
+                );
+                continue;
+            }
+
+            // Read existing exclude content or start fresh
+            let existing_content = tokio::fs::read_to_string(&exclude_path)
+                .await
+                .unwrap_or_default();
+
+            // Check if .claude/ is already excluded
+            let claude_pattern = ".claude/";
+            if !existing_content.lines().any(|line| line.trim() == claude_pattern) {
+                // Append .claude/ to exclude file
+                let new_content = if existing_content.is_empty() || existing_content.ends_with('\n')
+                {
+                    format!("{}{}\n", existing_content, claude_pattern)
+                } else {
+                    format!("{}\n{}\n", existing_content, claude_pattern)
+                };
+
+                if let Err(e) = tokio::fs::write(&exclude_path, &new_content).await {
+                    tracing::warn!(
+                        "Failed to update .git/info/exclude for repo '{}': {}",
+                        repo.name,
+                        e
+                    );
+                    continue;
+                }
+
+                tracing::debug!("Added .claude/ to .git/info/exclude for repo '{}'", repo.name);
+            }
+        }
+
+        tracing::info!(
+            "Deployed Claude Code hooks to {} repos",
+            repos.len()
+        );
+
+        Ok(())
+    }
+
     /// Spawn exit monitor for conversation executions (no workspace context needed)
     pub fn spawn_conversation_exit_monitor(
         &self,
@@ -1439,6 +1547,9 @@ impl ContainerService for LocalContainerService {
 
         Self::create_workspace_config_files(&workspace_dir, &repositories).await?;
 
+        // Deploy Claude Code hooks (idempotent, graceful if assets don't exist)
+        Self::deploy_claude_code_hooks(&workspace_dir, &repositories).await?;
+
         Ok(workspace_dir.to_string_lossy().to_string())
     }
 
@@ -1517,6 +1628,23 @@ impl ContainerService for LocalContainerService {
         env.insert("VK_TASK_ID", task.id.to_string());
         env.insert("VK_WORKSPACE_ID", workspace.id.to_string());
         env.insert("VK_WORKSPACE_BRANCH", &workspace.branch);
+
+        // Inject Langfuse credentials if enabled (for executors with hook support)
+        {
+            let config_guard = self.config.read().await;
+            if config_guard.langfuse_enabled {
+                env.insert("TRACE_TO_LANGFUSE", "true");
+                if let Some(ref key) = config_guard.langfuse_public_key {
+                    env.insert("LANGFUSE_PUBLIC_KEY", key);
+                }
+                if let Some(ref key) = config_guard.langfuse_secret_key {
+                    env.insert("LANGFUSE_SECRET_KEY", key);
+                }
+                if let Some(ref host) = config_guard.langfuse_host {
+                    env.insert("LANGFUSE_HOST", host);
+                }
+            }
+        }
 
         // Create the child and stream, add to execution tracker with timeout
         let mut spawned = tokio::time::timeout(
