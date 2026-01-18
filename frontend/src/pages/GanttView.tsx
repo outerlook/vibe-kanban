@@ -9,7 +9,7 @@ import { useProjectTasks } from '@/hooks/useProjectTasks';
 import { useTask } from '@/hooks/useTask';
 import { useTaskAttemptsStream } from '@/hooks/useTaskAttemptsStream';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
-import { useBranchStatus } from '@/hooks';
+import { BranchStatusProvider } from '@/contexts/BranchStatusContext';
 import { GanttChart } from '@/components/gantt/GanttChart';
 import { GanttToolbar } from '@/components/gantt/GanttToolbar';
 import { TasksLayout, type LayoutMode } from '@/components/layout/TasksLayout';
@@ -136,7 +136,6 @@ export function GanttView() {
   const effectiveAttemptId = attemptId === 'latest' ? undefined : attemptId;
   const isTaskView = !!taskId && !effectiveAttemptId;
   const { data: attempt } = useTaskAttemptWithSession(effectiveAttemptId);
-  const { data: branchStatus } = useBranchStatus(attempt?.id);
 
   const rawMode = searchParams.get('view') as LayoutMode;
   const mode: LayoutMode =
@@ -372,11 +371,7 @@ export function GanttView() {
       <div className="relative h-full w-full">
         {mode === 'preview' && <PreviewPanel />}
         {mode === 'diffs' && (
-          <DiffsPanelContainer
-            attempt={attempt}
-            selectedTask={selectedTask}
-            branchStatus={branchStatus ?? null}
-          />
+          <DiffsPanelContainer attempt={attempt} selectedTask={selectedTask} />
         )}
       </div>
     ) : (
@@ -393,26 +388,28 @@ export function GanttView() {
 
   const attemptArea = (
     <GitOperationsProvider attemptId={attempt?.id}>
-      <ClickedElementsProvider attempt={attempt}>
-        <ReviewProvider attemptId={attempt?.id}>
-          <ExecutionProcessesProvider
-            source={
-              attempt?.id
-                ? { type: 'workspace', workspaceId: attempt.id }
-                : undefined
-            }
-          >
-            <TasksLayout
-              kanban={ganttContent}
-              attempt={attemptContent}
-              aux={auxContent}
-              isPanelOpen={isPanelOpen}
-              mode={effectiveMode}
-              rightHeader={rightHeader}
-            />
-          </ExecutionProcessesProvider>
-        </ReviewProvider>
-      </ClickedElementsProvider>
+      <BranchStatusProvider attemptId={attempt?.id}>
+        <ClickedElementsProvider attempt={attempt}>
+          <ReviewProvider attemptId={attempt?.id}>
+            <ExecutionProcessesProvider
+              source={
+                attempt?.id
+                  ? { type: 'workspace', workspaceId: attempt.id }
+                  : undefined
+              }
+            >
+              <TasksLayout
+                kanban={ganttContent}
+                attempt={attemptContent}
+                aux={auxContent}
+                isPanelOpen={isPanelOpen}
+                mode={effectiveMode}
+                rightHeader={rightHeader}
+              />
+            </ExecutionProcessesProvider>
+          </ReviewProvider>
+        </ClickedElementsProvider>
+      </BranchStatusProvider>
     </GitOperationsProvider>
   );
 

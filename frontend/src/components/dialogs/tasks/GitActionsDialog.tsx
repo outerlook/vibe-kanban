@@ -9,13 +9,17 @@ import {
 import { Loader } from '@/components/ui/loader';
 import GitOperations from '@/components/tasks/Toolbar/GitOperations';
 import { useTaskAttempt } from '@/hooks/useTaskAttempt';
-import { useBranchStatus, useAttemptExecution } from '@/hooks';
+import { useAttemptExecution } from '@/hooks';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import {
   GitOperationsProvider,
   useGitOperationsError,
 } from '@/contexts/GitOperationsContext';
+import {
+  BranchStatusProvider,
+  useBranchStatusContext,
+} from '@/contexts/BranchStatusContext';
 import type { Merge, TaskWithAttemptStatus, Workspace } from 'shared/types';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
@@ -35,7 +39,7 @@ function GitActionsDialogContent({
   task,
 }: GitActionsDialogContentProps) {
   const { t } = useTranslation('tasks');
-  const { data: branchStatus } = useBranchStatus(attempt.id);
+  const { branchStatus } = useBranchStatusContext();
   const { isAttemptRunning } = useAttemptExecution(attempt.id);
   const { error: gitError } = useGitOperationsError();
   const { repos, selectedRepoId } = useAttemptRepo(attempt.id);
@@ -119,12 +123,14 @@ const GitActionsDialogImpl = NiceModal.create<GitActionsDialogProps>(
             </div>
           ) : (
             <GitOperationsProvider attemptId={attempt.id}>
-              <ExecutionProcessesProvider
-                key={attempt.id}
-                source={{ type: 'workspace', workspaceId: attempt.id }}
-              >
-                <GitActionsDialogContent attempt={attempt} task={task} />
-              </ExecutionProcessesProvider>
+              <BranchStatusProvider attemptId={attempt.id}>
+                <ExecutionProcessesProvider
+                  key={attempt.id}
+                  source={{ type: 'workspace', workspaceId: attempt.id }}
+                >
+                  <GitActionsDialogContent attempt={attempt} task={task} />
+                </ExecutionProcessesProvider>
+              </BranchStatusProvider>
             </GitOperationsProvider>
           )}
         </DialogContent>
