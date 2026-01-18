@@ -19,6 +19,7 @@ use services::services::{
     analytics::{AnalyticsContext, AnalyticsService},
     approvals::Approvals,
     auth::AuthContext,
+    backup_service::BackupService,
     config::{Config, ConfigError},
     container::{ContainerError, ContainerService},
     events::{EventError, EventService},
@@ -134,6 +135,11 @@ pub trait Deployment: Clone + Send + Sync + 'static {
             });
         let publisher = self.share_publisher().ok();
         PrMonitorService::spawn(db, analytics, publisher).await
+    }
+
+    async fn spawn_backup_service(&self) -> tokio::task::JoinHandle<()> {
+        let config = self.config().clone();
+        BackupService::spawn(config).await
     }
 
     async fn track_if_analytics_allowed(&self, event_name: &str, properties: Value) {

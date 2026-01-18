@@ -87,6 +87,7 @@ async fn main() -> Result<(), VibeKanbanError> {
         }
     });
     deployment.spawn_pr_monitor_service().await;
+    deployment.spawn_backup_service().await;
     deployment
         .track_if_analytics_allowed("session_start", serde_json::json!({}))
         .await;
