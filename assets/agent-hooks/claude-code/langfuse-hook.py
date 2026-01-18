@@ -3,14 +3,16 @@
 Langfuse hook for Claude Code activity monitoring.
 
 This script is invoked as a Stop hook by Claude Code. It reads the session transcript,
-extracts tool calls, classifies them into activity kinds (BUILD/CODE/EXPLORE),
-and sends traces to Langfuse.
+extracts the complete conversation structure including user messages, assistant responses,
+tool calls, and token usage. Tool calls are classified into activity kinds (BUILD/CODE/EXPLORE),
+and traces are sent to Langfuse.
 
 Environment variables:
     TRACE_TO_LANGFUSE: Set to "true" to enable tracing (required)
     LANGFUSE_PUBLIC_KEY: Langfuse public key (required when tracing)
     LANGFUSE_SECRET_KEY: Langfuse secret key (required when tracing)
     LANGFUSE_HOST: Langfuse host URL (optional, defaults to https://cloud.langfuse.com)
+    DEBUG_LANGFUSE_HOOK: Set to "true" to print parsed transcript to stderr
 
 Vibe-Kanban context (optional, set when running in vibe-kanban workspace):
     VK_TASK_ID: The kanban task being worked on
@@ -111,21 +113,32 @@ def classify_activity(tool_name: str, tool_input: dict | None) -> str:
     return "EXPLORE"
 
 
-def parse_transcript(transcript_path: str) -> list[dict]:
+def parse_transcript(transcript_path: str) -> dict:
     """
-    Parse the Claude Code transcript JSONL file and extract tool calls.
+    Parse the Claude Code transcript JSONL file and extract complete conversation structure.
 
-    Returns a list of tool call records with:
-        - tool_name: Name of the tool
-        - tool_input: Input parameters
-        - activity_kind: Classified activity (BUILD/CODE/EXPLORE)
-        - timestamp: When the tool was called (if available)
+    Returns a dict with:
+        - session_metadata: {cwd, git_branch, model}
+        - turns: List of {user_message, assistant_response} pairs
+        - totals: {input_tokens, output_tokens, activity_counts}
     """
-    tool_calls = []
+    result = {
+        "session_metadata": {"cwd": None, "git_branch": None, "model": None},
+        "turns": [],
+        "totals": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "activity_counts": {"BUILD": 0, "CODE": 0, "EXPLORE": 0},
+        },
+    }
+
     path = Path(transcript_path.replace("~", str(Path.home())))
-
     if not path.exists():
-        return tool_calls
+        return result
+
+    pending_user_message: str | None = None
 
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -138,31 +151,93 @@ def parse_transcript(transcript_path: str) -> list[dict]:
             except json.JSONDecodeError:
                 continue
 
-            # Extract tool calls from assistant messages
-            if entry.get("type") == "assistant":
+            entry_type = entry.get("type")
+
+            # Extract session metadata from various sources
+            if entry_type == "summary" and result["session_metadata"]["cwd"] is None:
+                result["session_metadata"]["cwd"] = entry.get("cwd")
+                result["session_metadata"]["git_branch"] = entry.get("git_branch")
+
+            # Parse user messages
+            elif entry_type == "user":
                 message = entry.get("message", {})
                 content = message.get("content", [])
+                text_parts = []
+                for block in content:
+                    if isinstance(block, str):
+                        text_parts.append(block)
+                    elif isinstance(block, dict) and block.get("type") == "text":
+                        text_parts.append(block.get("text", ""))
+                pending_user_message = "\n".join(text_parts) if text_parts else None
+
+            # Parse assistant messages
+            elif entry_type == "assistant":
+                message = entry.get("message", {})
+                content = message.get("content", [])
+                usage = message.get("usage", {})
+                model = message.get("model")
+
+                # Set model in metadata if not already set
+                if model and result["session_metadata"]["model"] is None:
+                    result["session_metadata"]["model"] = model
+
+                # Extract text content (skip thinking blocks)
+                text_parts = []
+                tool_calls = []
 
                 for block in content:
-                    if block.get("type") == "tool_use":
+                    block_type = block.get("type")
+
+                    if block_type == "text":
+                        text_parts.append(block.get("text", ""))
+
+                    elif block_type == "tool_use":
                         tool_name = block.get("name", "")
                         tool_input = block.get("input", {})
                         activity_kind = classify_activity(tool_name, tool_input)
 
-                        tool_calls.append(
-                            {
-                                "tool_name": tool_name,
-                                "tool_input": tool_input,
-                                "tool_use_id": block.get("id"),
-                                "activity_kind": activity_kind,
-                            }
-                        )
+                        # Update activity counts
+                        result["totals"]["activity_counts"][activity_kind] += 1
 
-    return tool_calls
+                        tool_calls.append({
+                            "tool_name": tool_name,
+                            "tool_input": tool_input,
+                            "tool_use_id": block.get("id"),
+                            "activity_kind": activity_kind,
+                        })
+
+                # Extract token usage
+                assistant_usage = {
+                    "input_tokens": usage.get("input_tokens", 0),
+                    "output_tokens": usage.get("output_tokens", 0),
+                    "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+                    "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+                }
+
+                # Aggregate totals
+                result["totals"]["input_tokens"] += assistant_usage["input_tokens"]
+                result["totals"]["output_tokens"] += assistant_usage["output_tokens"]
+                result["totals"]["cache_read_input_tokens"] += assistant_usage["cache_read_input_tokens"]
+                result["totals"]["cache_creation_input_tokens"] += assistant_usage["cache_creation_input_tokens"]
+
+                # Create turn entry
+                turn = {
+                    "user_message": pending_user_message,
+                    "assistant_response": {
+                        "model": model,
+                        "text_content": "\n".join(text_parts) if text_parts else None,
+                        "usage": assistant_usage,
+                        "tool_calls": tool_calls,
+                    },
+                }
+                result["turns"].append(turn)
+                pending_user_message = None
+
+    return result
 
 
-def send_to_langfuse(session_id: str, tool_calls: list[dict]) -> None:
-    """Send tool call traces to Langfuse."""
+def send_to_langfuse(session_id: str, parsed: dict) -> None:
+    """Send parsed transcript traces to Langfuse."""
     try:
         from langfuse import Langfuse
     except ImportError:
@@ -179,8 +254,11 @@ def send_to_langfuse(session_id: str, tool_calls: list[dict]) -> None:
 
     langfuse = Langfuse(public_key=public_key, secret_key=secret_key, host=host)
 
-    # Aggregate activity counts
-    activity_counts = {"BUILD": 0, "CODE": 0, "EXPLORE": 0}
+    # Extract all tool calls from turns for backward compatibility
+    all_tool_calls = []
+    for turn in parsed.get("turns", []):
+        assistant_response = turn.get("assistant_response", {})
+        all_tool_calls.extend(assistant_response.get("tool_calls", []))
 
     # Create a trace with a root span using the v3 API
     with langfuse.start_as_current_span(name="claude-code-session") as root_span:
@@ -188,12 +266,15 @@ def send_to_langfuse(session_id: str, tool_calls: list[dict]) -> None:
         root_span.update_trace(
             name="claude-code-session",
             session_id=session_id,
-            metadata={"source": "claude-code", "hook": "langfuse-hook"},
+            metadata={
+                "source": "claude-code",
+                "hook": "langfuse-hook",
+                "session_metadata": parsed.get("session_metadata"),
+            },
         )
 
-        for tool_call in tool_calls:
+        for tool_call in all_tool_calls:
             activity_kind = tool_call["activity_kind"]
-            activity_counts[activity_kind] += 1
 
             # Create a child span for each tool call
             child_span = root_span.start_span(
@@ -206,11 +287,18 @@ def send_to_langfuse(session_id: str, tool_calls: list[dict]) -> None:
             )
             child_span.end()
 
-        # Update root span with activity summary
+        # Update root span with activity summary and totals
+        totals = parsed.get("totals", {})
         root_span.update(
             metadata={
-                "activity_counts": activity_counts,
-                "total_tool_calls": len(tool_calls),
+                "activity_counts": totals.get("activity_counts", {}),
+                "total_tool_calls": len(all_tool_calls),
+                "token_totals": {
+                    "input_tokens": totals.get("input_tokens", 0),
+                    "output_tokens": totals.get("output_tokens", 0),
+                    "cache_read_input_tokens": totals.get("cache_read_input_tokens", 0),
+                    "cache_creation_input_tokens": totals.get("cache_creation_input_tokens", 0),
+                },
             }
         )
 
@@ -237,19 +325,24 @@ def main() -> int:
         print("Warning: No transcript_path in hook input", file=sys.stderr)
         return 0
 
-    # Parse transcript and extract tool calls
+    # Parse transcript
     try:
-        tool_calls = parse_transcript(transcript_path)
+        parsed = parse_transcript(transcript_path)
     except Exception as e:
         print(f"Error parsing transcript: {e}", file=sys.stderr)
         return 0
 
-    if not tool_calls:
+    # Check if there are any turns to process
+    if not parsed.get("turns"):
         return 0
+
+    # Debug logging if enabled
+    if os.environ.get("DEBUG_LANGFUSE_HOOK", "").lower() == "true":
+        print(f"Parsed transcript: {json.dumps(parsed, indent=2, default=str)}", file=sys.stderr)
 
     # Send to Langfuse
     try:
-        send_to_langfuse(session_id, tool_calls)
+        send_to_langfuse(session_id, parsed)
     except Exception as e:
         print(f"Error sending to Langfuse: {e}", file=sys.stderr)
         return 0
