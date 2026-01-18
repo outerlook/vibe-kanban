@@ -236,6 +236,7 @@ def parse_transcript(transcript_path: str) -> dict:
     result = {
         "session_metadata": {"cwd": None, "git_branch": None, "model": None},
         "turns": [],
+        "tool_results": {},  # Map of tool_use_id -> result content
         "totals": {
             "input_tokens": 0,
             "output_tokens": 0,
@@ -283,8 +284,15 @@ def parse_transcript(transcript_path: str) -> dict:
                     for block in content:
                         if isinstance(block, str):
                             text_parts.append(block)
-                        elif isinstance(block, dict) and block.get("type") == "text":
-                            text_parts.append(block.get("text", ""))
+                        elif isinstance(block, dict):
+                            block_type = block.get("type")
+                            if block_type == "text":
+                                text_parts.append(block.get("text", ""))
+                            elif block_type == "tool_result":
+                                # Store tool results for later matching with spans
+                                tool_use_id = block.get("tool_use_id")
+                                if tool_use_id:
+                                    result["tool_results"][tool_use_id] = block.get("content")
                     pending_user_message = "\n".join(text_parts) if text_parts else None
 
             # Parse assistant messages
@@ -425,6 +433,7 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
 
     turns = parsed.get("turns", [])
     totals = parsed.get("totals", {})
+    tool_results = parsed.get("tool_results", {})
     session_metadata = parsed.get("session_metadata", {})
 
     # Extract first/last timestamps for trace-level timing
@@ -494,6 +503,11 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
     ingestion_now = now.isoformat()
     account_id = get_claude_account_id()
 
+    # Build tags for filtering in Langfuse UI
+    tags = ["claude-code"]
+    if langfuse_session_id:
+        tags.append("vibe-kanban")
+
     # Create trace event
     events.append(
         IngestionEvent_TraceCreate(
@@ -507,6 +521,7 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
                 input=first_user_message,
                 output=last_assistant_text,
                 metadata=trace_metadata,
+                tags=tags,
                 timestamp=first_timestamp,
             ),
         )
@@ -558,8 +573,9 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
                         "input": usage.get("input_tokens", 0),
                         "output": usage.get("output_tokens", 0),
                         "total": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
-                        "cache_read": usage.get("cache_read_input_tokens", 0),
-                        "cache_creation": usage.get("cache_creation_input_tokens", 0),
+                        # Use Langfuse's expected cache key names for proper cost calculation
+                        "input_cache_read": usage.get("cache_read_input_tokens", 0),
+                        "input_cache_creation": usage.get("cache_creation_input_tokens", 0),
                     },
                     metadata={"tool_call_count": len(tool_calls)},
                 ),
@@ -568,6 +584,9 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
 
         # Create span events for tool calls as children of the generation
         for tool_call in tool_calls:
+            tool_use_id = tool_call.get("tool_use_id")
+            # Look up tool result by tool_use_id to add as span output
+            tool_output = tool_results.get(tool_use_id) if tool_use_id else None
             events.append(
                 IngestionEvent_SpanCreate(
                     id=str(uuid.uuid4()),
@@ -578,11 +597,12 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
                         parent_observation_id=generation_id,
                         name=tool_call["tool_name"],
                         input=tool_call.get("tool_input"),
+                        output=tool_output,
                         start_time=start_time,
                         end_time=end_time,
                         metadata={
                             "activity_kind": tool_call["activity_kind"],
-                            "tool_use_id": tool_call.get("tool_use_id"),
+                            "tool_use_id": tool_use_id,
                         },
                     ),
                 )
