@@ -923,8 +923,11 @@ impl LocalContainerService {
         workspace_dir: &Path,
         repos: &[Repo],
     ) -> Result<(), ContainerError> {
-        // Check if we have any hook assets to deploy
-        let asset_files: Vec<_> = ClaudeCodeHookAssets::iter().collect();
+        // Check if we have any hook assets to deploy, filtering out __pycache__ files
+        // (these can get embedded at compile time if they exist locally)
+        let asset_files: Vec<_> = ClaudeCodeHookAssets::iter()
+            .filter(|name| !name.contains("__pycache__"))
+            .collect();
         tracing::info!(
             "deploy_claude_code_hooks: found {} assets: {:?}",
             asset_files.len(),
@@ -997,7 +1000,36 @@ impl LocalContainerService {
             }
 
             // Add .claude/ to .git/info/exclude
-            let git_info_dir = worktree_path.join(".git").join("info");
+            // Handle git worktrees where .git is a file pointing to the real git dir
+            let dot_git_path = worktree_path.join(".git");
+            let git_dir = if dot_git_path.is_file() {
+                // In a worktree, .git is a file containing "gitdir: /path/to/real/.git/worktrees/..."
+                match tokio::fs::read_to_string(&dot_git_path).await {
+                    Ok(content) => {
+                        if let Some(gitdir) = content.strip_prefix("gitdir: ") {
+                            PathBuf::from(gitdir.trim())
+                        } else {
+                            tracing::warn!(
+                                "Unexpected .git file format for repo '{}', skipping exclude",
+                                repo.name
+                            );
+                            continue;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to read .git file for repo '{}': {}",
+                            repo.name,
+                            e
+                        );
+                        continue;
+                    }
+                }
+            } else {
+                dot_git_path
+            };
+
+            let git_info_dir = git_dir.join("info");
             let exclude_path = git_info_dir.join("exclude");
 
             // Create .git/info directory if it doesn't exist
