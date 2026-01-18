@@ -5,7 +5,7 @@ Local fork of [BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban) with
 ## Patched Binaries
 
 Located in `./patched-bin/`:
-- `vibe-kanban` - Main UI server (with embedded frontend)
+- `vibe-kanban` - Main UI server (serves the frontend)
 - `vibe-kanban-mcp` - MCP server for Claude Code integration
 
 Symlinked to `~/.local/bin/`:

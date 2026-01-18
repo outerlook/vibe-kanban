@@ -7,49 +7,52 @@ use utils::assets::asset_dir;
 /// Default MCP bridge port (matches tauri-plugin-mcp-bridge default)
 pub const DEFAULT_MCP_PORT: u16 = 9223;
 
-/// Default backend API port (0 = auto-assign)
-pub const DEFAULT_BACKEND_PORT: u16 = 0;
+/// Default backend URL
+pub const DEFAULT_BACKEND_URL: &str = "http://127.0.0.1:9876";
 
 /// Configuration stored in tauri-config.json
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TauriConfig {
-    /// Server URL (None = auto-discovery)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub server_url: Option<String>,
+    /// Backend server URL (always required, no auto-discovery)
+    #[serde(default = "default_backend_url")]
+    pub backend_url: String,
     /// MCP bridge WebSocket server port
     #[serde(default = "default_mcp_port")]
     pub mcp_port: u16,
-    /// Backend API port (0 = auto-assign)
-    #[serde(default = "default_backend_port")]
-    pub backend_port: u16,
+}
+
+impl Default for TauriConfig {
+    fn default() -> Self {
+        Self {
+            backend_url: DEFAULT_BACKEND_URL.to_string(),
+            mcp_port: DEFAULT_MCP_PORT,
+        }
+    }
+}
+
+fn default_backend_url() -> String {
+    DEFAULT_BACKEND_URL.to_string()
 }
 
 fn default_mcp_port() -> u16 {
     DEFAULT_MCP_PORT
 }
 
-fn default_backend_port() -> u16 {
-    DEFAULT_BACKEND_PORT
-}
-
 pub struct AppState {
-    /// Server URL - configured URL or empty for auto-discovery
-    pub server_url: Arc<Mutex<String>>,
+    /// Backend server URL
+    pub backend_url: Arc<Mutex<String>>,
     /// Handle to the MCP server child process, if running
     pub mcp_process_handle: Arc<Mutex<Option<Child>>>,
     /// MCP bridge port from config
     pub mcp_port: u16,
-    /// Backend API port from config (0 = auto-assign)
-    pub backend_port: u16,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
-            server_url: Arc::new(Mutex::new(String::new())),
+            backend_url: Arc::new(Mutex::new(DEFAULT_BACKEND_URL.to_string())),
             mcp_process_handle: Arc::new(Mutex::new(None)),
             mcp_port: DEFAULT_MCP_PORT,
-            backend_port: DEFAULT_BACKEND_PORT,
         }
     }
 
@@ -66,16 +69,13 @@ impl AppState {
                 match serde_json::from_str::<TauriConfig>(&contents) {
                     Ok(config) => {
                         tracing::info!(
-                            "Loaded config from {}: server_url={:?}, mcp_port={}, backend_port={}",
+                            "Loaded config from {}: backend_url={}, mcp_port={}",
                             config_path.display(),
-                            config.server_url,
-                            config.mcp_port,
-                            config.backend_port
+                            config.backend_url,
+                            config.mcp_port
                         );
-                        *state.server_url.blocking_lock() =
-                            config.server_url.unwrap_or_default();
+                        *state.backend_url.blocking_lock() = config.backend_url;
                         state.mcp_port = config.mcp_port;
-                        state.backend_port = config.backend_port;
                     }
                     Err(e) => {
                         tracing::warn!(
@@ -88,8 +88,9 @@ impl AppState {
             }
         } else {
             tracing::info!(
-                "No config found at {}, using defaults (mcp_port={})",
+                "No config found at {}, using defaults (backend_url={}, mcp_port={})",
                 config_path.display(),
+                DEFAULT_BACKEND_URL,
                 DEFAULT_MCP_PORT
             );
         }
@@ -104,15 +105,10 @@ impl AppState {
             std::fs::create_dir_all(parent)?;
         }
 
-        let url = self.server_url.blocking_lock();
+        let url = self.backend_url.blocking_lock();
         let config = TauriConfig {
-            server_url: if url.is_empty() {
-                None
-            } else {
-                Some(url.clone())
-            },
+            backend_url: url.clone(),
             mcp_port: self.mcp_port,
-            backend_port: self.backend_port,
         };
         let contents = serde_json::to_string_pretty(&config)?;
         std::fs::write(&config_path, contents)?;
@@ -132,64 +128,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tauri_config_serializes_with_url() {
+    fn tauri_config_serializes() {
         let config = TauriConfig {
-            server_url: Some("https://example.com".to_string()),
+            backend_url: "https://example.com".to_string(),
             mcp_port: 9876,
-            backend_port: 8080,
         };
         let json = serde_json::to_string(&config).unwrap();
-        assert!(json.contains(r#""server_url":"https://example.com""#));
+        assert!(json.contains(r#""backend_url":"https://example.com""#));
         assert!(json.contains(r#""mcp_port":9876"#));
-        assert!(json.contains(r#""backend_port":8080"#));
-    }
-
-    #[test]
-    fn tauri_config_serializes_without_url() {
-        let config = TauriConfig {
-            server_url: None,
-            mcp_port: 9223,
-            backend_port: 0,
-        };
-        let json = serde_json::to_string(&config).unwrap();
-        // server_url should be omitted when None
-        assert!(!json.contains("server_url"));
-        assert!(json.contains(r#""mcp_port":9223"#));
     }
 
     #[test]
     fn tauri_config_deserializes_with_url() {
         let config: TauriConfig =
-            serde_json::from_str(r#"{"server_url":"https://example.com","mcp_port":9876}"#)
+            serde_json::from_str(r#"{"backend_url":"https://example.com","mcp_port":9876}"#)
                 .unwrap();
-        assert_eq!(
-            config.server_url,
-            Some("https://example.com".to_string())
-        );
+        assert_eq!(config.backend_url, "https://example.com");
         assert_eq!(config.mcp_port, 9876);
     }
 
     #[test]
-    fn tauri_config_deserializes_without_url() {
-        let config: TauriConfig = serde_json::from_str(r#"{"mcp_port":9223}"#).unwrap();
-        assert_eq!(config.server_url, None);
-        assert_eq!(config.mcp_port, 9223);
-    }
-
-    #[test]
-    fn tauri_config_deserializes_empty_object() {
+    fn tauri_config_deserializes_empty_object_uses_defaults() {
         let config: TauriConfig = serde_json::from_str(r#"{}"#).unwrap();
-        assert_eq!(config.server_url, None);
+        assert_eq!(config.backend_url, DEFAULT_BACKEND_URL);
         assert_eq!(config.mcp_port, DEFAULT_MCP_PORT);
-        assert_eq!(config.backend_port, DEFAULT_BACKEND_PORT);
     }
 
     #[test]
-    fn tauri_config_deserializes_with_backend_port() {
-        let config: TauriConfig =
-            serde_json::from_str(r#"{"backend_port":8080}"#).unwrap();
-        assert_eq!(config.server_url, None);
-        assert_eq!(config.backend_port, 8080);
+    fn tauri_config_default() {
+        let config = TauriConfig::default();
+        assert_eq!(config.backend_url, DEFAULT_BACKEND_URL);
         assert_eq!(config.mcp_port, DEFAULT_MCP_PORT);
     }
 }

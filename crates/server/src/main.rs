@@ -9,7 +9,6 @@ use tracing_subscriber::{EnvFilter, prelude::*};
 use utils::{
     assets::{alerts_dir, asset_dir},
     browser::open_browser,
-    port_file::write_port_file,
     sentry::{self as sentry_utils, SentrySource, sentry_layer},
 };
 
@@ -121,25 +120,21 @@ async fn main() -> Result<(), VibeKanbanError> {
 
     let app_router = routes::router(deployment.clone());
 
-    let port = std::env::var("BACKEND_PORT")
+    let port_str = std::env::var("BACKEND_PORT")
         .or_else(|_| std::env::var("PORT"))
-        .ok()
-        .and_then(|s| {
-            // remove any ANSI codes, then turn into String
-            let cleaned =
-                String::from_utf8(strip(s.as_bytes())).expect("UTF-8 after stripping ANSI");
-            cleaned.trim().parse::<u16>().ok()
-        })
-        .unwrap_or(9876);
+        .map_err(|_| anyhow::anyhow!("BACKEND_PORT or PORT environment variable must be set"))?;
+
+    // remove any ANSI codes, then parse
+    let cleaned =
+        String::from_utf8(strip(port_str.as_bytes())).expect("UTF-8 after stripping ANSI");
+    let port: u16 = cleaned
+        .trim()
+        .parse()
+        .map_err(|e| anyhow::anyhow!("Invalid port value '{}': {}", cleaned.trim(), e))?;
 
     let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let listener = tokio::net::TcpListener::bind(format!("{host}:{port}")).await?;
     let actual_port = listener.local_addr()?.port(); // get → 53427 (example)
-
-    // Write port file for discovery if prod, warn on fail
-    if let Err(e) = write_port_file(actual_port).await {
-        tracing::warn!("Failed to write port file: {}", e);
-    }
 
     tracing::info!("Server running on http://{host}:{actual_port}");
 

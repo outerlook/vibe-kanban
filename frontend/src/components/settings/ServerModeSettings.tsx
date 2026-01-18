@@ -248,7 +248,7 @@ export function ServerModeSettings() {
                   })
                 : t('settings.serverUrl.autoDescription', {
                     defaultValue:
-                      'Automatically discover the embedded server URL',
+                      'Automatically discover the server URL',
                   })}
             </p>
           </div>

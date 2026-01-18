@@ -16,7 +16,7 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
-    "externalBin": ["binaries/mcp_task_server"],
+    "externalBin": ["binaries/mcp_task_server", "binaries/vibe-kanban-server"],
     "targets": ["deb"],
     "publisher": "Bloop AI",
     "copyright": "Copyright © 2024 Bloop AI. All rights reserved.",

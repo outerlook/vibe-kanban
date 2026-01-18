@@ -1,4 +1,4 @@
-import { Loader2, AlertTriangle } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useQueueStatus } from '@/hooks';
 import type { MergeQueueStatus } from 'shared/types';
 
@@ -7,7 +7,7 @@ interface QueueStatusBadgeProps {
 }
 
 const statusStyles: Record<
-  Exclude<MergeQueueStatus, 'completed'>,
+  'queued' | 'merging',
   { bg: string; text: string }
 > = {
   queued: {
@@ -18,10 +18,6 @@ const statusStyles: Record<
     bg: 'bg-muted',
     text: 'text-muted-foreground',
   },
-  conflict: {
-    bg: 'bg-destructive/10 dark:bg-destructive/20',
-    text: 'text-destructive',
-  },
 };
 
 export function QueueStatusBadge({ workspaceId }: QueueStatusBadgeProps) {
@@ -30,19 +26,18 @@ export function QueueStatusBadge({ workspaceId }: QueueStatusBadgeProps) {
   if (!queueEntry) return null;
 
   const status = queueEntry.status as MergeQueueStatus;
-  if (status === 'completed') return null;
+  // Hide terminal statuses - only show active queue states
+  if (status === 'completed' || status === 'conflict') return null;
 
-  const style = statusStyles[status];
+  const style = statusStyles[status as 'queued' | 'merging'];
 
   return (
     <span
       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text}`}
     >
       {status === 'merging' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-      {status === 'conflict' && <AlertTriangle className="h-3.5 w-3.5" />}
       {status === 'queued' && 'Queued'}
       {status === 'merging' && 'Merging...'}
-      {status === 'conflict' && 'Conflict'}
     </span>
   );
 }

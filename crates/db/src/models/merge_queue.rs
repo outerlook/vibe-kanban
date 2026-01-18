@@ -4,7 +4,11 @@ use sqlx::{FromRow, SqlitePool, Type};
 use ts_rs::TS;
 use uuid::Uuid;
 
-/// Status of a merge queue entry
+/// Status of a merge queue entry.
+///
+/// Note: Only `Queued` and `Merging` are actively used. Entries are deleted
+/// when processing completes (success or failure), so `Conflict` and `Completed`
+/// exist only for schema compatibility and as fallback for legacy data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Type, Serialize, Deserialize, TS)]
 #[sqlx(type_name = "TEXT", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
@@ -12,7 +16,9 @@ use uuid::Uuid;
 pub enum MergeQueueStatus {
     Queued,
     Merging,
+    /// Legacy: entries are now deleted on conflict instead of marked
     Conflict,
+    /// Legacy: entries are now deleted on completion instead of marked
     Completed,
 }
 

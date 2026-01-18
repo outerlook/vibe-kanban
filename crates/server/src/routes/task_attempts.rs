@@ -26,7 +26,7 @@ use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
     execution_process_normalized_entry::ExecutionProcessNormalizedEntry,
     merge::{Merge, MergeStatus, PrMerge, PullRequestInfo},
-    merge_queue::MergeQueue,
+    merge_queue::{MergeQueue, MergeQueueStatus},
     project_repo::ProjectRepo,
     repo::{Repo, RepoError},
     session::{CreateSession, Session},
@@ -1764,11 +1764,20 @@ pub async fn queue_merge(
         .await?
         .ok_or(RepoError::NotFound)?;
 
-    // Check if already queued
-    if let Some(_existing) = MergeQueue::find_by_workspace(pool, workspace.id).await? {
-        return Ok(ResponseJson(ApiResponse::error_with_data(
-            QueueMergeError::AlreadyQueued,
-        )));
+    // Check if already queued - only block if entry is actively being processed
+    if let Some(existing) = MergeQueue::find_by_workspace(pool, workspace.id).await? {
+        match existing.status {
+            // Terminal statuses: delete old entry and allow re-queue
+            MergeQueueStatus::Completed | MergeQueueStatus::Conflict => {
+                MergeQueue::delete_by_workspace(pool, workspace.id).await?;
+            }
+            // Active statuses: block new queue
+            MergeQueueStatus::Queued | MergeQueueStatus::Merging => {
+                return Ok(ResponseJson(ApiResponse::error_with_data(
+                    QueueMergeError::AlreadyQueued,
+                )));
+            }
+        }
     }
 
     // Check if already merged

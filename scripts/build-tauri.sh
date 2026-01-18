@@ -9,6 +9,9 @@ pnpm install
 pnpm run build
 cd ..
 
+echo "Building server binaries..."
+cargo build --release -p server --bin mcp_task_server --bin server
+
 echo "Building Tauri app..."
 cargo tauri build
 

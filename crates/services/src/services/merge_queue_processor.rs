@@ -7,7 +7,7 @@ use std::path::Path;
 
 use db::models::{
     merge::Merge,
-    merge_queue::{MergeQueue, MergeQueueStatus},
+    merge_queue::MergeQueue,
     repo::Repo,
     task::{Task, TaskStatus},
     workspace::Workspace,
@@ -120,35 +120,21 @@ impl MergeQueueProcessor {
                     // Status already updated in process_entry
                 }
                 Err(e) if e.is_conflict() => {
-                    let conflict_msg = e.conflict_message().unwrap_or("Unknown conflict");
                     warn!(
                         entry_id = %entry.id,
                         error = %e,
-                        "Merge queue entry has conflicts, skipping"
+                        "Merge queue entry has conflicts, deleting entry"
                     );
-                    MergeQueue::update_status(
-                        &self.pool,
-                        entry.id,
-                        MergeQueueStatus::Conflict,
-                        Some(conflict_msg),
-                    )
-                    .await?;
+                    MergeQueue::delete_by_workspace(&self.pool, entry.workspace_id).await?;
                     // Continue to next entry
                 }
                 Err(e) => {
                     error!(
                         entry_id = %entry.id,
                         error = %e,
-                        "Unexpected error processing merge queue entry"
+                        "Unexpected error processing merge queue entry, deleting entry"
                     );
-                    // Mark as conflict with error details so it's not stuck
-                    MergeQueue::update_status(
-                        &self.pool,
-                        entry.id,
-                        MergeQueueStatus::Conflict,
-                        Some(&e.to_string()),
-                    )
-                    .await?;
+                    MergeQueue::delete_by_workspace(&self.pool, entry.workspace_id).await?;
                     // Continue to next entry
                 }
             }
@@ -214,8 +200,8 @@ impl MergeQueueProcessor {
             .merge_changes(repo_path, &worktree_path, task_branch, base_branch, &commit_message)
             .await?;
 
-        // Step 4: Update status to completed
-        MergeQueue::update_status(&self.pool, entry.id, MergeQueueStatus::Completed, None).await?;
+        // Step 4: Delete the queue entry (completed successfully)
+        MergeQueue::delete_by_workspace(&self.pool, entry.workspace_id).await?;
 
         // Step 5: Create merge record
         Merge::create_direct(&self.pool, workspace.id, repo.id, base_branch, &merge_commit).await?;
