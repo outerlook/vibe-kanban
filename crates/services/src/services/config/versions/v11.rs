@@ -25,6 +25,60 @@ fn default_langfuse_host() -> Option<String> {
     Some("https://cloud.langfuse.com".to_string())
 }
 
+fn default_backup_enabled() -> bool {
+    true
+}
+
+fn default_backup_interval_hours() -> u32 {
+    6
+}
+
+fn default_backup_retention_hours_all() -> u32 {
+    24
+}
+
+fn default_backup_retention_daily_days() -> u32 {
+    7
+}
+
+fn default_backup_retention_weekly_weeks() -> u32 {
+    4
+}
+
+fn default_backup_retention_monthly_months() -> u32 {
+    12
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct BackupConfig {
+    #[serde(default = "default_backup_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_backup_interval_hours")]
+    pub interval_hours: u32,
+    #[serde(default = "default_backup_retention_hours_all")]
+    pub retention_hours_all: u32,
+    #[serde(default = "default_backup_retention_daily_days")]
+    pub retention_daily_days: u32,
+    #[serde(default = "default_backup_retention_weekly_weeks")]
+    pub retention_weekly_weeks: u32,
+    #[serde(default = "default_backup_retention_monthly_months")]
+    pub retention_monthly_months: u32,
+}
+
+impl Default for BackupConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_backup_enabled(),
+            interval_hours: default_backup_interval_hours(),
+            retention_hours_all: default_backup_retention_hours_all(),
+            retention_daily_days: default_backup_retention_daily_days(),
+            retention_weekly_weeks: default_backup_retention_weekly_weeks(),
+            retention_monthly_months: default_backup_retention_monthly_months(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct Config {
     pub config_version: String,
@@ -69,6 +123,8 @@ pub struct Config {
     pub langfuse_secret_key: Option<String>,
     #[serde(default = "default_langfuse_host")]
     pub langfuse_host: Option<String>,
+    #[serde(default)]
+    pub backup: BackupConfig,
 }
 
 impl Config {
@@ -101,6 +157,7 @@ impl Config {
             langfuse_public_key: None,
             langfuse_secret_key: None,
             langfuse_host: default_langfuse_host(),
+            backup: BackupConfig::default(),
         }
     }
 
@@ -160,6 +217,7 @@ impl Default for Config {
             langfuse_public_key: None,
             langfuse_secret_key: None,
             langfuse_host: default_langfuse_host(),
+            backup: BackupConfig::default(),
         }
     }
 }
@@ -191,6 +249,9 @@ mod tests {
             v11_config.langfuse_host,
             Some("https://cloud.langfuse.com".to_string())
         );
+        // Verify new Backup fields have defaults
+        assert!(v11_config.backup.enabled);
+        assert_eq!(v11_config.backup.interval_hours, 6);
     }
 
     #[test]
@@ -213,6 +274,26 @@ mod tests {
         assert_eq!(
             parsed.langfuse_host,
             Some("https://custom.langfuse.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_backup_config_serialization() {
+        let backup = BackupConfig::default();
+        let json = serde_json::to_string(&backup).unwrap();
+        let deserialized: BackupConfig = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(backup.enabled, deserialized.enabled);
+        assert_eq!(backup.interval_hours, deserialized.interval_hours);
+        assert_eq!(backup.retention_hours_all, deserialized.retention_hours_all);
+        assert_eq!(backup.retention_daily_days, deserialized.retention_daily_days);
+        assert_eq!(
+            backup.retention_weekly_weeks,
+            deserialized.retention_weekly_weeks
+        );
+        assert_eq!(
+            backup.retention_monthly_months,
+            deserialized.retention_monthly_months
         );
     }
 }

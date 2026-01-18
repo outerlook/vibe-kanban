@@ -28,6 +28,7 @@ pub type EditorType = versions::v11::EditorType;
 pub type GitHubConfig = versions::v11::GitHubConfig;
 pub type UiLanguage = versions::v11::UiLanguage;
 pub type ShowcaseState = versions::v11::ShowcaseState;
+pub type BackupConfig = versions::v11::BackupConfig;
 
 /// Will always return config, trying old schemas or eventually returning default
 pub async fn load_config_from_file(config_path: &PathBuf) -> Config {

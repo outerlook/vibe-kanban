@@ -19,6 +19,7 @@ use services::services::{
     analytics::{AnalyticsContext, AnalyticsService},
     approvals::Approvals,
     auth::AuthContext,
+    backup_service::BackupService,
     config::{Config, ConfigError},
     container::{ContainerError, ContainerService},
     embedding::EmbeddingService,
@@ -144,6 +145,11 @@ pub trait Deployment: Clone + Send + Sync + 'static {
 
     fn spawn_embedding_worker(&self) -> tokio::task::JoinHandle<()> {
         EmbeddingWorker::spawn(self.embedding().clone(), self.db().clone())
+    }
+
+    async fn spawn_backup_service(&self) -> tokio::task::JoinHandle<()> {
+        let config = self.config().clone();
+        BackupService::spawn(config).await
     }
 
     async fn track_if_analytics_allowed(&self, event_name: &str, properties: Value) {

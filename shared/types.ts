@@ -462,7 +462,7 @@ export type Config = { config_version: string, theme: ThemeMode, executor_profil
 /**
  * Maximum concurrent agent executions (0 = unlimited)
  */
-max_concurrent_agents: number, langfuse_enabled: boolean, langfuse_public_key: string | null, langfuse_secret_key: string | null, langfuse_host: string | null, };
+max_concurrent_agents: number, langfuse_enabled: boolean, langfuse_public_key: string | null, langfuse_secret_key: string | null, langfuse_host: string | null, backup: BackupConfig, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, error_sound_file: SoundFile, custom_sound_path: string | null, };
 
@@ -487,6 +487,8 @@ export enum SoundFile { ABSTRACT_SOUND1 = "ABSTRACT_SOUND1", ABSTRACT_SOUND2 = "
 export type UiLanguage = "BROWSER" | "EN" | "JA" | "ES" | "KO" | "ZH_HANS";
 
 export type ShowcaseState = { seen_features: Array<string>, };
+
+export type BackupConfig = { enabled: boolean, interval_hours: number, retention_hours_all: number, retention_daily_days: number, retention_weekly_weeks: number, retention_monthly_months: number, };
 
 export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, last_commit_date: Date, };
 

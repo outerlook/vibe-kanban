@@ -283,6 +283,39 @@
           }
         }
       },
+      "backup": {
+        "title": "Backup",
+        "description": "Automatic database backups protect your data from loss.",
+        "enabled": {
+          "label": "Enable Automatic Backups",
+          "helper": "Periodically create backups of your database."
+        },
+        "interval": {
+          "label": "Backup Interval (hours)",
+          "placeholder": "24",
+          "helper": "How often to create new backups."
+        },
+        "advanced": {
+          "title": "Advanced Retention Settings",
+          "description": "Configure how long backups are retained using a Grandfather-Father-Son (GFS) strategy.",
+          "hoursAll": {
+            "label": "Keep All Backups (hours)",
+            "helper": "Keep every backup created within this time period."
+          },
+          "dailyDays": {
+            "label": "Keep Daily Backups (days)",
+            "helper": "After the 'keep all' period, keep one backup per day for this many days."
+          },
+          "weeklyWeeks": {
+            "label": "Keep Weekly Backups (weeks)",
+            "helper": "After the daily period, keep one backup per week for this many weeks."
+          },
+          "monthlyMonths": {
+            "label": "Keep Monthly Backups (months)",
+            "helper": "After the weekly period, keep one backup per month for this many months."
+          }
+        }
+      },
       "taskTemplates": {
         "title": "Tags",
         "description": "Create reusable text snippets that can be inserted into task descriptions using @tag_name."

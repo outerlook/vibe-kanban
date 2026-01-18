@@ -1,6 +1,8 @@
 pub mod analytics;
 pub mod approvals;
 pub mod auth;
+pub mod backup;
+pub mod backup_service;
 pub mod config;
 pub mod container;
 pub mod conversation;
