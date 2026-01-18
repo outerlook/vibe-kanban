@@ -1,0 +1,176 @@
+# Langfuse local development setup
+# Start: docker compose -f docker-compose.langfuse.yml up -d
+# UI: http://localhost:3100
+# Login: dev@local.test / password
+# API Keys: pk-lf-local-dev / sk-lf-local-dev
+# MinIO Console: http://localhost:9011 (minioadmin / minioadmin)
+
+x-langfuse-common: &langfuse-common
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+    minio:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    clickhouse:
+      condition: service_healthy
+
+x-langfuse-env: &langfuse-env
+  # Database
+  DATABASE_URL: postgresql://langfuse:langfuse@postgres:5432/langfuse
+  DIRECT_URL: postgresql://langfuse:langfuse@postgres:5432/langfuse
+
+  # Auth
+  NEXTAUTH_URL: http://localhost:3100
+  NEXTAUTH_SECRET: dev-secret-do-not-use-in-production
+  SALT: dev-salt-do-not-use-in-production
+  ENCRYPTION_KEY: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+
+  # ClickHouse
+  CLICKHOUSE_MIGRATION_URL: clickhouse://default:clickhouse@clickhouse:9000
+  CLICKHOUSE_URL: http://clickhouse:8123
+  CLICKHOUSE_USER: default
+  CLICKHOUSE_PASSWORD: clickhouse
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+
+  # S3 / MinIO - Event Upload
+  LANGFUSE_S3_EVENT_UPLOAD_ENABLED: "true"
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+
+  # S3 / MinIO - Media Upload
+  LANGFUSE_S3_MEDIA_UPLOAD_ENABLED: "true"
+  LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+  LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minioadmin
+  LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+
+  # S3 / MinIO - Batch Export
+  LANGFUSE_S3_BATCH_EXPORT_ENABLED: "true"
+  LANGFUSE_S3_BATCH_EXPORT_BUCKET: langfuse
+  LANGFUSE_S3_BATCH_EXPORT_REGION: auto
+  LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: minioadmin
+  LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: minioadmin
+  LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_BATCH_EXPORT_PREFIX: exports/
+
+  # Redis
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_AUTH: ""
+
+  # Auto-provisioned dev user
+  LANGFUSE_INIT_ORG_ID: local-dev-org
+  LANGFUSE_INIT_ORG_NAME: Local Dev Org
+  LANGFUSE_INIT_PROJECT_ID: local-dev-project
+  LANGFUSE_INIT_PROJECT_NAME: Local Dev
+  LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-local-dev
+  LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-local-dev
+  LANGFUSE_INIT_USER_EMAIL: dev@local.test
+  LANGFUSE_INIT_USER_NAME: Developer
+  LANGFUSE_INIT_USER_PASSWORD: password
+
+services:
+  langfuse-web:
+    image: docker.io/langfuse/langfuse:3
+    <<: *langfuse-common
+    environment:
+      <<: *langfuse-env
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "3100:3000"
+
+  langfuse-worker:
+    image: docker.io/langfuse/langfuse-worker:3
+    <<: *langfuse-common
+    environment:
+      <<: *langfuse-env
+    ports:
+      - "127.0.0.1:3030:3030"
+
+  postgres:
+    image: docker.io/postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: langfuse
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+    ports:
+      - "5433:5432"
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse -d langfuse"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: clickhouse
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: docker.io/redis:7
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  minio:
+    image: cgr.dev/chainguard/minio
+    restart: unless-stopped
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server /data --console-address ":9001"'
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9010:9000"
+      - "127.0.0.1:9011:9001"
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  langfuse_postgres_data:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_minio_data:
