@@ -130,12 +130,9 @@ async fn main() -> Result<(), VibeKanbanError> {
                 String::from_utf8(strip(s.as_bytes())).expect("UTF-8 after stripping ANSI");
             cleaned.trim().parse::<u16>().ok()
         })
-        .unwrap_or_else(|| {
-            tracing::info!("No PORT environment variable set, using port 0 for auto-assignment");
-            0
-        }); // Use 0 to find free port if no specific port provided
+        .unwrap_or(9876);
 
-    let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let listener = tokio::net::TcpListener::bind(format!("{host}:{port}")).await?;
     let actual_port = listener.local_addr()?.port(); // get → 53427 (example)
 

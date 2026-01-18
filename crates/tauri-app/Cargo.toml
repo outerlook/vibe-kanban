@@ -15,9 +15,6 @@ tauri-plugin-process = "2.0"
 tauri-plugin-dialog = "2.0"
 tauri-plugin-mcp-bridge = "0.8"
 
-server = { path = "../server" }
-local-deployment = { path = "../local-deployment" }
-deployment = { path = "../deployment" }
 utils = { path = "../utils" }
 
 tokio = { workspace = true }
