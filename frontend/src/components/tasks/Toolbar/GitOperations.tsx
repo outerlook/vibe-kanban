@@ -3,7 +3,6 @@ import {
   GitBranch as GitBranchIcon,
   GitMerge,
   GitPullRequest,
-  ListOrdered,
   RefreshCw,
   Settings,
   AlertTriangle,
@@ -43,8 +42,9 @@ import {
 } from '@/components/ui/split-button';
 
 const MERGE_ACTION_STORAGE_KEY = 'vk-merge-action-preference';
+const QUEUE_MERGE_ENABLED_KEY = 'vk-queue-merge-enabled';
 
-type MergeAction = 'merge' | 'generate-preview' | 'generate-merge' | 'queue-merge';
+type MergeAction = 'merge' | 'generate-preview' | 'generate-merge';
 
 const mergeActionOptions: SplitButtonOption<MergeAction>[] = [
   {
@@ -61,11 +61,6 @@ const mergeActionOptions: SplitButtonOption<MergeAction>[] = [
     value: 'generate-merge',
     label: 'Generate & Merge',
     icon: <Sparkles className="h-3.5 w-3.5" />,
-  },
-  {
-    value: 'queue-merge',
-    label: 'Queue & Merge',
-    icon: <ListOrdered className="h-3.5 w-3.5" />,
   },
 ];
 
@@ -113,12 +108,17 @@ function GitOperations({
   // Merge action preference state
   const [selectedMergeAction, setSelectedMergeAction] =
     useState<MergeAction>('merge');
+  const [queueEnabled, setQueueEnabled] = useState(false);
 
   // Load merge action preference from localStorage on mount
   useEffect(() => {
     const stored = localStorage.getItem(MERGE_ACTION_STORAGE_KEY);
-    if (stored && ['merge', 'generate-preview', 'generate-merge', 'queue-merge'].includes(stored)) {
+    if (stored && ['merge', 'generate-preview', 'generate-merge'].includes(stored)) {
       setSelectedMergeAction(stored as MergeAction);
+    }
+    const queueStored = localStorage.getItem(QUEUE_MERGE_ENABLED_KEY);
+    if (queueStored !== null) {
+      setQueueEnabled(queueStored === 'true');
     }
   }, []);
 
@@ -225,17 +225,28 @@ function GitOperations({
 
   const isAlreadyQueued = queueStatus?.status === 'queued' || queueStatus?.status === 'merging';
 
-  const computedMergeActionOptions = useMemo(() => {
-    return mergeActionOptions.map((option) => ({
-      ...option,
-      disabled: option.value === 'queue-merge' && isAlreadyQueued,
-    }));
-  }, [isAlreadyQueued]);
+  const handleQueueToggle = (checked: boolean) => {
+    setQueueEnabled(checked);
+    localStorage.setItem(QUEUE_MERGE_ENABLED_KEY, String(checked));
+  };
+
+  const queueCheckboxDisabled = selectedMergeAction === 'generate-preview' || isAlreadyQueued;
 
   const handleMergeClick = async (action: MergeAction) => {
     const repoId = getSelectedRepoId();
     if (!repoId) return;
 
+    // If queue is enabled, route through queue logic
+    if (queueEnabled && action !== 'generate-preview') {
+      if (action === 'merge') {
+        await performQueueMerge(repoId);
+      } else if (action === 'generate-merge') {
+        await performGenerateAndQueueMerge(repoId);
+      }
+      return;
+    }
+
+    // Normal non-queued flow
     switch (action) {
       case 'merge':
         await performMerge();
@@ -245,9 +256,6 @@ function GitOperations({
         break;
       case 'generate-merge':
         await performGenerateAndMerge(repoId);
-        break;
-      case 'queue-merge':
-        await performQueueMerge(repoId);
         break;
     }
   };
@@ -342,6 +350,23 @@ function GitOperations({
       setQueueSuccess(true);
       setTimeout(() => setQueueSuccess(false), 2000);
     } finally {
+      setQueuing(false);
+    }
+  };
+
+  const performGenerateAndQueueMerge = async (repoId: string) => {
+    try {
+      setGenerating(true);
+      const response = await generateCommitMessage.mutateAsync({ repoId });
+
+      setGenerating(false);
+      setQueuing(true);
+
+      await queueMerge.mutateAsync({ repoId, commitMessage: response.commit_message });
+      setQueueSuccess(true);
+      setTimeout(() => setQueueSuccess(false), 2000);
+    } finally {
+      setGenerating(false);
       setQueuing(false);
     }
   };
@@ -613,7 +638,7 @@ function GitOperations({
         {selectedRepoStatus && (
           <div className={actionsClasses}>
             <SplitButton
-              options={computedMergeActionOptions}
+              options={mergeActionOptions}
               selectedValue={selectedMergeAction}
               onSelect={handleMergeActionSelect}
               onPrimaryClick={handleMergeClick}
@@ -641,6 +666,14 @@ function GitOperations({
               size="xs"
               className="shrink-0 border-success text-success [&_button]:border-success [&_button]:text-success [&_button:hover]:bg-success"
               icon={<GitMerge className="h-3.5 w-3.5" />}
+              checkboxItems={[
+                {
+                  label: t('git.queue.toggle', 'Queue merge'),
+                  checked: queueEnabled,
+                  onCheckedChange: handleQueueToggle,
+                  disabled: queueCheckboxDisabled,
+                },
+              ]}
             />
 
             <Button

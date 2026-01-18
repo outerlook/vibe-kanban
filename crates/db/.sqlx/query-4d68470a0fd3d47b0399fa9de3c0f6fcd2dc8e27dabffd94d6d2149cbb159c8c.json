@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n                id AS \"id!: Uuid\",\n                project_id AS \"project_id!: Uuid\",\n                workspace_id AS \"workspace_id!: Uuid\",\n                repo_id AS \"repo_id!: Uuid\",\n                queued_at AS \"queued_at!: DateTime<Utc>\",\n                status AS \"status!: MergeQueueStatus\",\n                conflict_message,\n                started_at AS \"started_at: DateTime<Utc>\",\n                completed_at AS \"completed_at: DateTime<Utc>\"\n            FROM merge_queue\n            WHERE project_id = ? AND status = 'queued'\n            ORDER BY queued_at ASC\n            LIMIT 1",
+  "query": "SELECT\n                id AS \"id!: Uuid\",\n                project_id AS \"project_id!: Uuid\",\n                workspace_id AS \"workspace_id!: Uuid\",\n                repo_id AS \"repo_id!: Uuid\",\n                queued_at AS \"queued_at!: DateTime<Utc>\",\n                status AS \"status!: MergeQueueStatus\",\n                conflict_message,\n                commit_message,\n                started_at AS \"started_at: DateTime<Utc>\",\n                completed_at AS \"completed_at: DateTime<Utc>\"\n            FROM merge_queue\n            WHERE workspace_id = ?",
   "describe": {
     "columns": [
       {
@@ -39,13 +39,18 @@
         "type_info": "Text"
       },
       {
-        "name": "started_at: DateTime<Utc>",
+        "name": "commit_message",
         "ordinal": 7,
         "type_info": "Text"
       },
       {
-        "name": "completed_at: DateTime<Utc>",
+        "name": "started_at: DateTime<Utc>",
         "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "completed_at: DateTime<Utc>",
+        "ordinal": 9,
         "type_info": "Text"
       }
     ],
@@ -61,8 +66,9 @@
       false,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "4e50670c29d4537c86dca15d427cbb7e0a04fa26973d076284def3ecebe36c92"
+  "hash": "4d68470a0fd3d47b0399fa9de3c0f6fcd2dc8e27dabffd94d6d2149cbb159c8c"
 }

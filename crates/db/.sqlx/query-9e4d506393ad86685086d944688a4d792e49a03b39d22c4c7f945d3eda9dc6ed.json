@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n                id AS \"id!: Uuid\",\n                project_id AS \"project_id!: Uuid\",\n                workspace_id AS \"workspace_id!: Uuid\",\n                repo_id AS \"repo_id!: Uuid\",\n                queued_at AS \"queued_at!: DateTime<Utc>\",\n                status AS \"status!: MergeQueueStatus\",\n                conflict_message,\n                started_at AS \"started_at: DateTime<Utc>\",\n                completed_at AS \"completed_at: DateTime<Utc>\"\n            FROM merge_queue\n            WHERE id = ?",
+  "query": "SELECT\n                id AS \"id!: Uuid\",\n                project_id AS \"project_id!: Uuid\",\n                workspace_id AS \"workspace_id!: Uuid\",\n                repo_id AS \"repo_id!: Uuid\",\n                queued_at AS \"queued_at!: DateTime<Utc>\",\n                status AS \"status!: MergeQueueStatus\",\n                conflict_message,\n                commit_message,\n                started_at AS \"started_at: DateTime<Utc>\",\n                completed_at AS \"completed_at: DateTime<Utc>\"\n            FROM merge_queue\n            WHERE project_id = ?\n            ORDER BY queued_at ASC",
   "describe": {
     "columns": [
       {
@@ -39,13 +39,18 @@
         "type_info": "Text"
       },
       {
-        "name": "started_at: DateTime<Utc>",
+        "name": "commit_message",
         "ordinal": 7,
         "type_info": "Text"
       },
       {
-        "name": "completed_at: DateTime<Utc>",
+        "name": "started_at: DateTime<Utc>",
         "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "completed_at: DateTime<Utc>",
+        "ordinal": 9,
         "type_info": "Text"
       }
     ],
@@ -61,8 +66,9 @@
       false,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "7f2f47a1f35e5d9ba061a041cb9a068c60db35b93bc83f8981aa79e46ce01b69"
+  "hash": "9e4d506393ad86685086d944688a4d792e49a03b39d22c4c7f945d3eda9dc6ed"
 }

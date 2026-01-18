@@ -183,7 +183,7 @@ async fn test_merge_queue_create_and_find() {
     let workspace_id = create_test_workspace(&pool, task_id, "feature-branch", None).await;
 
     // Create merge queue entry
-    let entry = MergeQueue::create(&pool, project_id, workspace_id, repo_id)
+    let entry = MergeQueue::create(&pool, project_id, workspace_id, repo_id, None)
         .await
         .unwrap();
 
@@ -227,7 +227,7 @@ async fn test_merge_queue_pop_next_fifo_order() {
             create_test_workspace(&pool, task_id, &format!("feature-{}", i + 1), None).await;
         workspace_ids.push(workspace_id);
 
-        MergeQueue::create(&pool, project_id, workspace_id, repo_id)
+        MergeQueue::create(&pool, project_id, workspace_id, repo_id, None)
             .await
             .unwrap();
 
@@ -283,7 +283,7 @@ async fn test_merge_queue_claim_next_fifo_order() {
             create_test_workspace(&pool, task_id, &format!("feature-{}", i + 1), None).await;
         workspace_ids.push(workspace_id);
 
-        MergeQueue::create(&pool, project_id, workspace_id, repo_id)
+        MergeQueue::create(&pool, project_id, workspace_id, repo_id, None)
             .await
             .unwrap();
 
@@ -323,7 +323,7 @@ async fn test_merge_queue_update_status_transitions() {
     let repo_id = create_test_repo(&pool, &repo_path).await;
     let workspace_id = create_test_workspace(&pool, task_id, "feature-branch", None).await;
 
-    let entry = MergeQueue::create(&pool, project_id, workspace_id, repo_id)
+    let entry = MergeQueue::create(&pool, project_id, workspace_id, repo_id, None)
         .await
         .unwrap();
 
@@ -367,7 +367,7 @@ async fn test_merge_queue_conflict_status_with_message() {
     let repo_id = create_test_repo(&pool, &repo_path).await;
     let workspace_id = create_test_workspace(&pool, task_id, "feature-branch", None).await;
 
-    let entry = MergeQueue::create(&pool, project_id, workspace_id, repo_id)
+    let entry = MergeQueue::create(&pool, project_id, workspace_id, repo_id, None)
         .await
         .unwrap();
 
@@ -404,7 +404,7 @@ async fn test_merge_queue_delete_by_workspace() {
     let repo_id = create_test_repo(&pool, &repo_path).await;
     let workspace_id = create_test_workspace(&pool, task_id, "feature-branch", None).await;
 
-    let entry = MergeQueue::create(&pool, project_id, workspace_id, repo_id)
+    let entry = MergeQueue::create(&pool, project_id, workspace_id, repo_id, None)
         .await
         .unwrap();
 
@@ -442,7 +442,7 @@ async fn test_merge_queue_list_by_project_ordered() {
         let workspace_id =
             create_test_workspace(&pool, task_id, &format!("feature-{}", i + 1), None).await;
 
-        MergeQueue::create(&pool, project_id, workspace_id, repo_id)
+        MergeQueue::create(&pool, project_id, workspace_id, repo_id, None)
             .await
             .unwrap();
 
@@ -479,7 +479,7 @@ async fn test_merge_queue_separate_project_queues() {
         let repo_id = create_test_repo(&pool, &repo_path).await;
         let workspace_id =
             create_test_workspace(&pool, task_id, &format!("p1-feature-{}", i + 1), None).await;
-        MergeQueue::create(&pool, project1_id, workspace_id, repo_id)
+        MergeQueue::create(&pool, project1_id, workspace_id, repo_id, None)
             .await
             .unwrap();
     }
@@ -490,7 +490,7 @@ async fn test_merge_queue_separate_project_queues() {
     fs::create_dir_all(&repo_path).unwrap();
     let repo_id = create_test_repo(&pool, &repo_path).await;
     let workspace_id = create_test_workspace(&pool, task_id, "p2-feature-1", None).await;
-    MergeQueue::create(&pool, project2_id, workspace_id, repo_id)
+    MergeQueue::create(&pool, project2_id, workspace_id, repo_id, None)
         .await
         .unwrap();
 
@@ -541,7 +541,7 @@ async fn test_workspace_deletion_cascades_to_queue() {
 
     // Create workspace and queue entry
     let workspace_id = create_test_workspace(&pool, task_id, "feature-branch", None).await;
-    let entry = MergeQueue::create(&pool, project_id, workspace_id, repo_id)
+    let entry = MergeQueue::create(&pool, project_id, workspace_id, repo_id, None)
         .await
         .unwrap();
 
@@ -615,7 +615,7 @@ async fn test_full_merge_flow_success() {
     create_workspace_repo(&pool, workspace_id, repo_id, "main").await;
 
     // Queue the merge
-    let entry = MergeQueue::create(&pool, project_id, workspace_id, repo_id)
+    let entry = MergeQueue::create(&pool, project_id, workspace_id, repo_id, None)
         .await
         .unwrap();
     assert_eq!(entry.status, MergeQueueStatus::Queued);
@@ -702,7 +702,7 @@ async fn test_merge_with_conflict_marks_entry() {
     create_workspace_repo(&pool, workspace_id, repo_id, "main").await;
 
     // Queue the merge
-    let entry = MergeQueue::create(&pool, project_id, workspace_id, repo_id)
+    let entry = MergeQueue::create(&pool, project_id, workspace_id, repo_id, None)
         .await
         .unwrap();
 
@@ -770,7 +770,7 @@ async fn test_queue_processes_multiple_entries_fifo() {
         .await;
         create_workspace_repo(&pool, workspace_id, repo_id, "main").await;
 
-        let entry = MergeQueue::create(&pool, project_id, workspace_id, repo_id)
+        let entry = MergeQueue::create(&pool, project_id, workspace_id, repo_id, None)
             .await
             .unwrap();
         entry_ids.push(entry.id);
@@ -865,7 +865,7 @@ async fn test_conflict_skips_to_next_entry() {
     )
     .await;
     create_workspace_repo(&pool, ws1_id, repo_id, "main").await;
-    let entry1 = MergeQueue::create(&pool, project_id, ws1_id, repo_id)
+    let entry1 = MergeQueue::create(&pool, project_id, ws1_id, repo_id, None)
         .await
         .unwrap();
 
@@ -879,7 +879,7 @@ async fn test_conflict_skips_to_next_entry() {
     let ws2_id =
         create_test_workspace(&pool, task2_id, "safe-feature", Some(&wt2.to_string_lossy())).await;
     create_workspace_repo(&pool, ws2_id, repo_id, "main").await;
-    let entry2 = MergeQueue::create(&pool, project_id, ws2_id, repo_id)
+    let entry2 = MergeQueue::create(&pool, project_id, ws2_id, repo_id, None)
         .await
         .unwrap();
 

@@ -40,6 +40,7 @@ pub struct MergeQueue {
     #[ts(type = "string")]
     pub status: MergeQueueStatus,
     pub conflict_message: Option<String>,
+    pub commit_message: Option<String>,
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
 }
@@ -51,16 +52,18 @@ impl MergeQueue {
         project_id: Uuid,
         workspace_id: Uuid,
         repo_id: Uuid,
+        commit_message: Option<&str>,
     ) -> Result<Self, sqlx::Error> {
         let id = Uuid::new_v4();
 
         sqlx::query!(
-            r#"INSERT INTO merge_queue (id, project_id, workspace_id, repo_id)
-               VALUES (?, ?, ?, ?)"#,
+            r#"INSERT INTO merge_queue (id, project_id, workspace_id, repo_id, commit_message)
+               VALUES (?, ?, ?, ?, ?)"#,
             id,
             project_id,
             workspace_id,
-            repo_id
+            repo_id,
+            commit_message
         )
         .execute(pool)
         .await?;
@@ -82,6 +85,7 @@ impl MergeQueue {
                 queued_at AS "queued_at!: DateTime<Utc>",
                 status AS "status!: MergeQueueStatus",
                 conflict_message,
+                commit_message,
                 started_at AS "started_at: DateTime<Utc>",
                 completed_at AS "completed_at: DateTime<Utc>"
             FROM merge_queue
@@ -110,6 +114,7 @@ impl MergeQueue {
                 queued_at AS "queued_at!: DateTime<Utc>",
                 status AS "status!: MergeQueueStatus",
                 conflict_message,
+                commit_message,
                 started_at AS "started_at: DateTime<Utc>",
                 completed_at AS "completed_at: DateTime<Utc>"
             FROM merge_queue
@@ -149,6 +154,7 @@ impl MergeQueue {
                 queued_at AS "queued_at!: DateTime<Utc>",
                 status AS "status!: MergeQueueStatus",
                 conflict_message,
+                commit_message,
                 started_at AS "started_at: DateTime<Utc>",
                 completed_at AS "completed_at: DateTime<Utc>"
             FROM merge_queue
@@ -228,6 +234,7 @@ impl MergeQueue {
                 queued_at AS "queued_at!: DateTime<Utc>",
                 status AS "status!: MergeQueueStatus",
                 conflict_message,
+                commit_message,
                 started_at AS "started_at: DateTime<Utc>",
                 completed_at AS "completed_at: DateTime<Utc>"
             FROM merge_queue
@@ -278,6 +285,7 @@ impl MergeQueue {
                 queued_at AS "queued_at!: DateTime<Utc>",
                 status AS "status!: MergeQueueStatus",
                 conflict_message,
+                commit_message,
                 started_at AS "started_at: DateTime<Utc>",
                 completed_at AS "completed_at: DateTime<Utc>"
             FROM merge_queue

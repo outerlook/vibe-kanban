@@ -1728,6 +1728,7 @@ pub async fn get_task_attempt_repos(
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct QueueMergeRequest {
     pub repo_id: Uuid,
+    pub commit_message: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -1814,7 +1815,14 @@ pub async fn queue_merge(
         .ok_or(ApiError::Workspace(WorkspaceError::TaskNotFound))?;
 
     // Create the merge queue entry
-    let entry = MergeQueue::create(pool, task.project_id, workspace.id, request.repo_id).await?;
+    let entry = MergeQueue::create(
+        pool,
+        task.project_id,
+        workspace.id,
+        request.repo_id,
+        request.commit_message.as_deref(),
+    )
+    .await?;
 
     // Spawn background processor
     let processor_pool = pool.clone();

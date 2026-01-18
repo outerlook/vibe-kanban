@@ -348,7 +348,7 @@ session_id: string | null,
  */
 executor_action: string | null, };
 
-export type MergeQueue = { id: string, project_id: string, workspace_id: string, repo_id: string, queued_at: string, status: string, conflict_message: string | null, started_at: string | null, completed_at: string | null, };
+export type MergeQueue = { id: string, project_id: string, workspace_id: string, repo_id: string, queued_at: string, status: string, conflict_message: string | null, commit_message: string | null, started_at: string | null, completed_at: string | null, };
 
 export type MergeQueueStatus = "queued" | "merging" | "conflict" | "completed";
 
@@ -448,7 +448,7 @@ conflict_op: ConflictOp | null,
  */
 conflicted_files: Array<string>, };
 
-export type QueueMergeRequest = { repo_id: string, };
+export type QueueMergeRequest = { repo_id: string, commit_message: string | null, };
 
 export type QueueMergeError = { "type": "no_commits_ahead" } | { "type": "has_conflicts" } | { "type": "already_merged" } | { "type": "already_queued" } | { "type": "workspace_repo_not_found" };
 
