@@ -252,13 +252,17 @@ def parse_transcript(transcript_path: str) -> dict:
             elif entry_type == "user":
                 message = entry.get("message", {})
                 content = message.get("content", [])
-                text_parts = []
-                for block in content:
-                    if isinstance(block, str):
-                        text_parts.append(block)
-                    elif isinstance(block, dict) and block.get("type") == "text":
-                        text_parts.append(block.get("text", ""))
-                pending_user_message = "\n".join(text_parts) if text_parts else None
+                # Handle content being a plain string vs a list of blocks
+                if isinstance(content, str):
+                    pending_user_message = content if content else None
+                else:
+                    text_parts = []
+                    for block in content:
+                        if isinstance(block, str):
+                            text_parts.append(block)
+                        elif isinstance(block, dict) and block.get("type") == "text":
+                            text_parts.append(block.get("text", ""))
+                    pending_user_message = "\n".join(text_parts) if text_parts else None
 
             # Parse assistant messages
             elif entry_type == "assistant":
