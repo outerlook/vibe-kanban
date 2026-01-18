@@ -114,7 +114,7 @@ export const KanbanCard = ({
   return (
     <Card
       className={cn(
-        'p-3 outline-none border-b flex-col space-y-2',
+        'p-4 outline-none border-b flex-col space-y-3',
         isDragging && 'cursor-grabbing',
         isOpen && 'ring-2 ring-secondary-foreground ring-inset',
         isSelected && 'ring-2 ring-primary bg-primary/5',
@@ -168,7 +168,7 @@ export const KanbanHeader = (props: KanbanHeaderProps) => {
   return (
     <Card
       className={cn(
-        'sticky top-0 z-20 flex shrink-0 items-center gap-2 p-3 border-b border-dashed flex gap-2',
+        'sticky top-0 z-20 flex shrink-0 items-center gap-2 p-4 border-b border-dashed flex gap-2',
         'bg-background',
         props.className
       )}
