@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     io,
     path::{Path, PathBuf},
     sync::Arc,
@@ -131,6 +131,8 @@ pub struct LocalContainerService {
     publisher: Result<SharePublisher, RemoteClientNotConfigured>,
     notification_service: NotificationService,
     watcher_manager: WatcherManager,
+    /// Execution IDs for which feedback parser is pending - skip msg_store cleanup in exit monitor
+    feedback_pending_cleanup: Arc<RwLock<HashSet<Uuid>>>,
 }
 
 impl LocalContainerService {
@@ -149,6 +151,7 @@ impl LocalContainerService {
         let child_store = Arc::new(RwLock::new(HashMap::new()));
         let interrupt_senders = Arc::new(RwLock::new(HashMap::new()));
         let notification_service = NotificationService::new(config.clone());
+        let feedback_pending_cleanup = Arc::new(RwLock::new(HashSet::new()));
 
         let container = LocalContainerService {
             db,
@@ -164,6 +167,7 @@ impl LocalContainerService {
             publisher,
             notification_service,
             watcher_manager: WatcherManager::new(),
+            feedback_pending_cleanup,
         };
 
         container.spawn_workspace_cleanup().await;
@@ -407,6 +411,7 @@ impl LocalContainerService {
         let container = self.clone();
         let analytics = self.analytics.clone();
         let publisher = self.publisher.clone();
+        let feedback_pending_cleanup = self.feedback_pending_cleanup.clone();
 
         let mut process_exit_rx = self.spawn_os_exit_watcher(exec_id);
 
@@ -635,31 +640,34 @@ impl LocalContainerService {
                 }
             });
 
-            // Cleanup msg store
-            if let Some(msg_arc) = msg_stores.write().await.remove(&exec_id) {
-                // Extract and store token usage before cleaning up
-                if let Some((input_tokens, output_tokens)) =
-                    extract_token_usage_from_msg_store(&msg_arc)
-                    && let Err(e) = ExecutionProcess::update_token_usage(
-                        &db.pool,
-                        exec_id,
-                        Some(input_tokens),
-                        Some(output_tokens),
-                    )
-                    .await
-                {
-                    tracing::warn!("Failed to update token usage for {}: {}", exec_id, e);
-                }
+            // Cleanup msg store - skip if feedback parser is pending (it will do cleanup)
+            let is_feedback_pending = feedback_pending_cleanup.read().await.contains(&exec_id);
+            if !is_feedback_pending {
+                if let Some(msg_arc) = msg_stores.write().await.remove(&exec_id) {
+                    // Extract and store token usage before cleaning up
+                    if let Some((input_tokens, output_tokens)) =
+                        extract_token_usage_from_msg_store(&msg_arc)
+                        && let Err(e) = ExecutionProcess::update_token_usage(
+                            &db.pool,
+                            exec_id,
+                            Some(input_tokens),
+                            Some(output_tokens),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to update token usage for {}: {}", exec_id, e);
+                    }
 
-                msg_arc.push_finished();
-                tokio::time::sleep(Duration::from_millis(50)).await; // Wait for the finish message to propogate
-                match Arc::try_unwrap(msg_arc) {
-                    Ok(inner) => drop(inner),
-                    Err(arc) => tracing::error!(
-                        "There are still {} strong Arcs to MsgStore for {}",
-                        Arc::strong_count(&arc),
-                        exec_id
-                    ),
+                    msg_arc.push_finished();
+                    tokio::time::sleep(Duration::from_millis(50)).await; // Wait for the finish message to propogate
+                    match Arc::try_unwrap(msg_arc) {
+                        Ok(inner) => drop(inner),
+                        Err(arc) => tracing::error!(
+                            "There are still {} strong Arcs to MsgStore for {}",
+                            Arc::strong_count(&arc),
+                            exec_id
+                        ),
+                    }
                 }
             }
 
@@ -1319,6 +1327,12 @@ impl LocalContainerService {
             )
             .await?;
 
+        // Mark this execution as pending feedback cleanup - exit monitor will skip msg_store cleanup
+        self.feedback_pending_cleanup
+            .write()
+            .await
+            .insert(feedback_exec.id);
+
         // Spawn background task to monitor and parse the feedback response
         self.spawn_feedback_parser(feedback_exec.id, ctx.task.id, ctx.workspace.id);
 
@@ -1335,8 +1349,45 @@ impl LocalContainerService {
     fn spawn_feedback_parser(&self, feedback_exec_id: Uuid, task_id: Uuid, workspace_id: Uuid) {
         let db = self.db.clone();
         let msg_stores = self.msg_stores.clone();
+        let feedback_pending_cleanup = self.feedback_pending_cleanup.clone();
 
         tokio::spawn(async move {
+            // Helper to cleanup msg_store and remove from pending set
+            let cleanup = |msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
+                           feedback_pending_cleanup: Arc<RwLock<HashSet<Uuid>>>,
+                           db: DBService,
+                           exec_id: Uuid| async move {
+                // Remove from pending set first
+                feedback_pending_cleanup.write().await.remove(&exec_id);
+
+                // Cleanup msg_store (same logic as spawn_exit_monitor)
+                if let Some(msg_arc) = msg_stores.write().await.remove(&exec_id) {
+                    // Extract and store token usage before cleaning up
+                    if let Some((input_tokens, output_tokens)) =
+                        extract_token_usage_from_msg_store(&msg_arc)
+                        && let Err(e) = ExecutionProcess::update_token_usage(
+                            &db.pool,
+                            exec_id,
+                            Some(input_tokens),
+                            Some(output_tokens),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to update token usage for {}: {}", exec_id, e);
+                    }
+
+                    msg_arc.push_finished();
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    if let Err(arc) = Arc::try_unwrap(msg_arc) {
+                        tracing::error!(
+                            "There are still {} strong Arcs to MsgStore for {}",
+                            Arc::strong_count(&arc),
+                            exec_id
+                        );
+                    }
+                }
+            };
+
             // Wait for the feedback execution to complete
             // Poll the execution status periodically
             loop {
@@ -1349,6 +1400,13 @@ impl LocalContainerService {
                             "Feedback execution {} not found, stopping parser",
                             feedback_exec_id
                         );
+                        cleanup(
+                            msg_stores,
+                            feedback_pending_cleanup,
+                            db,
+                            feedback_exec_id,
+                        )
+                        .await;
                         return;
                     }
                     Err(e) => {
@@ -1357,6 +1415,13 @@ impl LocalContainerService {
                             feedback_exec_id,
                             e
                         );
+                        cleanup(
+                            msg_stores,
+                            feedback_pending_cleanup,
+                            db,
+                            feedback_exec_id,
+                        )
+                        .await;
                         return;
                     }
                 };
@@ -1370,12 +1435,19 @@ impl LocalContainerService {
                             feedback_exec_id,
                             exec.status
                         );
+                        cleanup(
+                            msg_stores,
+                            feedback_pending_cleanup,
+                            db,
+                            feedback_exec_id,
+                        )
+                        .await;
                         return;
                     }
                 }
             }
 
-            // Extract the assistant message from MsgStore
+            // Extract the assistant message from MsgStore BEFORE cleanup
             let assistant_message = {
                 let stores = msg_stores.read().await;
                 if let Some(store) = stores.get(&feedback_exec_id) {
@@ -1390,6 +1462,13 @@ impl LocalContainerService {
                     "No assistant message found for feedback execution {}",
                     feedback_exec_id
                 );
+                cleanup(
+                    msg_stores,
+                    feedback_pending_cleanup,
+                    db,
+                    feedback_exec_id,
+                )
+                .await;
                 return;
             };
 
@@ -1402,6 +1481,13 @@ impl LocalContainerService {
                         feedback_exec_id,
                         e
                     );
+                    cleanup(
+                        msg_stores,
+                        feedback_pending_cleanup,
+                        db,
+                        feedback_exec_id,
+                    )
+                    .await;
                     return;
                 }
             };
@@ -1426,6 +1512,15 @@ impl LocalContainerService {
                     tracing::warn!("Failed to store agent feedback for task {}: {}", task_id, e);
                 }
             }
+
+            // Final cleanup after successful processing
+            cleanup(
+                msg_stores,
+                feedback_pending_cleanup,
+                db,
+                feedback_exec_id,
+            )
+            .await;
         });
     }
 }
