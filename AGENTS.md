@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 - `crates/`: Rust workspace crates — `server` (API + bins), `db` (SQLx models/migrations), `executors`, `services`, `utils`, `deployment`, `local-deployment`, `remote`, `tauri-app` (Tauri desktop app).
-- `crates/tauri-app/`: Tauri 2.x desktop application that embeds the server and frontend.
+- `crates/tauri-app/`: Tauri 2.x desktop application that wraps the frontend and connects to an external backend server.
 - `frontend/`: React + TypeScript app (Vite, Tailwind). Source in `frontend/src`.
 - `frontend/src/components/dialogs`: Dialog components for the frontend.
 - `remote-frontend/`: Remote deployment frontend.
