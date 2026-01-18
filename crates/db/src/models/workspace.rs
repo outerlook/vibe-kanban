@@ -261,6 +261,31 @@ impl Workspace {
         .await
     }
 
+    /// Fetch all workspaces for a project (via task relationship). Newest first.
+    pub async fn fetch_by_project_id(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            Workspace,
+            r#"SELECT w.id                AS "id!: Uuid",
+                      w.task_id           AS "task_id!: Uuid",
+                      w.container_ref,
+                      w.branch,
+                      w.agent_working_dir,
+                      w.setup_completed_at AS "setup_completed_at: DateTime<Utc>",
+                      w.created_at        AS "created_at!: DateTime<Utc>",
+                      w.updated_at        AS "updated_at!: DateTime<Utc>"
+               FROM   workspaces w
+               JOIN   tasks t ON w.task_id = t.id
+               WHERE  t.project_id = $1
+               ORDER BY w.created_at DESC"#,
+            project_id
+        )
+        .fetch_all(pool)
+        .await
+    }
+
     pub async fn container_ref_exists(
         pool: &SqlitePool,
         container_ref: &str,

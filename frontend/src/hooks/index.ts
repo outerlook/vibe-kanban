@@ -71,3 +71,4 @@ export {
   type TaskFiltersHook,
 } from './useTaskFilters';
 export { useFilteredTasks, type UseFilteredTasksResult } from './useFilteredTasks';
+export { workspaceKeys, useProjectWorkspaces } from './useProjectWorkspaces';

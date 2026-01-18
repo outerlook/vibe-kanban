@@ -6,15 +6,17 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   PrFilters,
   PrFiltersSkeleton,
-  RepoSection,
-  RepoSectionSkeleton,
+  BranchSection,
+  BranchSectionSkeleton,
   type PrData,
 } from '@/components/prs';
 import { useProject } from '@/contexts/ProjectContext';
 import { useProjectPrs, prKeys } from '@/hooks/useProjectPrs';
-import { useTaskGroups } from '@/hooks/useTaskGroups';
+import { useProjectWorkspaces } from '@/hooks/useProjectWorkspaces';
+import { useTaskGroupStats } from '@/hooks/useTaskGroupStats';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiError, type PrWithComments } from '@/lib/api';
+import type { TaskStatusCounts } from 'shared/types';
 
 function toPrData(pr: PrWithComments, repoId: string): PrData {
   return {
@@ -79,9 +81,13 @@ export function PrOverview() {
   } = useProjectPrs(projectId);
 
   const { data: taskGroups, isLoading: taskGroupsLoading } =
-    useTaskGroups(projectId);
+    useTaskGroupStats(projectId);
 
-  const isLoading = projectLoading || prsLoading || taskGroupsLoading;
+  const { data: workspaces, isLoading: workspacesLoading } =
+    useProjectWorkspaces(projectId);
+
+  const isLoading =
+    projectLoading || prsLoading || taskGroupsLoading || workspacesLoading;
 
   // Get unique base branches from task groups that have base_branch set
   const baseBranches = useMemo(() => {
@@ -95,43 +101,84 @@ export function PrOverview() {
     ].sort();
   }, [taskGroups]);
 
-  // Filter and group PRs - data comes pre-grouped by repo from the backend
-  const { groupedPrs, totalPrCount } = useMemo(() => {
+  type BranchMetadata = {
+    taskCounts: TaskStatusCounts;
+    repoId?: string;
+    workspaceId?: string;
+  };
+
+  // Filter and group PRs by head branch
+  const { groupedByBranch, branchMetadata, totalPrCount } = useMemo(() => {
     if (!prsResponse?.repos) {
-      return { groupedPrs: new Map<string, PrData[]>(), totalPrCount: 0 };
+      return {
+        groupedByBranch: new Map<string, PrData[]>(),
+        branchMetadata: new Map<string, BranchMetadata>(),
+        totalPrCount: 0,
+      };
     }
 
     let total = 0;
     const grouped = new Map<string, PrData[]>();
+    const metadata = new Map<string, BranchMetadata>();
 
     for (const repo of prsResponse.repos) {
-      const filteredPrs = repo.pull_requests.filter((pr) => {
+      for (const pr of repo.pull_requests) {
+        total += 1;
+
         // Filter by base branch
         if (selectedBranch && pr.base_branch !== selectedBranch) {
-          return false;
+          continue;
         }
         // Filter by search query
         if (
           searchQuery &&
           !pr.title.toLowerCase().includes(searchQuery.toLowerCase())
         ) {
-          return false;
+          continue;
         }
-        return true;
-      });
 
-      total += repo.pull_requests.length;
+        const branchName = pr.head_branch;
+        const prData = toPrData(pr, repo.repo_id);
 
-      if (filteredPrs.length > 0) {
-        grouped.set(
-          repo.display_name,
-          filteredPrs.map((pr) => toPrData(pr, repo.repo_id))
-        );
+        // Group PRs by head branch
+        const existing = grouped.get(branchName) ?? [];
+        existing.push(prData);
+        grouped.set(branchName, existing);
+
+        // Initialize metadata for this branch if not present
+        if (!metadata.has(branchName)) {
+          // Aggregate task counts from TaskGroups where base_branch === head_branch
+          const matchingGroups =
+            taskGroups?.filter((g) => g.base_branch === branchName) ?? [];
+          const aggregatedCounts: TaskStatusCounts = {
+            todo: BigInt(0),
+            inprogress: BigInt(0),
+            inreview: BigInt(0),
+            done: BigInt(0),
+            cancelled: BigInt(0),
+          };
+          for (const group of matchingGroups) {
+            aggregatedCounts.todo += group.task_counts.todo;
+            aggregatedCounts.inprogress += group.task_counts.inprogress;
+            aggregatedCounts.inreview += group.task_counts.inreview;
+            aggregatedCounts.done += group.task_counts.done;
+            aggregatedCounts.cancelled += group.task_counts.cancelled;
+          }
+
+          // Find most recent workspace for this branch (array sorted by created_at DESC)
+          const workspace = workspaces?.find((w) => w.branch === branchName);
+
+          metadata.set(branchName, {
+            taskCounts: aggregatedCounts,
+            repoId: repo.repo_id,
+            workspaceId: workspace?.id,
+          });
+        }
       }
     }
 
-    return { groupedPrs: grouped, totalPrCount: total };
-  }, [prsResponse, selectedBranch, searchQuery]);
+    return { groupedByBranch: grouped, branchMetadata: metadata, totalPrCount: total };
+  }, [prsResponse, taskGroups, workspaces, selectedBranch, searchQuery]);
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: prKeys.byProject(projectId) });
@@ -146,7 +193,7 @@ export function PrOverview() {
   const hasNoBaseBranches = !taskGroupsLoading && baseBranches.length === 0;
 
   // Compute filtered count for display (used in success state)
-  const filteredCount = Array.from(groupedPrs.values()).reduce(
+  const filteredCount = Array.from(groupedByBranch.values()).reduce(
     (sum, prs) => sum + prs.length,
     0
   );
@@ -158,8 +205,8 @@ export function PrOverview() {
         <PageHeader onRefresh={handleRefresh} disabled />
         <PrFiltersSkeleton />
         <div className="space-y-4">
-          <RepoSectionSkeleton prCount={2} />
-          <RepoSectionSkeleton prCount={3} />
+          <BranchSectionSkeleton prCount={2} />
+          <BranchSectionSkeleton prCount={3} />
         </div>
       </div>
     );
@@ -245,8 +292,8 @@ export function PrOverview() {
         onSearchChange={setSearchQuery}
       />
 
-      {/* PR List grouped by repo */}
-      {groupedPrs.size === 0 ? (
+      {/* PR List grouped by branch */}
+      {groupedByBranch.size === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
           <GitPullRequest className="h-12 w-12 mx-auto mb-4 opacity-50" />
           <p className="text-lg font-medium">No pull requests found</p>
@@ -258,9 +305,25 @@ export function PrOverview() {
         </div>
       ) : (
         <div className="space-y-4">
-          {Array.from(groupedPrs.entries()).map(([repoName, prs]) => (
-            <RepoSection key={repoName} repoName={repoName} prs={prs} />
-          ))}
+          {Array.from(groupedByBranch.entries()).map(([branchName, prs]) => {
+            const meta = branchMetadata.get(branchName);
+            return (
+              <BranchSection
+                key={branchName}
+                branchName={branchName}
+                prs={prs}
+                taskCounts={meta?.taskCounts ?? {
+                  todo: BigInt(0),
+                  inprogress: BigInt(0),
+                  inreview: BigInt(0),
+                  done: BigInt(0),
+                  cancelled: BigInt(0),
+                }}
+                repoId={meta?.repoId}
+                workspaceId={meta?.workspaceId}
+              />
+            );
+          })}
         </div>
       )}
     </div>
