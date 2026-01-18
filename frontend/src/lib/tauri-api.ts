@@ -1,11 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
 
-/**
- * Server mode configuration - matches Rust `ServerMode` enum.
- * Uses tagged union serialization: `{ mode: "local" }` or `{ mode: "remote", url: "..." }`
- */
-export type ServerMode = { mode: 'local' } | { mode: 'remote'; url: string }
-
 declare global {
   interface Window {
     __TAURI__?: unknown
@@ -24,12 +18,8 @@ export async function getServerUrl(): Promise<string> {
   return invoke<string>('get_server_url')
 }
 
-export async function getServerMode(): Promise<ServerMode> {
-  return invoke<ServerMode>('get_server_mode')
-}
-
-export async function setServerMode(mode: ServerMode): Promise<void> {
-  return invoke<void>('set_server_mode', { mode })
+export async function setServerUrl(url: string | null): Promise<void> {
+  return invoke<void>('set_server_url', { url })
 }
 
 export async function launchMcpServer(): Promise<void> {
