@@ -580,6 +580,17 @@ pub struct GetRecentFeedbackRequest {
     pub limit: Option<i32>,
 }
 
+/// Internal DTO for deserializing feedback from the API.
+#[derive(Debug, Deserialize)]
+struct ApiFeedbackEntry {
+    id: Uuid,
+    task_id: Uuid,
+    workspace_id: Uuid,
+    execution_process_id: Uuid,
+    feedback: Option<serde_json::Value>,
+    collected_at: chrono::DateTime<chrono::Utc>,
+}
+
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct FeedbackEntry {
     #[schemars(description = "The unique identifier of the feedback entry")]
@@ -594,6 +605,19 @@ pub struct FeedbackEntry {
     pub feedback: Option<serde_json::Value>,
     #[schemars(description = "When the feedback was collected")]
     pub collected_at: String,
+}
+
+impl From<ApiFeedbackEntry> for FeedbackEntry {
+    fn from(f: ApiFeedbackEntry) -> Self {
+        FeedbackEntry {
+            id: f.id.to_string(),
+            task_id: f.task_id.to_string(),
+            workspace_id: f.workspace_id.to_string(),
+            execution_process_id: f.execution_process_id.to_string(),
+            feedback: f.feedback,
+            collected_at: f.collected_at.to_rfc3339(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -1904,33 +1928,13 @@ impl TaskServer {
     ) -> Result<CallToolResult, ErrorData> {
         let url = self.url(&format!("/api/feedback/task/{}", task_id));
 
-        #[derive(Debug, Deserialize)]
-        struct ApiFeedbackEntry {
-            id: Uuid,
-            task_id: Uuid,
-            workspace_id: Uuid,
-            execution_process_id: Uuid,
-            feedback: Option<serde_json::Value>,
-            collected_at: chrono::DateTime<chrono::Utc>,
-        }
-
         let feedback_list: Vec<ApiFeedbackEntry> =
             match self.send_json(self.client.get(&url)).await {
                 Ok(f) => f,
                 Err(e) => return Ok(e),
             };
 
-        let entries: Vec<FeedbackEntry> = feedback_list
-            .into_iter()
-            .map(|f| FeedbackEntry {
-                id: f.id.to_string(),
-                task_id: f.task_id.to_string(),
-                workspace_id: f.workspace_id.to_string(),
-                execution_process_id: f.execution_process_id.to_string(),
-                feedback: f.feedback,
-                collected_at: f.collected_at.to_rfc3339(),
-            })
-            .collect();
+        let entries: Vec<FeedbackEntry> = feedback_list.into_iter().map(Into::into).collect();
 
         let response = GetTaskFeedbackResponse {
             count: entries.len(),
@@ -1951,33 +1955,13 @@ impl TaskServer {
         let limit = limit.unwrap_or(10).clamp(1, 50);
         let url = self.url(&format!("/api/feedback/recent?limit={}", limit));
 
-        #[derive(Debug, Deserialize)]
-        struct ApiFeedbackEntry {
-            id: Uuid,
-            task_id: Uuid,
-            workspace_id: Uuid,
-            execution_process_id: Uuid,
-            feedback: Option<serde_json::Value>,
-            collected_at: chrono::DateTime<chrono::Utc>,
-        }
-
         let feedback_list: Vec<ApiFeedbackEntry> =
             match self.send_json(self.client.get(&url)).await {
                 Ok(f) => f,
                 Err(e) => return Ok(e),
             };
 
-        let entries: Vec<FeedbackEntry> = feedback_list
-            .into_iter()
-            .map(|f| FeedbackEntry {
-                id: f.id.to_string(),
-                task_id: f.task_id.to_string(),
-                workspace_id: f.workspace_id.to_string(),
-                execution_process_id: f.execution_process_id.to_string(),
-                feedback: f.feedback,
-                collected_at: f.collected_at.to_rfc3339(),
-            })
-            .collect();
+        let entries: Vec<FeedbackEntry> = feedback_list.into_iter().map(Into::into).collect();
 
         let response = GetRecentFeedbackResponse {
             count: entries.len(),

@@ -17,10 +17,6 @@ pub enum FeedbackError {
     /// Failed to parse feedback response as JSON.
     #[error("Failed to parse feedback response: {0}")]
     ParseError(String),
-
-    /// Required context is missing for the operation.
-    #[error("Missing required context: {0}")]
-    MissingContext(String),
 }
 
 pub type Result<T> = std::result::Result<T, FeedbackError>;

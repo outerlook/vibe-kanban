@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, MessageSquare } from 'lucide-react';
 import { feedbackApi } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { cn, formatRelativeTime } from '@/lib/utils';
 import type { FeedbackResponse } from 'shared/types';
 
 interface FeedbackSectionProps {
@@ -13,41 +13,13 @@ interface FeedbackSectionProps {
   className?: string;
 }
 
-function formatTimeAgo(iso: string): string {
-  const d = new Date(iso);
-  const diffMs = Date.now() - d.getTime();
-  const absSec = Math.round(Math.abs(diffMs) / 1000);
-
-  const rtf =
-    typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat === 'function'
-      ? new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
-      : null;
-
-  const to = (value: number, unit: Intl.RelativeTimeFormatUnit) =>
-    rtf
-      ? rtf.format(-value, unit)
-      : `${value} ${unit}${value !== 1 ? 's' : ''} ago`;
-
-  if (absSec < 60) return to(Math.round(absSec), 'second');
-  const mins = Math.round(absSec / 60);
-  if (mins < 60) return to(mins, 'minute');
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return to(hours, 'hour');
-  const days = Math.round(hours / 24);
-  if (days < 30) return to(days, 'day');
-  const months = Math.round(days / 30);
-  if (months < 12) return to(months, 'month');
-  const years = Math.round(months / 12);
-  return to(years, 'year');
-}
-
 function FeedbackItem({ feedback }: { feedback: FeedbackResponse }) {
   const { t } = useTranslation('tasks');
 
   return (
     <div className="rounded-md border border-border bg-background p-3 space-y-2">
       <div className="text-xs text-muted-foreground">
-        {t('feedback.collectedAt', { time: formatTimeAgo(feedback.collected_at) })}
+        {t('feedback.collectedAt', { time: formatRelativeTime(feedback.collected_at) })}
       </div>
       {feedback.feedback ? (
         <pre className="text-sm whitespace-pre-wrap break-words font-mono bg-muted p-2 rounded overflow-x-auto">
