@@ -882,7 +882,7 @@ impl EventService {
         // Get initial snapshot of workspaces for this task
         let initial_msg = build_workspaces_snapshot(&self.db.pool, task_id)
             .await
-            .map_err(|e| EventError::Other(e.into()))?;
+            .map_err(EventError::Other)?;
 
         // Start with initial snapshot, then live updates
         let initial_stream = futures::stream::once(async move { Ok(initial_msg) });

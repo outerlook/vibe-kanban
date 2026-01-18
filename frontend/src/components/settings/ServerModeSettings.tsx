@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Switch } from '@/components/ui/switch'
 import { Loader2, Server, CheckCircle2 } from 'lucide-react'
-import { isTauriEnvironment, getServerUrl, setServerUrl } from '@/lib/tauri-api'
+import { isTauriEnvironment, getServerUrl, setServerUrl } from '@/lib/tauriApi'
 import { refreshApiBaseUrl } from '@/lib/api'
 
 export function ServerModeSettings() {

@@ -42,9 +42,14 @@ pub fn init_sqlite_vec() -> bool {
                     *mut *mut i8,
                     *const libsqlite3_sys::sqlite3_api_routines,
                 ) -> i32,
-            > = Some(std::mem::transmute(
-                sqlite_vec::sqlite3_vec_init as *const (),
-            ));
+            > = Some(std::mem::transmute::<
+                *const (),
+                unsafe extern "C" fn(
+                    *mut libsqlite3_sys::sqlite3,
+                    *mut *mut i8,
+                    *const libsqlite3_sys::sqlite3_api_routines,
+                ) -> i32,
+            >(sqlite_vec::sqlite3_vec_init as *const ()));
 
             let result = libsqlite3_sys::sqlite3_auto_extension(init_fn);
 
