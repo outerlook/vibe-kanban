@@ -46,6 +46,10 @@ pub fn alerts_dir() -> std::path::PathBuf {
     asset_dir().join("alerts")
 }
 
+pub fn backup_dir() -> std::path::PathBuf {
+    asset_dir().join("backups")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct CustomSoundInfo {
