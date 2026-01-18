@@ -114,6 +114,31 @@ impl EventService {
         include_snapshot: bool,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, EventError>
     {
+        async fn build_tasks_snapshot(
+            db_pool: &SqlitePool,
+            project_id: Uuid,
+        ) -> Result<LogMsg, sqlx::Error> {
+            let tasks =
+                Task::find_by_project_id_with_attempt_status(db_pool, project_id).await?;
+
+            for task in &tasks {
+                cache_project_for_task(task.id, task.project_id).await;
+            }
+
+            let tasks_map: serde_json::Map<String, serde_json::Value> = tasks
+                .into_iter()
+                .map(|task| (task.id.to_string(), serde_json::to_value(task).unwrap()))
+                .collect();
+
+            let patch = json!([{
+                "op": "replace",
+                "path": "/tasks",
+                "value": tasks_map
+            }]);
+
+            Ok(LogMsg::JsonPatch(serde_json::from_value(patch).unwrap()))
+        }
+
         // Clone necessary data for the async filter
         let db_pool = self.db.pool.clone();
 
@@ -230,9 +255,22 @@ impl EventService {
                         Err(BroadcastStreamRecvError::Lagged(skipped)) => {
                             tracing::warn!(
                                 skipped = skipped,
-                                "tasks stream lagged; dropping messages"
+                                project_id = %project_id,
+                                "tasks stream lagged; resyncing snapshot"
                             );
-                            None
+
+                            match build_tasks_snapshot(&db_pool, project_id).await {
+                                Ok(snapshot) => Some(Ok(snapshot)),
+                                Err(err) => {
+                                    tracing::error!(
+                                        error = %err,
+                                        "failed to resync tasks after lag"
+                                    );
+                                    Some(Err(std::io::Error::other(format!(
+                                        "failed to resync tasks after lag: {err}"
+                                    ))))
+                                }
+                            }
                         }
                     }
                 }
@@ -243,26 +281,7 @@ impl EventService {
         }
 
         // Get initial snapshot of tasks
-        let tasks = Task::find_by_project_id_with_attempt_status(&self.db.pool, project_id).await?;
-
-        for task in &tasks {
-            cache_project_for_task(task.id, task.project_id).await;
-        }
-
-        // Convert task array to object keyed by task ID
-        let tasks_map: serde_json::Map<String, serde_json::Value> = tasks
-            .into_iter()
-            .map(|task| (task.id.to_string(), serde_json::to_value(task).unwrap()))
-            .collect();
-
-        let initial_patch = json!([
-            {
-                "op": "replace",
-                "path": "/tasks",
-                "value": tasks_map
-            }
-        ]);
-        let initial_msg = LogMsg::JsonPatch(serde_json::from_value(initial_patch).unwrap());
+        let initial_msg = build_tasks_snapshot(&self.db.pool, project_id).await?;
 
         // Start with initial snapshot, then live updates
         let initial_stream = futures::stream::once(async move { Ok(initial_msg) });
@@ -357,10 +376,50 @@ impl EventService {
         show_soft_deleted: bool,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, EventError>
     {
+        async fn build_execution_processes_snapshot(
+            db_pool: &SqlitePool,
+            workspace_id: Uuid,
+            show_soft_deleted: bool,
+        ) -> Result<LogMsg, sqlx::Error> {
+            // Get all sessions for this workspace
+            let sessions = Session::find_by_workspace_id(db_pool, workspace_id).await?;
+
+            // Collect all execution processes across all sessions
+            let mut all_processes = Vec::new();
+            for session in &sessions {
+                let processes =
+                    ExecutionProcess::find_by_session_id(db_pool, session.id, show_soft_deleted)
+                        .await?;
+                all_processes.extend(processes);
+            }
+
+            // Convert processes array to object keyed by process ID
+            let processes_map: serde_json::Map<String, serde_json::Value> = all_processes
+                .into_iter()
+                .map(|process| {
+                    (
+                        process.id.to_string(),
+                        serde_json::to_value(process).unwrap(),
+                    )
+                })
+                .collect();
+
+            let patch = json!([{
+                "op": "replace",
+                "path": "/execution_processes",
+                "value": processes_map
+            }]);
+
+            Ok(LogMsg::JsonPatch(serde_json::from_value(patch).unwrap()))
+        }
+
         // Get all sessions for this workspace
         let sessions = Session::find_by_workspace_id(&self.db.pool, workspace_id).await?;
 
-        // Collect all execution processes across all sessions
+        // Collect session IDs for filtering
+        let session_ids: Vec<Uuid> = sessions.iter().map(|s| s.id).collect();
+
+        // Collect all execution processes across all sessions for initial snapshot
         let mut all_processes = Vec::new();
         for session in &sessions {
             let processes =
@@ -368,13 +427,9 @@ impl EventService {
                     .await?;
             all_processes.extend(processes);
         }
-        let processes = all_processes;
-
-        // Collect session IDs for filtering
-        let session_ids: Vec<Uuid> = sessions.iter().map(|s| s.id).collect();
 
         // Convert processes array to object keyed by process ID
-        let processes_map: serde_json::Map<String, serde_json::Value> = processes
+        let processes_map: serde_json::Map<String, serde_json::Value> = all_processes
             .into_iter()
             .map(|process| {
                 (
@@ -391,10 +446,13 @@ impl EventService {
         }]);
         let initial_msg = LogMsg::JsonPatch(serde_json::from_value(initial_patch).unwrap());
 
+        let db_pool = self.db.pool.clone();
+
         // Get filtered event stream
         let filtered_stream =
             BroadcastStream::new(self.msg_store.get_receiver()).filter_map(move |msg_result| {
                 let session_ids = session_ids.clone();
+                let db_pool = db_pool.clone();
                 async move {
                     match msg_result {
                         Ok(LogMsg::JsonPatch(patch)) => {
@@ -490,9 +548,28 @@ impl EventService {
                         Err(BroadcastStreamRecvError::Lagged(skipped)) => {
                             tracing::warn!(
                                 skipped = skipped,
-                                "execution processes stream lagged; dropping messages"
+                                workspace_id = %workspace_id,
+                                "execution processes stream lagged; resyncing snapshot"
                             );
-                            None
+
+                            match build_execution_processes_snapshot(
+                                &db_pool,
+                                workspace_id,
+                                show_soft_deleted,
+                            )
+                            .await
+                            {
+                                Ok(snapshot) => Some(Ok(snapshot)),
+                                Err(err) => {
+                                    tracing::error!(
+                                        error = %err,
+                                        "failed to resync execution processes after lag"
+                                    );
+                                    Some(Err(std::io::Error::other(format!(
+                                        "failed to resync execution processes after lag: {err}"
+                                    ))))
+                                }
+                            }
                         }
                     }
                 }
@@ -512,6 +589,37 @@ impl EventService {
         show_soft_deleted: bool,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, EventError>
     {
+        async fn build_conversation_processes_snapshot(
+            db_pool: &SqlitePool,
+            conversation_session_id: Uuid,
+            show_soft_deleted: bool,
+        ) -> Result<LogMsg, sqlx::Error> {
+            let processes = ExecutionProcess::find_by_conversation_session_id(
+                db_pool,
+                conversation_session_id,
+                show_soft_deleted,
+            )
+            .await?;
+
+            let processes_map: serde_json::Map<String, serde_json::Value> = processes
+                .into_iter()
+                .map(|process| {
+                    (
+                        process.id.to_string(),
+                        serde_json::to_value(process).unwrap(),
+                    )
+                })
+                .collect();
+
+            let patch = json!([{
+                "op": "replace",
+                "path": "/execution_processes",
+                "value": processes_map
+            }]);
+
+            Ok(LogMsg::JsonPatch(serde_json::from_value(patch).unwrap()))
+        }
+
         // Get all execution processes for this conversation
         let processes = ExecutionProcess::find_by_conversation_session_id(
             &self.db.pool,
@@ -538,9 +646,12 @@ impl EventService {
         }]);
         let initial_msg = LogMsg::JsonPatch(serde_json::from_value(initial_patch).unwrap());
 
+        let db_pool = self.db.pool.clone();
+
         // Get filtered event stream
         let filtered_stream =
             BroadcastStream::new(self.msg_store.get_receiver()).filter_map(move |msg_result| {
+                let db_pool = db_pool.clone();
                 async move {
                     match msg_result {
                         Ok(LogMsg::JsonPatch(patch)) => {
@@ -630,9 +741,28 @@ impl EventService {
                         Err(BroadcastStreamRecvError::Lagged(skipped)) => {
                             tracing::warn!(
                                 skipped = skipped,
-                                "execution processes stream lagged; dropping messages"
+                                conversation_session_id = %conversation_session_id,
+                                "execution processes stream lagged; resyncing snapshot"
                             );
-                            None
+
+                            match build_conversation_processes_snapshot(
+                                &db_pool,
+                                conversation_session_id,
+                                show_soft_deleted,
+                            )
+                            .await
+                            {
+                                Ok(snapshot) => Some(Ok(snapshot)),
+                                Err(err) => {
+                                    tracing::error!(
+                                        error = %err,
+                                        "failed to resync execution processes after lag"
+                                    );
+                                    Some(Err(std::io::Error::other(format!(
+                                        "failed to resync execution processes after lag: {err}"
+                                    ))))
+                                }
+                            }
                         }
                     }
                 }
@@ -652,9 +782,37 @@ impl EventService {
         include_snapshot: bool,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, EventError>
     {
+        async fn build_workspaces_snapshot(
+            db_pool: &SqlitePool,
+            task_id: Uuid,
+        ) -> Result<LogMsg, anyhow::Error> {
+            let workspaces = Workspace::fetch_all(db_pool, Some(task_id)).await?;
+
+            let workspaces_map: serde_json::Map<String, serde_json::Value> = workspaces
+                .into_iter()
+                .map(|workspace| {
+                    (
+                        workspace.id.to_string(),
+                        serde_json::to_value(workspace).unwrap(),
+                    )
+                })
+                .collect();
+
+            let patch = json!([{
+                "op": "replace",
+                "path": "/workspaces",
+                "value": workspaces_map
+            }]);
+
+            Ok(LogMsg::JsonPatch(serde_json::from_value(patch).unwrap()))
+        }
+
+        let db_pool = self.db.pool.clone();
+
         // Get filtered event stream
         let filtered_stream =
             BroadcastStream::new(self.msg_store.get_receiver()).filter_map(move |msg_result| {
+                let db_pool = db_pool.clone();
                 async move {
                     match msg_result {
                         Ok(LogMsg::JsonPatch(patch)) => {
@@ -696,9 +854,22 @@ impl EventService {
                         Err(BroadcastStreamRecvError::Lagged(skipped)) => {
                             tracing::warn!(
                                 skipped = skipped,
-                                "workspaces stream lagged; dropping messages"
+                                task_id = %task_id,
+                                "workspaces stream lagged; resyncing snapshot"
                             );
-                            None
+
+                            match build_workspaces_snapshot(&db_pool, task_id).await {
+                                Ok(snapshot) => Some(Ok(snapshot)),
+                                Err(err) => {
+                                    tracing::error!(
+                                        error = %err,
+                                        "failed to resync workspaces after lag"
+                                    );
+                                    Some(Err(std::io::Error::other(format!(
+                                        "failed to resync workspaces after lag: {err}"
+                                    ))))
+                                }
+                            }
                         }
                     }
                 }
@@ -709,27 +880,9 @@ impl EventService {
         }
 
         // Get initial snapshot of workspaces for this task
-        let workspaces = Workspace::fetch_all(&self.db.pool, Some(task_id))
+        let initial_msg = build_workspaces_snapshot(&self.db.pool, task_id)
             .await
-            .map_err(|e| EventError::Other(e.into()))?;
-
-        // Convert workspaces array to object keyed by workspace ID
-        let workspaces_map: serde_json::Map<String, serde_json::Value> = workspaces
-            .into_iter()
-            .map(|workspace| {
-                (
-                    workspace.id.to_string(),
-                    serde_json::to_value(workspace).unwrap(),
-                )
-            })
-            .collect();
-
-        let initial_patch = json!([{
-            "op": "replace",
-            "path": "/workspaces",
-            "value": workspaces_map
-        }]);
-        let initial_msg = LogMsg::JsonPatch(serde_json::from_value(initial_patch).unwrap());
+            .map_err(EventError::Other)?;
 
         // Start with initial snapshot, then live updates
         let initial_stream = futures::stream::once(async move { Ok(initial_msg) });

@@ -7,7 +7,7 @@ import { useProject } from '@/contexts/ProjectContext';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
 import { useProjectTasks } from '@/hooks/useProjectTasks';
 import { useTask } from '@/hooks/useTask';
-import { useTaskAttempts } from '@/hooks/useTaskAttempts';
+import { useTaskAttemptsStream } from '@/hooks/useTaskAttemptsStream';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { useBranchStatus } from '@/hooks';
 import { GanttChart } from '@/components/gantt/GanttChart';
@@ -40,6 +40,7 @@ import {
   DiffsPanelContainer,
   GitErrorBanner,
 } from '@/components/panels/AttemptPanels';
+import { ConnectionStatusBanner } from '@/components/common/ConnectionStatusBanner';
 
 export function GanttView() {
   const { t } = useTranslation(['tasks', 'common']);
@@ -85,22 +86,15 @@ export function GanttView() {
   );
 
   const isLatest = attemptId === 'latest';
-  const { data: attempts = [], isLoading: isAttemptsLoading } = useTaskAttempts(
-    taskId,
-    {
-      enabled: !!taskId && isLatest,
-    }
-  );
+  const {
+    attempts,
+    isConnected: isAttemptsConnected,
+    isLoading: isAttemptsLoading,
+    error: attemptsError,
+  } = useTaskAttemptsStream(isLatest ? taskId : undefined);
 
-  const latestAttemptId = useMemo(() => {
-    if (!attempts?.length) return undefined;
-    return [...attempts].sort((a, b) => {
-      const diff =
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      if (diff !== 0) return diff;
-      return a.id.localeCompare(b.id);
-    })[0].id;
-  }, [attempts]);
+  // attempts are already sorted by created_at DESC in the hook
+  const latestAttemptId = attempts[0]?.id;
 
   const navigateWithSearch = useCallback(
     (pathname: string, options?: { replace?: boolean }) => {
@@ -335,6 +329,13 @@ export function GanttView() {
 
   const attemptContent = selectedTask ? (
     <NewCard className="h-full min-h-0 flex flex-col bg-diagonal-lines bg-muted border-0">
+      {isLatest && (
+        <ConnectionStatusBanner
+          isConnected={isAttemptsConnected}
+          error={attemptsError}
+          className="mx-4 mt-2"
+        />
+      )}
       {isTaskView ? (
         <TaskPanel task={selectedTask} />
       ) : (
