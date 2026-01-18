@@ -3,8 +3,10 @@ import { ChevronDown, Check } from 'lucide-react';
 import { Button, type ButtonProps } from './button';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -13,6 +15,13 @@ export type SplitButtonOption<T extends string = string> = {
   value: T;
   label: string;
   icon?: React.ReactNode;
+  disabled?: boolean;
+};
+
+export type SplitButtonCheckboxItem = {
+  label: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
   disabled?: boolean;
 };
 
@@ -30,6 +39,7 @@ type SplitButtonProps<T extends string = string> = {
   variant?: ButtonProps['variant'];
   size?: ButtonProps['size'];
   icon?: React.ReactNode;
+  checkboxItems?: SplitButtonCheckboxItem[];
 };
 
 export function SplitButton<T extends string = string>({
@@ -46,6 +56,7 @@ export function SplitButton<T extends string = string>({
   variant = 'outline',
   size = 'xs',
   icon,
+  checkboxItems,
 }: SplitButtonProps<T>) {
   const selectedOption = options.find((o) => o.value === selectedValue);
   const displayLabel = showSuccess
@@ -92,6 +103,21 @@ export function SplitButton<T extends string = string>({
               )}
             </DropdownMenuItem>
           ))}
+          {checkboxItems && checkboxItems.length > 0 && (
+            <>
+              <DropdownMenuSeparator />
+              {checkboxItems.map((item) => (
+                <DropdownMenuCheckboxItem
+                  key={item.label}
+                  checked={item.checked}
+                  onCheckedChange={item.onCheckedChange}
+                  disabled={item.disabled}
+                >
+                  {item.label}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
