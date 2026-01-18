@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { getTaskGroupColorClass } from '@/lib/ganttColors';
-import { useBranchAncestorStatus, useProjectQueueCount } from '@/hooks';
+import { useBranchAncestorStatus, useGroupQueueCount } from '@/hooks';
 import { useDeleteTaskGroup } from '@/hooks/useTaskGroups';
 import { StatusCountBadge } from './StatusCountBadge';
 import {
@@ -72,7 +72,7 @@ export function GroupCard({
   const { t } = useTranslation('tasks');
   const { data: branchStatus, isLoading: isBranchLoading } =
     useBranchAncestorStatus(repoId, group.base_branch ?? undefined);
-  const { data: queueCount } = useProjectQueueCount(projectId);
+  const { data: queueCount } = useGroupQueueCount(group.id);
 
   const deleteMutation = useDeleteTaskGroup();
 

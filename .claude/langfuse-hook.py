@@ -17,7 +17,16 @@ import json
 import os
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
+
+
+def debug_log(message: str) -> None:
+    """Write debug message to a file for troubleshooting."""
+    debug_file = Path.home() / ".vibe-kanban" / "langfuse-hook-debug.log"
+    debug_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(debug_file, "a", encoding="utf-8") as f:
+        f.write(f"[{datetime.now().isoformat()}] {message}\n")
 
 
 def classify_activity(tool_name: str, tool_input: dict | None) -> str:
@@ -132,7 +141,8 @@ def send_to_langfuse(session_id: str, tool_calls: list[dict]) -> None:
     """Send tool call traces to Langfuse."""
     try:
         from langfuse import Langfuse
-    except ImportError:
+    except ImportError as e:
+        debug_log(f"langfuse package not installed: {e}")
         print("Warning: langfuse package not installed", file=sys.stderr)
         return
 
@@ -186,38 +196,54 @@ def send_to_langfuse(session_id: str, tool_calls: list[dict]) -> None:
 
 def main() -> int:
     """Main entry point for the Langfuse hook."""
+    debug_log("Hook started")
+    debug_log(f"TRACE_TO_LANGFUSE={os.environ.get('TRACE_TO_LANGFUSE', '<not set>')}")
+    debug_log(f"LANGFUSE_PUBLIC_KEY={os.environ.get('LANGFUSE_PUBLIC_KEY', '<not set>')[:20] if os.environ.get('LANGFUSE_PUBLIC_KEY') else '<not set>'}...")
+    debug_log(f"LANGFUSE_HOST={os.environ.get('LANGFUSE_HOST', '<not set>')}")
+
     # Check if tracing is enabled
     if os.environ.get("TRACE_TO_LANGFUSE", "").lower() != "true":
+        debug_log("Tracing not enabled, exiting")
         return 0
 
     # Read hook input from stdin
     try:
         hook_input = json.load(sys.stdin)
+        debug_log(f"Hook input: {hook_input}")
     except json.JSONDecodeError as e:
+        debug_log(f"Error parsing hook input: {e}")
         print(f"Error parsing hook input: {e}", file=sys.stderr)
         return 0  # Exit gracefully to not block agent
 
     session_id = hook_input.get("session_id", "unknown")
     transcript_path = hook_input.get("transcript_path", "")
+    debug_log(f"session_id={session_id}, transcript_path={transcript_path}")
 
     if not transcript_path:
+        debug_log("No transcript_path in hook input")
         print("Warning: No transcript_path in hook input", file=sys.stderr)
         return 0
 
     # Parse transcript and extract tool calls
     try:
         tool_calls = parse_transcript(transcript_path)
+        debug_log(f"Parsed {len(tool_calls)} tool calls")
     except Exception as e:
+        debug_log(f"Error parsing transcript: {e}")
         print(f"Error parsing transcript: {e}", file=sys.stderr)
         return 0
 
     if not tool_calls:
+        debug_log("No tool calls found, exiting")
         return 0
 
     # Send to Langfuse
     try:
+        debug_log("Sending to Langfuse...")
         send_to_langfuse(session_id, tool_calls)
+        debug_log("Successfully sent to Langfuse")
     except Exception as e:
+        debug_log(f"Error sending to Langfuse: {e}")
         print(f"Error sending to Langfuse: {e}", file=sys.stderr)
         return 0
 
