@@ -1,134 +1,82 @@
-//! Tauri commands for server URL and mode management.
+//! Tauri commands for server URL management.
 //!
 //! These commands allow the frontend to:
-//! - Get the current server URL (embedded or remote)
-//! - Get/set the server mode (local or remote)
+//! - Get the current server URL (auto-discovered or custom)
+//! - Set/clear a custom server URL
 //! - Launch/stop the MCP server
 
 use tauri::{AppHandle, State};
 
-use crate::{
-    embedded_server::start_embedded_server,
-    mcp_launcher,
-    state::{AppState, ServerMode},
-};
+use crate::{mcp_launcher, state::AppState};
+
+/// Default fallback port when port file is not found.
+const DEFAULT_PORT: u16 = 9876;
 
 /// Returns the current server URL.
 ///
-/// In Local mode, this is the URL of the embedded server (e.g., `http://127.0.0.1:54321`).
-/// In Remote mode, this is the configured remote server URL.
-///
-/// This function will wait for the URL to become available (up to 30 seconds) if the
-/// embedded server is still starting up.
+/// Resolution order:
+/// 1. Custom URL if set in state/config
+/// 2. Auto-discovered port from port file → `http://127.0.0.1:{port}`
+/// 3. Fallback to `http://127.0.0.1:9876`
 #[tauri::command]
 pub async fn get_server_url(state: State<'_, AppState>) -> Result<String, String> {
-    // Wait for the server URL to be populated (with timeout)
-    let max_wait = std::time::Duration::from_secs(30);
-    let poll_interval = std::time::Duration::from_millis(100);
-    let start = std::time::Instant::now();
+    // Check for custom URL first
+    let custom_url = state.server_url.lock().await;
+    if !custom_url.is_empty() {
+        return Ok(custom_url.clone());
+    }
+    drop(custom_url);
 
-    loop {
-        let url = state.server_url.read().await;
-        if !url.is_empty() {
-            return Ok(url.clone());
+    // Auto-discover via port file
+    match utils::port_file::read_port_file("vibe-kanban").await {
+        Ok(port) => {
+            tracing::debug!("Discovered server on port {} from port file", port);
+            Ok(format!("http://127.0.0.1:{}", port))
         }
-        drop(url); // Release the read lock
-
-        if start.elapsed() > max_wait {
-            return Err("Server URL not available after waiting".to_string());
+        Err(e) => {
+            tracing::debug!(
+                "Port file not found or invalid ({}), using fallback port {}",
+                e,
+                DEFAULT_PORT
+            );
+            Ok(format!("http://127.0.0.1:{}", DEFAULT_PORT))
         }
-
-        tokio::time::sleep(poll_interval).await;
     }
 }
 
-/// Returns the current server mode (Local or Remote).
-#[tauri::command]
-pub async fn get_server_mode(state: State<'_, AppState>) -> Result<ServerMode, String> {
-    let mode = state.mode.read().await;
-    Ok(mode.clone())
-}
-
-/// Sets the server mode and handles the transition.
+/// Sets or clears a custom server URL.
 ///
-/// - Switching to Local: Starts the embedded server
-/// - Switching to Remote: Stops the embedded server (if running), stores the remote URL
+/// - `Some(url)` → Use this URL instead of auto-discovery
+/// - `None` → Clear custom URL, use auto-discovery
 ///
-/// The mode is persisted to the config file for use on the next app launch.
+/// The setting is persisted to the config file.
 #[tauri::command]
-pub async fn set_server_mode(mode: ServerMode, state: State<'_, AppState>) -> Result<(), String> {
-    let current_mode = state.mode.read().await.clone();
+pub async fn set_server_url(
+    url: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let new_url = url.unwrap_or_default();
 
-    // Early return if mode hasn't changed
-    if current_mode == mode {
-        return Ok(());
-    }
+    // Update state
+    *state.server_url.lock().await = new_url.clone();
 
-    // Stop embedded server if currently running
-    {
-        let mut handle_guard = state.embedded_server_handle.lock().await;
-        if let Some(handle) = handle_guard.take() {
-            tracing::info!("Stopping embedded server...");
-            handle.abort();
-        }
-    }
-
-    // Handle the mode transition
-    match &mode {
-        ServerMode::Local => {
-            tracing::info!("Switching to Local mode, starting embedded server...");
-
-            let (url, handle) = start_embedded_server(state.backend_port)
-                .await
-                .map_err(|e| format!("Failed to start embedded server: {}", e))?;
-
-            // Update state
-            *state.server_url.write().await = url;
-            *state.embedded_server_handle.lock().await = Some(handle);
-        }
-        ServerMode::Remote { url } => {
-            tracing::info!("Switching to Remote mode with URL: {}", url);
-            *state.server_url.write().await = url.clone();
-        }
-    }
-
-    // Update mode and persist
-    *state.mode.write().await = mode;
-
-    // Persist to config (blocking operation, but runs quickly)
+    // Persist to config
     state
         .save_to_config()
         .map_err(|e| format!("Failed to save config: {}", e))?;
 
-    Ok(())
-}
-
-/// Starts the embedded server for Local mode.
-///
-/// This is called during app initialization when the saved mode is Local.
-/// It updates the AppState with the server URL and handle.
-pub async fn initialize_local_mode(state: &AppState) -> Result<(), String> {
-    let mode = state.mode.read().await.clone();
-
-    if mode != ServerMode::Local {
-        return Ok(());
+    if new_url.is_empty() {
+        tracing::info!("Cleared custom server URL, using auto-discovery");
+    } else {
+        tracing::info!("Set custom server URL: {}", new_url);
     }
-
-    tracing::info!("Initializing Local mode, starting embedded server...");
-
-    let (url, handle) = start_embedded_server(state.backend_port)
-        .await
-        .map_err(|e| format!("Failed to start embedded server: {}", e))?;
-
-    *state.server_url.write().await = url;
-    *state.embedded_server_handle.lock().await = Some(handle);
 
     Ok(())
 }
 
 /// Launches the MCP server as a child process.
 ///
-/// The MCP server connects to the current backend (embedded or remote).
+/// The MCP server connects to the current backend (discovered or custom).
 /// If an MCP server is already running, it will be stopped first.
 #[tauri::command]
 pub async fn launch_mcp_server(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
@@ -143,11 +91,8 @@ pub async fn launch_mcp_server(app: AppHandle, state: State<'_, AppState>) -> Re
         }
     }
 
-    // Get current backend URL
-    let backend_url = state.server_url.read().await.clone();
-    if backend_url.is_empty() {
-        return Err("Backend URL not configured. Start the server first.".to_string());
-    }
+    // Get current backend URL using the same logic as get_server_url
+    let backend_url = get_server_url_internal(&state).await?;
 
     // Launch MCP server
     let child = mcp_launcher::launch_mcp_server(&app, &backend_url)
@@ -159,6 +104,22 @@ pub async fn launch_mcp_server(app: AppHandle, state: State<'_, AppState>) -> Re
 
     tracing::info!("MCP server launched successfully");
     Ok(())
+}
+
+/// Internal helper to get server URL without Tauri State wrapper.
+async fn get_server_url_internal(state: &AppState) -> Result<String, String> {
+    // Check for custom URL first
+    let custom_url = state.server_url.lock().await;
+    if !custom_url.is_empty() {
+        return Ok(custom_url.clone());
+    }
+    drop(custom_url);
+
+    // Auto-discover via port file
+    match utils::port_file::read_port_file("vibe-kanban").await {
+        Ok(port) => Ok(format!("http://127.0.0.1:{}", port)),
+        Err(_) => Ok(format!("http://127.0.0.1:{}", DEFAULT_PORT)),
+    }
 }
 
 /// Stops the running MCP server.
