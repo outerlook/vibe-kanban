@@ -405,16 +405,27 @@ def main() -> int:
         print(f"Error parsing transcript: {e}", file=sys.stderr)
         return 0
 
-    # Check if there are any turns to process
-    if not parsed.get("turns"):
-        return 0
+    # Extract VK context from environment
+    vk_context = get_vk_context()
 
-    # Debug logging if enabled
+    # Calculate stats for logging
+    turns = parsed.get("turns", [])
+    totals = parsed.get("totals", {})
+    turn_count = len(turns)
+    total_tool_calls = sum(
+        len(turn.get("assistant_response", {}).get("tool_calls", []))
+        for turn in turns
+    )
+
+    # Debug logging
     if os.environ.get("DEBUG_LANGFUSE_HOOK", "").lower() == "true":
         print(f"Parsed transcript: {json.dumps(parsed, indent=2, default=str)}", file=sys.stderr)
 
-    # Extract VK context from environment
-    vk_context = get_vk_context()
+    print(
+        f"Langfuse hook: {turn_count} turns, {total_tool_calls} tool calls, "
+        f"{totals.get('input_tokens', 0)} input tokens, {totals.get('output_tokens', 0)} output tokens",
+        file=sys.stderr,
+    )
 
     # Send to Langfuse
     try:
