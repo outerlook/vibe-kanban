@@ -10290,13 +10290,10 @@ name = "tauri-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "deployment",
  "directories",
- "local-deployment",
  "rustls 0.23.36",
  "serde",
  "serde_json",
- "server",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

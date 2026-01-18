@@ -3,19 +3,7 @@ pub mod mcp;
 pub mod middleware;
 pub mod routes;
 
-use thiserror::Error;
-
-// #[cfg(feature = "cloud")]
-// type DeploymentImpl = vibe_kanban_cloud::deployment::CloudDeployment;
-// #[cfg(not(feature = "cloud"))]
 pub type DeploymentImpl = local_deployment::LocalDeployment;
-
-/// Error type for server startup
-#[derive(Debug, Error)]
-pub enum ServerError {
-    #[error("Failed to bind to address: {0}")]
-    Bind(#[from] std::io::Error),
-}
 
 /// Waits for shutdown signals (Ctrl+C or SIGTERM on Unix).
 pub async fn shutdown_signal() {

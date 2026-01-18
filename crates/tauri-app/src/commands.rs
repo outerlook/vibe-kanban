@@ -12,6 +12,32 @@ use crate::{mcp_launcher, state::AppState};
 /// Default fallback port when port file is not found.
 const DEFAULT_PORT: u16 = 9876;
 
+/// Resolves the server URL from state or auto-discovery.
+async fn resolve_server_url(state: &AppState) -> String {
+    // Check for custom URL first
+    let custom_url = state.server_url.lock().await;
+    if !custom_url.is_empty() {
+        return custom_url.clone();
+    }
+    drop(custom_url);
+
+    // Auto-discover via port file
+    match utils::port_file::read_port_file("vibe-kanban").await {
+        Ok(port) => {
+            tracing::debug!("Discovered server on port {} from port file", port);
+            format!("http://127.0.0.1:{}", port)
+        }
+        Err(e) => {
+            tracing::debug!(
+                "Port file not found or invalid ({}), using fallback port {}",
+                e,
+                DEFAULT_PORT
+            );
+            format!("http://127.0.0.1:{}", DEFAULT_PORT)
+        }
+    }
+}
+
 /// Returns the current server URL.
 ///
 /// Resolution order:
@@ -20,28 +46,7 @@ const DEFAULT_PORT: u16 = 9876;
 /// 3. Fallback to `http://127.0.0.1:9876`
 #[tauri::command]
 pub async fn get_server_url(state: State<'_, AppState>) -> Result<String, String> {
-    // Check for custom URL first
-    let custom_url = state.server_url.lock().await;
-    if !custom_url.is_empty() {
-        return Ok(custom_url.clone());
-    }
-    drop(custom_url);
-
-    // Auto-discover via port file
-    match utils::port_file::read_port_file("vibe-kanban").await {
-        Ok(port) => {
-            tracing::debug!("Discovered server on port {} from port file", port);
-            Ok(format!("http://127.0.0.1:{}", port))
-        }
-        Err(e) => {
-            tracing::debug!(
-                "Port file not found or invalid ({}), using fallback port {}",
-                e,
-                DEFAULT_PORT
-            );
-            Ok(format!("http://127.0.0.1:{}", DEFAULT_PORT))
-        }
-    }
+    Ok(resolve_server_url(&state).await)
 }
 
 /// Sets or clears a custom server URL.
@@ -91,35 +96,16 @@ pub async fn launch_mcp_server(app: AppHandle, state: State<'_, AppState>) -> Re
         }
     }
 
-    // Get current backend URL using the same logic as get_server_url
-    let backend_url = get_server_url_internal(&state).await?;
+    let backend_url = resolve_server_url(&state).await;
 
-    // Launch MCP server
     let child = mcp_launcher::launch_mcp_server(&app, &backend_url)
         .await
         .map_err(|e| format!("Failed to launch MCP server: {}", e))?;
 
-    // Store handle
     *state.mcp_process_handle.lock().await = Some(child);
 
     tracing::info!("MCP server launched successfully");
     Ok(())
-}
-
-/// Internal helper to get server URL without Tauri State wrapper.
-async fn get_server_url_internal(state: &AppState) -> Result<String, String> {
-    // Check for custom URL first
-    let custom_url = state.server_url.lock().await;
-    if !custom_url.is_empty() {
-        return Ok(custom_url.clone());
-    }
-    drop(custom_url);
-
-    // Auto-discover via port file
-    match utils::port_file::read_port_file("vibe-kanban").await {
-        Ok(port) => Ok(format!("http://127.0.0.1:{}", port)),
-        Err(_) => Ok(format!("http://127.0.0.1:{}", DEFAULT_PORT)),
-    }
 }
 
 /// Stops the running MCP server.
