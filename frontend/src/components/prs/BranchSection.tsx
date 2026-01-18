@@ -43,7 +43,6 @@ export interface BranchSectionProps {
   taskCounts: TaskStatusCounts;
   repoId?: string;
   workspaceId?: string;
-  projectId: string;
   defaultOpen?: boolean;
   className?: string;
 }

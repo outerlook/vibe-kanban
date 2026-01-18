@@ -321,7 +321,6 @@ export function PrOverview() {
                 }}
                 repoId={meta?.repoId}
                 workspaceId={meta?.workspaceId}
-                projectId={projectId!}
               />
             );
           })}
