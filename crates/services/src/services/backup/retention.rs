@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Datelike, Duration, NaiveDateTime, Utc};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use super::BackupError;
 use crate::services::config::BackupConfig;
@@ -97,9 +97,9 @@ pub fn apply_gfs_retention(
     let mut delete = Vec::new();
 
     // Track which periods already have a backup kept
-    let mut daily_kept: HashMap<(i32, u32, u32), bool> = HashMap::new(); // (year, month, day)
-    let mut weekly_kept: HashMap<(i32, u32), bool> = HashMap::new(); // (iso_year, iso_week)
-    let mut monthly_kept: HashMap<(i32, u32), bool> = HashMap::new(); // (year, month)
+    let mut daily_kept: HashSet<(i32, u32, u32)> = HashSet::new(); // (year, month, day)
+    let mut weekly_kept: HashSet<(i32, u32)> = HashSet::new(); // (iso_year, iso_week)
+    let mut monthly_kept: HashSet<(i32, u32)> = HashSet::new(); // (year, month)
 
     // Process backups from oldest to newest so "first of period" means earliest
     for backup in backups {
@@ -120,8 +120,7 @@ pub fn apply_gfs_retention(
                     backup.timestamp.month(),
                     backup.timestamp.day(),
                 );
-                if !daily_kept.contains_key(&key) {
-                    daily_kept.insert(key, true);
+                if daily_kept.insert(key) {
                     debug!(
                         path = ?backup.path,
                         timestamp = %backup.timestamp,
@@ -142,8 +141,7 @@ pub fn apply_gfs_retention(
             RetentionTier::Weekly => {
                 let iso_week = backup.timestamp.iso_week();
                 let key = (iso_week.year(), iso_week.week());
-                if !weekly_kept.contains_key(&key) {
-                    weekly_kept.insert(key, true);
+                if weekly_kept.insert(key) {
                     debug!(
                         path = ?backup.path,
                         timestamp = %backup.timestamp,
@@ -163,8 +161,7 @@ pub fn apply_gfs_retention(
             }
             RetentionTier::Monthly => {
                 let key = (backup.timestamp.year(), backup.timestamp.month());
-                if !monthly_kept.contains_key(&key) {
-                    monthly_kept.insert(key, true);
+                if monthly_kept.insert(key) {
                     debug!(
                         path = ?backup.path,
                         timestamp = %backup.timestamp,
@@ -234,7 +231,7 @@ pub fn delete_old_backups(to_delete: Vec<PathBuf>) -> Result<u32, BackupError> {
                 deleted_count += 1;
             }
             Err(e) => {
-                debug!(path = ?path, error = %e, "Failed to delete backup");
+                warn!(path = ?path, error = %e, "Failed to delete backup");
                 return Err(BackupError::Io(e));
             }
         }
