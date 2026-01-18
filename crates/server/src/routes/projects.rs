@@ -18,6 +18,7 @@ use db::models::{
     project_repo::{CreateProjectRepo, ProjectRepo, UpdateProjectRepo},
     repo::Repo,
     task_group::TaskGroup,
+    workspace::Workspace,
 };
 use deployment::Deployment;
 use futures_util::{SinkExt, StreamExt, TryStreamExt};
@@ -742,6 +743,16 @@ pub async fn get_merge_queue_count(
     })))
 }
 
+/// GET /api/projects/:id/workspaces - Get all workspaces for a project's tasks
+pub async fn get_project_workspaces(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<Vec<Workspace>>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let workspaces = Workspace::fetch_by_project_id(pool, project.id).await?;
+    Ok(ResponseJson(ApiResponse::success(workspaces)))
+}
+
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let project_id_router = Router::new()
         .route(
@@ -762,6 +773,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         )
         .route("/prs", get(get_project_prs))
         .route("/merge-queue-count", get(get_merge_queue_count))
+        .route("/workspaces", get(get_project_workspaces))
         .layer(from_fn_with_state(
             deployment.clone(),
             load_project_middleware,

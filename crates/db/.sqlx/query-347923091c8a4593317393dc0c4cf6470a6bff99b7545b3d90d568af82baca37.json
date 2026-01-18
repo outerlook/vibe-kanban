@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT w.id                AS \"id!: Uuid\",\n                      w.task_id           AS \"task_id!: Uuid\",\n                      w.container_ref,\n                      w.branch,\n                      w.agent_working_dir,\n                      w.setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                      w.created_at        AS \"created_at!: DateTime<Utc>\",\n                      w.updated_at        AS \"updated_at!: DateTime<Utc>\"\n               FROM   workspaces w\n               JOIN   tasks t ON w.task_id = t.id\n               WHERE  t.project_id = $1\n               ORDER BY w.created_at DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "task_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "container_ref",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "branch",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "agent_working_dir",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "setup_completed_at: DateTime<Utc>",
+        "ordinal": 5,
+        "type_info": "Datetime"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 7,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "347923091c8a4593317393dc0c4cf6470a6bff99b7545b3d90d568af82baca37"
+}
