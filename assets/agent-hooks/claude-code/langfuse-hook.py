@@ -236,8 +236,33 @@ def parse_transcript(transcript_path: str) -> dict:
     return result
 
 
-def send_to_langfuse(session_id: str, parsed: dict) -> None:
-    """Send parsed transcript traces to Langfuse."""
+def truncate_text(text: str | None, max_len: int = 500) -> str | None:
+    """Truncate text to max_len characters, adding ellipsis if truncated."""
+    if text is None:
+        return None
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."
+
+
+def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | None]) -> None:
+    """
+    Send parsed transcript traces to Langfuse with hierarchical structure.
+
+    Creates:
+        Trace: claude-code-session
+        ├── session_id, metadata (vk_*, model, git_branch, activity_counts, totals)
+        ├── input: first user message (truncated to 500 chars)
+        ├── output: last assistant text (truncated to 500 chars)
+        │
+        ├── Generation Span: "llm-response-{i}"
+        │   ├── model, input (user message), output (assistant text)
+        │   ├── usage: {input, output, cache_read, cache_creation}
+        │   │
+        │   └── Tool Span: "{tool_name}" (child for each tool_call)
+        │       ├── input: tool_input dict
+        │       └── metadata: {activity_kind, tool_use_id}
+    """
     try:
         from langfuse import Langfuse
     except ImportError:
@@ -254,53 +279,101 @@ def send_to_langfuse(session_id: str, parsed: dict) -> None:
 
     langfuse = Langfuse(public_key=public_key, secret_key=secret_key, host=host)
 
-    # Extract all tool calls from turns for backward compatibility
-    all_tool_calls = []
-    for turn in parsed.get("turns", []):
-        assistant_response = turn.get("assistant_response", {})
-        all_tool_calls.extend(assistant_response.get("tool_calls", []))
+    turns = parsed.get("turns", [])
+    totals = parsed.get("totals", {})
+    session_metadata = parsed.get("session_metadata", {})
 
-    # Create a trace with a root span using the v3 API
+    # Extract first user message and last assistant text for trace-level I/O
+    first_user_message = None
+    last_assistant_text = None
+    for turn in turns:
+        user_msg = turn.get("user_message")
+        if user_msg and first_user_message is None:
+            first_user_message = user_msg
+        assistant_text = turn.get("assistant_response", {}).get("text_content")
+        if assistant_text:
+            last_assistant_text = assistant_text
+
+    # Count total tool calls
+    total_tool_calls = sum(
+        len(turn.get("assistant_response", {}).get("tool_calls", []))
+        for turn in turns
+    )
+
+    # Build trace metadata including VK context
+    trace_metadata = {
+        "source": "claude-code",
+        "hook": "langfuse-hook",
+        "model": session_metadata.get("model"),
+        "git_branch": session_metadata.get("git_branch"),
+        "cwd": session_metadata.get("cwd"),
+        "activity_counts": totals.get("activity_counts", {}),
+        "total_tool_calls": total_tool_calls,
+        "token_totals": {
+            "input_tokens": totals.get("input_tokens", 0),
+            "output_tokens": totals.get("output_tokens", 0),
+            "cache_read_input_tokens": totals.get("cache_read_input_tokens", 0),
+            "cache_creation_input_tokens": totals.get("cache_creation_input_tokens", 0),
+        },
+    }
+    # Add VK context fields (only non-None values)
+    for key, value in vk_context.items():
+        if value is not None:
+            trace_metadata[key] = value
+
+    # Create trace with root span
     with langfuse.start_as_current_span(name="claude-code-session") as root_span:
-        # Set trace-level properties
         root_span.update_trace(
             name="claude-code-session",
             session_id=session_id,
-            metadata={
-                "source": "claude-code",
-                "hook": "langfuse-hook",
-                "session_metadata": parsed.get("session_metadata"),
-            },
+            input=truncate_text(first_user_message),
+            output=truncate_text(last_assistant_text),
+            metadata=trace_metadata,
         )
 
-        for tool_call in all_tool_calls:
-            activity_kind = tool_call["activity_kind"]
+        # Create generation span for each turn with tool spans as children
+        for i, turn in enumerate(turns):
+            user_message = turn.get("user_message")
+            assistant_response = turn.get("assistant_response", {})
+            model = assistant_response.get("model")
+            text_content = assistant_response.get("text_content")
+            usage = assistant_response.get("usage", {})
+            tool_calls = assistant_response.get("tool_calls", [])
 
-            # Create a child span for each tool call
-            child_span = root_span.start_span(
-                name=tool_call["tool_name"],
-                input=tool_call.get("tool_input"),
+            # Create generation span for this LLM response
+            gen_span = root_span.start_span(
+                name=f"llm-response-{i}",
+                input=truncate_text(user_message),
+                output=truncate_text(text_content),
                 metadata={
-                    "activity_kind": activity_kind,
-                    "tool_use_id": tool_call.get("tool_use_id"),
+                    "model": model,
+                    "tool_call_count": len(tool_calls),
                 },
             )
-            child_span.end()
 
-        # Update root span with activity summary and totals
-        totals = parsed.get("totals", {})
-        root_span.update(
-            metadata={
-                "activity_counts": totals.get("activity_counts", {}),
-                "total_tool_calls": len(all_tool_calls),
-                "token_totals": {
-                    "input_tokens": totals.get("input_tokens", 0),
-                    "output_tokens": totals.get("output_tokens", 0),
-                    "cache_read_input_tokens": totals.get("cache_read_input_tokens", 0),
-                    "cache_creation_input_tokens": totals.get("cache_creation_input_tokens", 0),
+            # Update with usage details
+            gen_span.update(
+                usage_details={
+                    "input": usage.get("input_tokens", 0),
+                    "output": usage.get("output_tokens", 0),
+                    "cache_read": usage.get("cache_read_input_tokens", 0),
+                    "cache_creation": usage.get("cache_creation_input_tokens", 0),
                 },
-            }
-        )
+            )
+
+            # Create tool spans as children of the generation span
+            for tool_call in tool_calls:
+                tool_span = gen_span.start_span(
+                    name=tool_call["tool_name"],
+                    input=tool_call.get("tool_input"),
+                    metadata={
+                        "activity_kind": tool_call["activity_kind"],
+                        "tool_use_id": tool_call.get("tool_use_id"),
+                    },
+                )
+                tool_span.end()
+
+            gen_span.end()
 
     langfuse.flush()
 
@@ -340,9 +413,12 @@ def main() -> int:
     if os.environ.get("DEBUG_LANGFUSE_HOOK", "").lower() == "true":
         print(f"Parsed transcript: {json.dumps(parsed, indent=2, default=str)}", file=sys.stderr)
 
+    # Extract VK context from environment
+    vk_context = get_vk_context()
+
     # Send to Langfuse
     try:
-        send_to_langfuse(session_id, parsed)
+        send_to_langfuse(session_id, parsed, vk_context)
     except Exception as e:
         print(f"Error sending to Langfuse: {e}", file=sys.stderr)
         return 0
