@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useMemo } from 'react';
 import { useBranchStatus } from '@/hooks';
+import { useGitStateSubscription } from '@/hooks/useGitStateSubscription';
 import type { RepoBranchStatus } from 'shared/types';
 import type {
   QueryObserverResult,
@@ -22,6 +23,9 @@ export const BranchStatusProvider: React.FC<{
   children: React.ReactNode;
 }> = ({ attemptId, children }) => {
   const { data: branchStatus, isLoading, isFetching, refetch } = useBranchStatus(attemptId);
+
+  // Subscribe to git state changes via WebSocket to invalidate branchStatus
+  useGitStateSubscription(attemptId);
 
   const value = useMemo<BranchStatusContextType>(
     () => ({
