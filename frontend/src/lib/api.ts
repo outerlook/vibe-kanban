@@ -763,6 +763,13 @@ export const taskGroupsApi = {
     });
     return handleApiResponse<TaskGroup>(response);
   },
+
+  getMergeQueueCount: async (groupId: string): Promise<MergeQueueCountResponse> => {
+    const response = await makeRequest(
+      `/api/task-groups/${groupId}/merge-queue-count`
+    );
+    return handleApiResponse<MergeQueueCountResponse>(response);
+  },
 };
 
 // Sessions API

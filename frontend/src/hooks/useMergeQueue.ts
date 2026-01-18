@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { attemptsApi, projectsApi, Result } from '@/lib/api';
+import { attemptsApi, projectsApi, taskGroupsApi, Result } from '@/lib/api';
 import type {
   MergeQueue,
   MergeQueueCountResponse,
@@ -13,6 +13,8 @@ export const mergeQueueKeys = {
     ['mergeQueue', 'status', workspaceId] as const,
   projectCount: (projectId: string | undefined) =>
     ['mergeQueue', 'projectCount', projectId] as const,
+  groupCount: (groupId: string | undefined) =>
+    ['mergeQueue', 'groupCount', groupId] as const,
 };
 
 type QueryOptions = {
@@ -109,6 +111,19 @@ export function useProjectQueueCount(projectId?: string, opts?: QueryOptions) {
   return useQuery<MergeQueueCountResponse>({
     queryKey: mergeQueueKeys.projectCount(projectId),
     queryFn: () => projectsApi.getMergeQueueCount(projectId!),
+    enabled,
+    refetchInterval: opts?.refetchInterval ?? 3000,
+    staleTime: opts?.staleTime ?? 2000,
+    retry: opts?.retry ?? 2,
+  });
+}
+
+export function useGroupQueueCount(groupId?: string, opts?: QueryOptions) {
+  const enabled = (opts?.enabled ?? true) && !!groupId;
+
+  return useQuery<MergeQueueCountResponse>({
+    queryKey: mergeQueueKeys.groupCount(groupId),
+    queryFn: () => taskGroupsApi.getMergeQueueCount(groupId!),
     enabled,
     refetchInterval: opts?.refetchInterval ?? 3000,
     staleTime: opts?.staleTime ?? 2000,
