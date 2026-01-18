@@ -65,6 +65,11 @@ impl WorkspaceManager {
             return Err(WorkspaceError::NoRepositories);
         }
 
+        // Validate fsmonitor is enabled for all repositories
+        for input in repos {
+            WorktreeManager::validate_fsmonitor_async(&input.repo.path).await?;
+        }
+
         info!(
             "Creating workspace at {} with {} repositories",
             workspace_dir.display(),
@@ -145,6 +150,11 @@ impl WorkspaceManager {
     ) -> Result<(), WorkspaceError> {
         if repos.is_empty() {
             return Err(WorkspaceError::NoRepositories);
+        }
+
+        // Validate fsmonitor is enabled for all repositories
+        for repo in repos {
+            WorktreeManager::validate_fsmonitor_async(&repo.path).await?;
         }
 
         // Try legacy migration first (single repo projects only)
