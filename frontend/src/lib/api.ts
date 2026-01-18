@@ -1,6 +1,6 @@
 // Import all necessary types from shared types
 
-import { isTauriEnvironment, getServerUrl } from './tauri-api';
+import { isTauriEnvironment, getServerUrl } from './tauriApi';
 import {
   AccountInfo,
   ApprovalStatus,
@@ -183,12 +183,9 @@ let apiBaseUrl: string | null = null;
 
 async function getApiBaseUrl(): Promise<string> {
   if (apiBaseUrl !== null) return apiBaseUrl;
-  if (isTauriEnvironment()) {
-    apiBaseUrl = await getServerUrl();
-  } else {
-    apiBaseUrl = ''; // relative URLs for dev (Vite proxy)
-  }
-  return apiBaseUrl;
+  const url = isTauriEnvironment() ? await getServerUrl() : '';
+  apiBaseUrl = url;
+  return url;
 }
 
 /**
