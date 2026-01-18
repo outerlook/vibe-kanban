@@ -16,8 +16,9 @@ import { useTaskFilters } from '@/hooks/useTaskFilters';
 import { useFilteredTasks } from '@/hooks/useFilteredTasks';
 import { TaskFilterBar } from '@/components/tasks/TaskFilterBar';
 import { useProject } from '@/contexts/ProjectContext';
-import { useTaskAttempts } from '@/hooks/useTaskAttempts';
+import { useTaskAttemptsStream } from '@/hooks/useTaskAttemptsStream';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
+import { ConnectionStatusBanner } from '@/components/common/ConnectionStatusBanner';
 import { useTask } from '@/hooks/useTask';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useBranchStatus } from '@/hooks';
@@ -196,21 +197,17 @@ export function ProjectTasks() {
   ]);
 
   const isLatest = attemptId === 'latest';
-  const { data: attempts = [], isLoading: isAttemptsLoading } = useTaskAttempts(
-    taskId,
-    {
-      enabled: !!taskId && isLatest,
-    }
-  );
+  const {
+    attempts,
+    isConnected: isAttemptsConnected,
+    isLoading: isAttemptsLoading,
+    error: attemptsError,
+  } = useTaskAttemptsStream(isLatest ? taskId : undefined);
 
+  // Latest attempt is attempts[0] (already sorted by created_at DESC)
   const latestAttemptId = useMemo(() => {
-    if (!attempts?.length) return undefined;
-    return [...attempts].sort((a, b) => {
-      const diff =
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      if (diff !== 0) return diff;
-      return a.id.localeCompare(b.id);
-    })[0].id;
+    if (!attempts.length) return undefined;
+    return attempts[0].id;
   }, [attempts]);
 
   const navigateWithSearch = useCallback(
@@ -877,6 +874,11 @@ export function ProjectTasks() {
           {({ logs, followUp, feedback }) => (
             <>
               <GitErrorBanner />
+              <ConnectionStatusBanner
+                isConnected={isAttemptsConnected}
+                error={attemptsError}
+                className="mx-4 mt-2"
+              />
               <div className="flex-1 min-h-0 flex flex-col">
                 <div className="flex-1 min-h-0 flex flex-col">{logs}</div>
 
