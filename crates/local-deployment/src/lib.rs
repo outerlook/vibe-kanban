@@ -15,6 +15,7 @@ use services::services::{
     file_search_cache::FileSearchCache,
     filesystem::FilesystemService,
     git::GitService,
+    git_watcher::GitWatcherManager,
     image::ImageService,
     oauth_credentials::OAuthCredentials,
     project::ProjectService,
@@ -59,6 +60,7 @@ pub struct LocalDeployment {
     remote_client: Result<RemoteClient, RemoteClientNotConfigured>,
     auth_context: AuthContext,
     oauth_handoffs: Arc<RwLock<HashMap<Uuid, PendingHandoff>>>,
+    git_watcher: GitWatcherManager,
 }
 
 #[derive(Debug, Clone)]
@@ -179,6 +181,7 @@ impl Deployment for LocalDeployment {
             .map_err(|e| *e);
 
         let oauth_handoffs = Arc::new(RwLock::new(HashMap::new()));
+        let git_watcher = GitWatcherManager::new();
 
         // We need to make analytics accessible to the ContainerService
         // TODO: Handle this more gracefully
@@ -225,6 +228,7 @@ impl Deployment for LocalDeployment {
             remote_client,
             auth_context,
             oauth_handoffs,
+            git_watcher,
         };
 
         Ok(deployment)
@@ -296,6 +300,10 @@ impl Deployment for LocalDeployment {
 
     fn auth_context(&self) -> &AuthContext {
         &self.auth_context
+    }
+
+    fn git_watcher(&self) -> &GitWatcherManager {
+        &self.git_watcher
     }
 }
 

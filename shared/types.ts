@@ -418,6 +418,8 @@ conflict_op: ConflictOp | null,
  */
 conflicted_files: Array<string>, };
 
+export type GitStateChangedMessage = { type: string, workspace_id: string, };
+
 export type RunScriptError = { "type": "no_script_configured" } | { "type": "process_already_running" };
 
 export type AttachPrResponse = { pr_attached: boolean, pr_url: string | null, pr_number: bigint | null, pr_status: MergeStatus | null, };
@@ -491,6 +493,14 @@ export type ShowcaseState = { seen_features: Array<string>, };
 export type BackupConfig = { enabled: boolean, interval_hours: number, retention_hours_all: number, retention_daily_days: number, retention_weekly_weeks: number, retention_monthly_months: number, };
 
 export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, last_commit_date: Date, };
+
+export type GitStateChange = { kind: GitStateChangeKind, 
+/**
+ * Relative path within .git directory that changed
+ */
+path: string, };
+
+export type GitStateChangeKind = "head" | "index" | "refs" | "rebase_head" | "merge_head" | "cherry_pick_head" | "revert_head" | "config" | "other";
 
 export type SharedTaskDetails = { id: string, project_id: string, title: string, description: string | null, status: TaskStatus, };
 
