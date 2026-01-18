@@ -87,3 +87,5 @@ vibe-kanban-cloud/
 crates/tauri-app/gen/
 crates/tauri-app/binaries/*
 !crates/tauri-app/binaries/.gitkeep
+
+assets/agent-hooks/claude-code/__pycache__/

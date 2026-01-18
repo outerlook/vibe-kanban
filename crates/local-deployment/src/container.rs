@@ -422,11 +422,41 @@ impl LocalContainerService {
                 // Some coding agent processes do not automatically exit after processing the user request; instead the executor
                 // signals when processing has finished to gracefully kill the process.
                 exit_result = &mut exit_signal_future => {
-                    // Executor signaled completion: kill group and use the provided result
+                    // Executor signaled completion: try graceful shutdown first to allow hooks to run
                     if let Some(child_lock) = child_store.read().await.get(&exec_id).cloned() {
-                        let mut child = child_lock.write().await ;
-                        if let Err(err) = command::kill_process_group(&mut child).await {
-                            tracing::error!("Failed to kill process group after exit signal: {} {}", exec_id, err);
+                        // Try graceful interrupt first (allows Claude Code to run Stop hooks)
+                        if let Some(interrupt_sender) = container.take_interrupt_sender(&exec_id).await {
+                            let _ = interrupt_sender.send(());
+                            tracing::debug!("Sent interrupt signal to process {}, waiting for graceful exit", exec_id);
+
+                            // Wait up to 5 seconds for graceful exit
+                            let graceful_exit = {
+                                let mut child_guard = child_lock.write().await;
+                                tokio::time::timeout(
+                                    std::time::Duration::from_secs(5),
+                                    child_guard.wait()
+                                ).await
+                            };
+
+                            match graceful_exit {
+                                Ok(Ok(_)) => {
+                                    tracing::debug!("Process {} exited gracefully after interrupt", exec_id);
+                                }
+                                _ => {
+                                    // Graceful exit failed or timed out, force kill
+                                    tracing::debug!("Process {} did not exit gracefully, force killing", exec_id);
+                                    let mut child = child_lock.write().await;
+                                    if let Err(err) = command::kill_process_group(&mut child).await {
+                                        tracing::error!("Failed to kill process group after exit signal: {} {}", exec_id, err);
+                                    }
+                                }
+                            }
+                        } else {
+                            // No interrupt sender, just kill the process
+                            let mut child = child_lock.write().await;
+                            if let Err(err) = command::kill_process_group(&mut child).await {
+                                tracing::error!("Failed to kill process group after exit signal: {} {}", exec_id, err);
+                            }
                         }
                     }
 
@@ -918,10 +948,13 @@ impl LocalContainerService {
         Ok(())
     }
 
-    /// Deploy Claude Code hooks to each repository worktree.
+    /// Deploy Claude Code hooks to each repository worktree and the workspace root.
     ///
-    /// This copies hook files from embedded assets to each repo's `.claude/` directory
-    /// and adds `.claude/` to `.git/info/exclude` to prevent git tracking.
+    /// This copies hook files from embedded assets to:
+    /// 1. Each repo's `.claude/` directory (for when agent_working_dir is set)
+    /// 2. The workspace root `.claude/` directory (for when agent_working_dir is not set)
+    ///
+    /// Also adds `.claude/` to `.git/info/exclude` to prevent git tracking.
     ///
     /// The deployment is idempotent - existing files are overwritten to ensure the latest
     /// hook versions are used. If assets don't exist, the function completes successfully
@@ -932,11 +965,40 @@ impl LocalContainerService {
     ) -> Result<(), ContainerError> {
         // Check if we have any hook assets to deploy
         let asset_files: Vec<_> = ClaudeCodeHookAssets::iter().collect();
+        tracing::info!(
+            "deploy_claude_code_hooks: found {} assets: {:?}",
+            asset_files.len(),
+            asset_files
+        );
         if asset_files.is_empty() {
             tracing::debug!("No Claude Code hook assets found, skipping deployment");
             return Ok(());
         }
 
+        // Deploy to workspace root first (for when agent_working_dir is not set)
+        let workspace_claude_dir = workspace_dir.join(".claude");
+        if let Err(e) = tokio::fs::create_dir_all(&workspace_claude_dir).await {
+            tracing::warn!(
+                "Failed to create .claude directory at workspace root: {}",
+                e
+            );
+        } else {
+            for asset_name in &asset_files {
+                if let Some(asset) = ClaudeCodeHookAssets::get(asset_name) {
+                    let target_path = workspace_claude_dir.join(asset_name.as_ref());
+                    if let Err(e) = tokio::fs::write(&target_path, &asset.data).await {
+                        tracing::warn!(
+                            "Failed to write hook file '{}' to workspace root: {}",
+                            asset_name,
+                            e
+                        );
+                    }
+                }
+            }
+            tracing::debug!("Deployed Claude Code hooks to workspace root");
+        }
+
+        // Deploy to each repo's worktree
         for repo in repos {
             let worktree_path = workspace_dir.join(&repo.name);
             let claude_dir = worktree_path.join(".claude");
@@ -1035,6 +1097,7 @@ impl LocalContainerService {
         let child_store = self.child_store.clone();
         let msg_stores = self.msg_stores.clone();
         let db = self.db.clone();
+        let container = self.clone();
 
         let mut process_exit_rx = self.spawn_os_exit_watcher(exec_id);
 
@@ -1048,9 +1111,36 @@ impl LocalContainerService {
             tokio::select! {
                 exit_result = &mut exit_signal_future => {
                     if let Some(child_lock) = child_store.read().await.get(&exec_id).cloned() {
-                        let mut child = child_lock.write().await;
-                        if let Err(err) = command::kill_process_group(&mut child).await {
-                            tracing::error!("Failed to kill process group after exit signal: {} {}", exec_id, err);
+                        // Try graceful interrupt first (allows hooks to run)
+                        if let Some(interrupt_sender) = container.take_interrupt_sender(&exec_id).await {
+                            let _ = interrupt_sender.send(());
+                            tracing::debug!("Sent interrupt signal to conversation process {}, waiting for graceful exit", exec_id);
+
+                            // Wait up to 5 seconds for graceful exit
+                            let graceful_exit = {
+                                let mut child_guard = child_lock.write().await;
+                                tokio::time::timeout(
+                                    std::time::Duration::from_secs(5),
+                                    child_guard.wait()
+                                ).await
+                            };
+
+                            match graceful_exit {
+                                Ok(Ok(_)) => {
+                                    tracing::debug!("Conversation process {} exited gracefully", exec_id);
+                                }
+                                _ => {
+                                    let mut child = child_lock.write().await;
+                                    if let Err(err) = command::kill_process_group(&mut child).await {
+                                        tracing::error!("Failed to kill process group after exit signal: {} {}", exec_id, err);
+                                    }
+                                }
+                            }
+                        } else {
+                            let mut child = child_lock.write().await;
+                            if let Err(err) = command::kill_process_group(&mut child).await {
+                                tracing::error!("Failed to kill process group after exit signal: {} {}", exec_id, err);
+                            }
                         }
                     }
                     status_result = match exit_result {
@@ -1484,6 +1574,9 @@ impl ContainerService for LocalContainerService {
 
         Self::create_workspace_config_files(&created_workspace.workspace_dir, &repositories)
             .await?;
+
+        // Deploy Claude Code hooks (idempotent, graceful if assets don't exist)
+        Self::deploy_claude_code_hooks(&created_workspace.workspace_dir, &repositories).await?;
 
         Workspace::update_container_ref(
             &self.db.pool,
