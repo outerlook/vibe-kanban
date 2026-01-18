@@ -272,6 +272,7 @@ pub async fn follow_up(
             &session,
             &action,
             &ExecutionProcessRunReason::CodingAgent,
+            None,
         )
         .await?;
 

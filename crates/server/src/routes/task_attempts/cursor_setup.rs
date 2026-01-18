@@ -68,6 +68,7 @@ pub async fn run_cursor_setup(
             &session,
             &executor_action,
             &ExecutionProcessRunReason::SetupScript,
+            None,
         )
         .await?;
     Ok(execution_process)

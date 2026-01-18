@@ -195,6 +195,7 @@ async fn trigger_pr_description_follow_up(
             &session,
             &action,
             &ExecutionProcessRunReason::InternalAgent,
+            Some("pr_description"),
         )
         .await?;
 
@@ -329,6 +330,7 @@ pub async fn generate_commit_message_for_merge(
             &session,
             &action,
             &ExecutionProcessRunReason::InternalAgent,
+            Some("merge_message"),
         )
         .await?;
 

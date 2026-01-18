@@ -63,6 +63,7 @@ pub async fn run_gh_cli_setup(
             &session,
             &executor_action,
             &ExecutionProcessRunReason::SetupScript,
+            None,
         )
         .await?;
     Ok(execution_process)

@@ -1418,6 +1418,7 @@ pub async fn start_dev_server(
             &session,
             &executor_action,
             &ExecutionProcessRunReason::DevServer,
+            None,
         )
         .await?;
 
@@ -1558,6 +1559,7 @@ pub async fn run_setup_script(
             &session,
             &executor_action,
             &ExecutionProcessRunReason::SetupScript,
+            None,
         )
         .await?;
 
@@ -1642,6 +1644,7 @@ pub async fn run_cleanup_script(
             &session,
             &executor_action,
             &ExecutionProcessRunReason::CleanupScript,
+            None,
         )
         .await?;
 
