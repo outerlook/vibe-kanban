@@ -2,8 +2,12 @@
   "hooks": {
     "Stop": [
       {
-        "type": "command",
-        "command": "python3 $CLAUDE_SETTINGS_DIRECTORY/langfuse-hook.py"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/langfuse-hook.py\" 2>/dev/null || true"
+          }
+        ]
       }
     ]
   }
