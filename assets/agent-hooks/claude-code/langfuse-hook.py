@@ -595,7 +595,7 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
                         id=str(uuid.uuid4()),
                         trace_id=trace_id,
                         parent_observation_id=generation_id,
-                        name=tool_call["tool_name"],
+                        name=f"{tool_call['activity_kind']}/{tool_call['tool_name']}",
                         input=tool_call.get("tool_input"),
                         output=tool_output,
                         start_time=start_time,
