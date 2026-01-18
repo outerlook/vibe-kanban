@@ -1,7 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::Manager;
-use tauri_app_lib::{commands::initialize_local_mode, state::AppState};
+use tauri_app_lib::state::AppState;
 
 fn main() {
     // Install rustls crypto provider before any HTTPS requests are made.
@@ -34,30 +33,11 @@ fn main() {
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             tauri_app_lib::commands::get_server_url,
-            tauri_app_lib::commands::get_server_mode,
-            tauri_app_lib::commands::set_server_mode,
+            tauri_app_lib::commands::set_server_url,
             tauri_app_lib::commands::launch_mcp_server,
             tauri_app_lib::commands::stop_mcp_server,
             tauri_app_lib::commands::is_mcp_server_running
         ])
-        .setup(|app| {
-            let state = app.state::<AppState>();
-            let state_clone = AppState {
-                server_url: state.server_url.clone(),
-                mcp_process_handle: state.mcp_process_handle.clone(),
-                mcp_port: state.mcp_port,
-                backend_port: state.backend_port,
-            };
-
-            // Initialize local mode - spawn async to not block webview
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = initialize_local_mode(&state_clone).await {
-                    tracing::error!("Failed to initialize local mode: {}", e);
-                }
-            });
-
-            Ok(())
-        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
