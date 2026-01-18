@@ -83,11 +83,10 @@ export function SettingsLayout() {
                       end
                       className={({ isActive }) =>
                         cn(
-                          'flex items-start gap-3 px-3 py-2 text-sm transition-colors',
-                          'hover:text-accent-foreground',
+                          'flex items-start gap-3 px-3 py-2 text-sm transition-colors rounded-md',
                           isActive
-                            ? 'text-primary-foreground'
-                            : 'text-secondary-foreground'
+                            ? 'bg-muted text-foreground font-medium'
+                            : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
                         )
                       }
                     >
@@ -96,7 +95,7 @@ export function SettingsLayout() {
                         <div className="font-medium">
                           {t(`settings.layout.nav.${item.path}`)}
                         </div>
-                        <div>{t(`settings.layout.nav.${item.path}Desc`)}</div>
+                        <div className="text-xs opacity-80">{t(`settings.layout.nav.${item.path}Desc`)}</div>
                       </div>
                     </NavLink>
                   );

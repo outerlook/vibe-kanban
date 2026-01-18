@@ -20,11 +20,13 @@ Vibe-Kanban context (optional, set when running in vibe-kanban workspace):
     VK_WORKSPACE_ID: The workspace/worktree ID
 """
 
+import hashlib
 import json
 import os
 import re
 import sys
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -53,6 +55,25 @@ def get_vk_context() -> dict[str, str | None]:
         "vk_attempt_id": os.environ.get("VK_ATTEMPT_ID"),
         "vk_workspace_id": os.environ.get("VK_WORKSPACE_ID"),
     }
+
+
+def get_claude_account_id() -> str | None:
+    """
+    Get a unique identifier for the current Claude account.
+
+    Reads the access token from ~/.claude/.credentials.json and hashes it
+    to create a privacy-preserving unique identifier per account.
+    """
+    credentials_path = Path.home() / ".claude" / ".credentials.json"
+    try:
+        with open(credentials_path, "r", encoding="utf-8") as f:
+            credentials = json.load(f)
+        token = credentials.get("claudeAiOauth", {}).get("accessToken")
+        if token:
+            return hashlib.sha256(token.encode()).hexdigest()[:16]
+    except (OSError, json.JSONDecodeError, KeyError):
+        pass
+    return None
 
 
 def classify_activity(tool_name: str, tool_input: dict | None) -> str:
@@ -215,6 +236,7 @@ def parse_transcript(transcript_path: str) -> dict:
     result = {
         "session_metadata": {"cwd": None, "git_branch": None, "model": None},
         "turns": [],
+        "tool_results": {},  # Map of tool_use_id -> result content
         "totals": {
             "input_tokens": 0,
             "output_tokens": 0,
@@ -229,6 +251,7 @@ def parse_transcript(transcript_path: str) -> dict:
         return result
 
     pending_user_message: str | None = None
+    pending_user_timestamp: str | None = None
 
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -252,13 +275,25 @@ def parse_transcript(transcript_path: str) -> dict:
             elif entry_type == "user":
                 message = entry.get("message", {})
                 content = message.get("content", [])
-                text_parts = []
-                for block in content:
-                    if isinstance(block, str):
-                        text_parts.append(block)
-                    elif isinstance(block, dict) and block.get("type") == "text":
-                        text_parts.append(block.get("text", ""))
-                pending_user_message = "\n".join(text_parts) if text_parts else None
+                pending_user_timestamp = entry.get("timestamp")
+                # Handle content being a plain string vs a list of blocks
+                if isinstance(content, str):
+                    pending_user_message = content if content else None
+                else:
+                    text_parts = []
+                    for block in content:
+                        if isinstance(block, str):
+                            text_parts.append(block)
+                        elif isinstance(block, dict):
+                            block_type = block.get("type")
+                            if block_type == "text":
+                                text_parts.append(block.get("text", ""))
+                            elif block_type == "tool_result":
+                                # Store tool results for later matching with spans
+                                tool_use_id = block.get("tool_use_id")
+                                if tool_use_id:
+                                    result["tool_results"][tool_use_id] = block.get("content")
+                    pending_user_message = "\n".join(text_parts) if text_parts else None
 
             # Parse assistant messages
             elif entry_type == "assistant":
@@ -310,25 +345,65 @@ def parse_transcript(transcript_path: str) -> dict:
                 result["totals"]["cache_read_input_tokens"] += assistant_usage["cache_read_input_tokens"]
                 result["totals"]["cache_creation_input_tokens"] += assistant_usage["cache_creation_input_tokens"]
 
-                # Create turn entry
+                # Create turn entry with timestamps
+                assistant_timestamp = entry.get("timestamp")
                 turn = {
                     "user_message": pending_user_message,
+                    "user_timestamp": pending_user_timestamp,
                     "assistant_response": {
                         "model": model,
                         "text_content": "\n".join(text_parts) if text_parts else None,
                         "usage": assistant_usage,
                         "tool_calls": tool_calls,
+                        "timestamp": assistant_timestamp,
                     },
                 }
                 result["turns"].append(turn)
                 pending_user_message = None
+                pending_user_timestamp = None
 
     return result
 
 
+def generate_deterministic_id(seed: str, prefix: str = "") -> str:
+    """
+    Generate a deterministic UUID-like ID from a seed string.
+
+    This ensures that the same conversation data sent from different sessions
+    (e.g., task session and feedback session) produces the same observation IDs,
+    allowing Langfuse to upsert rather than create duplicates.
+
+    Args:
+        seed: A stable identifier (e.g., timestamp + content hash)
+        prefix: Optional prefix for debugging (not included in ID)
+
+    Returns:
+        A 32-character hex string suitable for Langfuse observation IDs
+    """
+    return hashlib.sha256(seed.encode()).hexdigest()[:32]
+
+
+def parse_iso_timestamp(ts: str | None) -> datetime | None:
+    """Parse ISO timestamp string to timezone-aware datetime."""
+    if not ts:
+        return None
+    try:
+        # Handle various ISO formats (with/without microseconds, Z suffix)
+        ts = ts.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(ts)
+        # Ensure timezone-aware
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
 def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | None]) -> None:
     """
-    Send parsed transcript traces to Langfuse with hierarchical structure.
+    Send parsed transcript traces to Langfuse using low-level ingestion API.
+
+    Uses explicit startTime/endTime from transcript timestamps for accurate duration tracking.
 
     Creates:
         Trace: claude-code-session
@@ -336,16 +411,29 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
         ├── input: first user message
         ├── output: last assistant text
         │
-        ├── Generation Span: "llm-response-{i}"
+        ├── Generation: "llm-response-{i}"
         │   ├── model, input (user message), output (assistant text)
-        │   ├── usage: {input, output, cache_read, cache_creation}
+        │   ├── startTime: user message timestamp, endTime: assistant response timestamp
+        │   ├── usageDetails: {input, output, cache_read, cache_creation}
         │   │
-        │   └── Tool Span: "{tool_name}" (child for each tool_call)
+        │   └── Span: "{tool_name}" (child for each tool_call)
         │       ├── input: tool_input dict
         │       └── metadata: {activity_kind, tool_use_id}
     """
     try:
         from langfuse import Langfuse
+        from langfuse.api.resources.ingestion.types import (
+            IngestionEvent_GenerationCreate,
+            IngestionEvent_SpanCreate,
+            IngestionEvent_TraceCreate,
+        )
+        from langfuse.api.resources.ingestion.types.create_generation_body import (
+            CreateGenerationBody,
+        )
+        from langfuse.api.resources.ingestion.types.create_span_body import (
+            CreateSpanBody,
+        )
+        from langfuse.api.resources.ingestion.types.trace_body import TraceBody
     except ImportError as e:
         debug_log(f"langfuse package not installed: {e}")
         print("Warning: langfuse package not installed", file=sys.stderr)
@@ -363,18 +451,37 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
 
     turns = parsed.get("turns", [])
     totals = parsed.get("totals", {})
+    tool_results = parsed.get("tool_results", {})
     session_metadata = parsed.get("session_metadata", {})
 
-    # Extract first user message and last assistant text for trace-level I/O
-    first_user_message = None
-    last_assistant_text = None
+    # Extract first/last timestamps for trace-level timing
+    first_timestamp: datetime | None = None
+    last_timestamp: datetime | None = None
+    first_user_message: str | None = None
+    last_assistant_text: str | None = None
+
     for turn in turns:
+        user_ts = parse_iso_timestamp(turn.get("user_timestamp"))
+        assistant_ts = parse_iso_timestamp(turn.get("assistant_response", {}).get("timestamp"))
+
+        if user_ts and first_timestamp is None:
+            first_timestamp = user_ts
+        if assistant_ts:
+            last_timestamp = assistant_ts
+
         user_msg = turn.get("user_message")
         if user_msg and first_user_message is None:
             first_user_message = user_msg
         assistant_text = turn.get("assistant_response", {}).get("text_content")
         if assistant_text:
             last_assistant_text = assistant_text
+
+    # Fallback timestamps if parsing fails
+    now = datetime.now(timezone.utc)
+    if first_timestamp is None:
+        first_timestamp = now
+    if last_timestamp is None:
+        last_timestamp = now
 
     # Count total tool calls
     total_tool_calls = sum(
@@ -386,6 +493,7 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
     trace_metadata = {
         "source": "claude-code",
         "hook": "langfuse-hook",
+        "session_id": session_id,  # Keep original session_id for debugging
         "model": session_metadata.get("model"),
         "git_branch": session_metadata.get("git_branch"),
         "cwd": session_metadata.get("cwd"),
@@ -403,56 +511,141 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
         if value is not None:
             trace_metadata[key] = value
 
-    # Create trace with root span
-    with langfuse.start_as_current_span(name="claude-code-session") as root_span:
-        root_span.update_trace(
-            name="claude-code-session",
-            session_id=session_id,
-            input=(first_user_message),
-            output=(last_assistant_text),
-            metadata=trace_metadata,
+    # Build ingestion events
+    events = []
+    # Langfuse data model:
+    # - Session: groups multiple traces (use vk_task_id to group all runs for same task)
+    # - Trace: single complete operation (each Claude Code session is one trace)
+    trace_id = session_id
+    langfuse_session_id = vk_context.get("vk_task_id")  # None if not in vibe-kanban context
+    ingestion_now = now.isoformat()
+    account_id = get_claude_account_id()
+
+    # Build tags for filtering in Langfuse UI
+    tags = ["claude-code"]
+    if langfuse_session_id:
+        tags.append("vibe-kanban")
+
+    # Create trace event
+    events.append(
+        IngestionEvent_TraceCreate(
+            id=str(uuid.uuid4()),
+            timestamp=ingestion_now,
+            body=TraceBody(
+                id=trace_id,
+                name="claude-code-session",
+                session_id=langfuse_session_id,
+                user_id=account_id,
+                input=first_user_message,
+                output=last_assistant_text,
+                metadata=trace_metadata,
+                tags=tags,
+                timestamp=first_timestamp,
+            ),
+        )
+    )
+
+    # Create generation and span events for each turn
+    # Track previous end_time for continuations without user_timestamp
+    prev_end_time: datetime | None = None
+
+    for i, turn in enumerate(turns):
+        user_message = turn.get("user_message")
+        user_timestamp = parse_iso_timestamp(turn.get("user_timestamp"))
+        assistant_response = turn.get("assistant_response", {})
+        model = assistant_response.get("model")
+        text_content = assistant_response.get("text_content")
+        usage = assistant_response.get("usage", {})
+        tool_calls = assistant_response.get("tool_calls", [])
+        assistant_timestamp = parse_iso_timestamp(assistant_response.get("timestamp"))
+
+        # Determine start_time: prefer user_timestamp, then prev_end_time, then first_timestamp
+        # This handles continuations after tool results where there's no user message
+        if user_timestamp:
+            start_time = user_timestamp
+        elif prev_end_time:
+            start_time = prev_end_time
+        else:
+            start_time = first_timestamp
+
+        # Determine end_time: prefer assistant_timestamp, then use start_time (instant)
+        end_time = assistant_timestamp or start_time
+
+        # Generate deterministic generation ID from stable data
+        # This ensures inherited turns from task session get the same ID in feedback session
+        # Using: turn timestamp + user message content (both are identical in inherited transcript)
+        gen_seed_parts = [
+            turn.get("user_timestamp") or "",
+            turn.get("assistant_response", {}).get("timestamp") or "",
+            user_message or "",
+        ]
+        generation_id = generate_deterministic_id("|".join(gen_seed_parts))
+
+        # Create generation event with accurate timestamps
+        events.append(
+            IngestionEvent_GenerationCreate(
+                id=str(uuid.uuid4()),
+                timestamp=ingestion_now,
+                body=CreateGenerationBody(
+                    id=generation_id,
+                    trace_id=trace_id,
+                    name=f"llm-response-{i}",
+                    model=model,
+                    input=user_message,
+                    output=text_content,
+                    start_time=start_time,
+                    end_time=end_time,
+                    usage_details={
+                        "input": usage.get("input_tokens", 0),
+                        "output": usage.get("output_tokens", 0),
+                        "total": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
+                        # Use Langfuse's expected cache key names for proper cost calculation
+                        "input_cache_read": usage.get("cache_read_input_tokens", 0),
+                        "input_cache_creation": usage.get("cache_creation_input_tokens", 0),
+                    },
+                    metadata={"tool_call_count": len(tool_calls)},
+                ),
+            )
         )
 
-        # Create generation span for each turn with tool spans as children
-        for i, turn in enumerate(turns):
-            user_message = turn.get("user_message")
-            assistant_response = turn.get("assistant_response", {})
-            model = assistant_response.get("model")
-            text_content = assistant_response.get("text_content")
-            usage = assistant_response.get("usage", {})
-            tool_calls = assistant_response.get("tool_calls", [])
-
-            # Create generation span for this LLM response
-            gen_span = root_span.start_span(
-                name=f"llm-response-{i}",
-                input=(user_message),
-                output=(text_content),
-                metadata={"model": model, "tool_call_count": len(tool_calls)},
-            )
-            gen_span.update(
-                usage_details={
-                    "input": usage.get("input_tokens", 0),
-                    "output": usage.get("output_tokens", 0),
-                    "cache_read": usage.get("cache_read_input_tokens", 0),
-                    "cache_creation": usage.get("cache_creation_input_tokens", 0),
-                },
-            )
-
-            # Create tool spans as children of the generation span
-            for tool_call in tool_calls:
-                tool_span = gen_span.start_span(
-                    name=tool_call["tool_name"],
-                    input=tool_call.get("tool_input"),
-                    metadata={
-                        "activity_kind": tool_call["activity_kind"],
-                        "tool_use_id": tool_call.get("tool_use_id"),
-                    },
+        # Create span events for tool calls as children of the generation
+        for tool_call in tool_calls:
+            tool_use_id = tool_call.get("tool_use_id")
+            # Look up tool result by tool_use_id to add as span output
+            tool_output = tool_results.get(tool_use_id) if tool_use_id else None
+            # Generate deterministic span ID from tool_use_id (assigned by Claude API, stable across sessions)
+            span_id = generate_deterministic_id(tool_use_id) if tool_use_id else str(uuid.uuid4())
+            events.append(
+                IngestionEvent_SpanCreate(
+                    id=str(uuid.uuid4()),  # Event ID must be unique per request
+                    timestamp=ingestion_now,
+                    body=CreateSpanBody(
+                        id=span_id,  # Body ID is deterministic for upsert
+                        trace_id=trace_id,
+                        parent_observation_id=generation_id,
+                        name=f"{tool_call['activity_kind']}/{tool_call['tool_name']}",
+                        input=tool_call.get("tool_input"),
+                        output=tool_output,
+                        start_time=start_time,
+                        end_time=end_time,
+                        metadata={
+                            "activity_kind": tool_call["activity_kind"],
+                            "tool_use_id": tool_use_id,
+                        },
+                    ),
                 )
-                tool_span.end()
+            )
 
-            gen_span.end()
+        # Update prev_end_time for next iteration
+        prev_end_time = end_time
 
-    langfuse.flush()
+    # Send batch to Langfuse
+    try:
+        langfuse.api.ingestion.batch(batch=events)
+        debug_log(f"Sent {len(events)} events to Langfuse via batch API")
+    except Exception as e:
+        debug_log(f"Error sending batch to Langfuse: {e}")
+        raise
 
 
 def main() -> int:
