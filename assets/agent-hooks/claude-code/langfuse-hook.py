@@ -365,6 +365,24 @@ def parse_transcript(transcript_path: str) -> dict:
     return result
 
 
+def generate_deterministic_id(seed: str, prefix: str = "") -> str:
+    """
+    Generate a deterministic UUID-like ID from a seed string.
+
+    This ensures that the same conversation data sent from different sessions
+    (e.g., task session and feedback session) produces the same observation IDs,
+    allowing Langfuse to upsert rather than create duplicates.
+
+    Args:
+        seed: A stable identifier (e.g., timestamp + content hash)
+        prefix: Optional prefix for debugging (not included in ID)
+
+    Returns:
+        A 32-character hex string suitable for Langfuse observation IDs
+    """
+    return hashlib.sha256(seed.encode()).hexdigest()[:32]
+
+
 def parse_iso_timestamp(ts: str | None) -> datetime | None:
     """Parse ISO timestamp string to timezone-aware datetime."""
     if not ts:
@@ -553,7 +571,15 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
         # Determine end_time: prefer assistant_timestamp, then use start_time (instant)
         end_time = assistant_timestamp or start_time
 
-        generation_id = str(uuid.uuid4())
+        # Generate deterministic generation ID from stable data
+        # This ensures inherited turns from task session get the same ID in feedback session
+        # Using: turn timestamp + user message content (both are identical in inherited transcript)
+        gen_seed_parts = [
+            turn.get("user_timestamp") or "",
+            turn.get("assistant_response", {}).get("timestamp") or "",
+            user_message or "",
+        ]
+        generation_id = generate_deterministic_id("|".join(gen_seed_parts))
 
         # Create generation event with accurate timestamps
         events.append(
@@ -587,12 +613,14 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
             tool_use_id = tool_call.get("tool_use_id")
             # Look up tool result by tool_use_id to add as span output
             tool_output = tool_results.get(tool_use_id) if tool_use_id else None
+            # Generate deterministic span ID from tool_use_id (assigned by Claude API, stable across sessions)
+            span_id = generate_deterministic_id(tool_use_id) if tool_use_id else str(uuid.uuid4())
             events.append(
                 IngestionEvent_SpanCreate(
-                    id=str(uuid.uuid4()),
+                    id=str(uuid.uuid4()),  # Event ID must be unique per request
                     timestamp=ingestion_now,
                     body=CreateSpanBody(
-                        id=str(uuid.uuid4()),
+                        id=span_id,  # Body ID is deterministic for upsert
                         trace_id=trace_id,
                         parent_observation_id=generation_id,
                         name=f"{tool_call['activity_kind']}/{tool_call['tool_name']}",
