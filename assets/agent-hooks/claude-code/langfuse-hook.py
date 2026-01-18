@@ -20,6 +20,7 @@ Vibe-Kanban context (optional, set when running in vibe-kanban workspace):
     VK_WORKSPACE_ID: The workspace/worktree ID
 """
 
+import hashlib
 import json
 import os
 import re
@@ -54,6 +55,25 @@ def get_vk_context() -> dict[str, str | None]:
         "vk_attempt_id": os.environ.get("VK_ATTEMPT_ID"),
         "vk_workspace_id": os.environ.get("VK_WORKSPACE_ID"),
     }
+
+
+def get_claude_account_id() -> str | None:
+    """
+    Get a unique identifier for the current Claude account.
+
+    Reads the access token from ~/.claude/.credentials.json and hashes it
+    to create a privacy-preserving unique identifier per account.
+    """
+    credentials_path = Path.home() / ".claude" / ".credentials.json"
+    try:
+        with open(credentials_path, "r", encoding="utf-8") as f:
+            credentials = json.load(f)
+        token = credentials.get("claudeAiOauth", {}).get("accessToken")
+        if token:
+            return hashlib.sha256(token.encode()).hexdigest()[:16]
+    except (OSError, json.JSONDecodeError, KeyError):
+        pass
+    return None
 
 
 def classify_activity(tool_name: str, tool_input: dict | None) -> str:
@@ -467,6 +487,7 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
     events = []
     trace_id = session_id
     ingestion_now = now.isoformat()
+    account_id = get_claude_account_id()
 
     # Create trace event
     events.append(
@@ -477,6 +498,7 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
                 id=trace_id,
                 name="claude-code-session",
                 session_id=session_id,
+                user_id=account_id,
                 input=first_user_message,
                 output=last_assistant_text,
                 metadata=trace_metadata,
