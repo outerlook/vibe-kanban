@@ -12,13 +12,20 @@ import {
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { useBranchAncestorStatus, useProjectQueueCount } from '@/hooks';
+import { getTaskGroupColorClass } from '@/lib/ganttColors';
+import { useBranchAncestorStatus, useGroupQueueCount } from '@/hooks';
 import { useDeleteTaskGroup } from '@/hooks/useTaskGroups';
 import { StatusCountBadge } from './StatusCountBadge';
 import {
@@ -27,6 +34,19 @@ import {
   ConfirmDialog,
 } from '@/components/dialogs';
 import type { TaskGroupWithStats, TaskStatus } from 'shared/types';
+
+const BORDER_COLORS: Record<string, string> = {
+  'group-0': 'border-l-indigo-500',
+  'group-1': 'border-l-violet-500',
+  'group-2': 'border-l-pink-500',
+  'group-3': 'border-l-rose-500',
+  'group-4': 'border-l-orange-500',
+  'group-5': 'border-l-amber-500',
+  'group-6': 'border-l-emerald-500',
+  'group-7': 'border-l-teal-500',
+  'group-8': 'border-l-cyan-500',
+  'group-9': 'border-l-sky-500',
+};
 
 interface GroupCardProps {
   group: TaskGroupWithStats;
@@ -52,7 +72,7 @@ export function GroupCard({
   const { t } = useTranslation('tasks');
   const { data: branchStatus, isLoading: isBranchLoading } =
     useBranchAncestorStatus(repoId, group.base_branch ?? undefined);
-  const { data: queueCount } = useProjectQueueCount(projectId);
+  const { data: queueCount } = useGroupQueueCount(group.id);
 
   const deleteMutation = useDeleteTaskGroup();
 
@@ -63,6 +83,8 @@ export function GroupCard({
   }>({ open: false, x: 0, y: 0 });
 
   const counts = group.task_counts;
+  const colorClass = getTaskGroupColorClass(group.id);
+  const borderColorClass = BORDER_COLORS[colorClass] ?? '';
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -106,6 +128,8 @@ export function GroupCard({
         className={cn(
           'p-4 cursor-pointer transition-colors',
           'hover:bg-accent/50 border border-border rounded-lg',
+          'border-l-4',
+          borderColorClass,
           onClick && 'hover:shadow-sm'
         )}
       >
@@ -120,9 +144,31 @@ export function GroupCard({
                 {isBranchLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 ) : branchStatus?.is_ancestor ? (
-                  <Check className="h-4 w-4 text-emerald-500" />
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div>
+                          <Check className="h-4 w-4 text-emerald-500" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        Base branch is up to date
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 ) : (
-                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div>
+                          <AlertTriangle className="h-4 w-4 text-amber-500" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        Base branch needs updating
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 )}
               </div>
             )}

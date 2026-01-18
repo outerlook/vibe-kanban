@@ -29,6 +29,7 @@ export {
   useCancelQueuedMerge,
   useQueueStatus,
   useProjectQueueCount,
+  useGroupQueueCount,
 } from './useMergeQueue';
 export { useGenerateCommitMessage } from './useGenerateCommitMessage';
 export { usePush } from './usePush';

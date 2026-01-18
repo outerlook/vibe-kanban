@@ -270,6 +270,24 @@ impl MergeQueue {
         Ok(result)
     }
 
+    /// Count entries in the merge queue for a task group
+    pub async fn count_by_task_group(
+        pool: &SqlitePool,
+        task_group_id: Uuid,
+    ) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!: i64"
+            FROM merge_queue mq
+            JOIN workspaces w ON mq.workspace_id = w.id
+            JOIN tasks t ON w.task_id = t.id
+            WHERE t.task_group_id = ?"#,
+            task_group_id
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(result)
+    }
+
     /// List all merge queue entries for a project, ordered by queued_at (oldest first)
     pub async fn list_by_project(
         pool: &SqlitePool,
