@@ -326,15 +326,6 @@ def parse_transcript(transcript_path: str) -> dict:
     return result
 
 
-def truncate_text(text: str | None, max_len: int = 500) -> str | None:
-    """Truncate text to max_len characters, adding ellipsis if truncated."""
-    if text is None:
-        return None
-    if len(text) <= max_len:
-        return text
-    return text[:max_len] + "..."
-
-
 def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | None]) -> None:
     """
     Send parsed transcript traces to Langfuse with hierarchical structure.
@@ -342,8 +333,8 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
     Creates:
         Trace: claude-code-session
         ├── session_id, metadata (vk_*, model, git_branch, activity_counts, totals)
-        ├── input: first user message (truncated to 500 chars)
-        ├── output: last assistant text (truncated to 500 chars)
+        ├── input: first user message
+        ├── output: last assistant text
         │
         ├── Generation Span: "llm-response-{i}"
         │   ├── model, input (user message), output (assistant text)
@@ -417,8 +408,8 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
         root_span.update_trace(
             name="claude-code-session",
             session_id=session_id,
-            input=truncate_text(first_user_message),
-            output=truncate_text(last_assistant_text),
+            input=(first_user_message),
+            output=(last_assistant_text),
             metadata=trace_metadata,
         )
 
@@ -434,8 +425,8 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
             # Create generation span for this LLM response
             gen_span = root_span.start_span(
                 name=f"llm-response-{i}",
-                input=truncate_text(user_message),
-                output=truncate_text(text_content),
+                input=(user_message),
+                output=(text_content),
                 metadata={"model": model, "tool_call_count": len(tool_calls)},
             )
             gen_span.update(
