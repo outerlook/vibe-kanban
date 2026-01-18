@@ -39,20 +39,11 @@ def get_vk_context() -> dict[str, str | None]:
     These environment variables are set by vibe-kanban when running agents
     in a workspace context (see crates/local-deployment/src/container.rs).
     """
-    context = {
+    return {
         "vk_task_id": os.environ.get("VK_TASK_ID"),
         "vk_attempt_id": os.environ.get("VK_ATTEMPT_ID"),
         "vk_workspace_id": os.environ.get("VK_WORKSPACE_ID"),
     }
-
-    # Debug logging for extracted context
-    non_empty = {k: v for k, v in context.items() if v is not None}
-    if non_empty:
-        print(f"Debug: VK context extracted: {non_empty}", file=sys.stderr)
-    else:
-        print("Debug: No VK context found in environment", file=sys.stderr)
-
-    return context
 
 
 def classify_activity(tool_name: str, tool_input: dict | None) -> str:
@@ -120,7 +111,8 @@ def parse_transcript(transcript_path: str) -> dict:
     Returns a dict with:
         - session_metadata: {cwd, git_branch, model}
         - turns: List of {user_message, assistant_response} pairs
-        - totals: {input_tokens, output_tokens, activity_counts}
+        - totals: {input_tokens, output_tokens, cache_read_input_tokens,
+                   cache_creation_input_tokens, activity_counts}
     """
     result = {
         "session_metadata": {"cwd": None, "git_branch": None, "model": None},
@@ -345,13 +337,8 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
                 name=f"llm-response-{i}",
                 input=truncate_text(user_message),
                 output=truncate_text(text_content),
-                metadata={
-                    "model": model,
-                    "tool_call_count": len(tool_calls),
-                },
+                metadata={"model": model, "tool_call_count": len(tool_calls)},
             )
-
-            # Update with usage details
             gen_span.update(
                 usage_details={
                     "input": usage.get("input_tokens", 0),
@@ -419,7 +406,7 @@ def main() -> int:
 
     # Debug logging
     if os.environ.get("DEBUG_LANGFUSE_HOOK", "").lower() == "true":
-        print(f"Parsed transcript: {json.dumps(parsed, indent=2, default=str)}", file=sys.stderr)
+        print(f"Parsed transcript: {json.dumps(parsed, indent=2)}", file=sys.stderr)
 
     print(
         f"Langfuse hook: {turn_count} turns, {total_tool_calls} tool calls, "
