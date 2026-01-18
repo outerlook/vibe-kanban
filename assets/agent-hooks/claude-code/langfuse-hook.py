@@ -426,25 +426,26 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
             usage = assistant_response.get("usage", {})
             tool_calls = assistant_response.get("tool_calls", [])
 
-            # Create generation span for this LLM response
-            gen_span = root_span.start_span(
+            # Create generation for this LLM response (generation type supports usage tracking)
+            gen = root_span.start_observation(
+                as_type="generation",
                 name=f"llm-response-{i}",
-                input=(user_message),
-                output=(text_content),
-                metadata={"model": model, "tool_call_count": len(tool_calls)},
-            )
-            gen_span.update(
+                model=model,
+                input=user_message,
+                output=text_content,
                 usage_details={
                     "input": usage.get("input_tokens", 0),
                     "output": usage.get("output_tokens", 0),
+                    "total": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
                     "cache_read": usage.get("cache_read_input_tokens", 0),
                     "cache_creation": usage.get("cache_creation_input_tokens", 0),
                 },
+                metadata={"tool_call_count": len(tool_calls)},
             )
 
-            # Create tool spans as children of the generation span
+            # Create tool spans as children of the generation
             for tool_call in tool_calls:
-                tool_span = gen_span.start_span(
+                tool_span = gen.start_observation(
                     name=tool_call["tool_name"],
                     input=tool_call.get("tool_input"),
                     metadata={
@@ -454,7 +455,7 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
                 )
                 tool_span.end()
 
-            gen_span.end()
+            gen.end()
 
     langfuse.flush()
 
