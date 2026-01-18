@@ -43,15 +43,13 @@ fn main() {
         .setup(|app| {
             let state = app.state::<AppState>();
             let state_clone = AppState {
-                mode: state.mode.clone(),
-                embedded_server_handle: state.embedded_server_handle.clone(),
                 server_url: state.server_url.clone(),
                 mcp_process_handle: state.mcp_process_handle.clone(),
                 mcp_port: state.mcp_port,
                 backend_port: state.backend_port,
             };
 
-            // Start embedded server if in Local mode - spawn async to not block webview
+            // Initialize local mode - spawn async to not block webview
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = initialize_local_mode(&state_clone).await {
                     tracing::error!("Failed to initialize local mode: {}", e);
