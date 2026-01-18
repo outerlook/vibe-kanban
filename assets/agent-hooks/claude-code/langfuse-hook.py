@@ -146,39 +146,40 @@ def send_to_langfuse(session_id: str, tool_calls: list[dict]) -> None:
 
     langfuse = Langfuse(public_key=public_key, secret_key=secret_key, host=host)
 
-    # Create a trace for this session
-    trace = langfuse.trace(
-        name="claude-code-session",
-        session_id=session_id,
-        metadata={"source": "claude-code", "hook": "langfuse-hook"},
-    )
-
     # Aggregate activity counts
     activity_counts = {"BUILD": 0, "CODE": 0, "EXPLORE": 0}
 
-    for tool_call in tool_calls:
-        activity_kind = tool_call["activity_kind"]
-        activity_counts[activity_kind] += 1
-
-        # Create a span for each tool call
-        trace.span(
-            name=tool_call["tool_name"],
-            input=tool_call.get("tool_input"),
-            metadata={
-                "activity_kind": activity_kind,
-                "tool_use_id": tool_call.get("tool_use_id"),
-            },
+    # Create a trace with a root span using the v3 API
+    with langfuse.start_as_current_span(name="claude-code-session") as root_span:
+        # Set trace-level properties
+        root_span.update_trace(
+            name="claude-code-session",
+            session_id=session_id,
+            metadata={"source": "claude-code", "hook": "langfuse-hook"},
         )
 
-    # Update trace with activity summary
-    trace.update(
-        metadata={
-            "source": "claude-code",
-            "hook": "langfuse-hook",
-            "activity_counts": activity_counts,
-            "total_tool_calls": len(tool_calls),
-        }
-    )
+        for tool_call in tool_calls:
+            activity_kind = tool_call["activity_kind"]
+            activity_counts[activity_kind] += 1
+
+            # Create a child span for each tool call
+            child_span = root_span.start_span(
+                name=tool_call["tool_name"],
+                input=tool_call.get("tool_input"),
+                metadata={
+                    "activity_kind": activity_kind,
+                    "tool_use_id": tool_call.get("tool_use_id"),
+                },
+            )
+            child_span.end()
+
+        # Update root span with activity summary
+        root_span.update(
+            metadata={
+                "activity_counts": activity_counts,
+                "total_tool_calls": len(tool_calls),
+            }
+        )
 
     langfuse.flush()
 
