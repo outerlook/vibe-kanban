@@ -1801,7 +1801,8 @@ pub async fn queue_merge(
         .ok_or(ApiError::Workspace(WorkspaceError::TaskNotFound))?;
 
     // Create the merge queue entry
-    let entry = MergeQueue::create(pool, task.project_id, workspace.id, request.repo_id).await?;
+    let entry =
+        MergeQueue::create(pool, task.project_id, workspace.id, request.repo_id, None).await?;
 
     // Spawn background processor
     let processor_pool = pool.clone();

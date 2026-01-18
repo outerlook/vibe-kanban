@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n                id AS \"id!: Uuid\",\n                project_id AS \"project_id!: Uuid\",\n                workspace_id AS \"workspace_id!: Uuid\",\n                repo_id AS \"repo_id!: Uuid\",\n                queued_at AS \"queued_at!: DateTime<Utc>\",\n                status AS \"status!: MergeQueueStatus\",\n                conflict_message,\n                started_at AS \"started_at: DateTime<Utc>\",\n                completed_at AS \"completed_at: DateTime<Utc>\"\n            FROM merge_queue\n            WHERE project_id = ?\n            ORDER BY queued_at ASC",
+  "query": "SELECT\n                id AS \"id!: Uuid\",\n                project_id AS \"project_id!: Uuid\",\n                workspace_id AS \"workspace_id!: Uuid\",\n                repo_id AS \"repo_id!: Uuid\",\n                queued_at AS \"queued_at!: DateTime<Utc>\",\n                status AS \"status!: MergeQueueStatus\",\n                conflict_message,\n                commit_message,\n                started_at AS \"started_at: DateTime<Utc>\",\n                completed_at AS \"completed_at: DateTime<Utc>\"\n            FROM merge_queue\n            WHERE project_id = ? AND status = 'queued'\n            ORDER BY queued_at ASC\n            LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -39,13 +39,18 @@
         "type_info": "Text"
       },
       {
-        "name": "started_at: DateTime<Utc>",
+        "name": "commit_message",
         "ordinal": 7,
         "type_info": "Text"
       },
       {
-        "name": "completed_at: DateTime<Utc>",
+        "name": "started_at: DateTime<Utc>",
         "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "completed_at: DateTime<Utc>",
+        "ordinal": 9,
         "type_info": "Text"
       }
     ],
@@ -61,8 +66,9 @@
       false,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "77c3f35bb8872f153445b2b946203482e2ce1680717ac0a8e35ca26016d22924"
+  "hash": "0be5fe357859c3e4380ed1a295f902dff837bfe016abe247ffe5de4324b47071"
 }
