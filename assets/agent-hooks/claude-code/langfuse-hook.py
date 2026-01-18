@@ -11,6 +11,11 @@ Environment variables:
     LANGFUSE_PUBLIC_KEY: Langfuse public key (required when tracing)
     LANGFUSE_SECRET_KEY: Langfuse secret key (required when tracing)
     LANGFUSE_HOST: Langfuse host URL (optional, defaults to https://cloud.langfuse.com)
+
+Vibe-Kanban context (optional, set when running in vibe-kanban workspace):
+    VK_TASK_ID: The kanban task being worked on
+    VK_ATTEMPT_ID: The specific execution attempt
+    VK_WORKSPACE_ID: The workspace/worktree ID
 """
 
 import json
@@ -18,6 +23,34 @@ import os
 import re
 import sys
 from pathlib import Path
+
+
+def get_vk_context() -> dict[str, str | None]:
+    """
+    Extract vibe-kanban context from environment variables.
+
+    Returns a dict with:
+        - vk_task_id: The kanban task being worked on (or None)
+        - vk_attempt_id: The specific execution attempt (or None)
+        - vk_workspace_id: The workspace/worktree ID (or None)
+
+    These environment variables are set by vibe-kanban when running agents
+    in a workspace context (see crates/local-deployment/src/container.rs).
+    """
+    context = {
+        "vk_task_id": os.environ.get("VK_TASK_ID"),
+        "vk_attempt_id": os.environ.get("VK_ATTEMPT_ID"),
+        "vk_workspace_id": os.environ.get("VK_WORKSPACE_ID"),
+    }
+
+    # Debug logging for extracted context
+    non_empty = {k: v for k, v in context.items() if v is not None}
+    if non_empty:
+        print(f"Debug: VK context extracted: {non_empty}", file=sys.stderr)
+    else:
+        print("Debug: No VK context found in environment", file=sys.stderr)
+
+    return context
 
 
 def classify_activity(tool_name: str, tool_input: dict | None) -> str:
