@@ -11,9 +11,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx';
 import { Button } from '@/components/ui/button.tsx';
+import { Badge } from '@/components/ui/badge.tsx';
 import {
   Calendar,
   Circle,
+  Clock,
   Edit,
   ExternalLink,
   FolderOpen,
@@ -57,6 +59,10 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
       setError('Failed to unlink project');
     },
   });
+
+  const lastUpdated = new Date(project.updated_at);
+  const isActive =
+    new Date().getTime() - lastUpdated.getTime() < 7 * 24 * 60 * 60 * 1000;
 
   useEffect(() => {
     if (isFocused && ref.current) {
@@ -120,6 +126,11 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
             <CardTitle className="text-lg">{project.name}</CardTitle>
+            {isActive && (
+              <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
+                Active
+              </Badge>
+            )}
             {hasUnread && (
               <Circle className="h-3 w-3 fill-amber-500 text-amber-500 shrink-0" />
             )}
@@ -196,12 +207,20 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
             </DropdownMenu>
           </div>
         </div>
-        <CardDescription className="flex items-center">
-          <Calendar className="mr-1 h-3 w-3" />
-          {t('createdDate', {
-            date: new Date(project.created_at).toLocaleDateString(),
-          })}
-        </CardDescription>
+        <div className="flex flex-col gap-1 mt-2">
+          <CardDescription className="flex items-center">
+            <Clock className="mr-1 h-3 w-3" />
+            <span className="truncate">
+              Updated {lastUpdated.toLocaleDateString()}
+            </span>
+          </CardDescription>
+          <CardDescription className="flex items-center">
+            <Calendar className="mr-1 h-3 w-3" />
+            {t('createdDate', {
+              date: new Date(project.created_at).toLocaleDateString(),
+            })}
+          </CardDescription>
+        </div>
       </CardHeader>
     </Card>
   );
