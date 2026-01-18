@@ -508,6 +508,9 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
     )
 
     # Create generation and span events for each turn
+    # Track previous end_time for continuations without user_timestamp
+    prev_end_time: datetime | None = None
+
     for i, turn in enumerate(turns):
         user_message = turn.get("user_message")
         user_timestamp = parse_iso_timestamp(turn.get("user_timestamp"))
@@ -517,6 +520,18 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
         usage = assistant_response.get("usage", {})
         tool_calls = assistant_response.get("tool_calls", [])
         assistant_timestamp = parse_iso_timestamp(assistant_response.get("timestamp"))
+
+        # Determine start_time: prefer user_timestamp, then prev_end_time, then first_timestamp
+        # This handles continuations after tool results where there's no user message
+        if user_timestamp:
+            start_time = user_timestamp
+        elif prev_end_time:
+            start_time = prev_end_time
+        else:
+            start_time = first_timestamp
+
+        # Determine end_time: prefer assistant_timestamp, then use start_time (instant)
+        end_time = assistant_timestamp or start_time
 
         generation_id = str(uuid.uuid4())
 
@@ -532,8 +547,8 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
                     model=model,
                     input=user_message,
                     output=text_content,
-                    start_time=user_timestamp or first_timestamp,
-                    end_time=assistant_timestamp or last_timestamp,
+                    start_time=start_time,
+                    end_time=end_time,
                     usage_details={
                         "input": usage.get("input_tokens", 0),
                         "output": usage.get("output_tokens", 0),
@@ -558,8 +573,8 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
                         parent_observation_id=generation_id,
                         name=tool_call["tool_name"],
                         input=tool_call.get("tool_input"),
-                        start_time=user_timestamp or first_timestamp,
-                        end_time=assistant_timestamp or last_timestamp,
+                        start_time=start_time,
+                        end_time=end_time,
                         metadata={
                             "activity_kind": tool_call["activity_kind"],
                             "tool_use_id": tool_call.get("tool_use_id"),
@@ -567,6 +582,9 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
                     ),
                 )
             )
+
+        # Update prev_end_time for next iteration
+        prev_end_time = end_time
 
     # Send batch to Langfuse
     try:
