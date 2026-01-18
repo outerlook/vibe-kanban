@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { EmptyState } from '@/components/ui/empty-state';
+import { SkeletonCard } from '@/components/ui/loading-states';
 import { Project } from 'shared/types';
 import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
-import { AlertCircle, Loader2, Plus } from 'lucide-react';
+import { AlertCircle, FolderKanban, Plus } from 'lucide-react';
 import ProjectCard from '@/components/projects/ProjectCard.tsx';
 import { useKeyCreate, Scope } from '@/keyboard';
 import { useProjects } from '@/hooks/useProjects';
@@ -86,26 +87,22 @@ export function ProjectList() {
       )}
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          {t('loading')}
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
         </div>
       ) : projects.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-muted">
-              <Plus className="h-6 w-6" />
-            </div>
-            <h3 className="mt-4 text-lg font-semibold">{t('empty.title')}</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {t('empty.description')}
-            </p>
-            <Button className="mt-4" onClick={handleCreateProject}>
-              <Plus className="mr-2 h-4 w-4" />
-              {t('empty.createFirst')}
-            </Button>
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={<FolderKanban className="h-full w-full" />}
+          title={t('empty.title')}
+          description={t('empty.description')}
+          action={{
+            label: t('empty.createFirst'),
+            onClick: handleCreateProject,
+            icon: <Plus className="mr-2 h-4 w-4" />,
+          }}
+        />
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {projects.map((project) => (
