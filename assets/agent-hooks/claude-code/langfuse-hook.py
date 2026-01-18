@@ -24,7 +24,8 @@ import json
 import os
 import re
 import sys
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -229,6 +230,7 @@ def parse_transcript(transcript_path: str) -> dict:
         return result
 
     pending_user_message: str | None = None
+    pending_user_timestamp: str | None = None
 
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -252,6 +254,7 @@ def parse_transcript(transcript_path: str) -> dict:
             elif entry_type == "user":
                 message = entry.get("message", {})
                 content = message.get("content", [])
+                pending_user_timestamp = entry.get("timestamp")
                 # Handle content being a plain string vs a list of blocks
                 if isinstance(content, str):
                     pending_user_message = content if content else None
@@ -314,25 +317,47 @@ def parse_transcript(transcript_path: str) -> dict:
                 result["totals"]["cache_read_input_tokens"] += assistant_usage["cache_read_input_tokens"]
                 result["totals"]["cache_creation_input_tokens"] += assistant_usage["cache_creation_input_tokens"]
 
-                # Create turn entry
+                # Create turn entry with timestamps
+                assistant_timestamp = entry.get("timestamp")
                 turn = {
                     "user_message": pending_user_message,
+                    "user_timestamp": pending_user_timestamp,
                     "assistant_response": {
                         "model": model,
                         "text_content": "\n".join(text_parts) if text_parts else None,
                         "usage": assistant_usage,
                         "tool_calls": tool_calls,
+                        "timestamp": assistant_timestamp,
                     },
                 }
                 result["turns"].append(turn)
                 pending_user_message = None
+                pending_user_timestamp = None
 
     return result
 
 
+def parse_iso_timestamp(ts: str | None) -> datetime | None:
+    """Parse ISO timestamp string to timezone-aware datetime."""
+    if not ts:
+        return None
+    try:
+        # Handle various ISO formats (with/without microseconds, Z suffix)
+        ts = ts.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(ts)
+        # Ensure timezone-aware
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
 def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | None]) -> None:
     """
-    Send parsed transcript traces to Langfuse with hierarchical structure.
+    Send parsed transcript traces to Langfuse using low-level ingestion API.
+
+    Uses explicit startTime/endTime from transcript timestamps for accurate duration tracking.
 
     Creates:
         Trace: claude-code-session
@@ -340,16 +365,29 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
         ├── input: first user message
         ├── output: last assistant text
         │
-        ├── Generation Span: "llm-response-{i}"
+        ├── Generation: "llm-response-{i}"
         │   ├── model, input (user message), output (assistant text)
-        │   ├── usage: {input, output, cache_read, cache_creation}
+        │   ├── startTime: user message timestamp, endTime: assistant response timestamp
+        │   ├── usageDetails: {input, output, cache_read, cache_creation}
         │   │
-        │   └── Tool Span: "{tool_name}" (child for each tool_call)
+        │   └── Span: "{tool_name}" (child for each tool_call)
         │       ├── input: tool_input dict
         │       └── metadata: {activity_kind, tool_use_id}
     """
     try:
         from langfuse import Langfuse
+        from langfuse.api.resources.ingestion.types import (
+            IngestionEvent_GenerationCreate,
+            IngestionEvent_SpanCreate,
+            IngestionEvent_TraceCreate,
+        )
+        from langfuse.api.resources.ingestion.types.create_generation_body import (
+            CreateGenerationBody,
+        )
+        from langfuse.api.resources.ingestion.types.create_span_body import (
+            CreateSpanBody,
+        )
+        from langfuse.api.resources.ingestion.types.trace_body import TraceBody
     except ImportError as e:
         debug_log(f"langfuse package not installed: {e}")
         print("Warning: langfuse package not installed", file=sys.stderr)
@@ -369,16 +407,34 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
     totals = parsed.get("totals", {})
     session_metadata = parsed.get("session_metadata", {})
 
-    # Extract first user message and last assistant text for trace-level I/O
-    first_user_message = None
-    last_assistant_text = None
+    # Extract first/last timestamps for trace-level timing
+    first_timestamp: datetime | None = None
+    last_timestamp: datetime | None = None
+    first_user_message: str | None = None
+    last_assistant_text: str | None = None
+
     for turn in turns:
+        user_ts = parse_iso_timestamp(turn.get("user_timestamp"))
+        assistant_ts = parse_iso_timestamp(turn.get("assistant_response", {}).get("timestamp"))
+
+        if user_ts and first_timestamp is None:
+            first_timestamp = user_ts
+        if assistant_ts:
+            last_timestamp = assistant_ts
+
         user_msg = turn.get("user_message")
         if user_msg and first_user_message is None:
             first_user_message = user_msg
         assistant_text = turn.get("assistant_response", {}).get("text_content")
         if assistant_text:
             last_assistant_text = assistant_text
+
+    # Fallback timestamps if parsing fails
+    now = datetime.now(timezone.utc)
+    if first_timestamp is None:
+        first_timestamp = now
+    if last_timestamp is None:
+        last_timestamp = now
 
     # Count total tool calls
     total_tool_calls = sum(
@@ -407,57 +463,96 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
         if value is not None:
             trace_metadata[key] = value
 
-    # Create trace with root span
-    with langfuse.start_as_current_span(name="claude-code-session") as root_span:
-        root_span.update_trace(
-            name="claude-code-session",
-            session_id=session_id,
-            input=(first_user_message),
-            output=(last_assistant_text),
-            metadata=trace_metadata,
+    # Build ingestion events
+    events = []
+    trace_id = session_id
+    ingestion_now = now.isoformat()
+
+    # Create trace event
+    events.append(
+        IngestionEvent_TraceCreate(
+            id=str(uuid.uuid4()),
+            timestamp=ingestion_now,
+            body=TraceBody(
+                id=trace_id,
+                name="claude-code-session",
+                session_id=session_id,
+                input=first_user_message,
+                output=last_assistant_text,
+                metadata=trace_metadata,
+                timestamp=first_timestamp,
+            ),
+        )
+    )
+
+    # Create generation and span events for each turn
+    for i, turn in enumerate(turns):
+        user_message = turn.get("user_message")
+        user_timestamp = parse_iso_timestamp(turn.get("user_timestamp"))
+        assistant_response = turn.get("assistant_response", {})
+        model = assistant_response.get("model")
+        text_content = assistant_response.get("text_content")
+        usage = assistant_response.get("usage", {})
+        tool_calls = assistant_response.get("tool_calls", [])
+        assistant_timestamp = parse_iso_timestamp(assistant_response.get("timestamp"))
+
+        generation_id = str(uuid.uuid4())
+
+        # Create generation event with accurate timestamps
+        events.append(
+            IngestionEvent_GenerationCreate(
+                id=str(uuid.uuid4()),
+                timestamp=ingestion_now,
+                body=CreateGenerationBody(
+                    id=generation_id,
+                    trace_id=trace_id,
+                    name=f"llm-response-{i}",
+                    model=model,
+                    input=user_message,
+                    output=text_content,
+                    start_time=user_timestamp or first_timestamp,
+                    end_time=assistant_timestamp or last_timestamp,
+                    usage_details={
+                        "input": usage.get("input_tokens", 0),
+                        "output": usage.get("output_tokens", 0),
+                        "total": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
+                        "cache_read": usage.get("cache_read_input_tokens", 0),
+                        "cache_creation": usage.get("cache_creation_input_tokens", 0),
+                    },
+                    metadata={"tool_call_count": len(tool_calls)},
+                ),
+            )
         )
 
-        # Create generation span for each turn with tool spans as children
-        for i, turn in enumerate(turns):
-            user_message = turn.get("user_message")
-            assistant_response = turn.get("assistant_response", {})
-            model = assistant_response.get("model")
-            text_content = assistant_response.get("text_content")
-            usage = assistant_response.get("usage", {})
-            tool_calls = assistant_response.get("tool_calls", [])
-
-            # Create generation for this LLM response (generation type supports usage tracking)
-            gen = root_span.start_observation(
-                as_type="generation",
-                name=f"llm-response-{i}",
-                model=model,
-                input=user_message,
-                output=text_content,
-                usage_details={
-                    "input": usage.get("input_tokens", 0),
-                    "output": usage.get("output_tokens", 0),
-                    "total": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
-                    "cache_read": usage.get("cache_read_input_tokens", 0),
-                    "cache_creation": usage.get("cache_creation_input_tokens", 0),
-                },
-                metadata={"tool_call_count": len(tool_calls)},
+        # Create span events for tool calls as children of the generation
+        for tool_call in tool_calls:
+            events.append(
+                IngestionEvent_SpanCreate(
+                    id=str(uuid.uuid4()),
+                    timestamp=ingestion_now,
+                    body=CreateSpanBody(
+                        id=str(uuid.uuid4()),
+                        trace_id=trace_id,
+                        parent_observation_id=generation_id,
+                        name=tool_call["tool_name"],
+                        input=tool_call.get("tool_input"),
+                        start_time=user_timestamp or first_timestamp,
+                        end_time=assistant_timestamp or last_timestamp,
+                        metadata={
+                            "activity_kind": tool_call["activity_kind"],
+                            "tool_use_id": tool_call.get("tool_use_id"),
+                        },
+                    ),
+                )
             )
 
-            # Create tool spans as children of the generation
-            for tool_call in tool_calls:
-                tool_span = gen.start_observation(
-                    name=tool_call["tool_name"],
-                    input=tool_call.get("tool_input"),
-                    metadata={
-                        "activity_kind": tool_call["activity_kind"],
-                        "tool_use_id": tool_call.get("tool_use_id"),
-                    },
-                )
-                tool_span.end()
-
-            gen.end()
-
-    langfuse.flush()
+    # Send batch to Langfuse
+    try:
+        langfuse.api.ingestion.batch(batch=events)
+        debug_log(f"Sent {len(events)} events to Langfuse via batch API")
+    except Exception as e:
+        debug_log(f"Error sending batch to Langfuse: {e}")
+        raise
 
 
 def main() -> int:
