@@ -515,6 +515,11 @@ export const projectsApi = {
     );
     return handleApiResponse<MergeQueueCountResponse>(response);
   },
+
+  getWorkspaces: async (projectId: string): Promise<Workspace[]> => {
+    const response = await makeRequest(`/api/projects/${projectId}/workspaces`);
+    return handleApiResponse<Workspace[]>(response);
+  },
 };
 
 // Gantt API
