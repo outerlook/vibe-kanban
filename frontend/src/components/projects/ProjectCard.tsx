@@ -118,13 +118,13 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
     >
       <CardHeader>
         <div className="flex items-start justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <CardTitle className="text-lg">{project.name}</CardTitle>
             {hasUnread && (
               <Circle className="h-3 w-3 fill-amber-500 text-amber-500 shrink-0" />
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <DropdownMenu>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                 <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
