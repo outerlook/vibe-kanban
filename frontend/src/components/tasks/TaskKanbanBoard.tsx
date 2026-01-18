@@ -15,7 +15,7 @@ import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { SharedTaskCard } from './SharedTaskCard';
 import { useTaskSelection } from '@/contexts/TaskSelectionContext';
 import { Button } from '@/components/ui/button';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ClipboardList } from 'lucide-react';
 
 export type KanbanColumnItem =
   | {
@@ -80,6 +80,16 @@ function TaskKanbanBoard({
               onAddTask={onCreateTask}
             />
             <KanbanCards>
+              {items.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-8 text-center opacity-50">
+                  <div className="mb-2 p-2 bg-muted/50 rounded-full">
+                    <ClipboardList className="h-4 w-4" />
+                  </div>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {t('empty.noTasks', { defaultValue: 'No tasks' })}
+                  </p>
+                </div>
+              )}
               {items.map((item, index) => {
                 const isOwnTask =
                   item.type === 'task' &&
