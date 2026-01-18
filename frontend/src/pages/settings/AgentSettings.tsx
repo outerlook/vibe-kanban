@@ -20,8 +20,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { JSONEditor } from '@/components/ui/json-editor';
 import { Text } from '@/components/ui/text';
-import { SettingsSection } from '@/components/ui/settings-section';
-import { SettingsField } from '@/components/ui/settings-field';
+import { SettingsSection } from '@/components/settings/SettingsSection';
+import { SettingsField } from '@/components/settings/SettingsField';
 import { SkeletonForm } from '@/components/ui/loading-states';
 import { ChevronDown, Loader2 } from 'lucide-react';
 

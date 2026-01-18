@@ -37,8 +37,8 @@ import ExecutorProfileSelector from '@/components/settings/ExecutorProfileSelect
 import { CustomEditorsList } from '@/components/settings/CustomEditorsList';
 import { ServerModeSettings } from '@/components/settings/ServerModeSettings';
 import { soundsApi } from '@/lib/api';
-import { SettingsSection } from '@/components/ui/settings-section';
-import { SettingsField } from '@/components/ui/settings-field';
+import { SettingsSection } from '@/components/settings/SettingsSection';
+import { SettingsField } from '@/components/settings/SettingsField';
 import { Text } from '@/components/ui/text';
 import { SkeletonForm } from '@/components/ui/loading-states';
 

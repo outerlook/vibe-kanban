@@ -8,6 +8,11 @@ export interface SettingsSectionProps
   extends Omit<SectionProps, 'actions' | 'variant'> {
   id: string;
   collapsible?: boolean;
+  /**
+   * Whether the section is expanded by default.
+   * @deprecated Use `defaultExpanded` instead.
+   */
+  defaultOpen?: boolean;
   defaultExpanded?: boolean;
   badge?: {
     label: string;
@@ -35,6 +40,7 @@ export function SettingsSection({
   description,
   children,
   collapsible = false,
+  defaultOpen,
   defaultExpanded = true,
   badge,
   actions,
@@ -43,8 +49,10 @@ export function SettingsSection({
   spacing,
   ...props
 }: SettingsSectionProps) {
+  // Support both defaultOpen (deprecated) and defaultExpanded
+  const initialExpanded = defaultOpen ?? defaultExpanded;
   const [isExpanded, setIsExpanded] = React.useState(() =>
-    collapsible ? getInitialExpanded(id, defaultExpanded) : true
+    collapsible ? getInitialExpanded(id, initialExpanded) : true
   );
 
   const contentId = React.useId();
