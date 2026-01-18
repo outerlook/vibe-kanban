@@ -3,13 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { isEqual } from 'lodash';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -22,7 +16,12 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { Text } from '@/components/ui/text';
+import { ListItem } from '@/components/ui/list-item';
+import { SettingsSection } from '@/components/settings/SettingsSection';
+import { SettingsField } from '@/components/settings/SettingsField';
+import { SkeletonForm, SkeletonList } from '@/components/ui/loading-states';
+import { FolderGit2, Loader2, Plus, Trash2, Users } from 'lucide-react';
 import { useProjects } from '@/hooks/useProjects';
 import { useProjectMutations } from '@/hooks/useProjectMutations';
 import { useScriptPlaceholders } from '@/hooks/useScriptPlaceholders';
@@ -504,9 +503,16 @@ export function ProjectSettings() {
 
   if (projectsLoading) {
     return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-8 w-8 animate-spin" />
-        <span className="ml-2">{t('settings.projects.loading')}</span>
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('settings.projects.title')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <SkeletonForm fields={1} />
+          </CardContent>
+        </Card>
+        <SkeletonForm fields={4} />
       </div>
     );
   }
@@ -544,15 +550,16 @@ export function ProjectSettings() {
       <Card>
         <CardHeader>
           <CardTitle>{t('settings.projects.title')}</CardTitle>
-          <CardDescription>
+          <Text variant="secondary" size="sm" as="p">
             {t('settings.projects.description')}
-          </CardDescription>
+          </Text>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="project-selector">
-              {t('settings.projects.selector.label')}
-            </Label>
+          <SettingsField
+            label={t('settings.projects.selector.label')}
+            description={t('settings.projects.selector.helper')}
+            htmlFor="project-selector"
+          >
             <Select
               value={selectedProjectId}
               onValueChange={handleProjectSelect}
@@ -576,27 +583,26 @@ export function ProjectSettings() {
                 )}
               </SelectContent>
             </Select>
-            <p className="text-sm text-muted-foreground">
-              {t('settings.projects.selector.helper')}
-            </p>
-          </div>
+          </SettingsField>
         </CardContent>
       </Card>
 
       {selectedProject && draft && (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('settings.projects.general.title')}</CardTitle>
-              <CardDescription>
-                {t('settings.projects.general.description')}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="project-name">
-                  {t('settings.projects.general.name.label')}
-                </Label>
+          {/* General Settings */}
+          <SettingsSection
+            id="project-general"
+            title={t('settings.projects.general.title')}
+            description={t('settings.projects.general.description')}
+            collapsible
+            defaultExpanded
+          >
+            <div className="space-y-4">
+              <SettingsField
+                label={t('settings.projects.general.name.label')}
+                description={t('settings.projects.general.name.helper')}
+                htmlFor="project-name"
+              >
                 <Input
                   id="project-name"
                   type="text"
@@ -605,15 +611,13 @@ export function ProjectSettings() {
                   placeholder={t('settings.projects.general.name.placeholder')}
                   required
                 />
-                <p className="text-sm text-muted-foreground">
-                  {t('settings.projects.general.name.helper')}
-                </p>
-              </div>
+              </SettingsField>
 
-              <div className="space-y-2">
-                <Label htmlFor="dev-script">
-                  {t('settings.projects.scripts.dev.label')}
-                </Label>
+              <SettingsField
+                label={t('settings.projects.scripts.dev.label')}
+                description={t('settings.projects.scripts.dev.helper')}
+                htmlFor="dev-script"
+              >
                 <AutoExpandingTextarea
                   id="dev-script"
                   value={draft.dev_script}
@@ -622,15 +626,13 @@ export function ProjectSettings() {
                   maxRows={12}
                   className="w-full px-3 py-2 border border-input bg-background text-foreground rounded-md focus:outline-none focus:ring-2 focus:ring-ring font-mono"
                 />
-                <p className="text-sm text-muted-foreground">
-                  {t('settings.projects.scripts.dev.helper')}
-                </p>
-              </div>
+              </SettingsField>
 
-              <div className="space-y-2">
-                <Label htmlFor="dev-script-working-dir">
-                  {t('settings.projects.scripts.devWorkingDir.label')}
-                </Label>
+              <SettingsField
+                label={t('settings.projects.scripts.devWorkingDir.label')}
+                description={t('settings.projects.scripts.devWorkingDir.helper')}
+                htmlFor="dev-script-working-dir"
+              >
                 <Input
                   id="dev-script-working-dir"
                   value={draft.dev_script_working_dir}
@@ -642,15 +644,15 @@ export function ProjectSettings() {
                   )}
                   className="font-mono"
                 />
-                <p className="text-sm text-muted-foreground">
-                  {t('settings.projects.scripts.devWorkingDir.helper')}
-                </p>
-              </div>
+              </SettingsField>
 
-              <div className="space-y-2">
-                <Label htmlFor="agent-working-dir">
-                  {t('settings.projects.scripts.agentWorkingDir.label')}
-                </Label>
+              <SettingsField
+                label={t('settings.projects.scripts.agentWorkingDir.label')}
+                description={t(
+                  'settings.projects.scripts.agentWorkingDir.helper'
+                )}
+                htmlFor="agent-working-dir"
+              >
                 <Input
                   id="agent-working-dir"
                   value={draft.default_agent_working_dir}
@@ -662,17 +664,14 @@ export function ProjectSettings() {
                   )}
                   className="font-mono"
                 />
-                <p className="text-sm text-muted-foreground">
-                  {t('settings.projects.scripts.agentWorkingDir.helper')}
-                </p>
-              </div>
+              </SettingsField>
 
               {/* Save Button */}
               <div className="flex items-center justify-between pt-4 border-t">
                 {hasUnsavedProjectChanges ? (
-                  <span className="text-sm text-muted-foreground">
+                  <Text variant="secondary" size="sm">
                     {t('settings.projects.save.unsavedChanges')}
-                  </span>
+                  </Text>
                 ) : (
                   <span />
                 )}
@@ -711,18 +710,23 @@ export function ProjectSettings() {
                   </AlertDescription>
                 </Alert>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </SettingsSection>
 
           {/* Repositories Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Repositories</CardTitle>
-              <CardDescription>
-                Manage the git repositories in this project
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <SettingsSection
+            id="project-repos"
+            title="Repositories"
+            description="Manage the git repositories in this project"
+            collapsible
+            defaultExpanded={false}
+            badge={
+              repositories.length > 0
+                ? { label: String(repositories.length) }
+                : undefined
+            }
+          >
+            <div className="space-y-4">
               {repoError && (
                 <Alert variant="destructive">
                   <AlertDescription>{repoError}</AlertDescription>
@@ -730,75 +734,74 @@ export function ProjectSettings() {
               )}
 
               {loadingRepos ? (
-                <div className="flex items-center justify-center py-4">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span className="ml-2 text-sm text-muted-foreground">
-                    Loading repositories...
-                  </span>
-                </div>
+                <SkeletonList items={3} showIcon showSecondaryText />
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-1 border rounded-md divide-y">
                   {repositories.map((repo) => (
-                    <div
+                    <ListItem
                       key={repo.id}
-                      className="flex items-center justify-between p-3 border rounded-md"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium">{repo.display_name}</div>
-                        <div className="text-sm text-muted-foreground truncate">
-                          {repo.path}
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteRepository(repo.id)}
-                        disabled={deletingRepoId === repo.id}
-                        title="Delete repository"
-                      >
-                        {deletingRepoId === repo.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
+                      icon={<FolderGit2 className="h-4 w-4" />}
+                      title={repo.display_name}
+                      subtitle={repo.path}
+                      actions={
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteRepository(repo.id)}
+                          disabled={deletingRepoId === repo.id}
+                          title="Delete repository"
+                        >
+                          {deletingRepoId === repo.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                      }
+                    />
                   ))}
 
                   {repositories.length === 0 && !loadingRepos && (
-                    <div className="text-center py-4 text-sm text-muted-foreground">
-                      No repositories configured
+                    <div className="text-center py-4">
+                      <Text variant="secondary" size="sm">
+                        No repositories configured
+                      </Text>
                     </div>
                   )}
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleAddRepository}
-                    disabled={addingRepo}
-                    className="w-full"
-                  >
-                    {addingRepo ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Plus className="h-4 w-4 mr-2" />
-                    )}
-                    Add Repository
-                  </Button>
                 </div>
               )}
-            </CardContent>
-          </Card>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAddRepository}
+                disabled={addingRepo}
+                className="w-full"
+              >
+                {addingRepo ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4 mr-2" />
+                )}
+                Add Repository
+              </Button>
+            </div>
+          </SettingsSection>
 
           {/* Task Groups Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Task Groups</CardTitle>
-              <CardDescription>
-                Manage groups used to organize tasks in this project
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <SettingsSection
+            id="project-groups"
+            title="Task Groups"
+            description="Manage groups used to organize tasks in this project"
+            collapsible
+            defaultExpanded={false}
+            badge={
+              taskGroups.length > 0
+                ? { label: String(taskGroups.length) }
+                : undefined
+            }
+          >
+            <div className="space-y-4">
               {(taskGroupError || taskGroupsError) && (
                 <Alert variant="destructive">
                   <AlertDescription>
@@ -811,94 +814,88 @@ export function ProjectSettings() {
               )}
 
               {loadingTaskGroups ? (
-                <div className="flex items-center justify-center py-4">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span className="ml-2 text-sm text-muted-foreground">
-                    Loading task groups...
-                  </span>
-                </div>
+                <SkeletonList items={3} showIcon showSecondaryText />
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-1 border rounded-md divide-y">
                   {taskGroups.map((group) => (
-                    <div
+                    <ListItem
                       key={group.id}
-                      className="flex items-center justify-between gap-3 p-3 border rounded-md"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium">{group.name}</div>
-                        <div className="text-sm text-muted-foreground">
-                          Base branch:{' '}
-                          {group.base_branch ? group.base_branch : 'None'}
+                      icon={<Users className="h-4 w-4" />}
+                      title={group.name}
+                      subtitle={`Base branch: ${group.base_branch || 'None'}`}
+                      actions={
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              TaskGroupFormDialog.show({
+                                mode: 'edit',
+                                projectId: selectedProject.id,
+                                group,
+                              })
+                            }
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              handleDeleteTaskGroup(group.id, group.name)
+                            }
+                            disabled={deletingGroupId === group.id}
+                          >
+                            {deletingGroupId === group.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <>
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete
+                              </>
+                            )}
+                          </Button>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            TaskGroupFormDialog.show({
-                              mode: 'edit',
-                              projectId: selectedProject.id,
-                              group,
-                            })
-                          }
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            handleDeleteTaskGroup(group.id, group.name)
-                          }
-                          disabled={deletingGroupId === group.id}
-                        >
-                          {deletingGroupId === group.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <>
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Delete
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                    </div>
+                      }
+                    />
                   ))}
 
                   {taskGroups.length === 0 && !loadingTaskGroups && (
-                    <div className="text-center py-4 text-sm text-muted-foreground">
-                      No groups configured
+                    <div className="text-center py-4">
+                      <Text variant="secondary" size="sm">
+                        No groups configured
+                      </Text>
                     </div>
                   )}
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      TaskGroupFormDialog.show({
-                        mode: 'create',
-                        projectId: selectedProject.id,
-                      })
-                    }
-                    className="w-full"
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Group
-                  </Button>
                 </div>
               )}
-            </CardContent>
-          </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('settings.projects.scripts.title')}</CardTitle>
-              <CardDescription>
-                {t('settings.projects.scripts.description')}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  TaskGroupFormDialog.show({
+                    mode: 'create',
+                    projectId: selectedProject.id,
+                  })
+                }
+                className="w-full"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Create Group
+              </Button>
+            </div>
+          </SettingsSection>
+
+          {/* Repository Scripts Section */}
+          <SettingsSection
+            id="project-scripts"
+            title={t('settings.projects.scripts.title')}
+            description={t('settings.projects.scripts.description')}
+            collapsible
+            defaultExpanded={false}
+          >
+            <div className="space-y-4">
               {scriptsError && (
                 <Alert variant="destructive">
                   <AlertDescription>{scriptsError}</AlertDescription>
@@ -914,14 +911,19 @@ export function ProjectSettings() {
               )}
 
               {repositories.length === 0 ? (
-                <div className="text-center py-4 text-sm text-muted-foreground">
-                  Add a repository above to configure scripts
+                <div className="text-center py-4">
+                  <Text variant="secondary" size="sm">
+                    Add a repository above to configure scripts
+                  </Text>
                 </div>
               ) : (
                 <>
                   {/* Repository Selector for Scripts */}
-                  <div className="space-y-2">
-                    <Label htmlFor="scripts-repo-selector">Repository</Label>
+                  <SettingsField
+                    label="Repository"
+                    description="Configure scripts for each repository separately"
+                    htmlFor="scripts-repo-selector"
+                  >
                     <Select
                       value={selectedScriptsRepoId ?? ''}
                       onValueChange={setSelectedScriptsRepoId}
@@ -937,24 +939,17 @@ export function ProjectSettings() {
                         ))}
                       </SelectContent>
                     </Select>
-                    <p className="text-sm text-muted-foreground">
-                      Configure scripts for each repository separately
-                    </p>
-                  </div>
+                  </SettingsField>
 
                   {loadingProjectRepo ? (
-                    <div className="flex items-center justify-center py-4">
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      <span className="ml-2 text-sm text-muted-foreground">
-                        Loading scripts...
-                      </span>
-                    </div>
+                    <SkeletonForm fields={3} />
                   ) : scriptsDraft ? (
                     <>
-                      <div className="space-y-2">
-                        <Label htmlFor="setup-script">
-                          {t('settings.projects.scripts.setup.label')}
-                        </Label>
+                      <SettingsField
+                        label={t('settings.projects.scripts.setup.label')}
+                        description={t('settings.projects.scripts.setup.helper')}
+                        htmlFor="setup-script"
+                      >
                         <AutoExpandingTextarea
                           id="setup-script"
                           value={scriptsDraft.setup_script}
@@ -965,37 +960,37 @@ export function ProjectSettings() {
                           maxRows={12}
                           className="w-full px-3 py-2 border border-input bg-background text-foreground rounded-md focus:outline-none focus:ring-2 focus:ring-ring font-mono"
                         />
-                        <p className="text-sm text-muted-foreground">
-                          {t('settings.projects.scripts.setup.helper')}
-                        </p>
+                      </SettingsField>
 
-                        <div className="flex items-center space-x-2 pt-2">
-                          <Checkbox
-                            id="parallel-setup-script"
-                            checked={scriptsDraft.parallel_setup_script}
-                            onCheckedChange={(checked) =>
-                              updateScriptsDraft({
-                                parallel_setup_script: checked === true,
-                              })
-                            }
-                            disabled={!scriptsDraft.setup_script.trim()}
-                          />
-                          <Label
-                            htmlFor="parallel-setup-script"
-                            className="text-sm font-normal cursor-pointer"
-                          >
-                            {t('settings.projects.scripts.setup.parallelLabel')}
-                          </Label>
-                        </div>
-                        <p className="text-sm text-muted-foreground pl-6">
-                          {t('settings.projects.scripts.setup.parallelHelper')}
-                        </p>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="cleanup-script">
-                          {t('settings.projects.scripts.cleanup.label')}
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id="parallel-setup-script"
+                          checked={scriptsDraft.parallel_setup_script}
+                          onCheckedChange={(checked) =>
+                            updateScriptsDraft({
+                              parallel_setup_script: checked === true,
+                            })
+                          }
+                          disabled={!scriptsDraft.setup_script.trim()}
+                        />
+                        <Label
+                          htmlFor="parallel-setup-script"
+                          className="text-sm font-normal cursor-pointer"
+                        >
+                          {t('settings.projects.scripts.setup.parallelLabel')}
                         </Label>
+                      </div>
+                      <Text variant="secondary" size="sm" as="p" className="pl-6">
+                        {t('settings.projects.scripts.setup.parallelHelper')}
+                      </Text>
+
+                      <SettingsField
+                        label={t('settings.projects.scripts.cleanup.label')}
+                        description={t(
+                          'settings.projects.scripts.cleanup.helper'
+                        )}
+                        htmlFor="cleanup-script"
+                      >
                         <AutoExpandingTextarea
                           id="cleanup-script"
                           value={scriptsDraft.cleanup_script}
@@ -1008,15 +1003,14 @@ export function ProjectSettings() {
                           maxRows={12}
                           className="w-full px-3 py-2 border border-input bg-background text-foreground rounded-md focus:outline-none focus:ring-2 focus:ring-ring font-mono"
                         />
-                        <p className="text-sm text-muted-foreground">
-                          {t('settings.projects.scripts.cleanup.helper')}
-                        </p>
-                      </div>
+                      </SettingsField>
 
-                      <div className="space-y-2">
-                        <Label>
-                          {t('settings.projects.scripts.copyFiles.label')}
-                        </Label>
+                      <SettingsField
+                        label={t('settings.projects.scripts.copyFiles.label')}
+                        description={t(
+                          'settings.projects.scripts.copyFiles.helper'
+                        )}
+                      >
                         <CopyFilesField
                           value={scriptsDraft.copy_files}
                           onChange={(value) =>
@@ -1024,17 +1018,14 @@ export function ProjectSettings() {
                           }
                           projectId={selectedProject.id}
                         />
-                        <p className="text-sm text-muted-foreground">
-                          {t('settings.projects.scripts.copyFiles.helper')}
-                        </p>
-                      </div>
+                      </SettingsField>
 
                       {/* Scripts Save Buttons */}
                       <div className="flex items-center justify-between pt-4 border-t">
                         {hasUnsavedScriptsChanges ? (
-                          <span className="text-sm text-muted-foreground">
+                          <Text variant="secondary" size="sm">
                             {t('settings.projects.save.unsavedChanges')}
-                          </span>
+                          </Text>
                         ) : (
                           <span />
                         )}
@@ -1065,16 +1056,16 @@ export function ProjectSettings() {
                   ) : null}
                 </>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </SettingsSection>
 
           {/* Sticky Save Button for Project Name */}
           {hasUnsavedProjectChanges && (
             <div className="sticky bottom-0 z-10 bg-background/80 backdrop-blur-sm border-t py-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">
+                <Text variant="secondary" size="sm">
                   {t('settings.projects.save.unsavedChanges')}
-                </span>
+                </Text>
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
