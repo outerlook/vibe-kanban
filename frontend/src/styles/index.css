@@ -1,5 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Chivo+Mono:ital,wght@0,100..900;1,100..900&family=Noto+Emoji:wght@300..700&display=swap');
 @import './gantt.css';
+@import './tokens.css';
 
 @tailwind base;
 @tailwind components;
@@ -211,8 +212,15 @@
     @apply bg-background text-foreground font-chivo-mono;
   }
 
-  *:focus {
-    @apply ring-inset;
+  /* Improved focus ring styles using design tokens */
+  *:focus-visible {
+    outline: var(--focus-ring-width) solid var(--focus-ring-color);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  /* Remove default focus for mouse users, keep for keyboard */
+  *:focus:not(:focus-visible) {
+    outline: none;
   }
 
   .logo {
