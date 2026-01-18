@@ -22,7 +22,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Folder, Loader2, Volume2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, Loader2, Volume2 } from 'lucide-react';
 import {
   AvailableSoundsResponse,
   DEFAULT_COMMIT_MESSAGE_PROMPT,
@@ -73,6 +73,7 @@ export function GeneralSettings() {
   );
   const [availableSounds, setAvailableSounds] = useState<AvailableSoundsResponse | null>(null);
   const [soundsLoading, setSoundsLoading] = useState(false);
+  const [backupAdvancedOpen, setBackupAdvancedOpen] = useState(false);
   const { setTheme } = useTheme();
 
   // Check editor availability when draft editor changes
@@ -930,6 +931,189 @@ export function GeneralSettings() {
               {t('settings.general.concurrency.maxAgents.helper')}
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('settings.general.backup.title')}</CardTitle>
+          <CardDescription>
+            {t('settings.general.backup.description')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="backup-enabled"
+              checked={draft?.backup.enabled ?? false}
+              onCheckedChange={(checked: boolean) =>
+                updateDraft({
+                  backup: { ...draft!.backup, enabled: checked },
+                })
+              }
+            />
+            <div className="space-y-0.5">
+              <Label htmlFor="backup-enabled" className="cursor-pointer">
+                {t('settings.general.backup.enabled.label')}
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                {t('settings.general.backup.enabled.helper')}
+              </p>
+            </div>
+          </div>
+
+          {draft?.backup.enabled && (
+            <>
+              <div className="ml-6 space-y-2">
+                <Label htmlFor="backup-interval">
+                  {t('settings.general.backup.interval.label')}
+                </Label>
+                <Input
+                  id="backup-interval"
+                  type="number"
+                  min="1"
+                  placeholder={t('settings.general.backup.interval.placeholder')}
+                  value={draft?.backup.interval_hours ?? 24}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value, 10) || 1;
+                    updateDraft({
+                      backup: {
+                        ...draft!.backup,
+                        interval_hours: Math.max(1, value),
+                      },
+                    });
+                  }}
+                  className="w-32"
+                />
+                <p className="text-sm text-muted-foreground">
+                  {t('settings.general.backup.interval.helper')}
+                </p>
+              </div>
+
+              <div className="ml-6">
+                <button
+                  type="button"
+                  onClick={() => setBackupAdvancedOpen(!backupAdvancedOpen)}
+                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {backupAdvancedOpen ? (
+                    <ChevronDown className="h-4 w-4" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4" />
+                  )}
+                  {t('settings.general.backup.advanced.title')}
+                </button>
+
+                {backupAdvancedOpen && (
+                  <div className="mt-4 space-y-4 pl-5 border-l-2 border-muted">
+                    <p className="text-sm text-muted-foreground">
+                      {t('settings.general.backup.advanced.description')}
+                    </p>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="backup-hours-all">
+                        {t('settings.general.backup.advanced.hoursAll.label')}
+                      </Label>
+                      <Input
+                        id="backup-hours-all"
+                        type="number"
+                        min="1"
+                        value={draft?.backup.retention_hours_all ?? 48}
+                        onChange={(e) => {
+                          const value = parseInt(e.target.value, 10) || 1;
+                          updateDraft({
+                            backup: {
+                              ...draft!.backup,
+                              retention_hours_all: Math.max(1, value),
+                            },
+                          });
+                        }}
+                        className="w-32"
+                      />
+                      <p className="text-sm text-muted-foreground">
+                        {t('settings.general.backup.advanced.hoursAll.helper')}
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="backup-daily-days">
+                        {t('settings.general.backup.advanced.dailyDays.label')}
+                      </Label>
+                      <Input
+                        id="backup-daily-days"
+                        type="number"
+                        min="0"
+                        value={draft?.backup.retention_daily_days ?? 7}
+                        onChange={(e) => {
+                          const value = parseInt(e.target.value, 10) || 0;
+                          updateDraft({
+                            backup: {
+                              ...draft!.backup,
+                              retention_daily_days: Math.max(0, value),
+                            },
+                          });
+                        }}
+                        className="w-32"
+                      />
+                      <p className="text-sm text-muted-foreground">
+                        {t('settings.general.backup.advanced.dailyDays.helper')}
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="backup-weekly-weeks">
+                        {t('settings.general.backup.advanced.weeklyWeeks.label')}
+                      </Label>
+                      <Input
+                        id="backup-weekly-weeks"
+                        type="number"
+                        min="0"
+                        value={draft?.backup.retention_weekly_weeks ?? 4}
+                        onChange={(e) => {
+                          const value = parseInt(e.target.value, 10) || 0;
+                          updateDraft({
+                            backup: {
+                              ...draft!.backup,
+                              retention_weekly_weeks: Math.max(0, value),
+                            },
+                          });
+                        }}
+                        className="w-32"
+                      />
+                      <p className="text-sm text-muted-foreground">
+                        {t('settings.general.backup.advanced.weeklyWeeks.helper')}
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="backup-monthly-months">
+                        {t('settings.general.backup.advanced.monthlyMonths.label')}
+                      </Label>
+                      <Input
+                        id="backup-monthly-months"
+                        type="number"
+                        min="0"
+                        value={draft?.backup.retention_monthly_months ?? 12}
+                        onChange={(e) => {
+                          const value = parseInt(e.target.value, 10) || 0;
+                          updateDraft({
+                            backup: {
+                              ...draft!.backup,
+                              retention_monthly_months: Math.max(0, value),
+                            },
+                          });
+                        }}
+                        className="w-32"
+                      />
+                      <p className="text-sm text-muted-foreground">
+                        {t('settings.general.backup.advanced.monthlyMonths.helper')}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
