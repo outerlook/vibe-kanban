@@ -6,74 +6,95 @@ import { Text } from '@/components/ui/text';
 
 export interface SettingsFieldProps
   extends React.HTMLAttributes<HTMLDivElement> {
-  /** Label for the field */
-  label: string;
-  /** Optional helper text shown below the input */
-  helper?: React.ReactNode;
-  /** Optional error message */
-  error?: string;
-  /** HTML id for the form control (used to link label) */
+  label?: string;
   htmlFor?: string;
-  /** Whether the field is required */
-  required?: boolean;
-  /** Layout orientation */
-  orientation?: 'vertical' | 'horizontal';
+  description?: React.ReactNode;
+  error?: string | null;
+  children: React.ReactNode;
+  /**
+   * Layout direction for the field.
+   * - 'vertical': Label above input (default for text inputs)
+   * - 'horizontal': Checkbox/switch style with label beside control
+   */
+  layout?: 'vertical' | 'horizontal';
+  /**
+   * If true, indents the field (useful for nested/conditional fields)
+   */
+  indent?: boolean;
 }
 
-const SettingsField = React.forwardRef<HTMLDivElement, SettingsFieldProps>(
-  (
-    {
-      className,
-      label,
-      helper,
-      error,
-      htmlFor,
-      required,
-      orientation = 'vertical',
-      children,
-      ...props
-    },
-    ref
-  ) => {
-    const isHorizontal = orientation === 'horizontal';
-
+function SettingsField({
+  label,
+  htmlFor,
+  description,
+  error,
+  layout = 'vertical',
+  indent = false,
+  className,
+  children,
+  ...props
+}: SettingsFieldProps) {
+  if (layout === 'horizontal') {
     return (
       <div
-        ref={ref}
         className={cn(
-          isHorizontal
-            ? 'flex items-start gap-4'
-            : 'space-y-2',
+          'flex items-start gap-3',
+          indent && 'ml-6',
           className
         )}
         {...props}
       >
-        <div className={cn(isHorizontal && 'flex-shrink-0 pt-2.5 w-32')}>
-          <Label
-            htmlFor={htmlFor}
-            className={cn(error && 'text-destructive')}
-          >
-            {label}
-            {required && <span className="text-destructive ml-1">*</span>}
-          </Label>
-        </div>
-        <div className={cn('space-y-1.5', isHorizontal && 'flex-1')}>
-          {children}
-          {error && (
-            <Text size="sm" className="text-destructive">
-              {error}
+        {children}
+        <div className="space-y-0.5">
+          {label && htmlFor && (
+            <Label htmlFor={htmlFor} className="cursor-pointer">
+              {label}
+            </Label>
+          )}
+          {label && !htmlFor && (
+            <Text size="sm" className="font-medium">
+              {label}
             </Text>
           )}
-          {helper && !error && (
+          {description && (
             <Text variant="secondary" size="sm" as="p">
-              {helper}
+              {description}
+            </Text>
+          )}
+          {error && (
+            <Text size="sm" as="p" className="text-destructive">
+              {error}
             </Text>
           )}
         </div>
       </div>
     );
   }
-);
-SettingsField.displayName = 'SettingsField';
+
+  return (
+    <div
+      className={cn('space-y-2', indent && 'ml-6', className)}
+      {...props}
+    >
+      {label && htmlFor && <Label htmlFor={htmlFor}>{label}</Label>}
+      {label && !htmlFor && (
+        <Text size="sm" className="font-medium">
+          {label}
+        </Text>
+      )}
+      {children}
+      {error && (
+        <Text size="sm" as="p" className="text-destructive">
+          {error}
+        </Text>
+      )}
+      {description && (
+        <Text variant="secondary" size="sm" as="p">
+          {description}
+        </Text>
+      )}
+    </div>
+  );
+}
 
 export { SettingsField };

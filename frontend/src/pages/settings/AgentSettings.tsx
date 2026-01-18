@@ -417,15 +417,16 @@ export function AgentSettings() {
     return (
       <div className="space-y-6">
         <SettingsSection
-          sectionId="agent-executor"
+          id="agent-executor"
           title={t('settings.general.taskExecution.title')}
           description={t('settings.general.taskExecution.description')}
+          defaultOpen
         >
           <SkeletonForm fields={2} />
         </SettingsSection>
 
         <SettingsSection
-          sectionId="agent-profiles"
+          id="agent-profiles"
           title={t('settings.agents.title')}
           description={t('settings.agents.description')}
         >
@@ -476,14 +477,15 @@ export function AgentSettings() {
       )}
 
       <SettingsSection
-        sectionId="agent-executor"
+        id="agent-executor"
         title={t('settings.general.taskExecution.title')}
         description={t('settings.general.taskExecution.description')}
+        defaultOpen
       >
         <SettingsField
           label={t('settings.general.taskExecution.executor.label')}
           htmlFor="executor"
-          helper={t('settings.general.taskExecution.executor.helper')}
+          description={t('settings.general.taskExecution.executor.helper')}
         >
           <div className="grid grid-cols-2 gap-2">
             <Select
@@ -604,10 +606,9 @@ export function AgentSettings() {
       </SettingsSection>
 
       <SettingsSection
-        sectionId="agent-profiles"
+        id="agent-profiles"
         title={t('settings.agents.title')}
         description={t('settings.agents.description')}
-        collapsible
       >
         {/* Editor type toggle */}
         <div className="flex items-center space-x-2">
