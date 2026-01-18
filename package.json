@@ -3,6 +3,7 @@
   "version": "0.0.143",
   "private": true,
   "scripts": {
+    "server": "cargo run --bin server",
     "lint": "npm run frontend:lint && npm run backend:lint",
     "format": "cargo fmt --all && cd frontend && npm run format",
     "check": "npm run frontend:check && npm run backend:check",
