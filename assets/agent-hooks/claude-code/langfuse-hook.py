@@ -18,6 +18,7 @@ Vibe-Kanban context (optional, set when running in vibe-kanban workspace):
     VK_TASK_ID: The kanban task being worked on
     VK_ATTEMPT_ID: The specific execution attempt
     VK_WORKSPACE_ID: The workspace/worktree ID
+    VK_EXECUTION_PURPOSE: The purpose of execution (e.g., "task", "feedback")
 """
 
 import hashlib
@@ -46,6 +47,7 @@ def get_vk_context() -> dict[str, str | None]:
         - vk_task_id: The kanban task being worked on (or None)
         - vk_attempt_id: The specific execution attempt (or None)
         - vk_workspace_id: The workspace/worktree ID (or None)
+        - vk_execution_purpose: The purpose of execution (or None)
 
     These environment variables are set by vibe-kanban when running agents
     in a workspace context (see crates/local-deployment/src/container.rs).
@@ -54,6 +56,7 @@ def get_vk_context() -> dict[str, str | None]:
         "vk_task_id": os.environ.get("VK_TASK_ID"),
         "vk_attempt_id": os.environ.get("VK_ATTEMPT_ID"),
         "vk_workspace_id": os.environ.get("VK_WORKSPACE_ID"),
+        "vk_execution_purpose": os.environ.get("VK_EXECUTION_PURPOSE"),
     }
 
 
@@ -511,6 +514,16 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
         if value is not None:
             trace_metadata[key] = value
 
+    # Build tags for filtering
+    # Always include "vk" tag when running in vibe-kanban context
+    # Add execution purpose as additional tag if set (e.g., "task", "feedback")
+    tags: list[str] = []
+    if any(v is not None for v in vk_context.values()):
+        tags.append("vk")
+    execution_purpose = vk_context.get("vk_execution_purpose")
+    if execution_purpose:
+        tags.append(execution_purpose)
+
     # Build ingestion events
     events = []
     # Langfuse data model:
@@ -539,7 +552,7 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
                 input=first_user_message,
                 output=last_assistant_text,
                 metadata=trace_metadata,
-                tags=tags,
+                tags=tags if tags else None,
                 timestamp=first_timestamp,
             ),
         )

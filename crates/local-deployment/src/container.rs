@@ -1264,6 +1264,7 @@ impl LocalContainerService {
             &ctx.session,
             &action,
             &ExecutionProcessRunReason::CodingAgent,
+            None,
         )
         .await
     }
@@ -1307,13 +1308,14 @@ impl LocalContainerService {
             working_dir,
         );
 
-        // Start the feedback execution with InternalAgent run reason
+        // Start the feedback execution with InternalAgent run reason and "feedback" purpose
         let feedback_exec = self
             .start_execution(
                 &ctx.workspace,
                 &ctx.session,
                 &action,
                 &ExecutionProcessRunReason::InternalAgent,
+                Some("feedback"),
             )
             .await?;
 
@@ -1744,6 +1746,7 @@ impl ContainerService for LocalContainerService {
         workspace: &Workspace,
         execution_process: &ExecutionProcess,
         executor_action: &ExecutorAction,
+        purpose: &str,
     ) -> Result<(), ContainerError> {
         // Get the worktree path
         let container_ref = workspace
@@ -1791,6 +1794,7 @@ impl ContainerService for LocalContainerService {
         env.insert("VK_TASK_ID", task.id.to_string());
         env.insert("VK_WORKSPACE_ID", workspace.id.to_string());
         env.insert("VK_WORKSPACE_BRANCH", &workspace.branch);
+        env.insert("VK_EXECUTION_PURPOSE", purpose);
 
         // Inject Langfuse credentials if enabled (for executors with hook support)
         {

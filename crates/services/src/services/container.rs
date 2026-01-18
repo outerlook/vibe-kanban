@@ -199,6 +199,19 @@ async fn persist_normalized_entries_from_store(
     Ok(())
 }
 
+/// Derive the default execution purpose from the run reason.
+/// Returns a static string representing the purpose of the execution.
+pub fn purpose_from_run_reason(run_reason: &ExecutionProcessRunReason) -> &'static str {
+    match run_reason {
+        ExecutionProcessRunReason::CodingAgent => "task",
+        ExecutionProcessRunReason::SetupScript => "setup",
+        ExecutionProcessRunReason::CleanupScript => "cleanup",
+        ExecutionProcessRunReason::DevServer => "dev_server",
+        ExecutionProcessRunReason::InternalAgent => "internal",
+        ExecutionProcessRunReason::DisposableConversation => "conversation",
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum ContainerError {
     #[error(transparent)]
@@ -373,6 +386,7 @@ pub trait ContainerService {
                         &session,
                         &executor_action,
                         &ExecutionProcessRunReason::CodingAgent,
+                        None,
                     )
                     .await
                 {
@@ -947,6 +961,7 @@ pub trait ContainerService {
         workspace: &Workspace,
         execution_process: &ExecutionProcess,
         executor_action: &ExecutorAction,
+        purpose: &str,
     ) -> Result<(), ContainerError>;
 
     async fn stop_execution(
@@ -1413,6 +1428,7 @@ pub trait ContainerService {
                             &session,
                             &action,
                             &ExecutionProcessRunReason::SetupScript,
+                            None,
                         )
                         .await
                 {
@@ -1424,6 +1440,7 @@ pub trait ContainerService {
                 &session,
                 &coding_action,
                 &ExecutionProcessRunReason::CodingAgent,
+                None,
             )
             .await?
         } else {
@@ -1434,6 +1451,7 @@ pub trait ContainerService {
                 &session,
                 &main_action,
                 &ExecutionProcessRunReason::SetupScript,
+                None,
             )
             .await?
         };
@@ -1447,7 +1465,11 @@ pub trait ContainerService {
         session: &Session,
         executor_action: &ExecutorAction,
         run_reason: &ExecutionProcessRunReason,
+        purpose: Option<&str>,
     ) -> Result<ExecutionProcess, ContainerError> {
+        // Compute effective purpose: explicit override or derived from run_reason
+        let effective_purpose = purpose.unwrap_or_else(|| purpose_from_run_reason(run_reason));
+
         // Update task status to InProgress when starting an execution
         let task = workspace
             .parent_task(&self.db().pool)
@@ -1534,7 +1556,7 @@ pub trait ContainerService {
         }
 
         if let Err(start_error) = self
-            .start_execution_inner(workspace, &execution_process, executor_action)
+            .start_execution_inner(workspace, &execution_process, executor_action, effective_purpose)
             .await
         {
             // Mark process as failed
@@ -1647,7 +1669,7 @@ pub trait ContainerService {
             ) => ExecutionProcessRunReason::CodingAgent,
         };
 
-        self.start_execution(&ctx.workspace, &ctx.session, next_action, &next_run_reason)
+        self.start_execution(&ctx.workspace, &ctx.session, next_action, &next_run_reason, None)
             .await?;
 
         tracing::debug!("Started next action: {:?}", next_action);
