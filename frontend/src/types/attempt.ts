@@ -1,22 +1,17 @@
-import type { Workspace, Session } from 'shared/types';
+import type { Workspace, Session, WorkspaceWithSession } from 'shared/types';
 
-/**
- * WorkspaceWithSession includes the latest Session for the workspace.
- * Provides access to session.id, session.executor, etc.
- */
-export type WorkspaceWithSession = Workspace & {
-  session: Session | undefined;
-};
+// Re-export from shared types for backwards compatibility
+export type { WorkspaceWithSession };
 
 /**
  * Create a WorkspaceWithSession from a Workspace and Session.
  */
 export function createWorkspaceWithSession(
   workspace: Workspace,
-  session: Session | undefined
+  session: Session | null | undefined
 ): WorkspaceWithSession {
   return {
     ...workspace,
-    session,
+    session: session ?? null,
   };
 }

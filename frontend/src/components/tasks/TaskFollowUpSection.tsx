@@ -64,7 +64,7 @@ import type { Session } from 'shared/types';
 
 interface TaskFollowUpSectionProps {
   task: TaskWithAttemptStatus;
-  session?: Session;
+  session?: Session | null;
 }
 
 export function TaskFollowUpSection({
