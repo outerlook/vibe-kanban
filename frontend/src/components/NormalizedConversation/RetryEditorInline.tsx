@@ -11,7 +11,7 @@ import { imagesApi } from '@/lib/api';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { useUserSystem } from '@/components/ConfigProvider';
-import { useBranchStatus } from '@/hooks/useBranchStatus';
+import { useBranchStatusContext } from '@/contexts/BranchStatusContext';
 import { useVariant } from '@/hooks/useVariant';
 import { useRetryProcess } from '@/hooks/useRetryProcess';
 import type { ExecutorAction, ExecutorProfileId } from 'shared/types';
@@ -30,7 +30,7 @@ export function RetryEditorInline({
   const { t } = useTranslation(['common']);
   const attemptId = attempt.id;
   const { isAttemptRunning, attemptData } = useAttemptExecution(attemptId);
-  const { data: branchStatus } = useBranchStatus(attemptId);
+  const { branchStatus } = useBranchStatusContext();
   const { profiles } = useUserSystem();
   const { projectId } = useProject();
 

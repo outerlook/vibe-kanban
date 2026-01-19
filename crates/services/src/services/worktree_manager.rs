@@ -49,11 +49,54 @@ pub enum WorktreeError {
     BranchNotFound(String),
     #[error("Repository error: {0}")]
     Repository(String),
+    #[error("Git fsmonitor required for repository '{0}'. Run: git config core.fsmonitor true")]
+    FsmonitorRequired(String),
 }
 
 pub struct WorktreeManager;
 
 impl WorktreeManager {
+    /// Validate that fsmonitor is enabled for the repository.
+    /// Returns Ok(()) if enabled, Err(FsmonitorRequired) if not.
+    pub fn validate_fsmonitor(repo_path: &Path) -> Result<(), WorktreeError> {
+        let repo = Repository::open(repo_path)?;
+        let config = repo.config()?;
+
+        // Check if core.fsmonitor is set and truthy
+        // Note: fsmonitor can be:
+        // - A boolean (true/false)
+        // - A string path to a hook script
+        // We require either true (as bool) or a non-empty string that isn't "false"
+        let fsmonitor_enabled = match config.get_bool("core.fsmonitor") {
+            Ok(val) => val,
+            Err(_) => {
+                // Not a boolean, check if it's a non-empty string (hook path)
+                config
+                    .get_string("core.fsmonitor")
+                    .ok()
+                    .is_some_and(|s| !s.is_empty() && s != "false")
+            }
+        };
+
+        if !fsmonitor_enabled {
+            let repo_name = repo_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| repo_path.to_string_lossy().to_string());
+            return Err(WorktreeError::FsmonitorRequired(repo_name));
+        }
+
+        Ok(())
+    }
+
+    /// Async version of validate_fsmonitor
+    pub async fn validate_fsmonitor_async(repo_path: &Path) -> Result<(), WorktreeError> {
+        let repo_path = repo_path.to_path_buf();
+        tokio::task::spawn_blocking(move || Self::validate_fsmonitor(&repo_path))
+            .await
+            .map_err(|e| WorktreeError::TaskJoin(format!("{e}")))?
+    }
+
     /// Create a worktree with a new branch
     pub async fn create_worktree(
         repo_path: &Path,

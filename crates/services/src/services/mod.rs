@@ -16,6 +16,7 @@ pub mod file_search_cache;
 pub mod filesystem;
 pub mod filesystem_watcher;
 pub mod git;
+pub mod git_watcher;
 pub mod github;
 pub mod github_client;
 pub mod image;

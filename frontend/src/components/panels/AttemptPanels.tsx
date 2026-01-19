@@ -1,11 +1,8 @@
-import type {
-  RepoBranchStatus,
-  TaskWithAttemptStatus,
-  Workspace,
-} from 'shared/types';
+import type { TaskWithAttemptStatus, Workspace } from 'shared/types';
 
 import { useAttemptExecution } from '@/hooks';
 import { useGitOperationsError } from '@/contexts/GitOperationsContext';
+import { useBranchStatusContext } from '@/contexts/BranchStatusContext';
 import { DiffsPanel } from '@/components/panels/DiffsPanel';
 
 export function GitErrorBanner() {
@@ -23,13 +20,12 @@ export function GitErrorBanner() {
 export function DiffsPanelContainer({
   attempt,
   selectedTask,
-  branchStatus,
 }: {
   attempt: Workspace | null;
   selectedTask: TaskWithAttemptStatus | null;
-  branchStatus: RepoBranchStatus[] | null;
 }) {
   const { isAttemptRunning } = useAttemptExecution(attempt?.id);
+  const { branchStatus } = useBranchStatusContext();
 
   return (
     <DiffsPanel

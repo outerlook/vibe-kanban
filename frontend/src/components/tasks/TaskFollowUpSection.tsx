@@ -26,7 +26,7 @@ import {
 //
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { ScratchType, type TaskWithAttemptStatus } from 'shared/types';
-import { useBranchStatus } from '@/hooks';
+import { useBranchStatusContext } from '@/contexts/BranchStatusContext';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { useUserSystem } from '@/components/ConfigProvider';
@@ -81,8 +81,8 @@ export function TaskFollowUpSection({
   const { isAttemptRunning, stopExecution, isStopping, processes } =
     useAttemptExecution(workspaceId, task.id);
 
-  const { data: branchStatus, refetch: refetchBranchStatus } =
-    useBranchStatus(workspaceId);
+  const { branchStatus, refetch: refetchBranchStatus } =
+    useBranchStatusContext();
   const { repos, selectedRepoId } = useAttemptRepo(workspaceId);
 
   const getSelectedRepoId = useCallback(() => {

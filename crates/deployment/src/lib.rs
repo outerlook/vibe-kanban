@@ -29,6 +29,7 @@ use services::services::{
     filesystem::{FilesystemError, FilesystemService},
     filesystem_watcher::FilesystemWatcherError,
     git::{GitService, GitServiceError},
+    git_watcher::GitWatcherManager,
     image::{ImageError, ImageService},
     pr_monitor::PrMonitorService,
     project::ProjectService,
@@ -119,6 +120,8 @@ pub trait Deployment: Clone + Send + Sync + 'static {
     fn auth_context(&self) -> &AuthContext;
 
     fn share_publisher(&self) -> Result<SharePublisher, RemoteClientNotConfigured>;
+
+    fn git_watcher(&self) -> &GitWatcherManager;
 
     async fn update_sentry_scope(&self) -> Result<(), DeploymentError> {
         let user_id = self.user_id();

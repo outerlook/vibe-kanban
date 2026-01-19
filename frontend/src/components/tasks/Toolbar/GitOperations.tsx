@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Eye,
   Sparkles,
+  Loader2,
 } from 'lucide-react';
 import { QueueStatusBadge } from '../QueueStatusBadge';
 import { Button } from '@/components/ui/button.tsx';
@@ -40,6 +41,7 @@ import {
   SplitButton,
   type SplitButtonOption,
 } from '@/components/ui/split-button';
+import { useBranchStatusContext } from '@/contexts/BranchStatusContext';
 
 const MERGE_ACTION_STORAGE_KEY = 'vk-merge-action-preference';
 const QUEUE_MERGE_ENABLED_KEY = 'vk-queue-merge-enabled';
@@ -84,6 +86,8 @@ function GitOperations({
   layout = 'horizontal',
 }: GitOperationsProps) {
   const { t } = useTranslation('tasks');
+  const { isFetching, isLoading } = useBranchStatusContext();
+  const isBackgroundRefetching = isFetching && !isLoading;
 
   const { repos, selectedRepoId, setSelectedRepoId } = useAttemptRepo(
     selectedAttempt.id
@@ -442,8 +446,24 @@ function GitOperations({
     ? 'flex flex-wrap items-center gap-2'
     : 'shrink-0 flex flex-wrap items-center gap-2 overflow-y-hidden overflow-x-visible max-h-8';
 
+  const syncingIndicator = isBackgroundRefetching && (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex items-center">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {t('git.status.refreshing', 'Refreshing git status...')}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+
   const statusChips = (
     <div className="flex items-center gap-2 text-xs min-w-0 overflow-hidden whitespace-nowrap">
+      {syncingIndicator}
       {(() => {
         const commitsAhead = selectedRepoStatus?.commits_ahead ?? 0;
         const commitsBehind = selectedRepoStatus?.commits_behind ?? 0;

@@ -378,6 +378,141 @@ async fn handle_workspaces_ws(
     Ok(())
 }
 
+/// WebSocket message sent when git state changes in a workspace
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct GitStateChangedMessage {
+    #[serde(rename = "type")]
+    pub message_type: String,
+    pub workspace_id: Uuid,
+}
+
+pub async fn stream_git_status_ws(
+    ws: WebSocketUpgrade,
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+) -> impl IntoResponse {
+    let workspace_id = workspace.id;
+    ws.on_upgrade(move |socket| async move {
+        if let Err(e) = handle_git_status_ws(socket, deployment, workspace).await {
+            tracing::warn!(workspace_id = %workspace_id, "git status WS closed: {}", e);
+        }
+    })
+}
+
+async fn handle_git_status_ws(
+    socket: WebSocket,
+    deployment: DeploymentImpl,
+    workspace: Workspace,
+) -> anyhow::Result<()> {
+    use axum::extract::ws::Message;
+    use futures_util::{SinkExt, StreamExt};
+
+    // Get the workspace root path
+    let container_ref = workspace
+        .container_ref
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Workspace has no container_ref"))?;
+    let workspace_root = PathBuf::from(container_ref);
+
+    // Get all repositories for this workspace
+    let repositories =
+        WorkspaceRepo::find_repos_for_workspace(&deployment.db().pool, workspace.id).await?;
+
+    if repositories.is_empty() {
+        return Err(anyhow::anyhow!("Workspace has no repositories"));
+    }
+
+    // Subscribe to git changes for each repository's worktree
+    let mut subscriptions = Vec::new();
+    for repo in &repositories {
+        let worktree_path = workspace_root.join(&repo.name);
+        match deployment.git_watcher().subscribe(worktree_path.clone()) {
+            Ok(sub) => {
+                tracing::debug!(
+                    workspace_id = %workspace.id,
+                    repo = %repo.name,
+                    "Subscribed to git state changes"
+                );
+                subscriptions.push(sub);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    workspace_id = %workspace.id,
+                    repo = %repo.name,
+                    "Failed to subscribe to git state changes: {}",
+                    e
+                );
+            }
+        }
+    }
+
+    if subscriptions.is_empty() {
+        return Err(anyhow::anyhow!(
+            "Failed to subscribe to any git state changes"
+        ));
+    }
+
+    let (mut sender, mut receiver) = socket.split();
+
+    // Drain client messages in background so pings/pongs work
+    tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
+
+    // Create a stream that merges all subscriptions
+    let workspace_id = workspace.id;
+    let message = GitStateChangedMessage {
+        message_type: "git_state_changed".to_string(),
+        workspace_id,
+    };
+    let message_json = serde_json::to_string(&message)?;
+
+    // Use select_all to wait for any subscription to receive an event
+    loop {
+        // Create futures for all subscriptions
+        let futures: Vec<_> = subscriptions
+            .iter_mut()
+            .enumerate()
+            .map(|(i, sub)| Box::pin(async move { (i, sub.recv().await) }))
+            .collect();
+
+        if futures.is_empty() {
+            break;
+        }
+
+        // Wait for any subscription to receive an event
+        let (result, _index, _remaining) = futures_util::future::select_all(futures).await;
+        let (_sub_index, event) = result;
+
+        match event {
+            Some(change) => {
+                tracing::debug!(
+                    workspace_id = %workspace_id,
+                    kind = ?change.kind,
+                    path = %change.path,
+                    "Git state changed"
+                );
+
+                // Send the message to the client
+                if sender
+                    .send(Message::Text(message_json.clone().into()))
+                    .await
+                    .is_err()
+                {
+                    break; // client disconnected
+                }
+            }
+            None => {
+                // Subscription closed, remove it
+                // Note: We can't easily remove from the vec while iterating
+                // In practice, all subscriptions will close together when workspace is removed
+                tracing::debug!(workspace_id = %workspace_id, "A git subscription closed");
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct MergeTaskAttemptRequest {
     pub repo_id: Uuid,
@@ -1910,6 +2045,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/run-cleanup-script", post(run_cleanup_script))
         .route("/branch-status", get(get_task_attempt_branch_status))
         .route("/diff/ws", get(stream_task_attempt_diff_ws))
+        .route("/git-status/ws", get(stream_git_status_ws))
         .route("/merge", post(merge_task_attempt))
         .route("/generate-commit-message", post(generate_commit_message))
         .route("/push", post(push_task_attempt_branch))

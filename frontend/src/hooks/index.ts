@@ -1,5 +1,6 @@
 export { useAccountInfo } from './useAccountInfo';
 export { useBranchStatus } from './useBranchStatus';
+export { useGitStateSubscription } from './useGitStateSubscription';
 export { useAttemptExecution } from './useAttemptExecution';
 export { useOpenInEditor } from './useOpenInEditor';
 export {
