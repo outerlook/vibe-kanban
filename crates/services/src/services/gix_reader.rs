@@ -5,6 +5,7 @@
 
 use std::path::Path;
 
+use gix::bstr::BStr;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -27,6 +28,41 @@ pub enum GixReaderError {
     RevWalkIter(#[from] gix::revision::walk::iter::Error),
     #[error("Invalid object ID: {0}")]
     InvalidObjectId(String),
+    #[error("Object not found: {0}")]
+    ObjectNotFound(String),
+    #[error("Diff error: {0}")]
+    Diff(String),
+    #[error("Invalid object: {0}")]
+    InvalidObject(String),
+}
+
+/// Change type for a file in a tree-to-tree diff
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DiffChangeType {
+    Added,
+    Deleted,
+    Modified,
+    Renamed,
+    Copied,
+}
+
+/// A single file change from a tree-to-tree diff
+#[derive(Debug, Clone)]
+pub struct TreeDiffEntry {
+    /// Type of change
+    pub change_type: DiffChangeType,
+    /// Old path (for deletions, modifications, renames)
+    pub old_path: Option<String>,
+    /// New path (for additions, modifications, renames)
+    pub new_path: Option<String>,
+    /// Old blob OID (for deletions, modifications)
+    pub old_oid: Option<gix::ObjectId>,
+    /// New blob OID (for additions, modifications)
+    pub new_oid: Option<gix::ObjectId>,
+    /// Old file mode
+    pub old_mode: Option<gix::object::tree::EntryKind>,
+    /// New file mode
+    pub new_mode: Option<gix::object::tree::EntryKind>,
 }
 
 /// Read-only interface for Git repository operations using gix.
@@ -196,6 +232,259 @@ impl GixReader {
             .map_err(|_| GixReaderError::InvalidObjectId(remote_oid.to_string()))?;
         Self::ahead_behind(repo, local, remote)
     }
+
+    /// Compute a tree-to-tree diff between two tree OIDs.
+    ///
+    /// Returns a list of file changes with their paths and blob OIDs.
+    /// Supports rename detection.
+    ///
+    /// # Arguments
+    ///
+    /// * `repo` - The gix repository
+    /// * `old_tree_id` - OID of the old (base) tree
+    /// * `new_tree_id` - OID of the new tree
+    ///
+    /// # Returns
+    ///
+    /// A vector of `TreeDiffEntry` describing each changed file.
+    pub fn diff_trees(
+        repo: &gix::Repository,
+        old_tree_id: gix::ObjectId,
+        new_tree_id: gix::ObjectId,
+    ) -> Result<Vec<TreeDiffEntry>, GixReaderError> {
+        use gix::bstr::ByteSlice;
+        use gix::object::tree::diff::ChangeDetached;
+        use gix::object::tree::EntryKind;
+
+        let mut entries = Vec::new();
+
+        // Get Tree objects
+        let old_tree = repo
+            .find_object(old_tree_id)
+            .map_err(|e| GixReaderError::ObjectNotFound(format!("old tree: {e}")))?
+            .try_into_tree()
+            .map_err(|e| GixReaderError::InvalidObject(format!("old tree not a tree: {e}")))?;
+
+        let new_tree = repo
+            .find_object(new_tree_id)
+            .map_err(|e| GixReaderError::ObjectNotFound(format!("new tree: {e}")))?
+            .try_into_tree()
+            .map_err(|e| GixReaderError::InvalidObject(format!("new tree not a tree: {e}")))?;
+
+        // Perform the diff - uses repository configuration for options (including rename detection)
+        let changes = repo
+            .diff_tree_to_tree(&old_tree, &new_tree, None)
+            .map_err(|e| GixReaderError::Diff(format!("tree diff failed: {e}")))?;
+
+        // Process changes
+        for change in changes {
+            let entry = match change {
+                ChangeDetached::Addition {
+                    location,
+                    entry_mode,
+                    id,
+                    ..
+                } => TreeDiffEntry {
+                    change_type: DiffChangeType::Added,
+                    old_path: None,
+                    new_path: Some(bstr_to_string(location.as_bstr())),
+                    old_oid: None,
+                    new_oid: Some(id),
+                    old_mode: None,
+                    new_mode: Some(entry_mode.kind()),
+                },
+                ChangeDetached::Deletion {
+                    location,
+                    entry_mode,
+                    id,
+                    ..
+                } => TreeDiffEntry {
+                    change_type: DiffChangeType::Deleted,
+                    old_path: Some(bstr_to_string(location.as_bstr())),
+                    new_path: None,
+                    old_oid: Some(id),
+                    new_oid: None,
+                    old_mode: Some(entry_mode.kind()),
+                    new_mode: None,
+                },
+                ChangeDetached::Modification {
+                    location,
+                    previous_entry_mode,
+                    previous_id,
+                    entry_mode,
+                    id,
+                } => TreeDiffEntry {
+                    change_type: DiffChangeType::Modified,
+                    old_path: Some(bstr_to_string(location.as_bstr())),
+                    new_path: Some(bstr_to_string(location.as_bstr())),
+                    old_oid: Some(previous_id),
+                    new_oid: Some(id),
+                    old_mode: Some(previous_entry_mode.kind()),
+                    new_mode: Some(entry_mode.kind()),
+                },
+                ChangeDetached::Rewrite {
+                    source_location,
+                    source_id,
+                    location,
+                    id,
+                    copy,
+                    entry_mode,
+                    source_entry_mode,
+                    ..
+                } => TreeDiffEntry {
+                    change_type: if copy {
+                        DiffChangeType::Copied
+                    } else {
+                        DiffChangeType::Renamed
+                    },
+                    old_path: Some(bstr_to_string(source_location.as_bstr())),
+                    new_path: Some(bstr_to_string(location.as_bstr())),
+                    old_oid: Some(source_id),
+                    new_oid: Some(id),
+                    old_mode: Some(source_entry_mode.kind()),
+                    new_mode: Some(entry_mode.kind()),
+                },
+            };
+
+            // Only include blob entries (files), skip trees/submodules
+            let dominated_by_blob =
+                matches!(entry.new_mode, Some(EntryKind::Blob | EntryKind::BlobExecutable))
+                    || matches!(
+                        entry.old_mode,
+                        Some(EntryKind::Blob | EntryKind::BlobExecutable)
+                    );
+
+            if dominated_by_blob {
+                entries.push(entry);
+            }
+        }
+
+        Ok(entries)
+    }
+
+    /// Read the contents of a blob by OID.
+    ///
+    /// Returns the blob content as bytes, or None if it's binary.
+    ///
+    /// # Arguments
+    ///
+    /// * `repo` - The gix repository
+    /// * `blob_id` - OID of the blob to read
+    ///
+    /// # Returns
+    ///
+    /// The blob content as a String if it's valid UTF-8 text, None otherwise.
+    pub fn read_blob(
+        repo: &gix::Repository,
+        blob_id: gix::ObjectId,
+    ) -> Result<Option<String>, GixReaderError> {
+        let blob = repo
+            .find_object(blob_id)
+            .map_err(|e| GixReaderError::ObjectNotFound(format!("blob {blob_id}: {e}")))?;
+
+        let data = blob.data.as_slice();
+
+        // Check for binary content (null bytes)
+        if data.contains(&0) {
+            return Ok(None);
+        }
+
+        // Try to convert to UTF-8
+        match std::str::from_utf8(data) {
+            Ok(s) => Ok(Some(s.to_string())),
+            Err(_) => Ok(None), // Not valid UTF-8, treat as binary
+        }
+    }
+
+    /// Read blob contents at a specific commit for a given path.
+    ///
+    /// # Arguments
+    ///
+    /// * `repo` - The gix repository
+    /// * `commit_id` - The commit OID
+    /// * `path` - The file path relative to repository root
+    ///
+    /// # Returns
+    ///
+    /// The file content as a String if found and is valid UTF-8 text, None otherwise.
+    pub fn file_contents_at(
+        repo: &gix::Repository,
+        commit_id: gix::ObjectId,
+        path: &str,
+    ) -> Result<Option<String>, GixReaderError> {
+        // Find the commit
+        let commit = repo
+            .find_object(commit_id)
+            .map_err(|e| GixReaderError::ObjectNotFound(format!("commit {commit_id}: {e}")))?
+            .try_into_commit()
+            .map_err(|e| GixReaderError::InvalidObject(format!("not a commit: {e}")))?;
+
+        // Get the tree
+        let tree_id = commit.tree_id().map_err(|e| {
+            GixReaderError::InvalidObject(format!("commit has no tree: {e}"))
+        })?;
+
+        let tree = repo
+            .find_object(tree_id)
+            .map_err(|e| GixReaderError::ObjectNotFound(format!("tree: {e}")))?
+            .try_into_tree()
+            .map_err(|e| GixReaderError::InvalidObject(format!("not a tree: {e}")))?;
+
+        // Look up the path in the tree
+        let entry = match tree.lookup_entry_by_path(path) {
+            Ok(Some(entry)) => entry,
+            Ok(None) => return Ok(None), // Path not found
+            Err(e) => {
+                return Err(GixReaderError::Diff(format!(
+                    "failed to lookup path {path}: {e}"
+                )))
+            }
+        };
+
+        // Get the blob
+        let blob_id = entry.object_id();
+        Self::read_blob(repo, blob_id)
+    }
+
+    /// Get blob size without reading full content.
+    ///
+    /// # Arguments
+    ///
+    /// * `repo` - The gix repository
+    /// * `blob_id` - OID of the blob
+    ///
+    /// # Returns
+    ///
+    /// The size of the blob in bytes.
+    pub fn blob_size(repo: &gix::Repository, blob_id: gix::ObjectId) -> Result<usize, GixReaderError> {
+        let header = repo
+            .find_header(blob_id)
+            .map_err(|e| GixReaderError::ObjectNotFound(format!("blob {blob_id}: {e}")))?;
+        Ok(header.size() as usize)
+    }
+
+    /// Check if a blob is binary (contains null bytes).
+    ///
+    /// # Arguments
+    ///
+    /// * `repo` - The gix repository
+    /// * `blob_id` - OID of the blob
+    ///
+    /// # Returns
+    ///
+    /// True if the blob contains binary content.
+    pub fn is_blob_binary(repo: &gix::Repository, blob_id: gix::ObjectId) -> Result<bool, GixReaderError> {
+        let blob = repo
+            .find_object(blob_id)
+            .map_err(|e| GixReaderError::ObjectNotFound(format!("blob {blob_id}: {e}")))?;
+
+        Ok(blob.data.as_slice().contains(&0))
+    }
+}
+
+/// Convert BStr to String, handling non-UTF8 paths gracefully
+fn bstr_to_string(bstr: &BStr) -> String {
+    String::from_utf8_lossy(bstr).to_string()
 }
 
 #[cfg(test)]
