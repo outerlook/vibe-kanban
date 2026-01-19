@@ -15,10 +15,14 @@ Environment variables:
     DEBUG_LANGFUSE_HOOK: Set to "true" to print parsed transcript to stderr
 
 Vibe-Kanban context (optional, set when running in vibe-kanban workspace):
+    VK_PROJECT_ID: The project UUID
+    VK_PROJECT_NAME: The project name
     VK_TASK_ID: The kanban task being worked on
     VK_ATTEMPT_ID: The specific execution attempt
     VK_WORKSPACE_ID: The workspace/worktree ID
+    VK_WORKSPACE_BRANCH: The git branch for the workspace
     VK_EXECUTION_PURPOSE: The purpose of execution (e.g., "task", "feedback")
+    VK_REPO_NAMES: Comma-separated list of repository names in the workspace
 """
 
 import hashlib
@@ -44,19 +48,27 @@ def get_vk_context() -> dict[str, str | None]:
     Extract vibe-kanban context from environment variables.
 
     Returns a dict with:
+        - vk_project_id: The project ID (or None)
+        - vk_project_name: The project name (or None)
         - vk_task_id: The kanban task being worked on (or None)
         - vk_attempt_id: The specific execution attempt (or None)
         - vk_workspace_id: The workspace/worktree ID (or None)
+        - vk_workspace_branch: The git branch for the workspace (or None)
         - vk_execution_purpose: The purpose of execution (or None)
+        - vk_repo_names: Comma-separated list of repo names (or None)
 
     These environment variables are set by vibe-kanban when running agents
     in a workspace context (see crates/local-deployment/src/container.rs).
     """
     return {
+        "vk_project_id": os.environ.get("VK_PROJECT_ID"),
+        "vk_project_name": os.environ.get("VK_PROJECT_NAME"),
         "vk_task_id": os.environ.get("VK_TASK_ID"),
         "vk_attempt_id": os.environ.get("VK_ATTEMPT_ID"),
         "vk_workspace_id": os.environ.get("VK_WORKSPACE_ID"),
+        "vk_workspace_branch": os.environ.get("VK_WORKSPACE_BRANCH"),
         "vk_execution_purpose": os.environ.get("VK_EXECUTION_PURPOSE"),
+        "vk_repo_names": os.environ.get("VK_REPO_NAMES"),
     }
 
 

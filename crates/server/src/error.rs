@@ -174,9 +174,6 @@ impl IntoResponse for ApiError {
                     GixReaderError::RemoteNotFound(_) => {
                         (StatusCode::NOT_FOUND, "GitServiceError")
                     }
-                    GixReaderError::InvalidRepository { .. } => {
-                        (StatusCode::BAD_REQUEST, "GitServiceError")
-                    }
                     GixReaderError::InvalidObjectId(_) => {
                         (StatusCode::BAD_REQUEST, "GitServiceError")
                     }
@@ -301,9 +298,6 @@ impl IntoResponse for ApiError {
                     }
                     GixReaderError::RemoteNotFound(remote) => {
                         format!("Remote '{}' not found.", remote)
-                    }
-                    GixReaderError::InvalidRepository { path } => {
-                        format!("Invalid repository at path: {}", path)
                     }
                     GixReaderError::InvalidObjectId(oid) => {
                         format!("Invalid git object ID: {}", oid)

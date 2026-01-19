@@ -1923,6 +1923,13 @@ impl ContainerService for LocalContainerService {
         env.insert("VK_WORKSPACE_BRANCH", &workspace.branch);
         env.insert("VK_EXECUTION_PURPOSE", purpose);
 
+        // Add repo names for observability (comma-separated list)
+        let workspace_repos = WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id)
+            .await
+            .unwrap_or_default();
+        let repo_names: Vec<&str> = workspace_repos.iter().map(|r| r.name.as_str()).collect();
+        env.insert("VK_REPO_NAMES", repo_names.join(","));
+
         // Inject Langfuse credentials if enabled (for executors with hook support)
         {
             let config_guard = self.config.read().await;
