@@ -4,6 +4,10 @@ version = "0.0.143"
 edition = "2024"
 default-run = "server"
 
+[[bin]]
+name = "generate-seed"
+path = "src/bin/generate_seed.rs"
+
 [lints.clippy]
 uninlined-format-args = "allow"
 
