@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getApiBaseUrlSync } from '@/lib/api';
 
@@ -12,13 +12,12 @@ interface GitStateChangedMessage {
  * When the backend detects file system changes in the git worktree, it sends a
  * "git_state_changed" message, triggering a refetch of branch status.
  */
-export function useGitStateSubscription(attemptId: string | undefined) {
+export function useGitStateSubscription(attemptId: string | undefined): void {
   const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
   const retryTimerRef = useRef<number | null>(null);
   const retryAttemptsRef = useRef<number>(0);
   const [retryNonce, setRetryNonce] = useState(0);
-  const [isConnected, setIsConnected] = useState(false);
 
   const scheduleReconnect = useCallback(() => {
     if (retryTimerRef.current) return; // already scheduled
@@ -43,7 +42,6 @@ export function useGitStateSubscription(attemptId: string | undefined) {
         retryTimerRef.current = null;
       }
       retryAttemptsRef.current = 0;
-      setIsConnected(false);
       return;
     }
 
@@ -55,7 +53,6 @@ export function useGitStateSubscription(attemptId: string | undefined) {
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-      setIsConnected(true);
       // Reset backoff on successful connection
       retryAttemptsRef.current = 0;
       if (retryTimerRef.current) {
@@ -81,7 +78,6 @@ export function useGitStateSubscription(attemptId: string | undefined) {
     };
 
     ws.onclose = (evt) => {
-      setIsConnected(false);
       wsRef.current = null;
 
       // Don't reconnect on clean close
@@ -112,6 +108,4 @@ export function useGitStateSubscription(attemptId: string | undefined) {
       }
     };
   }, [attemptId, queryClient, scheduleReconnect, retryNonce]);
-
-  return { isConnected };
 }
