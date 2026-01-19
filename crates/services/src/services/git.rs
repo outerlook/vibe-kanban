@@ -1783,3 +1783,273 @@ impl GitService {
         GixReader::recent_file_stats(&mut gix_repo, commit_limit).map_err(Into::into)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, process::Command};
+
+    use tempfile::TempDir;
+
+    use super::*;
+
+    fn init_test_repo_via_cli(dir: &Path) {
+        Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(dir)
+            .output()
+            .expect("Failed to init repo");
+
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(dir)
+            .output()
+            .expect("Failed to set email");
+
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(dir)
+            .output()
+            .expect("Failed to set name");
+
+        // Create empty initial commit
+        Command::new("git")
+            .args(["commit", "--allow-empty", "-m", "Initial commit"])
+            .current_dir(dir)
+            .output()
+            .expect("Failed to create initial commit");
+    }
+
+    fn git_rev_parse(repo_path: &Path, rev: &str) -> String {
+        let output = Command::new("git")
+            .args(["rev-parse", rev])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to run git rev-parse");
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+
+    fn git_rev_list_count(repo_path: &Path, range: &str) -> usize {
+        let output = Command::new("git")
+            .args(["rev-list", "--count", range])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to run git rev-list");
+        String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse()
+            .unwrap_or(0)
+    }
+
+    fn git_status_counts(repo_path: &Path) -> (usize, usize) {
+        let output = Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to run git status");
+        let status_output = String::from_utf8_lossy(&output.stdout);
+
+        let mut uncommitted = 0;
+        let mut untracked = 0;
+
+        for line in status_output.lines() {
+            if line.starts_with("??") {
+                untracked += 1;
+            } else if !line.is_empty() {
+                uncommitted += 1;
+            }
+        }
+
+        (uncommitted, untracked)
+    }
+
+    /// Integration test: verify GitService.get_head_info() matches git CLI
+    #[test]
+    fn test_git_service_get_head_info() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        let git_service = GitService::new();
+        let head_info = git_service.get_head_info(repo_path).unwrap();
+
+        let git_oid = git_rev_parse(repo_path, "HEAD");
+        let git_branch = {
+            let output = Command::new("git")
+                .args(["branch", "--show-current"])
+                .current_dir(repo_path)
+                .output()
+                .expect("Failed to get branch");
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        };
+
+        assert_eq!(head_info.oid, git_oid, "HEAD OID should match git CLI");
+        assert_eq!(
+            head_info.branch, git_branch,
+            "Branch name should match git CLI"
+        );
+    }
+
+    /// Integration test: verify GitService.get_worktree_change_counts() matches git CLI
+    #[test]
+    fn test_git_service_worktree_change_counts() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        // Create a tracked file and commit it
+        fs::write(repo_path.join("tracked.txt"), "initial").unwrap();
+        Command::new("git")
+            .args(["add", "tracked.txt"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "Add tracked file"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        // Create mixed state: modified + staged + untracked
+        fs::write(repo_path.join("tracked.txt"), "modified").unwrap();
+        fs::write(repo_path.join("untracked.txt"), "untracked").unwrap();
+        fs::write(repo_path.join("staged.txt"), "staged").unwrap();
+        Command::new("git")
+            .args(["add", "staged.txt"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        let git_service = GitService::new();
+        let (uncommitted, untracked) = git_service.get_worktree_change_counts(repo_path).unwrap();
+        let (git_uncommitted, git_untracked) = git_status_counts(repo_path);
+
+        assert_eq!(
+            uncommitted, git_uncommitted,
+            "Uncommitted count should match git CLI"
+        );
+        assert_eq!(
+            untracked, git_untracked,
+            "Untracked count should match git CLI"
+        );
+    }
+
+    /// Integration test: verify GitService.get_branch_status() matches git CLI
+    #[test]
+    fn test_git_service_branch_status() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        // Create a feature branch with some commits
+        Command::new("git")
+            .args(["checkout", "-b", "feature"])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to create feature branch");
+
+        for i in 1..=3 {
+            fs::write(
+                repo_path.join(format!("feature{}.txt", i)),
+                format!("content{}", i),
+            )
+            .unwrap();
+            Command::new("git")
+                .args(["add", "."])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+            Command::new("git")
+                .args(["commit", "-m", &format!("Feature commit {}", i)])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+        }
+
+        // Switch to main and add commits
+        Command::new("git")
+            .args(["checkout", "main"])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to checkout main");
+
+        for i in 1..=2 {
+            fs::write(repo_path.join(format!("main{}.txt", i)), format!("main{}", i)).unwrap();
+            Command::new("git")
+                .args(["add", "."])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+            Command::new("git")
+                .args(["commit", "-m", &format!("Main commit {}", i)])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+        }
+
+        // Get ahead/behind using GitService
+        let git_service = GitService::new();
+        let (ahead, behind) = git_service
+            .get_branch_status(repo_path, "feature", "main")
+            .unwrap();
+
+        // Get expected values from git CLI
+        let feature_oid = git_rev_parse(repo_path, "feature");
+        let main_oid = git_rev_parse(repo_path, "main");
+        let expected_ahead =
+            git_rev_list_count(repo_path, &format!("{}..{}", main_oid, feature_oid));
+        let expected_behind =
+            git_rev_list_count(repo_path, &format!("{}..{}", feature_oid, main_oid));
+
+        assert_eq!(
+            ahead, expected_ahead,
+            "Ahead count should match git CLI (expected 3)"
+        );
+        assert_eq!(
+            behind, expected_behind,
+            "Behind count should match git CLI (expected 2)"
+        );
+    }
+
+    /// Integration test: verify GitService works with worktrees
+    #[test]
+    fn test_git_service_with_worktree() {
+        let temp_dir = TempDir::new().unwrap();
+        let main_repo_path = temp_dir.path().join("main");
+        fs::create_dir_all(&main_repo_path).unwrap();
+        init_test_repo_via_cli(&main_repo_path);
+
+        // Create a worktree
+        let worktree_path = temp_dir.path().join("worktree");
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "feature",
+                worktree_path.to_str().unwrap(),
+            ])
+            .current_dir(&main_repo_path)
+            .output()
+            .expect("Failed to create worktree");
+
+        // Add files in worktree
+        fs::write(worktree_path.join("new-file.txt"), "content").unwrap();
+
+        let git_service = GitService::new();
+
+        // Test get_head_info in worktree
+        let head_info = git_service.get_head_info(&worktree_path).unwrap();
+        assert_eq!(
+            head_info.branch, "feature",
+            "Worktree should be on feature branch"
+        );
+
+        // Test get_worktree_change_counts in worktree
+        let (uncommitted, untracked) = git_service
+            .get_worktree_change_counts(&worktree_path)
+            .unwrap();
+        let (git_uncommitted, git_untracked) = git_status_counts(&worktree_path);
+        assert_eq!(uncommitted, git_uncommitted);
+        assert_eq!(untracked, git_untracked);
+    }
+}

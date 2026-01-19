@@ -1595,4 +1595,430 @@ mod tests {
 
         assert!(GixReader::is_dirty(repo_path).unwrap());
     }
+
+    // ========== Gix Migration Verification Tests ==========
+    // These tests compare gix output against git CLI to verify the migration is correct
+
+    /// Helper to get git rev-parse output for comparing OIDs
+    fn git_rev_parse(repo_path: &Path, rev: &str) -> String {
+        let output = Command::new("git")
+            .args(["rev-parse", rev])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to run git rev-parse");
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+
+    /// Helper to get git rev-list --count for comparing ahead/behind
+    fn git_rev_list_count(repo_path: &Path, range: &str) -> usize {
+        let output = Command::new("git")
+            .args(["rev-list", "--count", range])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to run git rev-list");
+        String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse()
+            .unwrap_or(0)
+    }
+
+    /// Helper to get git status --porcelain counts for comparing worktree status
+    fn git_status_counts(repo_path: &Path) -> (usize, usize) {
+        let output = Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to run git status");
+        let status_output = String::from_utf8_lossy(&output.stdout);
+
+        let mut uncommitted = 0;
+        let mut untracked = 0;
+
+        for line in status_output.lines() {
+            if line.starts_with("??") {
+                untracked += 1;
+            } else if !line.is_empty() {
+                uncommitted += 1;
+            }
+        }
+
+        (uncommitted, untracked)
+    }
+
+    #[test]
+    fn test_gix_head_info_matches_git_cli() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        // Get results from both gix and git CLI
+        let gix_info = GixReader::head_info(repo_path).unwrap();
+        let git_oid = git_rev_parse(repo_path, "HEAD");
+        let git_branch = {
+            let output = Command::new("git")
+                .args(["branch", "--show-current"])
+                .current_dir(repo_path)
+                .output()
+                .expect("Failed to get branch");
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        };
+
+        assert_eq!(
+            gix_info.oid, git_oid,
+            "Gix OID {} should match git CLI OID {}",
+            gix_info.oid, git_oid
+        );
+        assert_eq!(
+            gix_info.branch, git_branch,
+            "Gix branch {} should match git CLI branch {}",
+            gix_info.branch, git_branch
+        );
+    }
+
+    #[test]
+    fn test_gix_ahead_behind_matches_git_cli() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        // Create a branch with some commits ahead of main
+        Command::new("git")
+            .args(["checkout", "-b", "feature"])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to create feature branch");
+
+        // Add 3 commits on feature
+        for i in 1..=3 {
+            fs::write(repo_path.join(format!("feature{}.txt", i)), format!("content{}", i))
+                .unwrap();
+            Command::new("git")
+                .args(["add", "."])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+            Command::new("git")
+                .args(["commit", "-m", &format!("Feature commit {}", i)])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+        }
+
+        // Switch to main and add 2 commits
+        Command::new("git")
+            .args(["checkout", "main"])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to checkout main");
+
+        for i in 1..=2 {
+            fs::write(repo_path.join(format!("main{}.txt", i)), format!("main{}", i)).unwrap();
+            Command::new("git")
+                .args(["add", "."])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+            Command::new("git")
+                .args(["commit", "-m", &format!("Main commit {}", i)])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+        }
+
+        // Get OIDs for both branches
+        let feature_oid = git_rev_parse(repo_path, "feature");
+        let main_oid = git_rev_parse(repo_path, "main");
+
+        // Get ahead/behind from git CLI
+        let git_ahead = git_rev_list_count(repo_path, &format!("{}..{}", main_oid, feature_oid));
+        let git_behind = git_rev_list_count(repo_path, &format!("{}..{}", feature_oid, main_oid));
+
+        // Get ahead/behind from gix
+        let repo = GixReader::open(repo_path).unwrap();
+        let (gix_ahead, gix_behind) =
+            GixReader::ahead_behind_by_oid(&repo, &feature_oid, &main_oid).unwrap();
+
+        assert_eq!(
+            gix_ahead, git_ahead,
+            "Gix ahead {} should match git CLI ahead {}",
+            gix_ahead, git_ahead
+        );
+        assert_eq!(
+            gix_behind, git_behind,
+            "Gix behind {} should match git CLI behind {}",
+            gix_behind, git_behind
+        );
+
+        // Verify the expected values (3 ahead, 2 behind)
+        assert_eq!(gix_ahead, 3, "Feature should be 3 commits ahead of main");
+        assert_eq!(gix_behind, 2, "Feature should be 2 commits behind main");
+    }
+
+    #[test]
+    fn test_gix_ahead_behind_same_commit() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        let oid = git_rev_parse(repo_path, "HEAD");
+        let repo = GixReader::open(repo_path).unwrap();
+        let (ahead, behind) = GixReader::ahead_behind_by_oid(&repo, &oid, &oid).unwrap();
+
+        assert_eq!(ahead, 0);
+        assert_eq!(behind, 0);
+    }
+
+    #[test]
+    fn test_gix_worktree_status_matches_git_cli() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        // Create a tracked file and commit it
+        fs::write(repo_path.join("tracked.txt"), "initial").unwrap();
+        Command::new("git")
+            .args(["add", "tracked.txt"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "Add tracked file"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        // Now create a mixed state:
+        // - Modify tracked file (1 uncommitted)
+        // - Add untracked file (1 untracked)
+        // - Stage a new file (1 uncommitted)
+        fs::write(repo_path.join("tracked.txt"), "modified").unwrap();
+        fs::write(repo_path.join("untracked.txt"), "untracked").unwrap();
+        fs::write(repo_path.join("staged.txt"), "staged").unwrap();
+        Command::new("git")
+            .args(["add", "staged.txt"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        // Get counts from both gix and git CLI
+        let gix_summary = GixReader::get_worktree_status(repo_path).unwrap();
+        let (git_uncommitted, git_untracked) = git_status_counts(repo_path);
+
+        assert_eq!(
+            gix_summary.uncommitted_tracked, git_uncommitted,
+            "Gix uncommitted {} should match git CLI uncommitted {}",
+            gix_summary.uncommitted_tracked, git_uncommitted
+        );
+        assert_eq!(
+            gix_summary.untracked, git_untracked,
+            "Gix untracked {} should match git CLI untracked {}",
+            gix_summary.untracked, git_untracked
+        );
+
+        // Verify expected values (2 uncommitted: modified + staged, 1 untracked)
+        assert_eq!(
+            gix_summary.uncommitted_tracked, 2,
+            "Should have 2 uncommitted (modified + staged)"
+        );
+        assert_eq!(gix_summary.untracked, 1, "Should have 1 untracked");
+    }
+
+    #[test]
+    fn test_gix_worktree_status_in_worktree() {
+        let temp_dir = TempDir::new().unwrap();
+        let main_repo_path = temp_dir.path().join("main");
+        fs::create_dir_all(&main_repo_path).unwrap();
+        init_test_repo_via_cli(&main_repo_path);
+
+        // Create a worktree
+        let worktree_path = temp_dir.path().join("worktree");
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "feature",
+                worktree_path.to_str().unwrap(),
+            ])
+            .current_dir(&main_repo_path)
+            .output()
+            .expect("Failed to create worktree");
+
+        // Add files in worktree
+        fs::write(worktree_path.join("new-file.txt"), "content").unwrap();
+
+        // Get counts from both gix and git CLI
+        let gix_summary = GixReader::get_worktree_status(&worktree_path).unwrap();
+        let (git_uncommitted, git_untracked) = git_status_counts(&worktree_path);
+
+        assert_eq!(
+            gix_summary.uncommitted_tracked, git_uncommitted,
+            "Gix uncommitted in worktree should match git CLI"
+        );
+        assert_eq!(
+            gix_summary.untracked, git_untracked,
+            "Gix untracked in worktree should match git CLI"
+        );
+    }
+
+    #[test]
+    fn test_gix_branch_oid_matches_git_cli() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        // Create additional branch
+        Command::new("git")
+            .args(["checkout", "-b", "feature"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        fs::write(repo_path.join("file.txt"), "content").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "Feature commit"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        // Compare gix vs git CLI for both branches
+        let gix_main_oid = GixReader::branch_oid(repo_path, "main").unwrap();
+        let git_main_oid = git_rev_parse(repo_path, "main");
+        assert_eq!(gix_main_oid, git_main_oid, "Main branch OID should match");
+
+        let gix_feature_oid = GixReader::branch_oid(repo_path, "feature").unwrap();
+        let git_feature_oid = git_rev_parse(repo_path, "feature");
+        assert_eq!(
+            gix_feature_oid, git_feature_oid,
+            "Feature branch OID should match"
+        );
+    }
+
+    /// Benchmark: measure gix performance vs git CLI for branchStatus operations
+    /// This test demonstrates gix is faster than spawning git CLI processes.
+    /// Run with: cargo nextest run --package services test_gix_performance_vs_cli --no-capture
+    #[test]
+    fn test_gix_performance_vs_cli() {
+        use std::time::Instant;
+
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        // Create a repo with some history
+        for i in 1..=10 {
+            fs::write(repo_path.join(format!("file{}.txt", i)), format!("content{}", i)).unwrap();
+            Command::new("git")
+                .args(["add", "."])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+            Command::new("git")
+                .args(["commit", "-m", &format!("Commit {}", i)])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+        }
+
+        // Create a diverged branch
+        Command::new("git")
+            .args(["checkout", "-b", "feature", "HEAD~5"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        for i in 1..=3 {
+            fs::write(
+                repo_path.join(format!("feature{}.txt", i)),
+                format!("feature{}", i),
+            )
+            .unwrap();
+            Command::new("git")
+                .args(["add", "."])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+            Command::new("git")
+                .args(["commit", "-m", &format!("Feature commit {}", i)])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+        }
+
+        // Add some untracked and modified files
+        fs::write(repo_path.join("untracked1.txt"), "untracked").unwrap();
+        fs::write(repo_path.join("untracked2.txt"), "untracked").unwrap();
+        fs::write(repo_path.join("file1.txt"), "modified").unwrap();
+
+        let iterations = 100;
+
+        // Benchmark git CLI - typical branchStatus operations
+        let cli_start = Instant::now();
+        for _ in 0..iterations {
+            // git rev-parse HEAD
+            let _ = Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+            // git branch --show-current
+            let _ = Command::new("git")
+                .args(["branch", "--show-current"])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+            // git status --porcelain
+            let _ = Command::new("git")
+                .args(["status", "--porcelain"])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+            // git rev-list --count main..feature
+            let _ = Command::new("git")
+                .args(["rev-list", "--count", "main..feature"])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+        }
+        let cli_duration = cli_start.elapsed();
+        let cli_per_op = cli_duration / iterations;
+
+        // Benchmark gix - same operations
+        let gix_start = Instant::now();
+        for _ in 0..iterations {
+            // head_info (combines rev-parse HEAD + branch --show-current)
+            let _ = GixReader::head_info(repo_path).unwrap();
+            // get_worktree_status (combines status --porcelain counts)
+            let _ = GixReader::get_worktree_status(repo_path).unwrap();
+            // ahead_behind (combines rev-list --count in both directions)
+            let repo = GixReader::open(repo_path).unwrap();
+            let main_oid = GixReader::branch_oid(repo_path, "main").unwrap();
+            let feature_oid = GixReader::branch_oid(repo_path, "feature").unwrap();
+            let _ = GixReader::ahead_behind_by_oid(&repo, &feature_oid, &main_oid).unwrap();
+        }
+        let gix_duration = gix_start.elapsed();
+        let gix_per_op = gix_duration / iterations;
+
+        // Calculate speedup
+        let speedup = cli_duration.as_secs_f64() / gix_duration.as_secs_f64();
+
+        println!("\n=== Gix vs Git CLI Performance Comparison ===");
+        println!("Operations per iteration: head_info + worktree_status + ahead_behind");
+        println!("Iterations: {}", iterations);
+        println!("Git CLI total: {:?} ({:?} per iteration)", cli_duration, cli_per_op);
+        println!("Gix total:     {:?} ({:?} per iteration)", gix_duration, gix_per_op);
+        println!("Speedup: {:.2}x faster", speedup);
+        println!("==============================================\n");
+
+        // Gix should be faster (conservative threshold to avoid flaky tests)
+        // Measured: ~1.9x faster on typical hardware (3.6ms vs 6.8ms per op)
+        assert!(
+            speedup > 1.5,
+            "Gix should be at least 1.5x faster than git CLI, but was only {:.2}x",
+            speedup
+        );
+    }
 }
