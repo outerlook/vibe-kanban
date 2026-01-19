@@ -11,7 +11,7 @@ use db::models::{
     scratch::Scratch,
     session::Session,
     task::{Task, TaskWithAttemptStatus},
-    workspace::Workspace,
+    workspace::{Workspace, WorkspaceWithSession},
 };
 use futures::StreamExt;
 use moka::future::Cache;
@@ -786,14 +786,15 @@ impl EventService {
             db_pool: &SqlitePool,
             task_id: Uuid,
         ) -> Result<LogMsg, anyhow::Error> {
-            let workspaces = Workspace::fetch_all(db_pool, Some(task_id)).await?;
+            let workspaces_with_sessions =
+                WorkspaceWithSession::fetch_with_latest_sessions(db_pool, Some(task_id)).await?;
 
-            let workspaces_map: serde_json::Map<String, serde_json::Value> = workspaces
+            let workspaces_map: serde_json::Map<String, serde_json::Value> = workspaces_with_sessions
                 .into_iter()
-                .map(|workspace| {
+                .map(|ws| {
                     (
-                        workspace.id.to_string(),
-                        serde_json::to_value(workspace).unwrap(),
+                        ws.workspace.id.to_string(),
+                        serde_json::to_value(ws).unwrap(),
                     )
                 })
                 .collect();
