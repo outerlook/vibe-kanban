@@ -25,7 +25,11 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 ts-rs = { workspace = true }
 dirs = "5.0"
+# git2: Used only for write operations (commits, merges, reference updates, credentials).
+# All read operations have been migrated to gix for better performance.
 git2 = "0.18"
+# gix: Used for all read operations (status, diff, history, fetch).
+gix = { version = "0.77", features = ["status", "revision", "worktree-stream", "blocking-network-client"] }
 tempfile = "3.21"
 async-trait = { workspace = true } 
 rust-embed = "8.2"

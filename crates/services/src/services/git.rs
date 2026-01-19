@@ -1,21 +1,18 @@
 use std::{collections::HashMap, path::Path};
 
 use chrono::{DateTime, Utc};
-use git2::{
-    BranchType, Delta, DiffFindOptions, DiffOptions, Error as GitError, Reference, Remote,
-    Repository, Sort,
-};
+use git2::{BranchType, Error as GitError, Reference, Remote, Repository};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ts_rs::TS;
-use utils::diff::{Diff, DiffChangeKind, FileDiffDetails, compute_line_change_counts};
+use utils::diff::{Diff, DiffChangeKind, compute_line_change_counts};
 
 mod cli;
 
 use cli::{ChangeType, StatusDiffEntry, StatusDiffOptions};
 pub use cli::{GitCli, GitCliError};
 
-use super::file_ranker::FileStat;
+use super::gix_reader::{DiffChangeType, FileStat, GixReader, GixReaderError, TreeDiffEntry};
 use crate::services::github::GitHubRepoInfo;
 
 #[derive(Debug, Error)]
@@ -26,6 +23,8 @@ pub enum GitServiceError {
     GitCLI(#[from] GitCliError),
     #[error(transparent)]
     IoError(#[from] std::io::Error),
+    #[error(transparent)]
+    GixReader(#[from] GixReaderError),
     #[error("Invalid repository: {0}")]
     InvalidRepository(String),
     #[error("Branch not found: {0}")]
@@ -73,14 +72,17 @@ pub struct HeadInfo {
 }
 
 #[derive(Debug, Clone)]
-pub struct Commit(git2::Oid);
+pub struct Commit(String);
 
 impl Commit {
-    pub fn new(id: git2::Oid) -> Self {
-        Self(id)
+    pub fn new(id: impl ToString) -> Self {
+        Self(id.to_string())
     }
     pub fn as_oid(&self) -> git2::Oid {
-        self.0
+        git2::Oid::from_str(&self.0).expect("Commit contains invalid OID")
+    }
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -343,49 +345,57 @@ impl GitService {
                 branch_name,
                 base_branch,
             } => {
-                let repo = self.open_repo(repo_path)?;
-                let base_tree = Self::find_branch(&repo, base_branch)?
+                // Use gix for tree-to-tree diff
+                let gix_repo = GixReader::open(repo_path)?;
+
+                // Resolve branch references to tree OIDs using git2 for reference resolution
+                // (gix reference resolution requires more setup)
+                let git2_repo = self.open_repo(repo_path)?;
+                let base_tree_oid = Self::find_branch(&git2_repo, base_branch)?
                     .get()
                     .peel_to_commit()?
-                    .tree()?;
-                let branch_tree = Self::find_branch(&repo, branch_name)?
+                    .tree()?
+                    .id();
+                let branch_tree_oid = Self::find_branch(&git2_repo, branch_name)?
                     .get()
                     .peel_to_commit()?
-                    .tree()?;
+                    .tree()?
+                    .id();
 
-                let mut diff_opts = DiffOptions::new();
-                diff_opts.include_typechange(true);
+                // Convert git2 OIDs to gix OIDs
+                let base_gix_oid = gix::ObjectId::from_bytes_or_panic(base_tree_oid.as_bytes());
+                let branch_gix_oid = gix::ObjectId::from_bytes_or_panic(branch_tree_oid.as_bytes());
 
-                // Add path filtering if specified
+                // Perform diff using gix
+                let mut entries = GixReader::diff_trees(&gix_repo, base_gix_oid, branch_gix_oid)?;
+
+                // Apply path filter if specified
                 if let Some(paths) = path_filter {
-                    for path in paths {
-                        diff_opts.pathspec(*path);
-                    }
+                    entries.retain(|e| {
+                        let check_path = e.new_path.as_deref().or(e.old_path.as_deref());
+                        if let Some(p) = check_path {
+                            paths.iter().any(|filter| p.starts_with(*filter))
+                        } else {
+                            false
+                        }
+                    });
                 }
 
-                let mut diff = repo.diff_tree_to_tree(
-                    Some(&base_tree),
-                    Some(&branch_tree),
-                    Some(&mut diff_opts),
-                )?;
-
-                // Enable rename detection
-                let mut find_opts = DiffFindOptions::new();
-                diff.find_similar(Some(&mut find_opts))?;
-
-                self.convert_diff_to_file_diffs(diff, &repo)
+                Self::convert_gix_diff_entries(&gix_repo, entries)
             }
             DiffTarget::Commit {
                 repo_path,
                 commit_sha,
             } => {
-                let repo = self.open_repo(repo_path)?;
+                // Use gix for tree-to-tree diff
+                let gix_repo = GixReader::open(repo_path)?;
 
-                // Resolve commit and its baseline (the parent before the squash landed)
+                // Resolve commit and parent using git2 for reference resolution
+                let git2_repo = self.open_repo(repo_path)?;
                 let commit_oid = git2::Oid::from_str(commit_sha).map_err(|_| {
                     GitServiceError::InvalidRepository(format!("Invalid commit SHA: {commit_sha}"))
                 })?;
-                let commit = repo.find_commit(commit_oid)?;
+                let commit = git2_repo.find_commit(commit_oid)?;
                 let parent = commit.parent(0).map_err(|_| {
                     GitServiceError::InvalidRepository(
                         "Commit has no parent; cannot diff a squash merge without a baseline"
@@ -393,170 +403,132 @@ impl GitService {
                     )
                 })?;
 
-                let parent_tree = parent.tree()?;
-                let commit_tree = commit.tree()?;
+                let parent_tree_oid = parent.tree()?.id();
+                let commit_tree_oid = commit.tree()?.id();
 
-                // Diff options
-                let mut diff_opts = git2::DiffOptions::new();
-                diff_opts.include_typechange(true);
+                // Convert git2 OIDs to gix OIDs
+                let parent_gix_oid = gix::ObjectId::from_bytes_or_panic(parent_tree_oid.as_bytes());
+                let commit_gix_oid = gix::ObjectId::from_bytes_or_panic(commit_tree_oid.as_bytes());
 
-                // Optional path filtering
+                // Perform diff using gix
+                let mut entries = GixReader::diff_trees(&gix_repo, parent_gix_oid, commit_gix_oid)?;
+
+                // Apply path filter if specified
                 if let Some(paths) = path_filter {
-                    for path in paths {
-                        diff_opts.pathspec(*path);
-                    }
+                    entries.retain(|e| {
+                        let check_path = e.new_path.as_deref().or(e.old_path.as_deref());
+                        if let Some(p) = check_path {
+                            paths.iter().any(|filter| p.starts_with(*filter))
+                        } else {
+                            false
+                        }
+                    });
                 }
 
-                // Compute the diff parent -> commit
-                let mut diff = repo.diff_tree_to_tree(
-                    Some(&parent_tree),
-                    Some(&commit_tree),
-                    Some(&mut diff_opts),
-                )?;
-
-                // Enable rename detection
-                let mut find_opts = git2::DiffFindOptions::new();
-                diff.find_similar(Some(&mut find_opts))?;
-
-                self.convert_diff_to_file_diffs(diff, &repo)
+                Self::convert_gix_diff_entries(&gix_repo, entries)
             }
         }
     }
-
-    /// Convert git2::Diff to our Diff structs
-    fn convert_diff_to_file_diffs(
-        &self,
-        diff: git2::Diff,
-        repo: &Repository,
+    /// Convert gix TreeDiffEntry results to our Diff structs using gix for blob reading.
+    ///
+    /// This is the gix-based replacement for `convert_diff_to_file_diffs`.
+    fn convert_gix_diff_entries(
+        gix_repo: &gix::Repository,
+        entries: Vec<TreeDiffEntry>,
     ) -> Result<Vec<Diff>, GitServiceError> {
         let mut file_diffs = Vec::new();
 
-        let mut delta_index: usize = 0;
-        diff.foreach(
-            &mut |delta, _| {
-                if delta.status() == Delta::Unreadable {
-                    return true;
-                }
+        for entry in entries {
+            // Convert change type
+            let mut change = match entry.change_type {
+                DiffChangeType::Added => DiffChangeKind::Added,
+                DiffChangeType::Deleted => DiffChangeKind::Deleted,
+                DiffChangeType::Modified => DiffChangeKind::Modified,
+                DiffChangeType::Renamed => DiffChangeKind::Renamed,
+                DiffChangeType::Copied => DiffChangeKind::Copied,
+            };
 
-                let status = delta.status();
+            // Check blob sizes to decide if content should be omitted
+            let mut content_omitted = false;
 
-                // Decide if we should omit content due to size
-                let mut content_omitted = false;
-                // Check old blob size when applicable
-                if !matches!(status, Delta::Added) {
-                    let oid = delta.old_file().id();
-                    if !oid.is_zero()
-                        && let Ok(blob) = repo.find_blob(oid)
-                        && !blob.is_binary()
-                        && blob.size() > MAX_INLINE_DIFF_BYTES
-                    {
+            // Check old blob size
+            if let Some(old_oid) = entry.old_oid {
+                if let Ok(size) = GixReader::blob_size(gix_repo, old_oid) {
+                    if size > MAX_INLINE_DIFF_BYTES {
                         content_omitted = true;
                     }
                 }
-                // Check new blob size when applicable
-                if !matches!(status, Delta::Deleted) {
-                    let oid = delta.new_file().id();
-                    if !oid.is_zero()
-                        && let Ok(blob) = repo.find_blob(oid)
-                        && !blob.is_binary()
-                        && blob.size() > MAX_INLINE_DIFF_BYTES
-                    {
+            }
+
+            // Check new blob size
+            if let Some(new_oid) = entry.new_oid {
+                if let Ok(size) = GixReader::blob_size(gix_repo, new_oid) {
+                    if size > MAX_INLINE_DIFF_BYTES {
                         content_omitted = true;
                     }
                 }
+            }
 
-                // Only build old/new content if not omitted
-                let (old_path, old_content) = if matches!(status, Delta::Added) {
-                    (None, None)
-                } else {
-                    let path_opt = delta
-                        .old_file()
-                        .path()
-                        .map(|p| p.to_string_lossy().to_string());
-                    if content_omitted {
-                        (path_opt, None)
-                    } else {
-                        let details = delta
-                            .old_file()
-                            .path()
-                            .map(|p| self.create_file_details(p, &delta.old_file().id(), repo));
-                        (
-                            details.as_ref().and_then(|f| f.file_name.clone()),
-                            details.and_then(|f| f.content),
-                        )
-                    }
-                };
+            // Get old content if not omitted
+            let old_content = if content_omitted {
+                None
+            } else if let Some(old_oid) = entry.old_oid {
+                GixReader::read_blob(gix_repo, old_oid).ok().flatten()
+            } else {
+                None
+            };
 
-                let (new_path, new_content) = if matches!(status, Delta::Deleted) {
-                    (None, None)
-                } else {
-                    let path_opt = delta
-                        .new_file()
-                        .path()
-                        .map(|p| p.to_string_lossy().to_string());
-                    if content_omitted {
-                        (path_opt, None)
-                    } else {
-                        let details = delta
-                            .new_file()
-                            .path()
-                            .map(|p| self.create_file_details(p, &delta.new_file().id(), repo));
-                        (
-                            details.as_ref().and_then(|f| f.file_name.clone()),
-                            details.and_then(|f| f.content),
-                        )
-                    }
-                };
+            // Get new content if not omitted
+            let new_content = if content_omitted {
+                None
+            } else if let Some(new_oid) = entry.new_oid {
+                GixReader::read_blob(gix_repo, new_oid).ok().flatten()
+            } else {
+                None
+            };
 
-                let mut change = match status {
-                    Delta::Added => DiffChangeKind::Added,
-                    Delta::Deleted => DiffChangeKind::Deleted,
-                    Delta::Modified => DiffChangeKind::Modified,
-                    Delta::Renamed => DiffChangeKind::Renamed,
-                    Delta::Copied => DiffChangeKind::Copied,
-                    Delta::Untracked => DiffChangeKind::Added,
-                    _ => DiffChangeKind::Modified,
-                };
-
-                // Detect pure mode changes (e.g., chmod +/-x) and classify as PermissionChange
-                if matches!(status, Delta::Modified)
-                    && delta.old_file().mode() != delta.new_file().mode()
+            // Detect pure permission changes (content identical, mode differs)
+            if matches!(change, DiffChangeKind::Modified) {
+                let mode_changed = entry.old_mode != entry.new_mode;
+                if mode_changed
+                    && old_content.is_some()
+                    && new_content.is_some()
+                    && old_content == new_content
                 {
-                    // Only downgrade to PermissionChange if we KNOW content is unchanged
-                    if old_content.is_some() && new_content.is_some() && old_content == new_content
-                    {
-                        change = DiffChangeKind::PermissionChange;
-                    }
+                    change = DiffChangeKind::PermissionChange;
                 }
+            }
 
-                // Always compute line stats via libgit2 Patch
-                let (additions, deletions) = if let Ok(Some(patch)) =
-                    git2::Patch::from_diff(&diff, delta_index)
-                    && let Ok((_ctx, adds, dels)) = patch.line_stats()
-                {
+            // Compute line stats if we have content
+            let (additions, deletions) = match (&old_content, &new_content) {
+                (Some(old), Some(new)) => {
+                    let (adds, dels) = compute_line_change_counts(old, new);
                     (Some(adds), Some(dels))
-                } else {
-                    (None, None)
-                };
+                }
+                (None, Some(new)) => {
+                    // All lines are additions
+                    let adds = new.lines().count();
+                    (Some(adds), Some(0))
+                }
+                (Some(old), None) => {
+                    // All lines are deletions
+                    let dels = old.lines().count();
+                    (Some(0), Some(dels))
+                }
+                (None, None) => (None, None),
+            };
 
-                file_diffs.push(Diff {
-                    change,
-                    old_path,
-                    new_path,
-                    old_content,
-                    new_content,
-                    content_omitted,
-                    additions,
-                    deletions,
-                });
-
-                delta_index += 1;
-                true
-            },
-            None,
-            None,
-            None,
-        )?;
+            file_diffs.push(Diff {
+                change,
+                old_path: entry.old_path,
+                new_path: entry.new_path,
+                old_content,
+                new_content,
+                content_omitted,
+                additions,
+                deletions,
+            });
+        }
 
         Ok(file_diffs)
     }
@@ -617,39 +589,6 @@ impl GitService {
                 tracing::debug!("File is not valid UTF-8: {:?}: {}", abs_path, e);
                 None
             }
-        }
-    }
-
-    /// Create FileDiffDetails from path and blob with filesystem fallback
-    fn create_file_details(
-        &self,
-        path: &Path,
-        blob_id: &git2::Oid,
-        repo: &Repository,
-    ) -> FileDiffDetails {
-        let file_name = path.to_string_lossy().to_string();
-
-        // Try to get content from blob first (for non-zero OIDs)
-        let content = if !blob_id.is_zero() {
-            repo.find_blob(*blob_id)
-                .ok()
-                .and_then(|blob| Self::blob_to_string(&blob))
-                .or_else(|| {
-                    // Fallback to filesystem for unstaged changes
-                    tracing::debug!(
-                        "Blob not found for non-zero OID, reading from filesystem: {}",
-                        file_name
-                    );
-                    Self::read_file_to_string(repo, path)
-                })
-        } else {
-            // For zero OIDs, check filesystem directly (covers new/untracked files)
-            Self::read_file_to_string(repo, path)
-        };
-
-        FileDiffDetails {
-            file_name: Some(file_name),
-            content,
         }
     }
 
@@ -893,23 +832,36 @@ impl GitService {
             }
         }
     }
+    /// Compute ahead/behind between two OIDs using gix.
+    fn ahead_behind_by_oid_gix(
+        repo_path: &Path,
+        local_oid: &str,
+        remote_oid: &str,
+    ) -> Result<(usize, usize), GitServiceError> {
+        let gix_repo = GixReader::open(repo_path)?;
+        let (ahead, behind) = GixReader::ahead_behind_by_oid(&gix_repo, local_oid, remote_oid)?;
+        Ok((ahead, behind))
+    }
+
     fn get_branch_status_inner(
         &self,
-        repo: &Repository,
+        repo_path: &Path,
         branch_ref: &Reference,
         base_branch_ref: &Reference,
     ) -> Result<(usize, usize), GitServiceError> {
-        let (a, b) = repo.graph_ahead_behind(
-            branch_ref.target().ok_or(GitServiceError::BranchNotFound(
+        let local_oid = branch_ref
+            .target()
+            .ok_or(GitServiceError::BranchNotFound(
                 "Branch not found".to_string(),
-            ))?,
-            base_branch_ref
-                .target()
-                .ok_or(GitServiceError::BranchNotFound(
-                    "Branch not found".to_string(),
-                ))?,
-        )?;
-        Ok((a, b))
+            ))?
+            .to_string();
+        let remote_oid = base_branch_ref
+            .target()
+            .ok_or(GitServiceError::BranchNotFound(
+                "Base branch not found".to_string(),
+            ))?
+            .to_string();
+        Self::ahead_behind_by_oid_gix(repo_path, &local_oid, &remote_oid)
     }
 
     pub fn get_branch_status(
@@ -922,7 +874,7 @@ impl GitService {
         let branch = Self::find_branch(&repo, branch_name)?;
         let base_branch = Self::find_branch(&repo, base_branch_name)?;
         self.get_branch_status_inner(
-            &repo,
+            repo_path,
             &branch.into_reference(),
             &base_branch.into_reference(),
         )
@@ -934,17 +886,23 @@ impl GitService {
         branch_name: &str,
         base_branch_name: &str,
     ) -> Result<Commit, GitServiceError> {
+        // Resolve branch refs to OIDs using git2
         let repo = Repository::open(repo_path)?;
-        let branch = Self::find_branch(&repo, branch_name)?;
-        let base_branch = Self::find_branch(&repo, base_branch_name)?;
-        // Find the common ancestor (merge base)
-        let oid = repo
-            .merge_base(
-                branch.get().peel_to_commit()?.id(),
-                base_branch.get().peel_to_commit()?.id(),
-            )
-            .map_err(GitServiceError::from)?;
-        Ok(Commit::new(oid))
+        let branch_oid = Self::find_branch(&repo, branch_name)?
+            .get()
+            .peel_to_commit()?
+            .id()
+            .to_string();
+        let base_branch_oid = Self::find_branch(&repo, base_branch_name)?
+            .get()
+            .peel_to_commit()?
+            .id()
+            .to_string();
+
+        // Use gix for merge_base calculation
+        let gix_repo = GixReader::open(repo_path)?;
+        let merge_base = GixReader::merge_base_by_oid(&gix_repo, &branch_oid, &base_branch_oid)?;
+        Ok(Commit::new(merge_base))
     }
 
     pub fn get_remote_branch_status(
@@ -965,12 +923,11 @@ impl GitService {
         .into_reference();
         let remote = self.get_remote_from_branch_ref(&repo, &base_branch_ref)?;
         self.fetch_all_from_remote(&repo, &remote)?;
-        self.get_branch_status_inner(&repo, &branch_ref, &base_branch_ref)
+        self.get_branch_status_inner(repo_path, &branch_ref, &base_branch_ref)
     }
 
     pub fn is_worktree_clean(&self, worktree_path: &Path) -> Result<bool, GitServiceError> {
-        let repo = self.open_repo(worktree_path)?;
-        match self.check_worktree_clean(&repo) {
+        match self.check_worktree_clean(worktree_path) {
             Ok(()) => Ok(true),
             Err(GitServiceError::WorktreeDirty(_, _)) => Ok(false),
             Err(e) => Err(e),
@@ -978,46 +935,21 @@ impl GitService {
     }
 
     /// Check if the worktree is clean (no uncommitted changes to tracked files)
-    fn check_worktree_clean(&self, repo: &Repository) -> Result<(), GitServiceError> {
-        let mut status_options = git2::StatusOptions::new();
-        status_options
-            .include_untracked(false) // Don't include untracked files
-            .include_ignored(false); // Don't include ignored files
+    fn check_worktree_clean(&self, worktree_path: &Path) -> Result<(), GitServiceError> {
+        let dirty_files = GixReader::get_dirty_files(worktree_path).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("gix dirty check failed: {e}"))
+        })?;
 
-        let statuses = repo.statuses(Some(&mut status_options))?;
-
-        if !statuses.is_empty() {
-            let mut dirty_files = Vec::new();
-            for entry in statuses.iter() {
-                let status = entry.status();
-                // Only consider files that are actually tracked and modified
-                if status.intersects(
-                    git2::Status::INDEX_MODIFIED
-                        | git2::Status::INDEX_NEW
-                        | git2::Status::INDEX_DELETED
-                        | git2::Status::INDEX_RENAMED
-                        | git2::Status::INDEX_TYPECHANGE
-                        | git2::Status::WT_MODIFIED
-                        | git2::Status::WT_DELETED
-                        | git2::Status::WT_RENAMED
-                        | git2::Status::WT_TYPECHANGE,
-                ) && let Some(path) = entry.path()
-                {
-                    dirty_files.push(path.to_string());
-                }
-            }
-
-            if !dirty_files.is_empty() {
-                let branch_name = repo
-                    .head()
-                    .ok()
-                    .and_then(|h| h.shorthand().map(|s| s.to_string()))
-                    .unwrap_or_else(|| "unknown branch".to_string());
-                return Err(GitServiceError::WorktreeDirty(
-                    branch_name,
-                    dirty_files.join(", "),
-                ));
-            }
+        if !dirty_files.is_empty() {
+            // Get branch name for error message
+            let branch_name = self
+                .get_head_info(worktree_path)
+                .map(|h| h.branch)
+                .unwrap_or_else(|_| "unknown branch".to_string());
+            return Err(GitServiceError::WorktreeDirty(
+                branch_name,
+                dirty_files.join(", "),
+            ));
         }
 
         Ok(())
@@ -1025,25 +957,14 @@ impl GitService {
 
     /// Get current HEAD information including branch name and commit OID
     pub fn get_head_info(&self, repo_path: &Path) -> Result<HeadInfo, GitServiceError> {
-        let repo = self.open_repo(repo_path)?;
-        let head = repo.head()?;
+        let gix_info = GixReader::head_info(repo_path).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("Failed to get HEAD info: {}", e))
+        })?;
 
-        let branch = if let Some(branch_name) = head.shorthand() {
-            branch_name.to_string()
-        } else {
-            "HEAD".to_string()
-        };
-
-        let oid = if let Some(target_oid) = head.target() {
-            target_oid.to_string()
-        } else {
-            // Handle case where HEAD exists but has no target (empty repo)
-            return Err(GitServiceError::InvalidRepository(
-                "Repository HEAD has no target commit".to_string(),
-            ));
-        };
-
-        Ok(HeadInfo { branch, oid })
+        Ok(HeadInfo {
+            branch: gix_info.branch,
+            oid: gix_info.oid,
+        })
     }
 
     pub fn get_current_branch(&self, repo_path: &Path) -> Result<String, git2::Error> {
@@ -1061,10 +982,8 @@ impl GitService {
         repo_path: &Path,
         branch_name: &str,
     ) -> Result<String, GitServiceError> {
-        let repo = self.open_repo(repo_path)?;
-        let branch = Self::find_branch(&repo, branch_name)?;
-        let oid = branch.get().peel_to_commit()?.id().to_string();
-        Ok(oid)
+        GixReader::branch_oid(repo_path, branch_name)
+            .map_err(|_| GitServiceError::BranchNotFound(branch_name.to_string()))
     }
 
     /// Get the subject/summary line for a given commit OID
@@ -1073,11 +992,11 @@ impl GitService {
         repo_path: &Path,
         commit_sha: &str,
     ) -> Result<String, GitServiceError> {
-        let repo = self.open_repo(repo_path)?;
-        let oid = git2::Oid::from_str(commit_sha)
-            .map_err(|_| GitServiceError::InvalidRepository("Invalid commit SHA".into()))?;
-        let commit = repo.find_commit(oid)?;
-        Ok(commit.summary().unwrap_or("(no subject)").to_string())
+        let gix_repo = GixReader::open(repo_path)?;
+        let message = GixReader::commit_message_by_oid(&gix_repo, commit_sha)?;
+        // Extract subject line (first line before any newlines)
+        let subject = message.lines().next().unwrap_or("(no subject)").to_string();
+        Ok(subject)
     }
 
     /// Compare two OIDs and return (ahead, behind) counts: how many commits
@@ -1088,13 +1007,7 @@ impl GitService {
         from_oid: &str,
         to_oid: &str,
     ) -> Result<(usize, usize), GitServiceError> {
-        let repo = self.open_repo(repo_path)?;
-        let from = git2::Oid::from_str(from_oid)
-            .map_err(|_| GitServiceError::InvalidRepository("Invalid from OID".into()))?;
-        let to = git2::Oid::from_str(to_oid)
-            .map_err(|_| GitServiceError::InvalidRepository("Invalid to OID".into()))?;
-        let (ahead, behind) = repo.graph_ahead_behind(from, to)?;
-        Ok((ahead, behind))
+        Self::ahead_behind_by_oid_gix(repo_path, from_oid, to_oid)
     }
 
     /// Return (uncommitted_tracked_changes, untracked_files) counts in worktree
@@ -1102,11 +1015,10 @@ impl GitService {
         &self,
         worktree_path: &Path,
     ) -> Result<(usize, usize), GitServiceError> {
-        let cli = GitCli::new();
-        let st = cli
-            .get_worktree_status(worktree_path)
-            .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))?;
-        Ok((st.uncommitted_tracked, st.untracked))
+        let summary = GixReader::get_worktree_status(worktree_path).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("gix status failed: {e}"))
+        })?;
+        Ok((summary.uncommitted_tracked, summary.untracked))
     }
 
     /// Evaluate whether any action is needed to reset to `target_commit_oid` and
@@ -1158,10 +1070,9 @@ impl GitService {
         commit_sha: &str,
         force: bool,
     ) -> Result<(), GitServiceError> {
-        let repo = self.open_repo(worktree_path)?;
         if !force {
             // Avoid clobbering uncommitted changes unless explicitly forced
-            self.check_worktree_clean(&repo)?;
+            self.check_worktree_clean(worktree_path)?;
         }
         let cli = GitCli::new();
         cli.git(worktree_path, ["reset", "--hard", commit_sha])
@@ -1349,7 +1260,7 @@ impl GitService {
         // Safety guard: never operate on a dirty worktree. This preserves any
         // uncommitted changes to tracked files by failing fast instead of
         // resetting or cherry-picking over them. Untracked files are allowed.
-        self.check_worktree_clean(&worktree_repo)?;
+        self.check_worktree_clean(worktree_path)?;
 
         // If a rebase is already in progress, refuse to proceed instead of
         // aborting (which might destroy user changes mid-rebase).
@@ -1432,18 +1343,14 @@ impl GitService {
         repo_path: &Path,
         branch_name: &str,
     ) -> Result<BranchType, GitServiceError> {
-        let repo = self.open_repo(repo_path)?;
-        // Try to find the branch as a local branch first
-        match repo.find_branch(branch_name, BranchType::Local) {
-            Ok(_) => Ok(BranchType::Local),
-            Err(_) => {
-                // If not found, try to find it as a remote branch
-                match repo.find_branch(branch_name, BranchType::Remote) {
-                    Ok(_) => Ok(BranchType::Remote),
-                    Err(_) => Err(GitServiceError::BranchNotFound(branch_name.to_string())),
-                }
-            }
-        }
+        let gix_branch_type = GixReader::branch_type(repo_path, branch_name)
+            .map_err(|_| GitServiceError::BranchNotFound(branch_name.to_string()))?;
+
+        // Map gix_reader::BranchType to git2::BranchType
+        Ok(match gix_branch_type {
+            super::gix_reader::BranchType::Local => BranchType::Local,
+            super::gix_reader::BranchType::Remote => BranchType::Remote,
+        })
     }
 
     pub fn check_branch_exists(
@@ -1451,14 +1358,7 @@ impl GitService {
         repo_path: &Path,
         branch_name: &str,
     ) -> Result<bool, GitServiceError> {
-        let repo = self.open_repo(repo_path)?;
-        match repo.find_branch(branch_name, BranchType::Local) {
-            Ok(_) => Ok(true),
-            Err(_) => match repo.find_branch(branch_name, BranchType::Remote) {
-                Ok(_) => Ok(true),
-                Err(_) => Ok(false),
-            },
-        }
+        Ok(GixReader::find_branch(repo_path, branch_name).is_ok())
     }
 
     pub fn check_remote_branch_exists(
@@ -1674,8 +1574,8 @@ impl GitService {
         branch_name: &str,
         force: bool,
     ) -> Result<(), GitServiceError> {
+        self.check_worktree_clean(worktree_path)?;
         let repo = Repository::open(worktree_path)?;
-        self.check_worktree_clean(&repo)?;
 
         // Get the remote
         let remote_name = self.default_remote_name(&repo);
@@ -1707,21 +1607,66 @@ impl GitService {
         Ok(())
     }
 
-    /// Fetch from remote repository using native git authentication
+    /// Fetch from remote repository using gix (gitoxide) for performance.
+    ///
+    /// This uses gix's native fetch implementation which handles authentication
+    /// via git credential helpers (SSH keys, credential managers, etc.).
+    /// Falls back to git CLI if gix fetch fails.
     fn fetch_from_remote(
         &self,
         repo: &Repository,
         remote: &Remote,
         refspec: &str,
     ) -> Result<(), GitServiceError> {
-        // Get the remote
+        let remote_name = remote.name();
         let remote_url = remote
             .url()
             .ok_or_else(|| GitServiceError::InvalidRepository("Remote has no URL".to_string()))?;
 
+        // Get repo workdir path for gix
+        let repo_path = repo
+            .workdir()
+            .ok_or_else(|| GitServiceError::InvalidRepository("Bare repository".to_string()))?;
+
+        // Try gix fetch first (faster, 2-5x improvement)
+        let gix_repo = match GixReader::open(repo_path) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("Failed to open repo with gix, falling back to CLI: {}", e);
+                return self.fetch_from_remote_cli(repo_path, remote_url, refspec);
+            }
+        };
+
+        // Use remote name if available, otherwise use URL directly
+        let fetch_result = if let Some(name) = remote_name {
+            GixReader::fetch(&gix_repo, name, refspec)
+        } else {
+            GixReader::fetch_url(&gix_repo, remote_url, refspec)
+        };
+
+        match fetch_result {
+            Ok(()) => {
+                tracing::debug!("Fetch completed via gix");
+                Ok(())
+            }
+            Err(e) => {
+                // Fall back to CLI for complex auth scenarios (e.g., interactive prompts)
+                tracing::warn!("gix fetch failed, falling back to CLI: {}", e);
+                self.fetch_from_remote_cli(repo_path, remote_url, refspec)
+            }
+        }
+    }
+
+    /// Fallback fetch using git CLI for complex auth scenarios.
+    fn fetch_from_remote_cli(
+        &self,
+        repo_path: &Path,
+        remote_url: &str,
+        refspec: &str,
+    ) -> Result<(), GitServiceError> {
         let git_cli = GitCli::new();
-        if let Err(e) = git_cli.fetch_with_refspec(repo.path(), remote_url, refspec) {
-            tracing::error!("Fetch from GitHub failed: {}", e);
+        if let Err(e) = git_cli.fetch_with_refspec(repo_path, remote_url, refspec) {
+            tracing::error!("Fetch from remote failed: {}", e);
             return Err(e.into());
         }
         Ok(())
@@ -1821,22 +1766,15 @@ impl GitService {
         repo_path: &Path,
         branch_name: &str,
     ) -> Result<bool, GitServiceError> {
+        // Get branch OID using git2 (for branch lookup)
         let repo = self.open_repo(repo_path)?;
-
-        // Get HEAD commit
-        let head = repo.head()?;
-        let head_commit = head.peel_to_commit()?;
-
-        // Find the branch
+        let head_oid = repo.head()?.peel_to_commit()?.id().to_string();
         let branch = Self::find_branch(&repo, branch_name)?;
-        let branch_commit = branch.get().peel_to_commit()?;
+        let branch_oid = branch.get().peel_to_commit()?.id().to_string();
 
-        // Check if branch commit is an ancestor of HEAD
-        // graph_descendant_of returns true if commit (first arg) is a descendant of ancestor (second arg)
-        // We want to check if branch_commit is an ancestor of head_commit
-        // i.e., head_commit is a descendant of branch_commit
-        let is_ancestor = repo.graph_descendant_of(head_commit.id(), branch_commit.id())?;
-
+        // Use gix for ancestry check
+        let gix_repo = GixReader::open(repo_path)?;
+        let is_ancestor = GixReader::is_ancestor_by_oid(&gix_repo, &branch_oid, &head_oid)?;
         Ok(is_ancestor)
     }
 
@@ -1846,71 +1784,277 @@ impl GitService {
         repo_path: &Path,
         commit_limit: usize,
     ) -> Result<HashMap<String, FileStat>, GitServiceError> {
-        let repo = self.open_repo(repo_path)?;
-        let mut stats: HashMap<String, FileStat> = HashMap::new();
+        let mut gix_repo = GixReader::open(repo_path)?;
+        GixReader::recent_file_stats(&mut gix_repo, commit_limit).map_err(Into::into)
+    }
+}
 
-        // Set up revision walk from HEAD
-        let mut revwalk = repo.revwalk()?;
-        revwalk.push_head()?;
-        revwalk.set_sorting(Sort::TIME)?;
+#[cfg(test)]
+mod tests {
+    use std::{fs, process::Command};
 
-        // Iterate through recent commits
-        for (commit_index, oid_result) in revwalk.take(commit_limit).enumerate() {
-            let oid = oid_result?;
-            let commit = repo.find_commit(oid)?;
+    use tempfile::TempDir;
 
-            // Get commit timestamp
-            let commit_time = {
-                let time = commit.time();
-                DateTime::from_timestamp(time.seconds(), 0).unwrap_or_else(Utc::now)
-            };
+    use super::*;
 
-            // Get the commit tree
-            let commit_tree = commit.tree()?;
+    fn init_test_repo_via_cli(dir: &Path) {
+        Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(dir)
+            .output()
+            .expect("Failed to init repo");
 
-            // For the first commit (no parent), diff against empty tree
-            let parent_tree = if commit.parent_count() == 0 {
-                None
-            } else {
-                Some(commit.parent(0)?.tree()?)
-            };
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(dir)
+            .output()
+            .expect("Failed to set email");
 
-            // Create diff between parent and current commit
-            let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), None)?;
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(dir)
+            .output()
+            .expect("Failed to set name");
 
-            // Process each changed file in this commit
-            diff.foreach(
-                &mut |delta, _progress| {
-                    // Get the file path - prefer new file path, fall back to old
-                    if let Some(path) = delta.new_file().path().or_else(|| delta.old_file().path())
-                    {
-                        let path_str = path.to_string_lossy().to_string();
+        // Create empty initial commit
+        Command::new("git")
+            .args(["commit", "--allow-empty", "-m", "Initial commit"])
+            .current_dir(dir)
+            .output()
+            .expect("Failed to create initial commit");
+    }
 
-                        // Update or insert file stats
-                        let stat = stats.entry(path_str).or_insert(FileStat {
-                            last_index: commit_index,
-                            commit_count: 0,
-                            last_time: commit_time,
-                        });
+    fn git_rev_parse(repo_path: &Path, rev: &str) -> String {
+        let output = Command::new("git")
+            .args(["rev-parse", rev])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to run git rev-parse");
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
 
-                        // Increment commit count
-                        stat.commit_count += 1;
+    fn git_rev_list_count(repo_path: &Path, range: &str) -> usize {
+        let output = Command::new("git")
+            .args(["rev-list", "--count", range])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to run git rev-list");
+        String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse()
+            .unwrap_or(0)
+    }
 
-                        // Keep the most recent change (smallest index)
-                        if commit_index < stat.last_index {
-                            stat.last_index = commit_index;
-                            stat.last_time = commit_time;
-                        }
-                    }
+    fn git_status_counts(repo_path: &Path) -> (usize, usize) {
+        let output = Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to run git status");
+        let status_output = String::from_utf8_lossy(&output.stdout);
 
-                    true // Continue iteration
-                },
-                None, // No binary callback
-                None, // No hunk callback
-                None, // No line callback
-            )?;
+        let mut uncommitted = 0;
+        let mut untracked = 0;
+
+        for line in status_output.lines() {
+            if line.starts_with("??") {
+                untracked += 1;
+            } else if !line.is_empty() {
+                uncommitted += 1;
+            }
         }
 
-        Ok(stats)
+        (uncommitted, untracked)
+    }
+
+    /// Integration test: verify GitService.get_head_info() matches git CLI
+    #[test]
+    fn test_git_service_get_head_info() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        let git_service = GitService::new();
+        let head_info = git_service.get_head_info(repo_path).unwrap();
+
+        let git_oid = git_rev_parse(repo_path, "HEAD");
+        let git_branch = {
+            let output = Command::new("git")
+                .args(["branch", "--show-current"])
+                .current_dir(repo_path)
+                .output()
+                .expect("Failed to get branch");
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        };
+
+        assert_eq!(head_info.oid, git_oid, "HEAD OID should match git CLI");
+        assert_eq!(
+            head_info.branch, git_branch,
+            "Branch name should match git CLI"
+        );
+    }
+
+    /// Integration test: verify GitService.get_worktree_change_counts() matches git CLI
+    #[test]
+    fn test_git_service_worktree_change_counts() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        // Create a tracked file and commit it
+        fs::write(repo_path.join("tracked.txt"), "initial").unwrap();
+        Command::new("git")
+            .args(["add", "tracked.txt"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "Add tracked file"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        // Create mixed state: modified + staged + untracked
+        fs::write(repo_path.join("tracked.txt"), "modified").unwrap();
+        fs::write(repo_path.join("untracked.txt"), "untracked").unwrap();
+        fs::write(repo_path.join("staged.txt"), "staged").unwrap();
+        Command::new("git")
+            .args(["add", "staged.txt"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        let git_service = GitService::new();
+        let (uncommitted, untracked) = git_service.get_worktree_change_counts(repo_path).unwrap();
+        let (git_uncommitted, git_untracked) = git_status_counts(repo_path);
+
+        assert_eq!(
+            uncommitted, git_uncommitted,
+            "Uncommitted count should match git CLI"
+        );
+        assert_eq!(
+            untracked, git_untracked,
+            "Untracked count should match git CLI"
+        );
+    }
+
+    /// Integration test: verify GitService.get_branch_status() matches git CLI
+    #[test]
+    fn test_git_service_branch_status() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        // Create a feature branch with some commits
+        Command::new("git")
+            .args(["checkout", "-b", "feature"])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to create feature branch");
+
+        for i in 1..=3 {
+            fs::write(
+                repo_path.join(format!("feature{}.txt", i)),
+                format!("content{}", i),
+            )
+            .unwrap();
+            Command::new("git")
+                .args(["add", "."])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+            Command::new("git")
+                .args(["commit", "-m", &format!("Feature commit {}", i)])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+        }
+
+        // Switch to main and add commits
+        Command::new("git")
+            .args(["checkout", "main"])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to checkout main");
+
+        for i in 1..=2 {
+            fs::write(repo_path.join(format!("main{}.txt", i)), format!("main{}", i)).unwrap();
+            Command::new("git")
+                .args(["add", "."])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+            Command::new("git")
+                .args(["commit", "-m", &format!("Main commit {}", i)])
+                .current_dir(repo_path)
+                .output()
+                .unwrap();
+        }
+
+        // Get ahead/behind using GitService
+        let git_service = GitService::new();
+        let (ahead, behind) = git_service
+            .get_branch_status(repo_path, "feature", "main")
+            .unwrap();
+
+        // Get expected values from git CLI
+        let feature_oid = git_rev_parse(repo_path, "feature");
+        let main_oid = git_rev_parse(repo_path, "main");
+        let expected_ahead =
+            git_rev_list_count(repo_path, &format!("{}..{}", main_oid, feature_oid));
+        let expected_behind =
+            git_rev_list_count(repo_path, &format!("{}..{}", feature_oid, main_oid));
+
+        assert_eq!(
+            ahead, expected_ahead,
+            "Ahead count should match git CLI (expected 3)"
+        );
+        assert_eq!(
+            behind, expected_behind,
+            "Behind count should match git CLI (expected 2)"
+        );
+    }
+
+    /// Integration test: verify GitService works with worktrees
+    #[test]
+    fn test_git_service_with_worktree() {
+        let temp_dir = TempDir::new().unwrap();
+        let main_repo_path = temp_dir.path().join("main");
+        fs::create_dir_all(&main_repo_path).unwrap();
+        init_test_repo_via_cli(&main_repo_path);
+
+        // Create a worktree
+        let worktree_path = temp_dir.path().join("worktree");
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "feature",
+                worktree_path.to_str().unwrap(),
+            ])
+            .current_dir(&main_repo_path)
+            .output()
+            .expect("Failed to create worktree");
+
+        // Add files in worktree
+        fs::write(worktree_path.join("new-file.txt"), "content").unwrap();
+
+        let git_service = GitService::new();
+
+        // Test get_head_info in worktree
+        let head_info = git_service.get_head_info(&worktree_path).unwrap();
+        assert_eq!(
+            head_info.branch, "feature",
+            "Worktree should be on feature branch"
+        );
+
+        // Test get_worktree_change_counts in worktree
+        let (uncommitted, untracked) = git_service
+            .get_worktree_change_counts(&worktree_path)
+            .unwrap();
+        let (git_uncommitted, git_untracked) = git_status_counts(&worktree_path);
+        assert_eq!(uncommitted, git_uncommitted);
+        assert_eq!(untracked, git_untracked);
     }
 }
