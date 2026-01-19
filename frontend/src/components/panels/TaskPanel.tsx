@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { useProject } from '@/contexts/ProjectContext';
 import { useTaskAttemptsStream } from '@/hooks/useTaskAttemptsStream';
-import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { useNavigateWithSearch } from '@/hooks';
 import { paths } from '@/lib/paths';
 import { feedbackApi } from '@/lib/api';
@@ -28,13 +27,16 @@ const TaskPanel = ({ task }: TaskPanelProps) => {
   // Stream workspaces with sessions via WebSocket
   const {
     attempts: attemptsWithSessions,
+    attemptsById,
     isLoading: isAttemptsLoading,
     error: streamError,
   } = useTaskAttemptsStream(task?.id);
   const isAttemptsError = !!streamError;
 
-  const { data: parentAttempt, isLoading: isParentLoading } =
-    useTaskAttemptWithSession(task?.parent_workspace_id || undefined);
+  const parentAttempt = task?.parent_workspace_id
+    ? attemptsById[task.parent_workspace_id]
+    : undefined;
+  const isParentLoading = isAttemptsLoading && !!task?.parent_workspace_id;
 
   // Fetch feedback for the task to show indicators
   const { data: feedbackList = [] } = useQuery({

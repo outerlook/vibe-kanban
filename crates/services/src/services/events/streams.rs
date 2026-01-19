@@ -827,6 +827,27 @@ impl EventService {
                                                 serde_json::from_value::<Workspace>(op.value.clone())
                                                 && workspace.task_id == task_id
                                             {
+                                                let session = Session::find_latest_by_workspace_id(
+                                                    &db_pool,
+                                                    workspace.id,
+                                                )
+                                                .await
+                                                .ok()
+                                                .flatten();
+
+                                                let workspace_with_session =
+                                                    WorkspaceWithSession { workspace, session };
+                                                let patch = json_patch::Patch(vec![
+                                                    json_patch::PatchOperation::Add(
+                                                        json_patch::AddOperation {
+                                                            path: op.path.clone(),
+                                                            value: serde_json::to_value(
+                                                                workspace_with_session,
+                                                            )
+                                                            .unwrap(),
+                                                        },
+                                                    ),
+                                                ]);
                                                 return Some(Ok(LogMsg::JsonPatch(patch)));
                                             }
                                         }
@@ -836,6 +857,27 @@ impl EventService {
                                                 serde_json::from_value::<Workspace>(op.value.clone())
                                                 && workspace.task_id == task_id
                                             {
+                                                let session = Session::find_latest_by_workspace_id(
+                                                    &db_pool,
+                                                    workspace.id,
+                                                )
+                                                .await
+                                                .ok()
+                                                .flatten();
+
+                                                let workspace_with_session =
+                                                    WorkspaceWithSession { workspace, session };
+                                                let patch = json_patch::Patch(vec![
+                                                    json_patch::PatchOperation::Replace(
+                                                        json_patch::ReplaceOperation {
+                                                            path: op.path.clone(),
+                                                            value: serde_json::to_value(
+                                                                workspace_with_session,
+                                                            )
+                                                            .unwrap(),
+                                                        },
+                                                    ),
+                                                ]);
                                                 return Some(Ok(LogMsg::JsonPatch(patch)));
                                             }
                                         }
