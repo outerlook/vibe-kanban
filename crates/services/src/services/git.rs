@@ -16,6 +16,7 @@ use cli::{ChangeType, StatusDiffEntry, StatusDiffOptions};
 pub use cli::{GitCli, GitCliError};
 
 use super::file_ranker::FileStat;
+use super::gix_reader::{GixReader, GixReaderError};
 use crate::services::github::GitHubRepoInfo;
 
 #[derive(Debug, Error)]
@@ -26,6 +27,8 @@ pub enum GitServiceError {
     GitCLI(#[from] GitCliError),
     #[error(transparent)]
     IoError(#[from] std::io::Error),
+    #[error(transparent)]
+    GixReader(#[from] GixReaderError),
     #[error("Invalid repository: {0}")]
     InvalidRepository(String),
     #[error("Branch not found: {0}")]
@@ -893,23 +896,36 @@ impl GitService {
             }
         }
     }
+    /// Compute ahead/behind between two OIDs using gix.
+    fn ahead_behind_by_oid_gix(
+        repo_path: &Path,
+        local_oid: &str,
+        remote_oid: &str,
+    ) -> Result<(usize, usize), GitServiceError> {
+        let gix_repo = GixReader::open(repo_path)?;
+        let (ahead, behind) = GixReader::ahead_behind_by_oid(&gix_repo, local_oid, remote_oid)?;
+        Ok((ahead, behind))
+    }
+
     fn get_branch_status_inner(
         &self,
-        repo: &Repository,
+        repo_path: &Path,
         branch_ref: &Reference,
         base_branch_ref: &Reference,
     ) -> Result<(usize, usize), GitServiceError> {
-        let (a, b) = repo.graph_ahead_behind(
-            branch_ref.target().ok_or(GitServiceError::BranchNotFound(
+        let local_oid = branch_ref
+            .target()
+            .ok_or(GitServiceError::BranchNotFound(
                 "Branch not found".to_string(),
-            ))?,
-            base_branch_ref
-                .target()
-                .ok_or(GitServiceError::BranchNotFound(
-                    "Branch not found".to_string(),
-                ))?,
-        )?;
-        Ok((a, b))
+            ))?
+            .to_string();
+        let remote_oid = base_branch_ref
+            .target()
+            .ok_or(GitServiceError::BranchNotFound(
+                "Base branch not found".to_string(),
+            ))?
+            .to_string();
+        Self::ahead_behind_by_oid_gix(repo_path, &local_oid, &remote_oid)
     }
 
     pub fn get_branch_status(
@@ -922,7 +938,7 @@ impl GitService {
         let branch = Self::find_branch(&repo, branch_name)?;
         let base_branch = Self::find_branch(&repo, base_branch_name)?;
         self.get_branch_status_inner(
-            &repo,
+            repo_path,
             &branch.into_reference(),
             &base_branch.into_reference(),
         )
@@ -965,7 +981,7 @@ impl GitService {
         .into_reference();
         let remote = self.get_remote_from_branch_ref(&repo, &base_branch_ref)?;
         self.fetch_all_from_remote(&repo, &remote)?;
-        self.get_branch_status_inner(&repo, &branch_ref, &base_branch_ref)
+        self.get_branch_status_inner(repo_path, &branch_ref, &base_branch_ref)
     }
 
     pub fn is_worktree_clean(&self, worktree_path: &Path) -> Result<bool, GitServiceError> {
@@ -1088,13 +1104,7 @@ impl GitService {
         from_oid: &str,
         to_oid: &str,
     ) -> Result<(usize, usize), GitServiceError> {
-        let repo = self.open_repo(repo_path)?;
-        let from = git2::Oid::from_str(from_oid)
-            .map_err(|_| GitServiceError::InvalidRepository("Invalid from OID".into()))?;
-        let to = git2::Oid::from_str(to_oid)
-            .map_err(|_| GitServiceError::InvalidRepository("Invalid to OID".into()))?;
-        let (ahead, behind) = repo.graph_ahead_behind(from, to)?;
-        Ok((ahead, behind))
+        Self::ahead_behind_by_oid_gix(repo_path, from_oid, to_oid)
     }
 
     /// Return (uncommitted_tracked_changes, untracked_files) counts in worktree

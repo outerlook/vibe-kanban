@@ -15,6 +15,18 @@ pub enum GixReaderError {
     Discover(#[from] gix::discover::Error),
     #[error("Invalid repository at path: {path}")]
     InvalidRepository { path: String },
+    #[error("Reference not found: {0}")]
+    ReferenceNotFound(String),
+    #[error("Failed to peel reference: {0}")]
+    PeelError(#[from] gix::reference::peel::Error),
+    #[error("Merge base error: {0}")]
+    MergeBase(#[from] gix::repository::merge_base::Error),
+    #[error("Revision walk error: {0}")]
+    RevWalk(#[from] gix::revision::walk::Error),
+    #[error("Revision walk iteration error: {0}")]
+    RevWalkIter(#[from] gix::revision::walk::iter::Error),
+    #[error("Invalid object ID: {0}")]
+    InvalidObjectId(String),
 }
 
 /// Read-only interface for Git repository operations using gix.
@@ -104,6 +116,85 @@ impl GixReader {
     pub fn discover(directory: &Path) -> Result<gix::Repository, GixReaderError> {
         let repo = gix::discover(directory)?;
         Ok(repo)
+    }
+
+    /// Calculate how many commits `local` is ahead of and behind `remote`.
+    ///
+    /// This finds the merge base between the two commits, then counts
+    /// commits from each side to the base.
+    ///
+    /// # Arguments
+    ///
+    /// * `repo` - An open gix repository
+    /// * `local` - The local commit ObjectId
+    /// * `remote` - The remote commit ObjectId
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(ahead, behind)` where:
+    /// - `ahead`: commits in `local` not in `remote`
+    /// - `behind`: commits in `remote` not in `local`
+    pub fn ahead_behind(
+        repo: &gix::Repository,
+        local: gix::ObjectId,
+        remote: gix::ObjectId,
+    ) -> Result<(usize, usize), GixReaderError> {
+        // Fast path: same commit
+        if local == remote {
+            return Ok((0, 0));
+        }
+
+        // Find the merge base
+        let base: gix::ObjectId = repo.merge_base(local, remote)?.into();
+
+        // Count commits from local to base (ahead count)
+        let ahead = Self::count_commits_to_base(repo, local, base)?;
+
+        // Count commits from remote to base (behind count)
+        let behind = Self::count_commits_to_base(repo, remote, base)?;
+
+        Ok((ahead, behind))
+    }
+
+    /// Count commits from `start` to `base` (exclusive of base).
+    fn count_commits_to_base(
+        repo: &gix::Repository,
+        start: gix::ObjectId,
+        base: gix::ObjectId,
+    ) -> Result<usize, GixReaderError> {
+        // Fast path: start is the base
+        if start == base {
+            return Ok(0);
+        }
+
+        let mut count = 0;
+        let walk = repo.rev_walk([start]);
+
+        for info_result in walk.all()? {
+            let info = info_result?;
+            if info.id == base {
+                break;
+            }
+            count += 1;
+        }
+
+        Ok(count)
+    }
+
+    /// Calculate ahead/behind between two commits by their hex OID strings.
+    ///
+    /// This is a convenience wrapper around [`ahead_behind`](Self::ahead_behind)
+    /// that parses hex OID strings.
+    pub fn ahead_behind_by_oid(
+        repo: &gix::Repository,
+        local_oid: &str,
+        remote_oid: &str,
+    ) -> Result<(usize, usize), GixReaderError> {
+        let local = gix::ObjectId::from_hex(local_oid.as_bytes())
+            .map_err(|_| GixReaderError::InvalidObjectId(local_oid.to_string()))?;
+        let remote = gix::ObjectId::from_hex(remote_oid.as_bytes())
+            .map_err(|_| GixReaderError::InvalidObjectId(remote_oid.to_string()))?;
+        Self::ahead_behind(repo, local, remote)
     }
 }
 
