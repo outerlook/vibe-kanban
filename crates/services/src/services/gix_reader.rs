@@ -1,11 +1,13 @@
-//! Read-only Git repository operations using gix (gitoxide).
+//! Git repository operations using gix (gitoxide).
 //!
-//! This module encapsulates all gix read operations and handles both regular
+//! This module encapsulates gix operations and handles both regular
 //! repositories and worktrees transparently.
 
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 
 use gix::bstr::BStr;
+use gix::remote::Direction;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -40,6 +42,16 @@ pub enum GixReaderError {
     Diff(String),
     #[error("Invalid object: {0}")]
     InvalidObject(String),
+    #[error("Remote not found: {0}")]
+    RemoteNotFound(String),
+    #[error("Remote connection failed: {0}")]
+    RemoteConnect(#[from] gix::remote::connect::Error),
+    #[error("Fetch preparation failed: {0}")]
+    FetchPrepare(#[from] gix::remote::fetch::prepare::Error),
+    #[error("Fetch failed: {0}")]
+    Fetch(#[from] gix::remote::fetch::Error),
+    #[error("Invalid refspec: {0}")]
+    InvalidRefspec(String),
 }
 
 /// Change type for a file in a tree-to-tree diff
@@ -602,6 +614,84 @@ impl GixReader {
 
         Ok(oid.to_string())
     }
+
+    /// Fetch from a remote repository using a specific refspec.
+    ///
+    /// This uses gix's native fetch implementation which handles authentication
+    /// via git credential helpers automatically (SSH keys, credential managers, etc.).
+    ///
+    /// # Arguments
+    ///
+    /// * `repo` - An open gix repository
+    /// * `remote_name` - Name of the remote (e.g., "origin")
+    /// * `refspec` - The refspec to fetch (e.g., "+refs/heads/*:refs/remotes/origin/*")
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use services::services::gix_reader::GixReader;
+    /// use std::path::Path;
+    ///
+    /// let repo = GixReader::open(Path::new("/path/to/repo")).unwrap();
+    /// // Fetch all branches from origin
+    /// GixReader::fetch(&repo, "origin", "+refs/heads/*:refs/remotes/origin/*").unwrap();
+    /// ```
+    pub fn fetch(
+        repo: &gix::Repository,
+        remote_name: &str,
+        refspec: &str,
+    ) -> Result<(), GixReaderError> {
+        let remote = repo
+            .find_remote(remote_name)
+            .map_err(|_| GixReaderError::RemoteNotFound(remote_name.to_string()))?;
+
+        Self::fetch_with_remote(remote, refspec)
+    }
+
+    /// Fetch from a remote URL with a specific refspec.
+    ///
+    /// Use this when you have a URL instead of a configured remote name.
+    ///
+    /// # Arguments
+    ///
+    /// * `repo` - An open gix repository
+    /// * `url` - The remote URL (e.g., "https://github.com/org/repo.git")
+    /// * `refspec` - The refspec to fetch
+    pub fn fetch_url(
+        repo: &gix::Repository,
+        url: &str,
+        refspec: &str,
+    ) -> Result<(), GixReaderError> {
+        let remote = repo
+            .remote_at(url)
+            .map_err(|_| GixReaderError::RemoteNotFound(url.to_string()))?;
+
+        Self::fetch_with_remote(remote, refspec)
+    }
+
+    /// Internal helper to perform fetch with a gix Remote.
+    fn fetch_with_remote<'repo>(
+        remote: gix::Remote<'repo>,
+        refspec: &str,
+    ) -> Result<(), GixReaderError> {
+        // Override the remote's refspecs with our specific one
+        let remote = remote
+            .with_refspecs(Some(refspec), Direction::Fetch)
+            .map_err(|e| GixReaderError::InvalidRefspec(e.to_string()))?;
+
+        // Connect and fetch
+        let outcome = remote
+            .connect(Direction::Fetch)?
+            .prepare_fetch(gix::progress::Discard, Default::default())?
+            .receive(gix::progress::Discard, &AtomicBool::new(false))?;
+
+        tracing::debug!(
+            "Fetch complete: {} ref updates",
+            outcome.ref_map.mappings.len()
+        );
+
+        Ok(())
+    }
 }
 
 /// Convert BStr to String, handling non-UTF8 paths gracefully
@@ -827,5 +917,90 @@ mod tests {
         // Should match HEAD since we're on main
         let head_info = GixReader::head_info(repo_path).unwrap();
         assert_eq!(oid, head_info.oid);
+    }
+
+    #[test]
+    fn test_fetch_from_local_remote() {
+        // Create a "remote" repository
+        let remote_dir = TempDir::new().unwrap();
+        let remote_path = remote_dir.path();
+        init_test_repo_via_cli(remote_path);
+
+        // Add another commit to the remote
+        fs::write(remote_path.join("file.txt"), "content").unwrap();
+        Command::new("git")
+            .args(["add", "file.txt"])
+            .current_dir(remote_path)
+            .output()
+            .expect("Failed to add file");
+        Command::new("git")
+            .args(["commit", "-m", "Second commit"])
+            .current_dir(remote_path)
+            .output()
+            .expect("Failed to commit");
+
+        // Clone the remote to create a local repo
+        let local_dir = TempDir::new().unwrap();
+        let local_path = local_dir.path().join("repo");
+        Command::new("git")
+            .args(["clone", remote_path.to_str().unwrap(), local_path.to_str().unwrap()])
+            .output()
+            .expect("Failed to clone");
+
+        // Add yet another commit to remote (so local is behind)
+        fs::write(remote_path.join("file2.txt"), "more content").unwrap();
+        Command::new("git")
+            .args(["add", "file2.txt"])
+            .current_dir(remote_path)
+            .output()
+            .expect("Failed to add second file");
+        Command::new("git")
+            .args(["commit", "-m", "Third commit"])
+            .current_dir(remote_path)
+            .output()
+            .expect("Failed to create third commit");
+
+        // Now test fetch using gix
+        let repo = GixReader::open(&local_path).expect("Failed to open local repo");
+        let result = GixReader::fetch(&repo, "origin", "+refs/heads/*:refs/remotes/origin/*");
+
+        assert!(result.is_ok(), "Fetch failed: {:?}", result.err());
+
+        // Verify the remote ref was updated by checking we can see the new commit
+        let output = Command::new("git")
+            .args(["log", "--oneline", "origin/main"])
+            .current_dir(&local_path)
+            .output()
+            .expect("Failed to run git log");
+
+        let log_output = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            log_output.contains("Third commit"),
+            "Expected to see 'Third commit' after fetch, got: {}",
+            log_output
+        );
+    }
+
+    #[test]
+    fn test_fetch_url_from_local_remote() {
+        // Create a "remote" repository
+        let remote_dir = TempDir::new().unwrap();
+        let remote_path = remote_dir.path();
+        init_test_repo_via_cli(remote_path);
+
+        // Clone the remote to create a local repo
+        let local_dir = TempDir::new().unwrap();
+        let local_path = local_dir.path().join("repo");
+        Command::new("git")
+            .args(["clone", remote_path.to_str().unwrap(), local_path.to_str().unwrap()])
+            .output()
+            .expect("Failed to clone");
+
+        // Test fetch_url with file:// URL
+        let repo = GixReader::open(&local_path).expect("Failed to open local repo");
+        let file_url = format!("file://{}", remote_path.display());
+        let result = GixReader::fetch_url(&repo, &file_url, "+refs/heads/*:refs/remotes/origin/*");
+
+        assert!(result.is_ok(), "Fetch URL failed: {:?}", result.err());
     }
 }
