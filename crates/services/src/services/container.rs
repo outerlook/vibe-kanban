@@ -463,13 +463,16 @@ pub trait ContainerService {
     /// A context is finalized when
     /// - Always when the execution process has failed or been killed
     /// - Never when the run reason is DevServer
+    /// - Never when the run reason is InternalAgent (feedback, pr_description, merge_message)
     /// - Never when a setup script has no next_action (parallel mode)
     /// - The next action is None (no follow-up actions)
     fn should_finalize(&self, ctx: &ExecutionContext) -> bool {
-        // Never finalize DevServer processes
+        // Never finalize DevServer or InternalAgent processes
+        // InternalAgent is used for internal operations (feedback collection, PR descriptions, etc.)
+        // that should not affect task status
         if matches!(
             ctx.execution_process.run_reason,
-            ExecutionProcessRunReason::DevServer
+            ExecutionProcessRunReason::DevServer | ExecutionProcessRunReason::InternalAgent
         ) {
             return false;
         }
@@ -1471,12 +1474,16 @@ pub trait ContainerService {
         let effective_purpose = purpose.unwrap_or_else(|| purpose_from_run_reason(run_reason));
 
         // Update task status to InProgress when starting an execution
+        // Skip for DevServer and InternalAgent (internal operations should not affect task status)
         let task = workspace
             .parent_task(&self.db().pool)
             .await?
             .ok_or(SqlxError::RowNotFound)?;
         if task.status != TaskStatus::InProgress
-            && run_reason != &ExecutionProcessRunReason::DevServer
+            && !matches!(
+                run_reason,
+                ExecutionProcessRunReason::DevServer | ExecutionProcessRunReason::InternalAgent
+            )
         {
             Task::update_status(&self.db().pool, task.id, TaskStatus::InProgress).await?;
 
