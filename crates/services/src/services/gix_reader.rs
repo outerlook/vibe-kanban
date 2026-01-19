@@ -26,18 +26,12 @@ pub struct FileStat {
 pub enum GixReaderError {
     #[error("Failed to open repository: {0}")]
     Open(#[from] gix::open::Error),
-    #[error("Repository discovery failed: {0}")]
-    Discover(#[from] gix::discover::Error),
-    #[error("Invalid repository at path: {path}")]
-    InvalidRepository { path: String },
     #[error("Reference not found: {0}")]
     ReferenceNotFound(String),
     #[error("HEAD has no target commit")]
     DetachedHeadNoTarget,
     #[error("Reference error: {0}")]
     Reference(#[from] gix::reference::find::existing::Error),
-    #[error("Failed to peel reference: {0}")]
-    PeelError(#[from] gix::reference::peel::Error),
     #[error("Failed to peel HEAD: {0}")]
     PeelHead(#[from] gix::head::peel::to_commit::Error),
     #[error("Merge base error: {0}")]
@@ -131,100 +125,19 @@ pub struct GixReader;
 impl GixReader {
     /// Open a Git repository at the given path.
     ///
-    /// This method handles both regular repositories (with a `.git` directory)
-    /// and worktrees (with a `.git` file pointing to the main repository).
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Path to the repository root or worktree directory
-    ///
-    /// # Returns
-    ///
-    /// A `gix::Repository` instance configured for read operations.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use services::services::gix_reader::GixReader;
-    /// use std::path::Path;
-    ///
-    /// let repo = GixReader::open(Path::new("/path/to/repo")).unwrap();
-    /// ```
+    /// Handles both regular repositories (with a `.git` directory) and worktrees
+    /// (with a `.git` file pointing to the main repository).
     pub fn open(path: &Path) -> Result<gix::Repository, GixReaderError> {
-        // gix::open() handles both regular repos and worktrees automatically.
-        // For worktrees, it reads the .git file and follows the gitdir pointer.
-        let repo = gix::open(path)?;
-        Ok(repo)
+        Ok(gix::open(path)?)
     }
 
-    /// Open a Git repository with isolated configuration.
-    ///
-    /// This opens the repository without loading global or system configuration,
-    /// making it faster but potentially missing some settings.
-    ///
-    /// Use this for performance-critical read operations where complete
-    /// configuration is not required.
-    pub fn open_isolated(path: &Path) -> Result<gix::Repository, GixReaderError> {
-        let repo = gix::open_opts(path, gix::open::Options::isolated())?;
-        Ok(repo)
+    /// Parse a hex OID string into a gix ObjectId.
+    fn parse_oid(oid_str: &str) -> Result<gix::ObjectId, GixReaderError> {
+        gix::ObjectId::from_hex(oid_str.as_bytes())
+            .map_err(|_| GixReaderError::InvalidObjectId(oid_str.to_string()))
     }
 
-    /// Open a worktree path, following the gitdir pointer if present.
-    ///
-    /// Worktrees have a `.git` file (not directory) containing:
-    /// ```text
-    /// gitdir: /path/to/main/repo/.git/worktrees/{name}
-    /// ```
-    ///
-    /// This method explicitly handles this case and is functionally equivalent
-    /// to [`open`](Self::open), but more clearly documents the intent.
-    ///
-    /// # Arguments
-    ///
-    /// * `worktree_path` - Path to the worktree directory
-    ///
-    /// # Returns
-    ///
-    /// A `gix::Repository` instance for the worktree.
-    pub fn open_worktree(worktree_path: &Path) -> Result<gix::Repository, GixReaderError> {
-        // gix handles .git files automatically - it reads the gitdir pointer
-        // and opens the correct repository. This method exists for API clarity.
-        Self::open(worktree_path)
-    }
-
-    /// Discover and open a Git repository starting from any directory.
-    ///
-    /// This walks up the directory tree to find the repository root,
-    /// similar to how `git` commands work from subdirectories.
-    ///
-    /// # Arguments
-    ///
-    /// * `directory` - Any directory within or at the root of a repository
-    ///
-    /// # Returns
-    ///
-    /// A `gix::Repository` instance for the discovered repository.
-    pub fn discover(directory: &Path) -> Result<gix::Repository, GixReaderError> {
-        let repo = gix::discover(directory)?;
-        Ok(repo)
-    }
-
-    /// Calculate how many commits `local` is ahead of and behind `remote`.
-    ///
-    /// This finds the merge base between the two commits, then counts
-    /// commits from each side to the base.
-    ///
-    /// # Arguments
-    ///
-    /// * `repo` - An open gix repository
-    /// * `local` - The local commit ObjectId
-    /// * `remote` - The remote commit ObjectId
-    ///
-    /// # Returns
-    ///
-    /// A tuple `(ahead, behind)` where:
-    /// - `ahead`: commits in `local` not in `remote`
-    /// - `behind`: commits in `remote` not in `local`
+    /// Calculate (ahead, behind) commit counts between local and remote.
     pub fn ahead_behind(
         repo: &gix::Repository,
         local: gix::ObjectId,
@@ -273,35 +186,15 @@ impl GixReader {
     }
 
     /// Calculate ahead/behind between two commits by their hex OID strings.
-    ///
-    /// This is a convenience wrapper around [`ahead_behind`](Self::ahead_behind)
-    /// that parses hex OID strings.
     pub fn ahead_behind_by_oid(
         repo: &gix::Repository,
         local_oid: &str,
         remote_oid: &str,
     ) -> Result<(usize, usize), GixReaderError> {
-        let local = gix::ObjectId::from_hex(local_oid.as_bytes())
-            .map_err(|_| GixReaderError::InvalidObjectId(local_oid.to_string()))?;
-        let remote = gix::ObjectId::from_hex(remote_oid.as_bytes())
-            .map_err(|_| GixReaderError::InvalidObjectId(remote_oid.to_string()))?;
-        Self::ahead_behind(repo, local, remote)
+        Self::ahead_behind(repo, Self::parse_oid(local_oid)?, Self::parse_oid(remote_oid)?)
     }
 
-    /// Compute a tree-to-tree diff between two tree OIDs.
-    ///
-    /// Returns a list of file changes with their paths and blob OIDs.
-    /// Supports rename detection.
-    ///
-    /// # Arguments
-    ///
-    /// * `repo` - The gix repository
-    /// * `old_tree_id` - OID of the old (base) tree
-    /// * `new_tree_id` - OID of the new tree
-    ///
-    /// # Returns
-    ///
-    /// A vector of `TreeDiffEntry` describing each changed file.
+    /// Compute a tree-to-tree diff with rename detection.
     pub fn diff_trees(
         repo: &gix::Repository,
         old_tree_id: gix::ObjectId,
@@ -419,18 +312,7 @@ impl GixReader {
         Ok(entries)
     }
 
-    /// Read the contents of a blob by OID.
-    ///
-    /// Returns the blob content as bytes, or None if it's binary.
-    ///
-    /// # Arguments
-    ///
-    /// * `repo` - The gix repository
-    /// * `blob_id` - OID of the blob to read
-    ///
-    /// # Returns
-    ///
-    /// The blob content as a String if it's valid UTF-8 text, None otherwise.
+    /// Read blob content as UTF-8 text, or None if binary.
     pub fn read_blob(
         repo: &gix::Repository,
         blob_id: gix::ObjectId,
@@ -453,66 +335,7 @@ impl GixReader {
         }
     }
 
-    /// Read blob contents at a specific commit for a given path.
-    ///
-    /// # Arguments
-    ///
-    /// * `repo` - The gix repository
-    /// * `commit_id` - The commit OID
-    /// * `path` - The file path relative to repository root
-    ///
-    /// # Returns
-    ///
-    /// The file content as a String if found and is valid UTF-8 text, None otherwise.
-    pub fn file_contents_at(
-        repo: &gix::Repository,
-        commit_id: gix::ObjectId,
-        path: &str,
-    ) -> Result<Option<String>, GixReaderError> {
-        // Find the commit
-        let commit = repo
-            .find_object(commit_id)
-            .map_err(|e| GixReaderError::ObjectNotFound(format!("commit {commit_id}: {e}")))?
-            .try_into_commit()
-            .map_err(|e| GixReaderError::InvalidObject(format!("not a commit: {e}")))?;
-
-        // Get the tree
-        let tree_id = commit
-            .tree_id()
-            .map_err(|e| GixReaderError::InvalidObject(format!("commit has no tree: {e}")))?;
-
-        let tree = repo
-            .find_object(tree_id)
-            .map_err(|e| GixReaderError::ObjectNotFound(format!("tree: {e}")))?
-            .try_into_tree()
-            .map_err(|e| GixReaderError::InvalidObject(format!("not a tree: {e}")))?;
-
-        // Look up the path in the tree
-        let entry = match tree.lookup_entry_by_path(path) {
-            Ok(Some(entry)) => entry,
-            Ok(None) => return Ok(None), // Path not found
-            Err(e) => {
-                return Err(GixReaderError::Diff(format!(
-                    "failed to lookup path {path}: {e}"
-                )))
-            }
-        };
-
-        // Get the blob
-        let blob_id = entry.object_id();
-        Self::read_blob(repo, blob_id)
-    }
-
     /// Get blob size without reading full content.
-    ///
-    /// # Arguments
-    ///
-    /// * `repo` - The gix repository
-    /// * `blob_id` - OID of the blob
-    ///
-    /// # Returns
-    ///
-    /// The size of the blob in bytes.
     pub fn blob_size(
         repo: &gix::Repository,
         blob_id: gix::ObjectId,
@@ -523,87 +346,40 @@ impl GixReader {
         Ok(header.size() as usize)
     }
 
-    /// Check if a blob is binary (contains null bytes).
-    ///
-    /// # Arguments
-    ///
-    /// * `repo` - The gix repository
-    /// * `blob_id` - OID of the blob
-    ///
-    /// # Returns
-    ///
-    /// True if the blob contains binary content.
-    pub fn is_blob_binary(
-        repo: &gix::Repository,
-        blob_id: gix::ObjectId,
-    ) -> Result<bool, GixReaderError> {
-        let blob = repo
-            .find_object(blob_id)
-            .map_err(|e| GixReaderError::ObjectNotFound(format!("blob {blob_id}: {e}")))?;
-
-        Ok(blob.data.as_slice().contains(&0))
-    }
-
     /// Get HEAD information: branch name and commit OID.
     ///
-    /// Returns the current branch name (or "HEAD" if detached) and the
-    /// commit OID that HEAD points to.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Path to the repository root or worktree directory
-    ///
-    /// # Returns
-    ///
-    /// [`HeadInfo`] containing the branch name and OID as strings.
+    /// Returns the branch name (or "HEAD" if detached) and the commit OID.
     pub fn head_info(path: &Path) -> Result<HeadInfo, GixReaderError> {
         let repo = Self::open(path)?;
 
-        // Get branch name from HEAD (None if detached)
-        let branch = match repo.head_name()? {
-            Some(name) => {
-                // Extract short name from full ref (e.g., "refs/heads/main" -> "main")
-                name.shorten().to_string()
-            }
-            None => "HEAD".to_string(),
-        };
+        let branch = repo
+            .head_name()?
+            .map(|name| name.shorten().to_string())
+            .unwrap_or_else(|| "HEAD".to_string());
 
-        // Get the OID that HEAD points to
-        let head_id = repo
+        let oid = repo
             .head_id()
-            .map_err(|_| GixReaderError::DetachedHeadNoTarget)?;
-        let oid = head_id.to_string();
+            .map_err(|_| GixReaderError::DetachedHeadNoTarget)?
+            .to_string();
 
         Ok(HeadInfo { branch, oid })
     }
 
-    /// Find a branch by name (local or remote).
+    /// Find a branch by name, trying local then remote.
     ///
-    /// Tries local branches first (`refs/heads/{name}`), then remote branches
-    /// (`refs/remotes/{name}`).
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Path to the repository
-    /// * `branch_name` - Branch name (e.g., "main" or "origin/main")
-    ///
-    /// # Returns
-    ///
-    /// A tuple of (full reference name, branch type).
+    /// Returns (full reference name, branch type).
     pub fn find_branch(
         path: &Path,
         branch_name: &str,
     ) -> Result<(String, BranchType), GixReaderError> {
         let repo = Self::open(path)?;
 
-        // Try local branch first
-        let local_ref = format!("refs/heads/{}", branch_name);
+        let local_ref = format!("refs/heads/{branch_name}");
         if repo.find_reference(&local_ref).is_ok() {
             return Ok((local_ref, BranchType::Local));
         }
 
-        // Try remote branch
-        let remote_ref = format!("refs/remotes/{}", branch_name);
+        let remote_ref = format!("refs/remotes/{branch_name}");
         if repo.find_reference(&remote_ref).is_ok() {
             return Ok((remote_ref, BranchType::Remote));
         }
@@ -611,31 +387,12 @@ impl GixReader {
         Err(GixReaderError::ReferenceNotFound(branch_name.to_string()))
     }
 
-    /// Get the branch type (local or remote) for a given branch name.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Path to the repository
-    /// * `branch_name` - Branch name to look up
-    ///
-    /// # Returns
-    ///
-    /// [`BranchType::Local`] or [`BranchType::Remote`].
+    /// Get the branch type (local or remote) for a branch name.
     pub fn branch_type(path: &Path, branch_name: &str) -> Result<BranchType, GixReaderError> {
-        let (_, branch_type) = Self::find_branch(path, branch_name)?;
-        Ok(branch_type)
+        Ok(Self::find_branch(path, branch_name)?.1)
     }
 
-    /// Get the commit OID for a branch.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Path to the repository
-    /// * `branch_name` - Branch name (e.g., "main" or "origin/main")
-    ///
-    /// # Returns
-    ///
-    /// The commit OID as a hex string.
+    /// Get the commit OID for a branch as a hex string.
     pub fn branch_oid(path: &Path, branch_name: &str) -> Result<String, GixReaderError> {
         let repo = Self::open(path)?;
         let (ref_name, _) = Self::find_branch(path, branch_name)?;
@@ -648,27 +405,9 @@ impl GixReader {
         Ok(oid.to_string())
     }
 
-    /// Fetch from a remote repository using a specific refspec.
+    /// Fetch from a remote by name with a specific refspec.
     ///
-    /// This uses gix's native fetch implementation which handles authentication
-    /// via git credential helpers automatically (SSH keys, credential managers, etc.).
-    ///
-    /// # Arguments
-    ///
-    /// * `repo` - An open gix repository
-    /// * `remote_name` - Name of the remote (e.g., "origin")
-    /// * `refspec` - The refspec to fetch (e.g., "+refs/heads/*:refs/remotes/origin/*")
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use services::services::gix_reader::GixReader;
-    /// use std::path::Path;
-    ///
-    /// let repo = GixReader::open(Path::new("/path/to/repo")).unwrap();
-    /// // Fetch all branches from origin
-    /// GixReader::fetch(&repo, "origin", "+refs/heads/*:refs/remotes/origin/*").unwrap();
-    /// ```
+    /// Uses gix's native fetch with automatic credential helper support.
     pub fn fetch(
         repo: &gix::Repository,
         remote_name: &str,
@@ -682,14 +421,6 @@ impl GixReader {
     }
 
     /// Fetch from a remote URL with a specific refspec.
-    ///
-    /// Use this when you have a URL instead of a configured remote name.
-    ///
-    /// # Arguments
-    ///
-    /// * `repo` - An open gix repository
-    /// * `url` - The remote URL (e.g., "https://github.com/org/repo.git")
-    /// * `refspec` - The refspec to fetch
     pub fn fetch_url(
         repo: &gix::Repository,
         url: &str,
@@ -702,17 +433,14 @@ impl GixReader {
         Self::fetch_with_remote(remote, refspec)
     }
 
-    /// Internal helper to perform fetch with a gix Remote.
     fn fetch_with_remote<'repo>(
         remote: gix::Remote<'repo>,
         refspec: &str,
     ) -> Result<(), GixReaderError> {
-        // Override the remote's refspecs with our specific one
         let remote = remote
             .with_refspecs(Some(refspec), Direction::Fetch)
             .map_err(|e| GixReaderError::InvalidRefspec(e.to_string()))?;
 
-        // Connect and fetch
         let outcome = remote
             .connect(Direction::Fetch)?
             .prepare_fetch(gix::progress::Discard, Default::default())?
@@ -726,18 +454,7 @@ impl GixReader {
         Ok(())
     }
 
-    /// Get a summary of the worktree status: counts of uncommitted tracked changes
-    /// and untracked files.
-    ///
-    /// This uses gix's status API which is faster than shelling out to `git status`.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Path to the repository or worktree
-    ///
-    /// # Returns
-    ///
-    /// A `WorktreeStatusSummary` with counts.
+    /// Get worktree status: counts of uncommitted tracked changes and untracked files.
     pub fn get_worktree_status(path: &Path) -> Result<WorktreeStatusSummary, GixReaderError> {
         let repo = Self::open(path)?;
         Self::get_worktree_status_from_repo(&repo)
@@ -958,30 +675,14 @@ impl GixReader {
     }
 
     /// Get the commit message by hex OID string.
-    ///
-    /// Convenience wrapper that parses the hex OID.
     pub fn commit_message_by_oid(
         repo: &gix::Repository,
         oid_str: &str,
     ) -> Result<String, GixReaderError> {
-        let oid = gix::ObjectId::from_hex(oid_str.as_bytes())
-            .map_err(|_| GixReaderError::InvalidObjectId(oid_str.to_string()))?;
-        Self::commit_message(repo, oid)
+        Self::commit_message(repo, Self::parse_oid(oid_str)?)
     }
 
-    /// Check if `ancestor` is an ancestor of `descendant`.
-    ///
-    /// Returns true if `ancestor` can be reached by walking back from `descendant`.
-    ///
-    /// # Arguments
-    ///
-    /// * `repo` - An open gix repository
-    /// * `ancestor` - The potential ancestor commit
-    /// * `descendant` - The potential descendant commit
-    ///
-    /// # Returns
-    ///
-    /// `true` if `ancestor` is reachable from `descendant`.
+    /// Check if `ancestor` is reachable from `descendant`.
     pub fn is_ancestor(
         repo: &gix::Repository,
         ancestor: gix::ObjectId,
@@ -1005,31 +706,15 @@ impl GixReader {
     }
 
     /// Check ancestry by hex OID strings.
-    ///
-    /// Convenience wrapper that parses hex OIDs.
     pub fn is_ancestor_by_oid(
         repo: &gix::Repository,
         ancestor_oid: &str,
         descendant_oid: &str,
     ) -> Result<bool, GixReaderError> {
-        let ancestor = gix::ObjectId::from_hex(ancestor_oid.as_bytes())
-            .map_err(|_| GixReaderError::InvalidObjectId(ancestor_oid.to_string()))?;
-        let descendant = gix::ObjectId::from_hex(descendant_oid.as_bytes())
-            .map_err(|_| GixReaderError::InvalidObjectId(descendant_oid.to_string()))?;
-        Self::is_ancestor(repo, ancestor, descendant)
+        Self::is_ancestor(repo, Self::parse_oid(ancestor_oid)?, Self::parse_oid(descendant_oid)?)
     }
 
     /// Find the merge base (common ancestor) of two commits.
-    ///
-    /// # Arguments
-    ///
-    /// * `repo` - An open gix repository
-    /// * `a` - First commit ObjectId
-    /// * `b` - Second commit ObjectId
-    ///
-    /// # Returns
-    ///
-    /// The ObjectId of the merge base commit.
     pub fn merge_base(
         repo: &gix::Repository,
         a: gix::ObjectId,
@@ -1040,33 +725,15 @@ impl GixReader {
     }
 
     /// Find merge base by hex OID strings.
-    ///
-    /// Convenience wrapper that parses hex OIDs.
     pub fn merge_base_by_oid(
         repo: &gix::Repository,
         a_oid: &str,
         b_oid: &str,
     ) -> Result<gix::ObjectId, GixReaderError> {
-        let a = gix::ObjectId::from_hex(a_oid.as_bytes())
-            .map_err(|_| GixReaderError::InvalidObjectId(a_oid.to_string()))?;
-        let b = gix::ObjectId::from_hex(b_oid.as_bytes())
-            .map_err(|_| GixReaderError::InvalidObjectId(b_oid.to_string()))?;
-        Self::merge_base(repo, a, b)
+        Self::merge_base(repo, Self::parse_oid(a_oid)?, Self::parse_oid(b_oid)?)
     }
 
-    /// Collect file statistics from recent commits for ranking purposes.
-    ///
-    /// Walks through the commit history from HEAD, collecting information about
-    /// which files have been changed and when.
-    ///
-    /// # Arguments
-    ///
-    /// * `repo` - An open gix repository
-    /// * `commit_limit` - Maximum number of commits to examine
-    ///
-    /// # Returns
-    ///
-    /// A HashMap mapping file paths to their statistics.
+    /// Collect file statistics from recent commits (change count and last modified time).
     pub fn recent_file_stats(
         repo: &mut gix::Repository,
         commit_limit: usize,
@@ -1228,80 +895,6 @@ mod tests {
         init_test_repo_via_cli(repo_path);
 
         let result = GixReader::open(repo_path);
-        assert!(result.is_ok());
-
-        let repo = result.unwrap();
-        assert_eq!(repo.workdir(), Some(repo_path));
-    }
-
-    #[test]
-    fn test_open_isolated() {
-        let temp_dir = TempDir::new().unwrap();
-        let repo_path = temp_dir.path();
-
-        init_test_repo_via_cli(repo_path);
-
-        let result = GixReader::open_isolated(repo_path);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_open_worktree() {
-        let temp_dir = TempDir::new().unwrap();
-        let main_repo_path = temp_dir.path().join("main");
-        fs::create_dir_all(&main_repo_path).unwrap();
-
-        // Initialize main repository
-        init_test_repo_via_cli(&main_repo_path);
-
-        // Create a worktree
-        let worktree_path = temp_dir.path().join("worktree");
-
-        let output = Command::new("git")
-            .args([
-                "worktree",
-                "add",
-                "-b",
-                "test-branch",
-                worktree_path.to_str().unwrap(),
-            ])
-            .current_dir(&main_repo_path)
-            .output()
-            .expect("Failed to create worktree");
-
-        if !output.status.success() {
-            panic!(
-                "git worktree add failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        // Verify worktree has .git file (not directory)
-        let git_path = worktree_path.join(".git");
-        assert!(git_path.exists());
-        assert!(git_path.is_file(), "Worktree should have .git file");
-
-        // Test opening the worktree
-        let result = GixReader::open_worktree(&worktree_path);
-        assert!(result.is_ok());
-
-        let repo = result.unwrap();
-        assert_eq!(repo.workdir(), Some(worktree_path.as_path()));
-    }
-
-    #[test]
-    fn test_discover_from_subdirectory() {
-        let temp_dir = TempDir::new().unwrap();
-        let repo_path = temp_dir.path();
-
-        init_test_repo_via_cli(repo_path);
-
-        // Create a subdirectory
-        let subdir = repo_path.join("src").join("nested");
-        fs::create_dir_all(&subdir).unwrap();
-
-        // Discover repo from subdirectory
-        let result = GixReader::discover(&subdir);
         assert!(result.is_ok());
 
         let repo = result.unwrap();
