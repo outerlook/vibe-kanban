@@ -1,0 +1,92 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT\n                w.id AS \"w_id!: Uuid\",\n                w.task_id AS \"w_task_id!: Uuid\",\n                w.container_ref AS \"w_container_ref: String\",\n                w.branch AS \"w_branch!: String\",\n                w.agent_working_dir AS \"w_agent_working_dir: String\",\n                w.setup_completed_at AS \"w_setup_completed_at: DateTime<Utc>\",\n                w.created_at AS \"w_created_at!: DateTime<Utc>\",\n                w.updated_at AS \"w_updated_at!: DateTime<Utc>\",\n                s.id AS \"s_id: Uuid\",\n                s.workspace_id AS \"s_workspace_id: Uuid\",\n                s.executor AS \"s_executor: String\",\n                s.created_at AS \"s_created_at: DateTime<Utc>\",\n                s.updated_at AS \"s_updated_at: DateTime<Utc>\"\n            FROM workspaces w\n            LEFT JOIN (\n                SELECT s1.*\n                FROM sessions s1\n                INNER JOIN (\n                    SELECT workspace_id, MAX(created_at) as max_created_at\n                    FROM sessions\n                    GROUP BY workspace_id\n                ) s2 ON s1.workspace_id = s2.workspace_id AND s1.created_at = s2.max_created_at\n            ) s ON w.id = s.workspace_id\n            WHERE ($1 IS NULL OR w.task_id = $1)\n            ORDER BY w.created_at DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "w_id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "w_task_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "w_container_ref: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "w_branch!: String",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "w_agent_working_dir: String",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "w_setup_completed_at: DateTime<Utc>",
+        "ordinal": 5,
+        "type_info": "Datetime"
+      },
+      {
+        "name": "w_created_at!: DateTime<Utc>",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "w_updated_at!: DateTime<Utc>",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "s_id: Uuid",
+        "ordinal": 8,
+        "type_info": "Blob"
+      },
+      {
+        "name": "s_workspace_id: Uuid",
+        "ordinal": 9,
+        "type_info": "Blob"
+      },
+      {
+        "name": "s_executor: String",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "s_created_at: DateTime<Utc>",
+        "ordinal": 11,
+        "type_info": "Text"
+      },
+      {
+        "name": "s_updated_at: DateTime<Utc>",
+        "ordinal": 12,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "31abf3ca487ef91d5f20d4e51f1bfa5eb8d99d606e21487f4a743984acd54a93"
+}
