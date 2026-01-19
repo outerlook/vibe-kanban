@@ -919,8 +919,7 @@ impl GitService {
     }
 
     pub fn is_worktree_clean(&self, worktree_path: &Path) -> Result<bool, GitServiceError> {
-        let repo = self.open_repo(worktree_path)?;
-        match self.check_worktree_clean(&repo) {
+        match self.check_worktree_clean(worktree_path) {
             Ok(()) => Ok(true),
             Err(GitServiceError::WorktreeDirty(_, _)) => Ok(false),
             Err(e) => Err(e),
@@ -928,46 +927,21 @@ impl GitService {
     }
 
     /// Check if the worktree is clean (no uncommitted changes to tracked files)
-    fn check_worktree_clean(&self, repo: &Repository) -> Result<(), GitServiceError> {
-        let mut status_options = git2::StatusOptions::new();
-        status_options
-            .include_untracked(false) // Don't include untracked files
-            .include_ignored(false); // Don't include ignored files
+    fn check_worktree_clean(&self, worktree_path: &Path) -> Result<(), GitServiceError> {
+        let dirty_files = GixReader::get_dirty_files(worktree_path).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("gix dirty check failed: {e}"))
+        })?;
 
-        let statuses = repo.statuses(Some(&mut status_options))?;
-
-        if !statuses.is_empty() {
-            let mut dirty_files = Vec::new();
-            for entry in statuses.iter() {
-                let status = entry.status();
-                // Only consider files that are actually tracked and modified
-                if status.intersects(
-                    git2::Status::INDEX_MODIFIED
-                        | git2::Status::INDEX_NEW
-                        | git2::Status::INDEX_DELETED
-                        | git2::Status::INDEX_RENAMED
-                        | git2::Status::INDEX_TYPECHANGE
-                        | git2::Status::WT_MODIFIED
-                        | git2::Status::WT_DELETED
-                        | git2::Status::WT_RENAMED
-                        | git2::Status::WT_TYPECHANGE,
-                ) && let Some(path) = entry.path()
-                {
-                    dirty_files.push(path.to_string());
-                }
-            }
-
-            if !dirty_files.is_empty() {
-                let branch_name = repo
-                    .head()
-                    .ok()
-                    .and_then(|h| h.shorthand().map(|s| s.to_string()))
-                    .unwrap_or_else(|| "unknown branch".to_string());
-                return Err(GitServiceError::WorktreeDirty(
-                    branch_name,
-                    dirty_files.join(", "),
-                ));
-            }
+        if !dirty_files.is_empty() {
+            // Get branch name for error message
+            let branch_name = self
+                .get_head_info(worktree_path)
+                .map(|h| h.branch)
+                .unwrap_or_else(|_| "unknown branch".to_string());
+            return Err(GitServiceError::WorktreeDirty(
+                branch_name,
+                dirty_files.join(", "),
+            ));
         }
 
         Ok(())
@@ -1033,11 +1007,10 @@ impl GitService {
         &self,
         worktree_path: &Path,
     ) -> Result<(usize, usize), GitServiceError> {
-        let cli = GitCli::new();
-        let st = cli
-            .get_worktree_status(worktree_path)
-            .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))?;
-        Ok((st.uncommitted_tracked, st.untracked))
+        let summary = GixReader::get_worktree_status(worktree_path).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("gix status failed: {e}"))
+        })?;
+        Ok((summary.uncommitted_tracked, summary.untracked))
     }
 
     /// Evaluate whether any action is needed to reset to `target_commit_oid` and
@@ -1089,10 +1062,9 @@ impl GitService {
         commit_sha: &str,
         force: bool,
     ) -> Result<(), GitServiceError> {
-        let repo = self.open_repo(worktree_path)?;
         if !force {
             // Avoid clobbering uncommitted changes unless explicitly forced
-            self.check_worktree_clean(&repo)?;
+            self.check_worktree_clean(worktree_path)?;
         }
         let cli = GitCli::new();
         cli.git(worktree_path, ["reset", "--hard", commit_sha])
@@ -1275,7 +1247,7 @@ impl GitService {
         // Safety guard: never operate on a dirty worktree. This preserves any
         // uncommitted changes to tracked files by failing fast instead of
         // resetting or cherry-picking over them. Untracked files are allowed.
-        self.check_worktree_clean(&worktree_repo)?;
+        self.check_worktree_clean(worktree_path)?;
 
         // If a rebase is already in progress, refuse to proceed instead of
         // aborting (which might destroy user changes mid-rebase).
@@ -1589,8 +1561,8 @@ impl GitService {
         branch_name: &str,
         force: bool,
     ) -> Result<(), GitServiceError> {
+        self.check_worktree_clean(worktree_path)?;
         let repo = Repository::open(worktree_path)?;
-        self.check_worktree_clean(&repo)?;
 
         // Get the remote
         let remote_name = self.default_remote_name(&repo);
