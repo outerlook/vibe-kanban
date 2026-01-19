@@ -18,8 +18,14 @@ pub enum GixReaderError {
     InvalidRepository { path: String },
     #[error("Reference not found: {0}")]
     ReferenceNotFound(String),
+    #[error("HEAD has no target commit")]
+    DetachedHeadNoTarget,
+    #[error("Reference error: {0}")]
+    Reference(#[from] gix::reference::find::existing::Error),
     #[error("Failed to peel reference: {0}")]
     PeelError(#[from] gix::reference::peel::Error),
+    #[error("Failed to peel HEAD: {0}")]
+    PeelHead(#[from] gix::head::peel::to_commit::Error),
     #[error("Merge base error: {0}")]
     MergeBase(#[from] gix::repository::merge_base::Error),
     #[error("Revision walk error: {0}")]
@@ -63,6 +69,20 @@ pub struct TreeDiffEntry {
     pub old_mode: Option<gix::object::tree::EntryKind>,
     /// New file mode
     pub new_mode: Option<gix::object::tree::EntryKind>,
+}
+
+/// Branch type enumeration matching git2::BranchType semantics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BranchType {
+    Local,
+    Remote,
+}
+
+/// HEAD information: branch name (or "HEAD" if detached) and commit OID.
+#[derive(Debug, Clone)]
+pub struct HeadInfo {
+    pub branch: String,
+    pub oid: String,
 }
 
 /// Read-only interface for Git repository operations using gix.
@@ -480,6 +500,108 @@ impl GixReader {
 
         Ok(blob.data.as_slice().contains(&0))
     }
+
+    /// Get HEAD information: branch name and commit OID.
+    ///
+    /// Returns the current branch name (or "HEAD" if detached) and the
+    /// commit OID that HEAD points to.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the repository root or worktree directory
+    ///
+    /// # Returns
+    ///
+    /// [`HeadInfo`] containing the branch name and OID as strings.
+    pub fn head_info(path: &Path) -> Result<HeadInfo, GixReaderError> {
+        let repo = Self::open(path)?;
+
+        // Get branch name from HEAD (None if detached)
+        let branch = match repo.head_name()? {
+            Some(name) => {
+                // Extract short name from full ref (e.g., "refs/heads/main" -> "main")
+                name.shorten().to_string()
+            }
+            None => "HEAD".to_string(),
+        };
+
+        // Get the OID that HEAD points to
+        let head_id = repo.head_id().map_err(|_| GixReaderError::DetachedHeadNoTarget)?;
+        let oid = head_id.to_string();
+
+        Ok(HeadInfo { branch, oid })
+    }
+
+    /// Find a branch by name (local or remote).
+    ///
+    /// Tries local branches first (`refs/heads/{name}`), then remote branches
+    /// (`refs/remotes/{name}`).
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the repository
+    /// * `branch_name` - Branch name (e.g., "main" or "origin/main")
+    ///
+    /// # Returns
+    ///
+    /// A tuple of (full reference name, branch type).
+    pub fn find_branch(
+        path: &Path,
+        branch_name: &str,
+    ) -> Result<(String, BranchType), GixReaderError> {
+        let repo = Self::open(path)?;
+
+        // Try local branch first
+        let local_ref = format!("refs/heads/{}", branch_name);
+        if repo.find_reference(&local_ref).is_ok() {
+            return Ok((local_ref, BranchType::Local));
+        }
+
+        // Try remote branch
+        let remote_ref = format!("refs/remotes/{}", branch_name);
+        if repo.find_reference(&remote_ref).is_ok() {
+            return Ok((remote_ref, BranchType::Remote));
+        }
+
+        Err(GixReaderError::ReferenceNotFound(branch_name.to_string()))
+    }
+
+    /// Get the branch type (local or remote) for a given branch name.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the repository
+    /// * `branch_name` - Branch name to look up
+    ///
+    /// # Returns
+    ///
+    /// [`BranchType::Local`] or [`BranchType::Remote`].
+    pub fn branch_type(path: &Path, branch_name: &str) -> Result<BranchType, GixReaderError> {
+        let (_, branch_type) = Self::find_branch(path, branch_name)?;
+        Ok(branch_type)
+    }
+
+    /// Get the commit OID for a branch.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the repository
+    /// * `branch_name` - Branch name (e.g., "main" or "origin/main")
+    ///
+    /// # Returns
+    ///
+    /// The commit OID as a hex string.
+    pub fn branch_oid(path: &Path, branch_name: &str) -> Result<String, GixReaderError> {
+        let repo = Self::open(path)?;
+        let (ref_name, _) = Self::find_branch(path, branch_name)?;
+
+        let reference = repo.find_reference(&ref_name)?;
+        let oid = reference
+            .into_fully_peeled_id()
+            .map_err(|e| GixReaderError::ReferenceNotFound(format!("Failed to peel: {}", e)))?;
+
+        Ok(oid.to_string())
+    }
 }
 
 /// Convert BStr to String, handling non-UTF8 paths gracefully
@@ -614,5 +736,96 @@ mod tests {
     fn test_open_nonexistent_path() {
         let result = GixReader::open(Path::new("/nonexistent/path/to/repo"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_head_info() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+
+        init_test_repo_via_cli(repo_path);
+
+        let head_info = GixReader::head_info(repo_path).unwrap();
+        assert_eq!(head_info.branch, "main");
+        // OID should be a 40-character hex string
+        assert_eq!(head_info.oid.len(), 40);
+        assert!(head_info.oid.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_head_info_worktree() {
+        let temp_dir = TempDir::new().unwrap();
+        let main_repo_path = temp_dir.path().join("main");
+        fs::create_dir_all(&main_repo_path).unwrap();
+
+        init_test_repo_via_cli(&main_repo_path);
+
+        // Create a worktree on a different branch
+        let worktree_path = temp_dir.path().join("worktree");
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "feature-branch",
+                worktree_path.to_str().unwrap(),
+            ])
+            .current_dir(&main_repo_path)
+            .output()
+            .expect("Failed to create worktree");
+
+        let head_info = GixReader::head_info(&worktree_path).unwrap();
+        assert_eq!(head_info.branch, "feature-branch");
+    }
+
+    #[test]
+    fn test_find_branch_local() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+
+        init_test_repo_via_cli(repo_path);
+
+        let (ref_name, branch_type) = GixReader::find_branch(repo_path, "main").unwrap();
+        assert_eq!(ref_name, "refs/heads/main");
+        assert_eq!(branch_type, BranchType::Local);
+    }
+
+    #[test]
+    fn test_find_branch_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+
+        init_test_repo_via_cli(repo_path);
+
+        let result = GixReader::find_branch(repo_path, "nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_branch_type() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+
+        init_test_repo_via_cli(repo_path);
+
+        let branch_type = GixReader::branch_type(repo_path, "main").unwrap();
+        assert_eq!(branch_type, BranchType::Local);
+    }
+
+    #[test]
+    fn test_branch_oid() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+
+        init_test_repo_via_cli(repo_path);
+
+        let oid = GixReader::branch_oid(repo_path, "main").unwrap();
+        // OID should be a 40-character hex string
+        assert_eq!(oid.len(), 40);
+        assert!(oid.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // Should match HEAD since we're on main
+        let head_info = GixReader::head_info(repo_path).unwrap();
+        assert_eq!(oid, head_info.oid);
     }
 }

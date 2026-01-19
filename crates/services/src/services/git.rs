@@ -975,25 +975,14 @@ impl GitService {
 
     /// Get current HEAD information including branch name and commit OID
     pub fn get_head_info(&self, repo_path: &Path) -> Result<HeadInfo, GitServiceError> {
-        let repo = self.open_repo(repo_path)?;
-        let head = repo.head()?;
+        let gix_info = GixReader::head_info(repo_path).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("Failed to get HEAD info: {}", e))
+        })?;
 
-        let branch = if let Some(branch_name) = head.shorthand() {
-            branch_name.to_string()
-        } else {
-            "HEAD".to_string()
-        };
-
-        let oid = if let Some(target_oid) = head.target() {
-            target_oid.to_string()
-        } else {
-            // Handle case where HEAD exists but has no target (empty repo)
-            return Err(GitServiceError::InvalidRepository(
-                "Repository HEAD has no target commit".to_string(),
-            ));
-        };
-
-        Ok(HeadInfo { branch, oid })
+        Ok(HeadInfo {
+            branch: gix_info.branch,
+            oid: gix_info.oid,
+        })
     }
 
     pub fn get_current_branch(&self, repo_path: &Path) -> Result<String, git2::Error> {
@@ -1011,10 +1000,8 @@ impl GitService {
         repo_path: &Path,
         branch_name: &str,
     ) -> Result<String, GitServiceError> {
-        let repo = self.open_repo(repo_path)?;
-        let branch = Self::find_branch(&repo, branch_name)?;
-        let oid = branch.get().peel_to_commit()?.id().to_string();
-        Ok(oid)
+        GixReader::branch_oid(repo_path, branch_name)
+            .map_err(|_| GitServiceError::BranchNotFound(branch_name.to_string()))
     }
 
     /// Get the subject/summary line for a given commit OID
@@ -1371,18 +1358,14 @@ impl GitService {
         repo_path: &Path,
         branch_name: &str,
     ) -> Result<BranchType, GitServiceError> {
-        let repo = self.open_repo(repo_path)?;
-        // Try to find the branch as a local branch first
-        match repo.find_branch(branch_name, BranchType::Local) {
-            Ok(_) => Ok(BranchType::Local),
-            Err(_) => {
-                // If not found, try to find it as a remote branch
-                match repo.find_branch(branch_name, BranchType::Remote) {
-                    Ok(_) => Ok(BranchType::Remote),
-                    Err(_) => Err(GitServiceError::BranchNotFound(branch_name.to_string())),
-                }
-            }
-        }
+        let gix_branch_type = GixReader::branch_type(repo_path, branch_name)
+            .map_err(|_| GitServiceError::BranchNotFound(branch_name.to_string()))?;
+
+        // Map gix_reader::BranchType to git2::BranchType
+        Ok(match gix_branch_type {
+            super::gix_reader::BranchType::Local => BranchType::Local,
+            super::gix_reader::BranchType::Remote => BranchType::Remote,
+        })
     }
 
     pub fn check_branch_exists(
@@ -1390,14 +1373,7 @@ impl GitService {
         repo_path: &Path,
         branch_name: &str,
     ) -> Result<bool, GitServiceError> {
-        let repo = self.open_repo(repo_path)?;
-        match repo.find_branch(branch_name, BranchType::Local) {
-            Ok(_) => Ok(true),
-            Err(_) => match repo.find_branch(branch_name, BranchType::Remote) {
-                Ok(_) => Ok(true),
-                Err(_) => Ok(false),
-            },
-        }
+        Ok(GixReader::find_branch(repo_path, branch_name).is_ok())
     }
 
     pub fn check_remote_branch_exists(
