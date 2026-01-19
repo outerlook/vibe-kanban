@@ -20,7 +20,7 @@ import {
   useProjectRepos,
   useTaskGroup,
 } from '@/hooks';
-import { useTaskAttemptsWithSessions } from '@/hooks/useTaskAttempts';
+import { useTaskAttemptsStream } from '@/hooks/useTaskAttemptsStream';
 import { useProject } from '@/contexts/ProjectContext';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { paths } from '@/lib/paths';
@@ -52,11 +52,9 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
     const [userSelectedProfile, setUserSelectedProfile] =
       useState<ExecutorProfileId | null>(null);
 
-    const { data: attempts = [], isLoading: isLoadingAttempts } =
-      useTaskAttemptsWithSessions(taskId, {
-        enabled: modal.visible,
-        refetchInterval: 5000,
-      });
+    const { attempts, isLoading: isLoadingAttempts } = useTaskAttemptsStream(
+      modal.visible ? taskId : undefined
+    );
 
     const { data: task, isLoading: isLoadingTask } = useTask(taskId, {
       enabled: modal.visible,

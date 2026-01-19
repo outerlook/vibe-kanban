@@ -18,8 +18,7 @@ import {
   useConversationHistory,
 } from '@/hooks/useConversationHistory';
 import { ArrowDown, Loader2 } from 'lucide-react';
-import { TaskWithAttemptStatus } from 'shared/types';
-import type { WorkspaceWithSession } from '@/types/attempt';
+import type { TaskWithAttemptStatus, WorkspaceWithSession } from 'shared/types';
 import { ApprovalFormProvider } from '@/contexts/ApprovalFormContext';
 import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import type { ExecutionProcessesSource } from '@/hooks/useExecutionProcesses';

@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use super::{
     project::Project,
+    session::Session,
     task::Task,
     workspace_repo::{RepoWithTargetBranch, WorkspaceRepo},
 };
@@ -54,6 +55,15 @@ pub struct Workspace {
     pub setup_completed_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// Workspace with its latest session (if any)
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct WorkspaceWithSession {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub workspace: Workspace,
+    pub session: Option<Session>,
 }
 
 /// GitHub PR creation parameters
@@ -407,5 +417,76 @@ impl Workspace {
             task_id: result.task_id,
             project_id: result.project_id,
         })
+    }
+}
+
+impl WorkspaceWithSession {
+    /// Fetch workspaces with their latest session. Optionally filtered by task_id. Newest first.
+    pub async fn fetch_with_latest_sessions(
+        pool: &SqlitePool,
+        task_id: Option<Uuid>,
+    ) -> Result<Vec<Self>, WorkspaceError> {
+        // Use a raw query since we need to handle the complex LEFT JOIN with subquery
+        let rows = sqlx::query!(
+            r#"
+            SELECT
+                w.id AS "w_id!: Uuid",
+                w.task_id AS "w_task_id!: Uuid",
+                w.container_ref AS "w_container_ref: String",
+                w.branch AS "w_branch!: String",
+                w.agent_working_dir AS "w_agent_working_dir: String",
+                w.setup_completed_at AS "w_setup_completed_at: DateTime<Utc>",
+                w.created_at AS "w_created_at!: DateTime<Utc>",
+                w.updated_at AS "w_updated_at!: DateTime<Utc>",
+                s.id AS "s_id: Uuid",
+                s.workspace_id AS "s_workspace_id: Uuid",
+                s.executor AS "s_executor: String",
+                s.created_at AS "s_created_at: DateTime<Utc>",
+                s.updated_at AS "s_updated_at: DateTime<Utc>"
+            FROM workspaces w
+            LEFT JOIN sessions s
+                ON s.id = (
+                    SELECT s2.id
+                    FROM sessions s2
+                    WHERE s2.workspace_id = w.id
+                    ORDER BY s2.created_at DESC
+                    LIMIT 1
+                )
+            WHERE ($1 IS NULL OR w.task_id = $1)
+            ORDER BY w.created_at DESC
+            "#,
+            task_id
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(WorkspaceError::Database)?;
+
+        let results = rows
+            .into_iter()
+            .map(|row| {
+                let workspace = Workspace {
+                    id: row.w_id,
+                    task_id: row.w_task_id,
+                    container_ref: row.w_container_ref,
+                    branch: row.w_branch,
+                    agent_working_dir: row.w_agent_working_dir,
+                    setup_completed_at: row.w_setup_completed_at,
+                    created_at: row.w_created_at,
+                    updated_at: row.w_updated_at,
+                };
+
+                let session = row.s_id.map(|id| Session {
+                    id,
+                    workspace_id: row.s_workspace_id.unwrap(),
+                    executor: row.s_executor,
+                    created_at: row.s_created_at.unwrap(),
+                    updated_at: row.s_updated_at.unwrap(),
+                });
+
+                WorkspaceWithSession { workspace, session }
+            })
+            .collect();
+
+        Ok(results)
     }
 }

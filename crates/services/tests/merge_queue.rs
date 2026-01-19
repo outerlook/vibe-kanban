@@ -624,13 +624,9 @@ async fn test_full_merge_flow_success() {
     let processor = MergeQueueProcessor::new(pool.clone(), GitService::new());
     processor.process_project_queue(project_id).await.unwrap();
 
-    // Verify merge queue entry is completed
-    let completed_entry = MergeQueue::find_by_id(&pool, entry.id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(completed_entry.status, MergeQueueStatus::Completed);
-    assert!(completed_entry.conflict_message.is_none());
+    // Merge queue entry should be deleted after successful processing
+    let completed_entry = MergeQueue::find_by_id(&pool, entry.id).await.unwrap();
+    assert!(completed_entry.is_none());
 
     // Verify Merge record was created
     let merge_row = sqlx::query(
@@ -710,13 +706,19 @@ async fn test_merge_with_conflict_marks_entry() {
     let processor = MergeQueueProcessor::new(pool.clone(), GitService::new());
     processor.process_project_queue(project_id).await.unwrap();
 
-    // Verify entry has conflict status
-    let conflict_entry = MergeQueue::find_by_id(&pool, entry.id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(conflict_entry.status, MergeQueueStatus::Conflict);
-    assert!(conflict_entry.conflict_message.is_some());
+    // Merge queue entry should be deleted after conflict
+    let conflict_entry = MergeQueue::find_by_id(&pool, entry.id).await.unwrap();
+    assert!(conflict_entry.is_none());
+
+    // Verify no merge record was created
+    let merge_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM merges WHERE workspace_id = ?",
+    )
+    .bind(workspace_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(merge_count, 0);
 
     // Verify task status was NOT changed to Done
     let task = Task::find_by_id(&pool, task_id).await.unwrap().unwrap();
@@ -740,6 +742,7 @@ async fn test_queue_processes_multiple_entries_fifo() {
 
     // Create 3 feature branches and queue them
     let mut entry_ids = Vec::new();
+    let mut workspace_ids = Vec::new();
     for i in 1..=3 {
         let branch_name = format!("feature-{}", i);
         checkout_branch(&repo_path, "main");
@@ -774,6 +777,7 @@ async fn test_queue_processes_multiple_entries_fifo() {
             .await
             .unwrap();
         entry_ids.push(entry.id);
+        workspace_ids.push(workspace_id);
 
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
@@ -782,33 +786,29 @@ async fn test_queue_processes_multiple_entries_fifo() {
     let processor = MergeQueueProcessor::new(pool.clone(), GitService::new());
     processor.process_project_queue(project_id).await.unwrap();
 
-    // All should be completed
+    // All should be deleted after processing
     for entry_id in &entry_ids {
-        let entry = MergeQueue::find_by_id(&pool, *entry_id)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            entry.status,
-            MergeQueueStatus::Completed,
-            "Entry {:?} should be completed",
+        let entry = MergeQueue::find_by_id(&pool, *entry_id).await.unwrap();
+        assert!(
+            entry.is_none(),
+            "Entry {:?} should be deleted after processing",
             entry_id
         );
     }
 
-    // Verify order by checking completed_at timestamps
-    let mut completed_times = Vec::new();
-    for entry_id in &entry_ids {
-        let entry = MergeQueue::find_by_id(&pool, *entry_id)
-            .await
-            .unwrap()
-            .unwrap();
-        completed_times.push(entry.completed_at.unwrap());
-    }
-
-    // First queued should complete first (FIFO)
-    assert!(completed_times[0] <= completed_times[1]);
-    assert!(completed_times[1] <= completed_times[2]);
+    // Verify FIFO order by merge creation time
+    let merges = sqlx::query(
+        "SELECT workspace_id FROM merges WHERE workspace_id IN (?, ?, ?) ORDER BY created_at ASC",
+    )
+    .bind(workspace_ids[0])
+    .bind(workspace_ids[1])
+    .bind(workspace_ids[2])
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let merge_workspace_ids: Vec<Uuid> =
+        merges.into_iter().map(|row| row.get("workspace_id")).collect();
+    assert_eq!(merge_workspace_ids, workspace_ids);
 
     // Verify all files are on main
     checkout_branch(&repo_path, "main");
@@ -887,19 +887,32 @@ async fn test_conflict_skips_to_next_entry() {
     let processor = MergeQueueProcessor::new(pool.clone(), GitService::new());
     processor.process_project_queue(project_id).await.unwrap();
 
-    // First entry should be conflict
-    let e1 = MergeQueue::find_by_id(&pool, entry1.id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(e1.status, MergeQueueStatus::Conflict);
+    // First entry should be deleted after conflict
+    let e1 = MergeQueue::find_by_id(&pool, entry1.id).await.unwrap();
+    assert!(e1.is_none());
 
-    // Second entry should be completed (processor continued after conflict)
-    let e2 = MergeQueue::find_by_id(&pool, entry2.id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(e2.status, MergeQueueStatus::Completed);
+    // Second entry should be deleted after completion
+    let e2 = MergeQueue::find_by_id(&pool, entry2.id).await.unwrap();
+    assert!(e2.is_none());
+
+    // Verify merges are created only for the safe entry
+    let conflict_merge_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM merges WHERE workspace_id = ?",
+    )
+    .bind(ws1_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(conflict_merge_count, 0);
+
+    let safe_merge_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM merges WHERE workspace_id = ?",
+    )
+    .bind(ws2_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(safe_merge_count, 1);
 
     // Verify safe.txt is on main
     checkout_branch(&repo_path, "main");

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { attemptsApi } from '@/lib/api';
-import type { WorkspaceWithSession } from '@/types/attempt';
+import type { WorkspaceWithSession } from 'shared/types';
 
 export function useTaskAttempt(attemptId?: string) {
   return useQuery({

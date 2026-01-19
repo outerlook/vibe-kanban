@@ -1,14 +1,14 @@
 import { useCallback, useMemo } from 'react';
-import type { Workspace } from 'shared/types';
+import type { WorkspaceWithSession } from 'shared/types';
 import { useJsonPatchWsStream } from './useJsonPatchWsStream';
 
 interface WorkspacesState {
-  workspaces: Record<string, Workspace>;
+  workspaces: Record<string, WorkspaceWithSession>;
 }
 
 interface UseTaskAttemptsStreamResult {
-  attempts: Workspace[];
-  attemptsById: Record<string, Workspace>;
+  attempts: WorkspaceWithSession[];
+  attemptsById: Record<string, WorkspaceWithSession>;
   isConnected: boolean;
   isLoading: boolean;
   error: string | null;
