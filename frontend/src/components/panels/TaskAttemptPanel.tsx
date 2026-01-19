@@ -1,5 +1,4 @@
-import type { TaskWithAttemptStatus } from 'shared/types';
-import type { WorkspaceWithSession } from '@/types/attempt';
+import type { TaskWithAttemptStatus, WorkspaceWithSession } from 'shared/types';
 import VirtualizedList from '@/components/logs/VirtualizedList';
 import { TaskFollowUpSection } from '@/components/tasks/TaskFollowUpSection';
 import { FeedbackSection } from '@/components/feedback/FeedbackSection';

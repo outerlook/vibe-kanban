@@ -128,8 +128,7 @@ import {
   PrWithComments,
   FeedbackResponse,
 } from 'shared/types';
-import type { WorkspaceWithSession } from '@/types/attempt';
-import { createWorkspaceWithSession } from '@/types/attempt';
+import type { WorkspaceWithSession } from 'shared/types';
 
 export class ApiError<E = unknown> extends Error {
   public status?: number;
@@ -833,11 +832,10 @@ export const attemptsApi = {
 
   /** Get workspace with latest session */
   getWithSession: async (attemptId: string): Promise<WorkspaceWithSession> => {
-    const [workspace, sessions] = await Promise.all([
-      attemptsApi.get(attemptId),
-      sessionsApi.getByWorkspace(attemptId),
-    ]);
-    return createWorkspaceWithSession(workspace, sessions[0]);
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/with-session`
+    );
+    return handleApiResponse<WorkspaceWithSession>(response);
   },
 
   create: async (data: CreateTaskAttemptBody): Promise<Workspace> => {

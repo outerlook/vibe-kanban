@@ -64,9 +64,6 @@ export function invalidateTaskQueries(
     queryClient.invalidateQueries({
       queryKey: taskAttemptKeys.byTask(taskId),
     });
-    queryClient.invalidateQueries({
-      queryKey: taskAttemptKeys.byTaskWithSessions(taskId),
-    });
   }
 
   // Invalidate task relationships

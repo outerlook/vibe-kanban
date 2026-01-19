@@ -444,15 +444,14 @@ impl WorkspaceWithSession {
                 s.created_at AS "s_created_at: DateTime<Utc>",
                 s.updated_at AS "s_updated_at: DateTime<Utc>"
             FROM workspaces w
-            LEFT JOIN (
-                SELECT s1.*
-                FROM sessions s1
-                INNER JOIN (
-                    SELECT workspace_id, MAX(created_at) as max_created_at
-                    FROM sessions
-                    GROUP BY workspace_id
-                ) s2 ON s1.workspace_id = s2.workspace_id AND s1.created_at = s2.max_created_at
-            ) s ON w.id = s.workspace_id
+            LEFT JOIN sessions s
+                ON s.id = (
+                    SELECT s2.id
+                    FROM sessions s2
+                    WHERE s2.workspace_id = w.id
+                    ORDER BY s2.created_at DESC
+                    LIMIT 1
+                )
             WHERE ($1 IS NULL OR w.task_id = $1)
             ORDER BY w.created_at DESC
             "#,

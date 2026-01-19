@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle, Loader2, Paperclip, Send, X } from 'lucide-react';
 import { imagesApi } from '@/lib/api';
-import type { WorkspaceWithSession } from '@/types/attempt';
+import type { WorkspaceWithSession } from 'shared/types';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useBranchStatusContext } from '@/contexts/BranchStatusContext';

@@ -31,7 +31,7 @@ use db::models::{
     repo::{Repo, RepoError},
     session::{CreateSession, Session},
     task::{Task, TaskRelationships, TaskStatus},
-    workspace::{CreateWorkspace, Workspace, WorkspaceError},
+    workspace::{CreateWorkspace, Workspace, WorkspaceError, WorkspaceWithSession},
     workspace_repo::{CreateWorkspaceRepo, RepoWithTargetBranch, WorkspaceRepo},
 };
 use deployment::Deployment;
@@ -112,6 +112,18 @@ pub async fn get_task_attempt(
     Extension(workspace): Extension<Workspace>,
 ) -> Result<ResponseJson<ApiResponse<Workspace>>, ApiError> {
     Ok(ResponseJson(ApiResponse::success(workspace)))
+}
+
+pub async fn get_task_attempt_with_session(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<WorkspaceWithSession>>, ApiError> {
+    let session =
+        Session::find_latest_by_workspace_id(&deployment.db().pool, workspace.id).await?;
+    let workspace_with_session = WorkspaceWithSession { workspace, session };
+    Ok(ResponseJson(ApiResponse::success(
+        workspace_with_session,
+    )))
 }
 
 #[derive(Debug, Serialize, Deserialize, ts_rs::TS)]
@@ -2038,6 +2050,7 @@ pub async fn get_queue_status(
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let task_attempt_id_router = Router::new()
         .route("/", get(get_task_attempt))
+        .route("/with-session", get(get_task_attempt_with_session))
         .route("/run-agent-setup", post(run_agent_setup))
         .route("/gh-cli-setup", post(gh_cli_setup_handler))
         .route("/start-dev-server", post(start_dev_server))

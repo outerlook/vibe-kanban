@@ -8,7 +8,7 @@ import {
   type TaskWithAttemptStatus,
   type JsonValue,
 } from 'shared/types.ts';
-import type { WorkspaceWithSession } from '@/types/attempt';
+import type { WorkspaceWithSession } from 'shared/types';
 import type { ProcessStartPayload } from '@/types/logs';
 import FileChangeRenderer from './FileChangeRenderer';
 import { useExpandable } from '@/stores/useExpandableStore';
