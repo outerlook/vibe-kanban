@@ -872,11 +872,13 @@ export function ProjectTasks() {
           {({ logs, followUp, feedback }) => (
             <>
               <GitErrorBanner />
-              <ConnectionStatusBanner
-                isConnected={isAttemptsConnected}
-                error={attemptsError}
-                className="mx-4 mt-2"
-              />
+              {isLatest && (
+                <ConnectionStatusBanner
+                  isConnected={isAttemptsConnected}
+                  error={attemptsError}
+                  className="mx-4 mt-2"
+                />
+              )}
               <div className="flex-1 min-h-0 flex flex-col">
                 <div className="flex-1 min-h-0 flex flex-col">{logs}</div>
 
