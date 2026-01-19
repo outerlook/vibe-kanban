@@ -19,6 +19,7 @@ use services::services::{
     conversation::ConversationServiceError,
     git::GitServiceError,
     github::GitHubServiceError,
+    gix_reader::GixReaderError,
     image::ImageError,
     project::ProjectServiceError,
     remote_client::RemoteClientError,
@@ -152,14 +153,51 @@ impl IntoResponse for ApiError {
                     "ConversationServiceError",
                 ),
             },
-            // Promote certain GitService errors to conflict status with concise messages
+            // Promote certain GitService errors to appropriate status codes with concise messages
             ApiError::GitService(git_err) => match git_err {
-                services::services::git::GitServiceError::MergeConflicts(_) => {
-                    (StatusCode::CONFLICT, "GitServiceError")
+                GitServiceError::MergeConflicts(_) => (StatusCode::CONFLICT, "GitServiceError"),
+                GitServiceError::RebaseInProgress => (StatusCode::CONFLICT, "GitServiceError"),
+                GitServiceError::BranchNotFound(_) => (StatusCode::NOT_FOUND, "GitServiceError"),
+                GitServiceError::InvalidRepository(_) => {
+                    (StatusCode::BAD_REQUEST, "GitServiceError")
                 }
-                services::services::git::GitServiceError::RebaseInProgress => {
-                    (StatusCode::CONFLICT, "GitServiceError")
-                }
+                GitServiceError::WorktreeDirty(_, _) => (StatusCode::CONFLICT, "GitServiceError"),
+                GitServiceError::BranchesDiverged(_) => (StatusCode::CONFLICT, "GitServiceError"),
+                // Handle gix-specific errors with appropriate status codes
+                GitServiceError::GixReader(gix_err) => match gix_err {
+                    GixReaderError::ReferenceNotFound(_) => {
+                        (StatusCode::NOT_FOUND, "GitServiceError")
+                    }
+                    GixReaderError::ObjectNotFound(_) => {
+                        (StatusCode::NOT_FOUND, "GitServiceError")
+                    }
+                    GixReaderError::RemoteNotFound(_) => {
+                        (StatusCode::NOT_FOUND, "GitServiceError")
+                    }
+                    GixReaderError::InvalidRepository { .. } => {
+                        (StatusCode::BAD_REQUEST, "GitServiceError")
+                    }
+                    GixReaderError::InvalidObjectId(_) => {
+                        (StatusCode::BAD_REQUEST, "GitServiceError")
+                    }
+                    GixReaderError::InvalidRefspec(_) => {
+                        (StatusCode::BAD_REQUEST, "GitServiceError")
+                    }
+                    GixReaderError::InvalidObject(_) => {
+                        (StatusCode::BAD_REQUEST, "GitServiceError")
+                    }
+                    GixReaderError::DetachedHeadNoTarget => {
+                        (StatusCode::BAD_REQUEST, "GitServiceError")
+                    }
+                    // Network/remote errors
+                    GixReaderError::RemoteConnect(_)
+                    | GixReaderError::Fetch(_)
+                    | GixReaderError::FetchPrepare(_) => {
+                        (StatusCode::BAD_GATEWAY, "GitServiceError")
+                    }
+                    // Other gix errors are internal
+                    _ => (StatusCode::INTERNAL_SERVER_ERROR, "GitServiceError"),
+                },
                 _ => (StatusCode::INTERNAL_SERVER_ERROR, "GitServiceError"),
             },
             ApiError::GitHubService(_) => (StatusCode::INTERNAL_SERVER_ERROR, "GitHubServiceError"),
@@ -237,10 +275,53 @@ impl IntoResponse for ApiError {
                 }
             },
             ApiError::GitService(git_err) => match git_err {
-                services::services::git::GitServiceError::MergeConflicts(msg) => msg.clone(),
-                services::services::git::GitServiceError::RebaseInProgress => {
+                GitServiceError::MergeConflicts(msg) => msg.clone(),
+                GitServiceError::RebaseInProgress => {
                     "A rebase is already in progress. Resolve conflicts or abort the rebase, then retry.".to_string()
                 }
+                GitServiceError::BranchNotFound(branch) => {
+                    format!("Branch '{}' not found.", branch)
+                }
+                GitServiceError::InvalidRepository(msg) => {
+                    format!("Invalid repository: {}", msg)
+                }
+                GitServiceError::WorktreeDirty(path, files) => {
+                    format!("Worktree '{}' has uncommitted changes: {}", path, files)
+                }
+                GitServiceError::BranchesDiverged(msg) => {
+                    format!("Branches have diverged: {}", msg)
+                }
+                // User-friendly messages for gix errors
+                GitServiceError::GixReader(gix_err) => match gix_err {
+                    GixReaderError::ReferenceNotFound(ref_name) => {
+                        format!("Reference '{}' not found.", ref_name)
+                    }
+                    GixReaderError::ObjectNotFound(obj) => {
+                        format!("Git object not found: {}", obj)
+                    }
+                    GixReaderError::RemoteNotFound(remote) => {
+                        format!("Remote '{}' not found.", remote)
+                    }
+                    GixReaderError::InvalidRepository { path } => {
+                        format!("Invalid repository at path: {}", path)
+                    }
+                    GixReaderError::InvalidObjectId(oid) => {
+                        format!("Invalid git object ID: {}", oid)
+                    }
+                    GixReaderError::InvalidRefspec(refspec) => {
+                        format!("Invalid refspec: {}", refspec)
+                    }
+                    GixReaderError::DetachedHeadNoTarget => {
+                        "HEAD is detached and has no target commit.".to_string()
+                    }
+                    GixReaderError::RemoteConnect(_) => {
+                        "Failed to connect to remote repository. Check your network connection and credentials.".to_string()
+                    }
+                    GixReaderError::Fetch(_) | GixReaderError::FetchPrepare(_) => {
+                        "Failed to fetch from remote repository. Check your network connection and credentials.".to_string()
+                    }
+                    _ => format!("Git operation failed: {}", gix_err),
+                },
                 _ => format!("{}: {}", error_type, self),
             },
             ApiError::Multipart(_) => "Failed to upload file. Please ensure the file is valid and try again.".to_string(),
