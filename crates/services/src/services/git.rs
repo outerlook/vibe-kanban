@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::Path};
 
 use chrono::{DateTime, Utc};
-use git2::{BranchType, Error as GitError, Reference, Remote, Repository, Sort};
+use git2::{BranchType, Error as GitError, Reference, Remote, Repository};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ts_rs::TS;
@@ -12,8 +12,7 @@ mod cli;
 use cli::{ChangeType, StatusDiffEntry, StatusDiffOptions};
 pub use cli::{GitCli, GitCliError};
 
-use super::file_ranker::FileStat;
-use super::gix_reader::{DiffChangeType, GixReader, GixReaderError, TreeDiffEntry};
+use super::gix_reader::{DiffChangeType, FileStat, GixReader, GixReaderError, TreeDiffEntry};
 use crate::services::github::GitHubRepoInfo;
 
 #[derive(Debug, Error)]
@@ -73,14 +72,17 @@ pub struct HeadInfo {
 }
 
 #[derive(Debug, Clone)]
-pub struct Commit(git2::Oid);
+pub struct Commit(String);
 
 impl Commit {
-    pub fn new(id: git2::Oid) -> Self {
-        Self(id)
+    pub fn new(id: impl ToString) -> Self {
+        Self(id.to_string())
     }
     pub fn as_oid(&self) -> git2::Oid {
-        self.0
+        git2::Oid::from_str(&self.0).expect("Commit contains invalid OID")
+    }
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -884,17 +886,23 @@ impl GitService {
         branch_name: &str,
         base_branch_name: &str,
     ) -> Result<Commit, GitServiceError> {
+        // Resolve branch refs to OIDs using git2
         let repo = Repository::open(repo_path)?;
-        let branch = Self::find_branch(&repo, branch_name)?;
-        let base_branch = Self::find_branch(&repo, base_branch_name)?;
-        // Find the common ancestor (merge base)
-        let oid = repo
-            .merge_base(
-                branch.get().peel_to_commit()?.id(),
-                base_branch.get().peel_to_commit()?.id(),
-            )
-            .map_err(GitServiceError::from)?;
-        Ok(Commit::new(oid))
+        let branch_oid = Self::find_branch(&repo, branch_name)?
+            .get()
+            .peel_to_commit()?
+            .id()
+            .to_string();
+        let base_branch_oid = Self::find_branch(&repo, base_branch_name)?
+            .get()
+            .peel_to_commit()?
+            .id()
+            .to_string();
+
+        // Use gix for merge_base calculation
+        let gix_repo = GixReader::open(repo_path)?;
+        let merge_base = GixReader::merge_base_by_oid(&gix_repo, &branch_oid, &base_branch_oid)?;
+        Ok(Commit::new(merge_base))
     }
 
     pub fn get_remote_branch_status(
@@ -984,11 +992,11 @@ impl GitService {
         repo_path: &Path,
         commit_sha: &str,
     ) -> Result<String, GitServiceError> {
-        let repo = self.open_repo(repo_path)?;
-        let oid = git2::Oid::from_str(commit_sha)
-            .map_err(|_| GitServiceError::InvalidRepository("Invalid commit SHA".into()))?;
-        let commit = repo.find_commit(oid)?;
-        Ok(commit.summary().unwrap_or("(no subject)").to_string())
+        let gix_repo = GixReader::open(repo_path)?;
+        let message = GixReader::commit_message_by_oid(&gix_repo, commit_sha)?;
+        // Extract subject line (first line before any newlines)
+        let subject = message.lines().next().unwrap_or("(no subject)").to_string();
+        Ok(subject)
     }
 
     /// Compare two OIDs and return (ahead, behind) counts: how many commits
@@ -1753,22 +1761,15 @@ impl GitService {
         repo_path: &Path,
         branch_name: &str,
     ) -> Result<bool, GitServiceError> {
+        // Get branch OID using git2 (for branch lookup)
         let repo = self.open_repo(repo_path)?;
-
-        // Get HEAD commit
-        let head = repo.head()?;
-        let head_commit = head.peel_to_commit()?;
-
-        // Find the branch
+        let head_oid = repo.head()?.peel_to_commit()?.id().to_string();
         let branch = Self::find_branch(&repo, branch_name)?;
-        let branch_commit = branch.get().peel_to_commit()?;
+        let branch_oid = branch.get().peel_to_commit()?.id().to_string();
 
-        // Check if branch commit is an ancestor of HEAD
-        // graph_descendant_of returns true if commit (first arg) is a descendant of ancestor (second arg)
-        // We want to check if branch_commit is an ancestor of head_commit
-        // i.e., head_commit is a descendant of branch_commit
-        let is_ancestor = repo.graph_descendant_of(head_commit.id(), branch_commit.id())?;
-
+        // Use gix for ancestry check
+        let gix_repo = GixReader::open(repo_path)?;
+        let is_ancestor = GixReader::is_ancestor_by_oid(&gix_repo, &branch_oid, &head_oid)?;
         Ok(is_ancestor)
     }
 
@@ -1778,71 +1779,7 @@ impl GitService {
         repo_path: &Path,
         commit_limit: usize,
     ) -> Result<HashMap<String, FileStat>, GitServiceError> {
-        let repo = self.open_repo(repo_path)?;
-        let mut stats: HashMap<String, FileStat> = HashMap::new();
-
-        // Set up revision walk from HEAD
-        let mut revwalk = repo.revwalk()?;
-        revwalk.push_head()?;
-        revwalk.set_sorting(Sort::TIME)?;
-
-        // Iterate through recent commits
-        for (commit_index, oid_result) in revwalk.take(commit_limit).enumerate() {
-            let oid = oid_result?;
-            let commit = repo.find_commit(oid)?;
-
-            // Get commit timestamp
-            let commit_time = {
-                let time = commit.time();
-                DateTime::from_timestamp(time.seconds(), 0).unwrap_or_else(Utc::now)
-            };
-
-            // Get the commit tree
-            let commit_tree = commit.tree()?;
-
-            // For the first commit (no parent), diff against empty tree
-            let parent_tree = if commit.parent_count() == 0 {
-                None
-            } else {
-                Some(commit.parent(0)?.tree()?)
-            };
-
-            // Create diff between parent and current commit
-            let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), None)?;
-
-            // Process each changed file in this commit
-            diff.foreach(
-                &mut |delta, _progress| {
-                    // Get the file path - prefer new file path, fall back to old
-                    if let Some(path) = delta.new_file().path().or_else(|| delta.old_file().path())
-                    {
-                        let path_str = path.to_string_lossy().to_string();
-
-                        // Update or insert file stats
-                        let stat = stats.entry(path_str).or_insert(FileStat {
-                            last_index: commit_index,
-                            commit_count: 0,
-                            last_time: commit_time,
-                        });
-
-                        // Increment commit count
-                        stat.commit_count += 1;
-
-                        // Keep the most recent change (smallest index)
-                        if commit_index < stat.last_index {
-                            stat.last_index = commit_index;
-                            stat.last_time = commit_time;
-                        }
-                    }
-
-                    true // Continue iteration
-                },
-                None, // No binary callback
-                None, // No hunk callback
-                None, // No line callback
-            )?;
-        }
-
-        Ok(stats)
+        let mut gix_repo = GixReader::open(repo_path)?;
+        GixReader::recent_file_stats(&mut gix_repo, commit_limit).map_err(Into::into)
     }
 }

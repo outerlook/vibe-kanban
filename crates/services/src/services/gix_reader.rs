@@ -3,13 +3,24 @@
 //! This module encapsulates gix operations and handles both regular
 //! repositories and worktrees transparently.
 
-use std::path::Path;
-use std::sync::atomic::AtomicBool;
+use std::{collections::HashMap, path::Path, sync::atomic::AtomicBool};
 
+use chrono::{DateTime, Utc};
 use gix::bstr::BStr;
 use gix::remote::Direction;
 use gix::status::index_worktree;
 use thiserror::Error;
+
+/// Statistics for a single file based on git history
+#[derive(Clone, Debug)]
+pub struct FileStat {
+    /// Index in the commit history (0 = HEAD, 1 = parent of HEAD, ...)
+    pub last_index: usize,
+    /// Number of times this file was changed in recent commits
+    pub commit_count: u32,
+    /// Timestamp of the most recent change
+    pub last_time: DateTime<Utc>,
+}
 
 #[derive(Debug, Error)]
 pub enum GixReaderError {
@@ -930,6 +941,241 @@ impl GixReader {
         }
 
         Ok(files)
+    }
+
+    pub fn commit_message(
+        repo: &gix::Repository,
+        oid: gix::ObjectId,
+    ) -> Result<String, GixReaderError> {
+        let commit = repo
+            .find_commit(oid)
+            .map_err(|e| GixReaderError::ObjectNotFound(format!("Commit {oid}: {e}")))?;
+        let message = commit
+            .message_raw()
+            .map_err(|e| GixReaderError::Diff(format!("Failed to decode commit message: {e}")))?
+            .to_string();
+        Ok(message)
+    }
+
+    /// Get the commit message by hex OID string.
+    ///
+    /// Convenience wrapper that parses the hex OID.
+    pub fn commit_message_by_oid(
+        repo: &gix::Repository,
+        oid_str: &str,
+    ) -> Result<String, GixReaderError> {
+        let oid = gix::ObjectId::from_hex(oid_str.as_bytes())
+            .map_err(|_| GixReaderError::InvalidObjectId(oid_str.to_string()))?;
+        Self::commit_message(repo, oid)
+    }
+
+    /// Check if `ancestor` is an ancestor of `descendant`.
+    ///
+    /// Returns true if `ancestor` can be reached by walking back from `descendant`.
+    ///
+    /// # Arguments
+    ///
+    /// * `repo` - An open gix repository
+    /// * `ancestor` - The potential ancestor commit
+    /// * `descendant` - The potential descendant commit
+    ///
+    /// # Returns
+    ///
+    /// `true` if `ancestor` is reachable from `descendant`.
+    pub fn is_ancestor(
+        repo: &gix::Repository,
+        ancestor: gix::ObjectId,
+        descendant: gix::ObjectId,
+    ) -> Result<bool, GixReaderError> {
+        // If they're the same, ancestor is trivially reachable
+        if ancestor == descendant {
+            return Ok(true);
+        }
+
+        // Walk from descendant looking for ancestor
+        let walk = repo.rev_walk([descendant]);
+        for info_result in walk.all()? {
+            let info = info_result?;
+            if info.id == ancestor {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Check ancestry by hex OID strings.
+    ///
+    /// Convenience wrapper that parses hex OIDs.
+    pub fn is_ancestor_by_oid(
+        repo: &gix::Repository,
+        ancestor_oid: &str,
+        descendant_oid: &str,
+    ) -> Result<bool, GixReaderError> {
+        let ancestor = gix::ObjectId::from_hex(ancestor_oid.as_bytes())
+            .map_err(|_| GixReaderError::InvalidObjectId(ancestor_oid.to_string()))?;
+        let descendant = gix::ObjectId::from_hex(descendant_oid.as_bytes())
+            .map_err(|_| GixReaderError::InvalidObjectId(descendant_oid.to_string()))?;
+        Self::is_ancestor(repo, ancestor, descendant)
+    }
+
+    /// Find the merge base (common ancestor) of two commits.
+    ///
+    /// # Arguments
+    ///
+    /// * `repo` - An open gix repository
+    /// * `a` - First commit ObjectId
+    /// * `b` - Second commit ObjectId
+    ///
+    /// # Returns
+    ///
+    /// The ObjectId of the merge base commit.
+    pub fn merge_base(
+        repo: &gix::Repository,
+        a: gix::ObjectId,
+        b: gix::ObjectId,
+    ) -> Result<gix::ObjectId, GixReaderError> {
+        let base: gix::ObjectId = repo.merge_base(a, b)?.into();
+        Ok(base)
+    }
+
+    /// Find merge base by hex OID strings.
+    ///
+    /// Convenience wrapper that parses hex OIDs.
+    pub fn merge_base_by_oid(
+        repo: &gix::Repository,
+        a_oid: &str,
+        b_oid: &str,
+    ) -> Result<gix::ObjectId, GixReaderError> {
+        let a = gix::ObjectId::from_hex(a_oid.as_bytes())
+            .map_err(|_| GixReaderError::InvalidObjectId(a_oid.to_string()))?;
+        let b = gix::ObjectId::from_hex(b_oid.as_bytes())
+            .map_err(|_| GixReaderError::InvalidObjectId(b_oid.to_string()))?;
+        Self::merge_base(repo, a, b)
+    }
+
+    /// Collect file statistics from recent commits for ranking purposes.
+    ///
+    /// Walks through the commit history from HEAD, collecting information about
+    /// which files have been changed and when.
+    ///
+    /// # Arguments
+    ///
+    /// * `repo` - An open gix repository
+    /// * `commit_limit` - Maximum number of commits to examine
+    ///
+    /// # Returns
+    ///
+    /// A HashMap mapping file paths to their statistics.
+    pub fn recent_file_stats(
+        repo: &mut gix::Repository,
+        commit_limit: usize,
+    ) -> Result<HashMap<String, FileStat>, GixReaderError> {
+        let mut stats: HashMap<String, FileStat> = HashMap::new();
+
+        // Get HEAD reference and commit OID
+        let head_oid = {
+            let mut head = repo
+                .head()
+                .map_err(|e| GixReaderError::ReferenceNotFound(format!("HEAD: {e}")))?;
+
+            let head_commit = head
+                .peel_to_commit()
+                .map_err(|e| GixReaderError::ReferenceNotFound(format!("HEAD commit: {e}")))?;
+            head_commit.id
+        };
+
+        // Set up cache size for tree diffs
+        if let Ok(index) = repo.index_or_empty() {
+            let cache_size = repo.compute_object_cache_size_for_tree_diffs(&index);
+            repo.object_cache_size_if_unset(cache_size);
+        }
+
+        // Walk commits from HEAD
+        let walk = repo.rev_walk([head_oid]);
+        let mut commit_index = 0;
+
+        for info_result in walk.all()? {
+            if commit_index >= commit_limit {
+                break;
+            }
+
+            let info = info_result?;
+            let commit = info.object().map_err(|e| {
+                GixReaderError::Diff(format!("Failed to get commit object: {e}"))
+            })?;
+
+            // Get commit timestamp
+            let commit_time = {
+                let time = commit.time().map_err(|e| {
+                    GixReaderError::Diff(format!("Failed to get commit time: {e}"))
+                })?;
+                DateTime::from_timestamp(time.seconds, 0).unwrap_or_else(Utc::now)
+            };
+
+            // Get the commit tree
+            let commit_tree = commit.tree().map_err(|e| {
+                GixReaderError::Diff(format!("Failed to get commit tree: {e}"))
+            })?;
+
+            // Get parent tree (or empty for root commits)
+            let parent_ids: Vec<_> = commit.parent_ids().collect();
+            let parent_tree = if parent_ids.is_empty() {
+                None
+            } else {
+                // Use first parent for simplicity (following linear history)
+                let parent_id = parent_ids[0];
+                let parent_commit = repo.find_commit(parent_id).map_err(|e| {
+                    GixReaderError::Diff(format!("Failed to find parent commit: {e}"))
+                })?;
+                Some(parent_commit.tree().map_err(|e| {
+                    GixReaderError::Diff(format!("Failed to get parent tree: {e}"))
+                })?)
+            };
+
+            // Diff trees to find changed files
+            let changes = repo
+                .diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), None)
+                .map_err(|e| GixReaderError::Diff(format!("Tree diff failed: {e}")))?;
+
+            // Process each change
+            for change in changes {
+                let path_str = match &change {
+                    gix::diff::tree_with_rewrites::Change::Addition { location, .. } => {
+                        location.to_string()
+                    }
+                    gix::diff::tree_with_rewrites::Change::Deletion { location, .. } => {
+                        location.to_string()
+                    }
+                    gix::diff::tree_with_rewrites::Change::Modification { location, .. } => {
+                        location.to_string()
+                    }
+                    gix::diff::tree_with_rewrites::Change::Rewrite { location, .. } => {
+                        location.to_string()
+                    }
+                };
+
+                // Update or insert file stats
+                let stat = stats.entry(path_str).or_insert(FileStat {
+                    last_index: commit_index,
+                    commit_count: 0,
+                    last_time: commit_time,
+                });
+
+                // Increment commit count
+                stat.commit_count += 1;
+
+                // Keep the most recent change (smallest index)
+                if commit_index < stat.last_index {
+                    stat.last_index = commit_index;
+                    stat.last_time = commit_time;
+                }
+            }
+
+            commit_index += 1;
+        }
+
+        Ok(stats)
     }
 }
 
