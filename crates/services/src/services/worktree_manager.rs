@@ -336,7 +336,9 @@ impl WorktreeManager {
         }
     }
 
-    /// Create worktree with retry logic in non-blocking manner
+    /// Create worktree with retry logic in non-blocking manner.
+    /// Retries once after metadata cleanup for transient errors, but fails immediately
+    /// for permanent errors like missing branches.
     async fn create_worktree_with_retry(
         git_repo_path: &Path,
         branch_name: &str,
@@ -365,6 +367,16 @@ impl WorktreeManager {
                     Ok(())
                 }
                 Err(e) => {
+                    // Don't retry for branch-not-found errors - they won't be fixed by cleanup
+                    if matches!(e, GitServiceError::BranchNotFound(_)) {
+                        tracing::error!(
+                            "Cannot create worktree: branch '{}' does not exist. \
+                             This workspace references a branch that was deleted or never created.",
+                            branch_name
+                        );
+                        return Err(WorktreeError::BranchNotFound(branch_name));
+                    }
+
                     tracing::warn!(
                         "git worktree add failed; attempting metadata cleanup and retry: {}",
                         e

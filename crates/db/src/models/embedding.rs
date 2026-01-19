@@ -116,6 +116,9 @@ impl TaskEmbedding {
 
     /// Insert or update an embedding for a task.
     /// Uses the task's rowid as the key for efficient joins.
+    ///
+    /// Note: vec0 virtual tables don't support INSERT OR REPLACE or UPSERT,
+    /// so we use explicit DELETE + INSERT.
     pub async fn upsert(
         pool: &SqlitePool,
         task_rowid: i64,
@@ -131,9 +134,15 @@ impl TaskEmbedding {
 
         let embedding_bytes = Self::serialize_embedding(embedding);
 
-        // sqlite-vec uses INSERT OR REPLACE semantics with vec0
+        // vec0 virtual tables don't support INSERT OR REPLACE or ON CONFLICT,
+        // so we manually delete any existing row first
+        sqlx::query("DELETE FROM task_embeddings WHERE task_rowid = $1")
+            .bind(task_rowid)
+            .execute(pool)
+            .await?;
+
         sqlx::query(
-            r#"INSERT OR REPLACE INTO task_embeddings(task_rowid, embedding)
+            r#"INSERT INTO task_embeddings(task_rowid, embedding)
                VALUES ($1, $2)"#,
         )
         .bind(task_rowid)

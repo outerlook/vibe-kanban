@@ -1183,7 +1183,12 @@ impl GitService {
     ) -> Result<(), GitServiceError> {
         let git = GitCli::new();
         git.worktree_add(repo_path, worktree_path, branch, create_branch)
-            .map_err(|e| GitServiceError::InvalidRepository(e.to_string()))?;
+            .map_err(|e| match e {
+                GitCliError::InvalidReference(_) => {
+                    GitServiceError::BranchNotFound(branch.to_string())
+                }
+                _ => GitServiceError::InvalidRepository(e.to_string()),
+            })?;
         Ok(())
     }
 

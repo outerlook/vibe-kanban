@@ -39,6 +39,8 @@ pub enum GitCliError {
     PushRejected(String),
     #[error("rebase in progress in this worktree")]
     RebaseInProgress,
+    #[error("branch or reference not found: {0}")]
+    InvalidReference(String),
 }
 
 #[derive(Clone, Default)]
@@ -811,6 +813,15 @@ impl GitCli {
                 (false, true) => format!("--- stderr\n{stdout}"),
                 (true, false) => format!("--- stdout\n{stderr}"),
             };
+
+            // Detect specific error types for better handling upstream
+            if combined.contains("invalid reference:")
+                || combined.contains("not a valid ref")
+                || combined.contains("unknown revision")
+            {
+                return Err(GitCliError::InvalidReference(combined));
+            }
+
             return Err(GitCliError::CommandFailed(combined));
         }
         if let Some(Err(e)) = stdin_write_result {
