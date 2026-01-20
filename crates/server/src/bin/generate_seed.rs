@@ -53,6 +53,21 @@ const TAGS: &[(&str, &str)] = &[
     ("feature", "New product functionality"),
 ];
 
+const STATUS_COUNTS: &[(TaskStatus, usize)] = &[
+    (TaskStatus::Todo, 15),
+    (TaskStatus::InProgress, 8),
+    (TaskStatus::InReview, 6),
+    (TaskStatus::Done, 18),
+    (TaskStatus::Cancelled, 3),
+];
+
+const DEPENDENCY_TARGET_MIN: usize = 5;
+const DEPENDENCY_TARGET_MAX: usize = 8;
+const DEPENDENCY_MAX_ATTEMPTS: usize = 200;
+const WORKSPACE_COUNT: usize = 2;
+const EXECUTION_PROCESS_COUNT: usize = 3;
+const SEED_DB_PATH: &str = "dev_assets_seed/dev.db";
+
 const TASK_TEMPLATES: &[(&str, &str)] = &[
     ("Implement OAuth login flow", "Add Google & GitHub authentication"),
     ("Design user registration form", "Create responsive signup UI"),
@@ -82,7 +97,7 @@ const TASK_TEMPLATES: &[(&str, &str)] = &[
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let db_path = PathBuf::from("dev_assets_seed/dev.db");
+    let db_path = PathBuf::from(SEED_DB_PATH);
     reset_database_file(&db_path)?;
 
     let pool = build_pool(&db_path).await?;
@@ -135,40 +150,42 @@ async fn seed_data(pool: &SqlitePool) -> Result<()> {
     let task_groups = create_task_groups(pool, &projects).await?;
 
     let tasks = create_tasks(pool, &projects, &task_groups).await?;
-    let dependencies = create_dependencies(pool, &tasks, 5..=8).await?;
+    let dependencies =
+        create_dependencies(pool, &tasks, DEPENDENCY_TARGET_MIN..=DEPENDENCY_TARGET_MAX).await?;
 
-    let workspaces = create_workspaces_with_sessions(pool, &tasks, 2).await?;
-    let execution_processes = create_execution_processes(pool, &workspaces, 3).await?;
+    let workspaces = create_workspaces_with_sessions(pool, &tasks, WORKSPACE_COUNT).await?;
+    let execution_processes =
+        create_execution_processes(pool, &workspaces, EXECUTION_PROCESS_COUNT).await?;
 
     for task in &tasks {
         Task::update_materialized_status(pool, task.id).await?;
     }
 
     let mut todo = 0;
-    let mut inprogress = 0;
-    let mut inreview = 0;
+    let mut in_progress = 0;
+    let mut in_review = 0;
     let mut done = 0;
     let mut cancelled = 0;
 
     for task in &tasks {
         match task.status {
             TaskStatus::Todo => todo += 1,
-            TaskStatus::InProgress => inprogress += 1,
-            TaskStatus::InReview => inreview += 1,
+            TaskStatus::InProgress => in_progress += 1,
+            TaskStatus::InReview => in_review += 1,
             TaskStatus::Done => done += 1,
             TaskStatus::Cancelled => cancelled += 1,
         }
     }
 
-    println!("Seed database created at dev_assets_seed/dev.db");
+    println!("Seed database created at {}", SEED_DB_PATH);
     println!("Projects: {}", projects.len());
     println!("Task groups: {}", task_groups.len());
     println!(
-        "Tasks: {} (todo {}, inprogress {}, inreview {}, done {}, cancelled {})",
+        "Tasks: {} (todo {}, in progress {}, in review {}, done {}, cancelled {})",
         tasks.len(),
         todo,
-        inprogress,
-        inreview,
+        in_progress,
+        in_review,
         done,
         cancelled,
     );
@@ -237,16 +254,11 @@ async fn create_tasks(
 ) -> Result<Vec<Task>> {
     let mut rng = rand::thread_rng();
     let mut tasks = Vec::new();
-    let mut status_buckets = Vec::new();
-
-    status_buckets.extend(std::iter::repeat(TaskStatus::Todo).take(15));
-    status_buckets.extend(std::iter::repeat(TaskStatus::InProgress).take(8));
-    status_buckets.extend(std::iter::repeat(TaskStatus::InReview).take(6));
-    status_buckets.extend(std::iter::repeat(TaskStatus::Done).take(18));
-    status_buckets.extend(std::iter::repeat(TaskStatus::Cancelled).take(3));
+    let mut status_buckets: Vec<TaskStatus> = STATUS_COUNTS
+        .iter()
+        .flat_map(|(status, count)| std::iter::repeat_n(status.clone(), *count))
+        .collect();
     status_buckets.shuffle(&mut rng);
-
-    let templates: Vec<(&str, &str)> = TASK_TEMPLATES.to_vec();
 
     for (idx, status) in status_buckets.into_iter().enumerate() {
         let project = &projects[idx % projects.len()];
@@ -258,12 +270,13 @@ async fn create_tasks(
             .choose(&mut rng)
             .context("No task groups available for project")?;
 
-        let (title, description) = if idx < templates.len() {
-            (templates[idx].0.to_string(), templates[idx].1.to_string())
-        } else {
-            let title: String = Sentence(3..6).fake();
-            let description: String = Paragraph(1..2).fake();
-            (title, description)
+        let (title, description) = match TASK_TEMPLATES.get(idx) {
+            Some((title, description)) => (title.to_string(), description.to_string()),
+            None => {
+                let title: String = Sentence(3..6).fake();
+                let description: String = Paragraph(1..2).fake();
+                (title, description)
+            }
         };
 
         let task = Task::create(
@@ -295,25 +308,32 @@ async fn create_dependencies(
     let mut rng = rand::thread_rng();
     let target = rng.gen_range(range);
     let mut created = HashSet::new();
-    let mut attempts = 0;
 
     let mut tasks_by_project: HashMap<Uuid, Vec<&Task>> = HashMap::new();
     for task in tasks {
         tasks_by_project.entry(task.project_id).or_default().push(task);
     }
 
-    while created.len() < target && attempts < 200 {
-        attempts += 1;
+    let project_tasks: Vec<&[&Task]> = tasks_by_project
+        .values()
+        .filter(|items| items.len() > 1)
+        .map(|items| items.as_slice())
+        .collect();
+    if project_tasks.is_empty() {
+        return Ok(0);
+    }
 
-        let project_tasks = tasks_by_project
-            .values()
-            .filter(|items| items.len() > 1)
-            .collect::<Vec<_>>();
-        let Some(project_tasks) = project_tasks.choose(&mut rng) else {
+    for _ in 0..DEPENDENCY_MAX_ATTEMPTS {
+        if created.len() >= target {
             break;
-        };
+        }
+
+        let project_tasks = project_tasks
+            .choose(&mut rng)
+            .context("Missing project tasks")?;
 
         let blocked_task = project_tasks.choose(&mut rng).context("Missing task")?;
+        let blocked_task = *blocked_task;
         let candidate_dependencies: Vec<&Task> = project_tasks
             .iter()
             .copied()

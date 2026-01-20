@@ -18,7 +18,8 @@ Run the following command from the repository root:
 pnpm run seed-db
 ```
 
-This executes `cargo run --bin generate-seed`, which creates seed data in the `dev_assets/` folder.
+This executes `cargo run --bin generate-seed`, which writes the seed database to
+`dev_assets_seed/dev.db`.
 
 ## Resetting Your Development Environment
 
@@ -31,7 +32,8 @@ To start fresh with a clean database:
    ```
 3. Restart the development server (`pnpm run dev`)
 
-A blank database will be copied from `dev_assets_seed/` on startup.
+On startup, a blank database is copied from `dev_assets_seed/` into
+`dev_assets/`.
 
 ## What Gets Generated
 
