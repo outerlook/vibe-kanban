@@ -229,6 +229,43 @@ function GitOperations({
 
   const isAlreadyQueued = queueStatus?.status === 'queued' || queueStatus?.status === 'merging';
 
+  // Compute disabled reasons for tooltips
+  const mergeDisabledReason = useMemo(() => {
+    if (mergeInfo.hasMergedPR) return t('git.disabled.prMerged', 'PR already merged');
+    if (mergeInfo.hasOpenPR) return t('git.disabled.prOpen', 'PR is open - close or merge it first');
+    if (hasConflictsCalculated) return t('git.disabled.conflicts', 'Resolve conflicts before proceeding');
+    if (isAttemptRunning) return t('git.disabled.attemptRunning', 'Wait for attempt to complete');
+    const commitsAhead = selectedRepoStatus?.commits_ahead ?? 0;
+    if (commitsAhead === 0) return t('git.disabled.noChanges', 'No changes to merge');
+    return null;
+  }, [mergeInfo.hasMergedPR, mergeInfo.hasOpenPR, hasConflictsCalculated, isAttemptRunning, selectedRepoStatus?.commits_ahead, t]);
+
+  const prDisabledReason = useMemo(() => {
+    if (mergeInfo.hasMergedPR) return t('git.disabled.prMerged', 'PR already merged');
+    if (isAttemptRunning) return t('git.disabled.attemptRunning', 'Wait for attempt to complete');
+    if (hasConflictsCalculated) return t('git.disabled.conflicts', 'Resolve conflicts before proceeding');
+    if (mergeInfo.hasOpenPR) {
+      const remoteAhead = selectedRepoStatus?.remote_commits_ahead ?? 0;
+      if (remoteAhead === 0) return t('git.disabled.noPushChanges', 'No changes to push');
+    }
+    const commitsAhead = selectedRepoStatus?.commits_ahead ?? 0;
+    const remoteAhead = selectedRepoStatus?.remote_commits_ahead ?? 0;
+    if (commitsAhead === 0 && remoteAhead === 0) return t('git.disabled.noChanges', 'No changes to push');
+    return null;
+  }, [mergeInfo.hasMergedPR, mergeInfo.hasOpenPR, hasConflictsCalculated, isAttemptRunning, selectedRepoStatus?.commits_ahead, selectedRepoStatus?.remote_commits_ahead, t]);
+
+  const rebaseDisabledReason = useMemo(() => {
+    if (isAttemptRunning) return t('git.disabled.attemptRunning', 'Wait for attempt to complete');
+    if (hasConflictsCalculated) return t('git.disabled.conflicts', 'Resolve conflicts before proceeding');
+    return null;
+  }, [isAttemptRunning, hasConflictsCalculated, t]);
+
+  const settingsDisabledReason = useMemo(() => {
+    if (isAttemptRunning) return t('git.disabled.attemptRunning', 'Wait for attempt to complete');
+    if (hasConflictsCalculated) return t('git.disabled.conflicts', 'Resolve conflicts before proceeding');
+    return null;
+  }, [isAttemptRunning, hasConflictsCalculated, t]);
+
   const handleQueueToggle = (checked: boolean) => {
     setQueueEnabled(checked);
     localStorage.setItem(QUEUE_MERGE_ENABLED_KEY, String(checked));
@@ -592,19 +629,21 @@ function GitOperations({
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={handleChangeTargetBranchDialogOpen}
-                disabled={isAttemptRunning || hasConflictsCalculated}
-                className={settingsBtnClasses}
-                aria-label={t('branches.changeTarget.dialog.title')}
-              >
-                <Settings className="h-3.5 w-3.5" />
-              </Button>
+              <span className="inline-flex">
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={handleChangeTargetBranchDialogOpen}
+                  disabled={isAttemptRunning || hasConflictsCalculated}
+                  className={settingsBtnClasses}
+                  aria-label={t('branches.changeTarget.dialog.title')}
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                </Button>
+              </span>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              {t('branches.changeTarget.dialog.title')}
+              {settingsDisabledReason || t('branches.changeTarget.dialog.title')}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -657,81 +696,114 @@ function GitOperations({
         {/* Right: Actions */}
         {selectedRepoStatus && (
           <div className={actionsClasses}>
-            <SplitButton
-              options={mergeActionOptions}
-              selectedValue={selectedMergeAction}
-              onSelect={handleMergeActionSelect}
-              onPrimaryClick={handleMergeClick}
-              disabled={
-                mergeInfo.hasMergedPR ||
-                mergeInfo.hasOpenPR ||
-                hasConflictsCalculated ||
-                isAttemptRunning ||
-                ((selectedRepoStatus?.commits_ahead ?? 0) === 0 &&
-                  !pushSuccess &&
-                  !mergeSuccess &&
-                  !queueSuccess)
-              }
-              loading={merging || generating || queuing}
-              loadingLabel={
-                queuing
-                  ? t('git.states.queuing', 'Queuing...')
-                  : generating
-                    ? t('git.states.generating', 'Generating...')
-                    : t('git.states.merging')
-              }
-              successLabel={queueSuccess ? t('git.states.queued', 'Queued') : t('git.states.merged')}
-              showSuccess={mergeSuccess || queueSuccess}
-              variant="outline"
-              size="xs"
-              className="shrink-0 border-success text-success [&_button]:border-success [&_button]:text-success [&_button:hover]:bg-success"
-              icon={<GitMerge className="h-3.5 w-3.5" />}
-              checkboxItems={[
-                {
-                  label: t('git.queue.toggle', 'Queue merge'),
-                  checked: queueEnabled,
-                  onCheckedChange: handleQueueToggle,
-                  disabled: queueCheckboxDisabled,
-                },
-              ]}
-            />
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0">
+                    <SplitButton
+                      options={mergeActionOptions}
+                      selectedValue={selectedMergeAction}
+                      onSelect={handleMergeActionSelect}
+                      onPrimaryClick={handleMergeClick}
+                      disabled={
+                        mergeInfo.hasMergedPR ||
+                        mergeInfo.hasOpenPR ||
+                        hasConflictsCalculated ||
+                        isAttemptRunning ||
+                        ((selectedRepoStatus?.commits_ahead ?? 0) === 0 &&
+                          !pushSuccess &&
+                          !mergeSuccess &&
+                          !queueSuccess)
+                      }
+                      loading={merging || generating || queuing}
+                      loadingLabel={
+                        queuing
+                          ? t('git.states.queuing', 'Queuing...')
+                          : generating
+                            ? t('git.states.generating', 'Generating...')
+                            : t('git.states.merging')
+                      }
+                      successLabel={queueSuccess ? t('git.states.queued', 'Queued') : t('git.states.merged')}
+                      showSuccess={mergeSuccess || queueSuccess}
+                      variant="outline"
+                      size="xs"
+                      className="shrink-0 border-success text-success [&_button]:border-success [&_button]:text-success [&_button:hover]:bg-success"
+                      icon={<GitMerge className="h-3.5 w-3.5" />}
+                      checkboxItems={[
+                        {
+                          label: t('git.queue.toggle', 'Queue merge'),
+                          checked: queueEnabled,
+                          onCheckedChange: handleQueueToggle,
+                          disabled: queueCheckboxDisabled,
+                        },
+                      ]}
+                    />
+                  </span>
+                </TooltipTrigger>
+                {mergeDisabledReason && (
+                  <TooltipContent side="bottom">{mergeDisabledReason}</TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
 
-            <Button
-              onClick={handlePRButtonClick}
-              disabled={
-                mergeInfo.hasMergedPR ||
-                pushing ||
-                isAttemptRunning ||
-                hasConflictsCalculated ||
-                (mergeInfo.hasOpenPR &&
-                  (selectedRepoStatus?.remote_commits_ahead ?? 0) === 0) ||
-                ((selectedRepoStatus?.commits_ahead ?? 0) === 0 &&
-                  (selectedRepoStatus?.remote_commits_ahead ?? 0) === 0 &&
-                  !pushSuccess &&
-                  !mergeSuccess)
-              }
-              variant="outline"
-              size="xs"
-              className="border-info text-info hover:bg-info gap-1 shrink-0"
-              aria-label={prButtonLabel}
-            >
-              <GitPullRequest className="h-3.5 w-3.5" />
-              <span className="truncate max-w-[10ch]">{prButtonLabel}</span>
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0">
+                    <Button
+                      onClick={handlePRButtonClick}
+                      disabled={
+                        mergeInfo.hasMergedPR ||
+                        pushing ||
+                        isAttemptRunning ||
+                        hasConflictsCalculated ||
+                        (mergeInfo.hasOpenPR &&
+                          (selectedRepoStatus?.remote_commits_ahead ?? 0) === 0) ||
+                        ((selectedRepoStatus?.commits_ahead ?? 0) === 0 &&
+                          (selectedRepoStatus?.remote_commits_ahead ?? 0) === 0 &&
+                          !pushSuccess &&
+                          !mergeSuccess)
+                      }
+                      variant="outline"
+                      size="xs"
+                      className="border-info text-info hover:bg-info gap-1 shrink-0"
+                      aria-label={prButtonLabel}
+                    >
+                      <GitPullRequest className="h-3.5 w-3.5" />
+                      <span className="truncate max-w-[10ch]">{prButtonLabel}</span>
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {prDisabledReason && (
+                  <TooltipContent side="bottom">{prDisabledReason}</TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
 
-            <Button
-              onClick={handleRebaseDialogOpen}
-              disabled={rebasing || isAttemptRunning || hasConflictsCalculated}
-              variant="outline"
-              size="xs"
-              className="border-warning text-warning hover:bg-warning gap-1 shrink-0"
-              aria-label={rebaseButtonLabel}
-            >
-              <RefreshCw
-                className={`h-3.5 w-3.5 ${rebasing ? 'animate-spin' : ''}`}
-              />
-              <span className="truncate max-w-[10ch]">{rebaseButtonLabel}</span>
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0">
+                    <Button
+                      onClick={handleRebaseDialogOpen}
+                      disabled={rebasing || isAttemptRunning || hasConflictsCalculated}
+                      variant="outline"
+                      size="xs"
+                      className="border-warning text-warning hover:bg-warning gap-1 shrink-0"
+                      aria-label={rebaseButtonLabel}
+                    >
+                      <RefreshCw
+                        className={`h-3.5 w-3.5 ${rebasing ? 'animate-spin' : ''}`}
+                      />
+                      <span className="truncate max-w-[10ch]">{rebaseButtonLabel}</span>
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {rebaseDisabledReason && (
+                  <TooltipContent side="bottom">{rebaseDisabledReason}</TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
           </div>
         )}
       </div>
