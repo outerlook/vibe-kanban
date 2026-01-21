@@ -13,12 +13,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2 } from 'lucide-react';
 import { useCreateCustomEditor, useUpdateCustomEditor } from '@/hooks';
 import { getErrorMessage } from '@/lib/modals';
-import type { CustomEditor } from 'shared/types';
+import type { CustomEditorResponse } from 'shared/types';
 
 export interface CustomEditorDialogProps {
   open: boolean;
   mode: 'create' | 'edit';
-  editor?: CustomEditor;
+  editor?: CustomEditorResponse;
   onClose: () => void;
 }
 

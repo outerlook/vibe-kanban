@@ -6,7 +6,7 @@ import { CustomEditorDialog } from '@/components/dialogs/settings/CustomEditorDi
 import { ConfirmDialog } from '@/components/dialogs';
 import { EditorAvailabilityIndicator } from '@/components/EditorAvailabilityIndicator';
 import { useCustomEditors, useDeleteCustomEditor } from '@/hooks';
-import type { CustomEditorWithAvailability } from '@/hooks/useCustomEditors';
+import type { CustomEditorResponse } from 'shared/types';
 import { Code2, Edit2, Loader2, Trash2 } from 'lucide-react';
 
 type DialogMode = 'create' | 'edit';
@@ -18,7 +18,7 @@ export function CustomEditorsList() {
   const [dialogMode, setDialogMode] = useState<DialogMode>('create');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedEditor, setSelectedEditor] =
-    useState<CustomEditorWithAvailability | null>(null);
+    useState<CustomEditorResponse | null>(null);
 
   const editors = data ?? [];
 
@@ -34,13 +34,13 @@ export function CustomEditorsList() {
     setDialogOpen(true);
   };
 
-  const handleEdit = (editor: CustomEditorWithAvailability) => {
+  const handleEdit = (editor: CustomEditorResponse) => {
     setSelectedEditor(editor);
     setDialogMode('edit');
     setDialogOpen(true);
   };
 
-  const handleDelete = async (editor: CustomEditorWithAvailability) => {
+  const handleDelete = async (editor: CustomEditorResponse) => {
     const result = await ConfirmDialog.show({
       title: t('settings.general.customEditors.deleteConfirm.title'),
       message: t('settings.general.customEditors.deleteConfirm.message', {

@@ -2,29 +2,18 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { customEditorsApi } from '@/lib/api';
 import type {
   CreateCustomEditorRequest,
-  CustomEditor,
   CustomEditorResponse,
   UpdateCustomEditorRequest,
 } from 'shared/types';
 
 const customEditorsKey = ['customEditors'] as const;
 
-export type CustomEditorWithAvailability = CustomEditor & { available: boolean };
-
 export function useCustomEditors() {
-  const { data, isLoading, error } = useQuery<CustomEditorWithAvailability[]>({
+  const { data, isLoading, error } = useQuery<CustomEditorResponse[]>({
     queryKey: customEditorsKey,
     queryFn: async () => {
       const response = await customEditorsApi.list();
-      return response.editors.map((editor: CustomEditorResponse) => ({
-        id: editor.id,
-        name: editor.name,
-        command: editor.command,
-        argument: editor.argument,
-        icon: editor.icon,
-        created_at: editor.created_at,
-        available: editor.available,
-      }));
+      return response.editors;
     },
     staleTime: 30_000,
   });
