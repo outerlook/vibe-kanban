@@ -97,6 +97,8 @@ pnpm run dev
 
 This starts the backend server and frontend dev server. A blank DB will be copied from the `dev_assets_seed` folder.
 
+To populate your local environment with sample data, run `pnpm run seed-db`. See [docs/development/seed-data.md](docs/development/seed-data.md) for details.
+
 ### Building the Desktop App
 
 To build the production desktop app:

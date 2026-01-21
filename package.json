@@ -24,7 +24,8 @@
     "remote:prepare-db:check": "cd crates/remote && bash scripts/prepare-db.sh --check",
     "langfuse:up": "docker compose -f docker-compose.langfuse.yml up -d",
     "langfuse:down": "docker compose -f docker-compose.langfuse.yml down",
-    "langfuse:logs": "docker compose -f docker-compose.langfuse.yml logs -f"
+    "langfuse:logs": "docker compose -f docker-compose.langfuse.yml logs -f",
+    "seed-db": "cargo run --bin generate-seed"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
