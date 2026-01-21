@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { projectsApi } from '@/lib/api';
+import { projectsKeys } from './useProjects';
 import type {
   CreateProject,
   UpdateProject,
@@ -27,7 +28,7 @@ export function useProjectMutations(options?: UseProjectMutationsOptions) {
     mutationFn: (data: CreateProject) => projectsApi.create(data),
     onSuccess: (project: Project) => {
       queryClient.setQueryData(['project', project.id], project);
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: projectsKeys.all });
       options?.onCreateSuccess?.(project);
     },
     onError: (err) => {
@@ -50,7 +51,7 @@ export function useProjectMutations(options?: UseProjectMutationsOptions) {
       queryClient.setQueryData(['project', project.id], project);
 
       // Update the project in the projects list cache immediately
-      queryClient.setQueryData<Project[]>(['projects'], (old) => {
+      queryClient.setQueryData<Project[]>(projectsKeys.list(), (old) => {
         if (!old) return old;
         return old.map((p) => (p.id === project.id ? project : p));
       });
@@ -75,7 +76,7 @@ export function useProjectMutations(options?: UseProjectMutationsOptions) {
     onSuccess: (project: Project) => {
       // Update caches with fresh server data
       queryClient.setQueryData(['project', project.id], project);
-      queryClient.setQueryData<Project[]>(['projects'], (old) => {
+      queryClient.setQueryData<Project[]>(projectsKeys.list(), (old) => {
         if (!old) return old;
         return old.map((p) => (p.id === project.id ? project : p));
       });
@@ -113,7 +114,7 @@ export function useProjectMutations(options?: UseProjectMutationsOptions) {
     onSuccess: (project: Project) => {
       // Update caches with fresh server data
       queryClient.setQueryData(['project', project.id], project);
-      queryClient.setQueryData<Project[]>(['projects'], (old) => {
+      queryClient.setQueryData<Project[]>(projectsKeys.list(), (old) => {
         if (!old) return old;
         return old.map((p) => (p.id === project.id ? project : p));
       });
@@ -144,13 +145,13 @@ export function useProjectMutations(options?: UseProjectMutationsOptions) {
     mutationFn: (projectId: string) => projectsApi.unlink(projectId),
     onSuccess: (project: Project) => {
       queryClient.setQueryData(['project', project.id], project);
-      queryClient.setQueryData<Project[]>(['projects'], (old) => {
+      queryClient.setQueryData<Project[]>(projectsKeys.list(), (old) => {
         if (!old) return old;
         return old.map((p) => (p.id === project.id ? project : p));
       });
 
       // Invalidate to ensure fresh data from server
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: projectsKeys.all });
 
       // Invalidate organization projects queries since unlinking affects remote projects
       queryClient.invalidateQueries({

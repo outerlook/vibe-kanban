@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useQueries, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQueries } from '@tanstack/react-query';
 import { useAuth } from '@/hooks';
 import { useProject } from '@/contexts/ProjectContext';
 import { useLiveQuery, eq, isNull } from '@tanstack/react-db';
@@ -101,7 +101,6 @@ export interface UseProjectTasksResult {
 }
 
 export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
-  const queryClient = useQueryClient();
   const { project } = useProject();
   const { isSignedIn } = useAuth();
   const remoteProjectId = project?.remote_project_id;
@@ -149,6 +148,10 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
   // Initial fetch - load all statuses in parallel using React Query for automatic deduplication
   const statusQueries = useQueries({ queries: queryConfigs });
 
+  // Keep a ref to statusQueries to access in effects without causing re-runs
+  const statusQueriesRef = useRef(statusQueries);
+  statusQueriesRef.current = statusQueries;
+
   // Track which query data we've already synced to avoid re-syncing
   const [syncedDataIds, setSyncedDataIds] = useState<string | null>(null);
 
@@ -174,8 +177,9 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
   // Sync query results to local state only when data actually changes
   useEffect(() => {
     if (!projectId) {
-      setTasksById({});
-      setPaginationByStatus(createInitialPaginationState());
+      // Use functional updates to avoid unnecessary re-renders
+      setTasksById((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+      setPaginationByStatus(createInitialPaginationState);
       setSyncedDataIds(null);
       return;
     }
@@ -189,10 +193,12 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     if (queryDataId === null || queryDataId === syncedDataIds) return;
 
     // All queries succeeded - merge results to local state
+    // Use ref to access queries without adding to deps (queryDataId already tracks data changes)
+    const queries = statusQueriesRef.current;
     const allTasks: TaskWithAttemptStatus[] = [];
     const newPagination = createInitialPaginationState();
 
-    for (const query of statusQueries) {
+    for (const query of queries) {
       if (!query.data) continue;
       const { status, page } = query.data;
       allTasks.push(...page.tasks);
@@ -208,7 +214,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     setPaginationByStatus(newPagination);
     setError(null);
     setSyncedDataIds(queryDataId);
-  }, [projectId, queryDataId, syncedDataIds, anyQueryError, firstErrorMessage, mergeTasks, statusQueries]);
+  }, [projectId, queryDataId, syncedDataIds, anyQueryError, firstErrorMessage, mergeTasks]);
 
   // Derive loading state from queries
   // In React Query v5, isLoading = isPending && isFetching
@@ -335,11 +341,10 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
           return next;
         });
       }
-
-      // Invalidate React Query cache to keep it in sync
-      queryClient.invalidateQueries({ queryKey: projectTasksKeys.byProject(projectId) });
+      // Note: We don't invalidate React Query here. Local state is the source of truth
+      // for real-time updates. The query cache is only used for initial load.
     },
-    [projectId, queryClient]
+    [projectId]
   );
 
   useEffect(() => {

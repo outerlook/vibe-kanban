@@ -234,8 +234,8 @@ export const useJsonPatchWsStream = <T extends object>(
       }
       pendingPatchesRef.current = [];
       finishedRef.current = false;
-      dataRef.current = undefined;
-      setData(undefined);
+      // Don't clear data here - data is preserved during reconnection attempts.
+      // Data is only cleared when !enabled || !endpoint (lines 80, 83 above).
     };
   }, [
     endpoint,
