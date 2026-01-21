@@ -7,7 +7,7 @@ use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::services::config::custom_editors::CustomEditorsConfig;
+use crate::services::config::custom_editors::{CustomEditor, CustomEditorsConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Error)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -193,11 +193,66 @@ impl EditorConfig {
         ))
     }
 
+    /// Substitute placeholders in argument template.
+    /// - `%d` is replaced with the directory path
+    /// - `%f` is replaced with the full file path
+    /// If neither placeholder is present, returns None (path should be appended as last arg).
+    fn substitute_placeholders(template: &str, path: &Path) -> Option<String> {
+        let has_d = template.contains("%d");
+        let has_f = template.contains("%f");
+
+        if !has_d && !has_f {
+            return None;
+        }
+
+        let dir_path = if path.is_dir() {
+            path.to_string_lossy().to_string()
+        } else {
+            path.parent()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|| path.to_string_lossy().to_string())
+        };
+
+        let file_path = path.to_string_lossy().to_string();
+
+        Some(
+            template
+                .replace("%d", &dir_path)
+                .replace("%f", &file_path),
+        )
+    }
+
+    /// Get the custom editor if this config points to one.
+    fn get_custom_editor(&self) -> Option<CustomEditor> {
+        match self.resolve_identifier() {
+            EditorIdentifier::Custom(editor_id) => {
+                let custom_editors = CustomEditorsConfig::get_cached();
+                custom_editors.get(editor_id).cloned()
+            }
+            EditorIdentifier::BuiltIn(_) => None,
+        }
+    }
+
     pub async fn spawn_local(&self, path: &Path) -> Result<(), EditorOpenError> {
-        let (executable, args) = self.resolve_command().await?;
+        let (executable, mut args) = self.resolve_command().await?;
+
+        // For custom editors, substitute placeholders in the argument template
+        if let Some(custom_editor) = self.get_custom_editor() {
+            if let Some(substituted) = Self::substitute_placeholders(&custom_editor.argument, path)
+            {
+                // Parse the substituted argument as shell words
+                args.extend(shell_words::split(&substituted).unwrap_or_else(|_| vec![substituted]));
+            } else {
+                // No placeholders found - fallback to appending path
+                args.push(path.to_string_lossy().to_string());
+            }
+        } else {
+            // Built-in editors: append path as last argument
+            args.push(path.to_string_lossy().to_string());
+        }
 
         let mut cmd = std::process::Command::new(&executable);
-        cmd.args(&args).arg(path);
+        cmd.args(&args);
         cmd.spawn().map_err(|e| EditorOpenError::LaunchFailed {
             executable: executable.to_string_lossy().into_owned(),
             details: e.to_string(),
@@ -329,5 +384,53 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn test_substitute_placeholders_with_d_for_file() {
+        let path = Path::new("/home/user/project/src/main.rs");
+        let result = EditorConfig::substitute_placeholders("%d", path);
+        assert_eq!(result, Some("/home/user/project/src".to_string()));
+    }
+
+    #[test]
+    fn test_substitute_placeholders_with_d_for_directory() {
+        let path = Path::new("/home/user/project");
+        // Note: is_dir() returns false for non-existent paths, so we test the else branch
+        // In real usage, the path would exist. The fallback uses parent() for files.
+        let result = EditorConfig::substitute_placeholders("%d", path);
+        // For a non-existent path, is_dir() returns false, so it takes parent
+        assert_eq!(result, Some("/home/user".to_string()));
+    }
+
+    #[test]
+    fn test_substitute_placeholders_with_f() {
+        let path = Path::new("/home/user/project/src/main.rs");
+        let result = EditorConfig::substitute_placeholders("%f", path);
+        assert_eq!(result, Some("/home/user/project/src/main.rs".to_string()));
+    }
+
+    #[test]
+    fn test_substitute_placeholders_with_both() {
+        let path = Path::new("/home/user/project/src/main.rs");
+        let result = EditorConfig::substitute_placeholders("--folder %d --file %f", path);
+        assert_eq!(
+            result,
+            Some("--folder /home/user/project/src --file /home/user/project/src/main.rs".to_string())
+        );
+    }
+
+    #[test]
+    fn test_substitute_placeholders_no_placeholders() {
+        let path = Path::new("/home/user/project");
+        let result = EditorConfig::substitute_placeholders("--wait", path);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_substitute_placeholders_empty_template() {
+        let path = Path::new("/home/user/project");
+        let result = EditorConfig::substitute_placeholders("", path);
+        assert_eq!(result, None);
     }
 }
