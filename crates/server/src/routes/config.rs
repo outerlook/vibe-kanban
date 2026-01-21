@@ -303,12 +303,14 @@ async fn get_sound(Path(identifier): Path<String>) -> Result<Response, ApiError>
 pub struct CreateCustomEditorRequest {
     pub name: String,
     pub command: String,
+    pub argument: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct UpdateCustomEditorRequest {
     pub name: String,
     pub command: String,
+    pub argument: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -316,6 +318,7 @@ pub struct CustomEditorResponse {
     pub id: Uuid,
     pub name: String,
     pub command: String,
+    pub argument: String,
     pub icon: Option<String>,
     pub created_at: String,
     pub available: bool,
@@ -358,7 +361,7 @@ async fn create_custom_editor(
     ),
     ApiError,
 > {
-    let id = CustomEditorsConfig::create(payload.name, payload.command)
+    let id = CustomEditorsConfig::create(payload.name, payload.command, payload.argument)
         .await
         .map_err(map_custom_editor_error)?;
 
@@ -385,7 +388,7 @@ async fn update_custom_editor(
         return Err(ApiError::NotFound("Custom editor not found".to_string()));
     }
 
-    CustomEditorsConfig::update(id, payload.name, payload.command)
+    CustomEditorsConfig::update(id, payload.name, payload.command, payload.argument)
         .await
         .map_err(map_custom_editor_error)?;
 
@@ -438,6 +441,7 @@ async fn build_custom_editor_response(editor: CustomEditor) -> CustomEditorRespo
         id: editor.id,
         name: editor.name,
         command: editor.command,
+        argument: editor.argument,
         icon: editor.icon,
         created_at: editor.created_at,
         available,

@@ -14,12 +14,18 @@ use crate::services::config::ConfigError;
 static CUSTOM_EDITORS_CACHE: LazyLock<RwLock<Arc<CustomEditorsConfig>>> =
     LazyLock::new(|| RwLock::new(Arc::new(CustomEditorsConfig::load_sync())));
 
+fn default_argument() -> String {
+    "%d".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 #[ts(export)]
 pub struct CustomEditor {
     pub id: Uuid,
     pub name: String,
     pub command: String,
+    #[serde(default = "default_argument")]
+    pub argument: String,
     pub icon: Option<String>,
     pub created_at: String,
 }
@@ -55,18 +61,27 @@ impl CustomEditorsConfig {
         *cache = Arc::new(config);
     }
 
-    pub async fn create(name: String, command: String) -> Result<Uuid, ConfigError> {
+    pub async fn create(
+        name: String,
+        command: String,
+        argument: Option<String>,
+    ) -> Result<Uuid, ConfigError> {
         let mut config = Self::get_cached().as_ref().clone();
-        let id = config.create_in_memory(name, command)?;
+        let id = config.create_in_memory(name, command, argument)?;
         config.save_to_path(&utils::assets::editors_path()).await?;
         let mut cache = CUSTOM_EDITORS_CACHE.write().unwrap();
         *cache = Arc::new(config);
         Ok(id)
     }
 
-    pub async fn update(id: Uuid, name: String, command: String) -> Result<(), ConfigError> {
+    pub async fn update(
+        id: Uuid,
+        name: String,
+        command: String,
+        argument: Option<String>,
+    ) -> Result<(), ConfigError> {
         let mut config = Self::get_cached().as_ref().clone();
-        config.update_in_memory(id, name, command)?;
+        config.update_in_memory(id, name, command, argument)?;
         config.save_to_path(&utils::assets::editors_path()).await?;
         let mut cache = CUSTOM_EDITORS_CACHE.write().unwrap();
         *cache = Arc::new(config);
@@ -82,7 +97,12 @@ impl CustomEditorsConfig {
         Ok(())
     }
 
-    fn create_in_memory(&mut self, name: String, command: String) -> Result<Uuid, ConfigError> {
+    fn create_in_memory(
+        &mut self,
+        name: String,
+        command: String,
+        argument: Option<String>,
+    ) -> Result<Uuid, ConfigError> {
         self.validate_unique_name(&name, None)?;
         self.validate_command(&command)?;
         let id = Uuid::new_v4();
@@ -90,6 +110,7 @@ impl CustomEditorsConfig {
             id,
             name,
             command,
+            argument: argument.unwrap_or_else(default_argument),
             icon: None,
             created_at: Utc::now().to_rfc3339(),
         };
@@ -102,6 +123,7 @@ impl CustomEditorsConfig {
         id: Uuid,
         name: String,
         command: String,
+        argument: Option<String>,
     ) -> Result<(), ConfigError> {
         self.validate_unique_name(&name, Some(id))?;
         self.validate_command(&command)?;
@@ -110,6 +132,9 @@ impl CustomEditorsConfig {
         })?;
         editor.name = name;
         editor.command = command;
+        if let Some(arg) = argument {
+            editor.argument = arg;
+        }
         Ok(())
     }
 
@@ -199,19 +224,46 @@ mod tests {
     async fn test_crud_operations() {
         let mut config = CustomEditorsConfig::default();
 
+        // Test create with default argument
         let id = config
-            .create_in_memory("Editor".to_string(), "code".to_string())
+            .create_in_memory("Editor".to_string(), "code".to_string(), None)
             .unwrap();
         let editor = config.get(id).unwrap();
         assert_eq!(editor.name, "Editor");
         assert_eq!(editor.command, "code");
+        assert_eq!(editor.argument, "%d");
 
+        // Test create with custom argument
+        let id2 = config
+            .create_in_memory(
+                "Editor2".to_string(),
+                "vim".to_string(),
+                Some("%f:%l".to_string()),
+            )
+            .unwrap();
+        let editor2 = config.get(id2).unwrap();
+        assert_eq!(editor2.argument, "%f:%l");
+
+        // Test update without changing argument
         config
-            .update_in_memory(id, "Updated".to_string(), "vim".to_string())
+            .update_in_memory(id, "Updated".to_string(), "vim".to_string(), None)
             .unwrap();
         let editor = config.get(id).unwrap();
         assert_eq!(editor.name, "Updated");
         assert_eq!(editor.command, "vim");
+        assert_eq!(editor.argument, "%d");
+
+        // Test update with new argument
+        config
+            .update_in_memory(
+                id,
+                "Updated".to_string(),
+                "vim".to_string(),
+                Some("%f".to_string()),
+            )
+            .unwrap();
+        let editor = config.get(id).unwrap();
+        assert_eq!(editor.argument, "%f");
 
         config.delete_in_memory(id).unwrap();
         assert!(config.get(id).is_none());
@@ -221,9 +273,9 @@ mod tests {
     async fn test_name_uniqueness_validation() {
         let mut config = CustomEditorsConfig::default();
         config
-            .create_in_memory("Editor".to_string(), "code".to_string())
+            .create_in_memory("Editor".to_string(), "code".to_string(), None)
             .unwrap();
-        let result = config.create_in_memory("Editor".to_string(), "vim".to_string());
+        let result = config.create_in_memory("Editor".to_string(), "vim".to_string(), None);
         assert!(matches!(result, Err(ConfigError::ValidationError(_))));
     }
 
@@ -234,7 +286,7 @@ mod tests {
 
         let mut config = CustomEditorsConfig::default();
         config
-            .create_in_memory("Editor".to_string(), "code".to_string())
+            .create_in_memory("Editor".to_string(), "code".to_string(), None)
             .unwrap();
         config.save_to_path(&path).await.unwrap();
 

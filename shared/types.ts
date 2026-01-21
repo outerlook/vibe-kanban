@@ -288,11 +288,11 @@ export type CheckEditorAvailabilityQuery = { editor_type: EditorType, };
 
 export type CheckEditorAvailabilityResponse = { available: boolean, };
 
-export type CreateCustomEditorRequest = { name: string, command: string, };
+export type CreateCustomEditorRequest = { name: string, command: string, argument: string | null, };
 
-export type UpdateCustomEditorRequest = { name: string, command: string, };
+export type UpdateCustomEditorRequest = { name: string, command: string, argument: string | null, };
 
-export type CustomEditorResponse = { id: string, name: string, command: string, icon: string | null, created_at: string, available: boolean, };
+export type CustomEditorResponse = { id: string, name: string, command: string, argument: string, icon: string | null, created_at: string, available: boolean, };
 
 export type ListCustomEditorsResponse = { editors: Array<CustomEditorResponse>, };
 
@@ -480,7 +480,7 @@ export type EditorOpenError = { "type": "executable_not_found", executable: stri
 
 export type EditorIdentifier = { "type": "built_in" } & EditorType | { "type": "custom" } & string;
 
-export type CustomEditor = { id: string, name: string, command: string, icon: string | null, created_at: string, };
+export type CustomEditor = { id: string, name: string, command: string, argument: string, icon: string | null, created_at: string, };
 
 export type CustomEditorsConfig = { custom_editors: { [key in string]?: CustomEditor }, };
 

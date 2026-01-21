@@ -10490,6 +10490,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "shell-words",
  "sqlx",
  "strum",
  "strum_macros",
