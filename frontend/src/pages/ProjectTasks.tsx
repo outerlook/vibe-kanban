@@ -130,6 +130,7 @@ export function ProjectTasks() {
     sharedTasksById,
     sharedOnlyByStatus,
     isLoading,
+    isInitialSyncComplete,
     loadMoreByStatus,
     isLoadingMoreByStatus,
     hasMoreByStatus,
@@ -142,7 +143,12 @@ export function ProjectTasks() {
   // Sync unread state for this project
   useUnreadSync({ projectId: projectId || '', tasks });
 
-  const { data: selectedTaskFallback } = useTask(taskId, {
+  const {
+    data: selectedTaskFallback,
+    isLoading: isTaskFallbackLoading,
+    isSuccess: isTaskFallbackSuccess,
+    isError: isTaskFallbackError,
+  } = useTask(taskId, {
     enabled: !!taskId && !tasksById[taskId],
   });
 
@@ -241,12 +247,38 @@ export function ProjectTasks() {
     navigateWithSearch,
   ]);
 
+  // Redirect to task list if task doesn't exist after all data has loaded
   useEffect(() => {
-    if (!projectId || !taskId || isLoading) return;
+    if (!projectId || !taskId || !isInitialSyncComplete) return;
+
+    // Check if we need to wait for the fallback query
+    const taskInLocalState = !!tasksById[taskId];
+    const needsFallback = !taskInLocalState;
+
+    // If we need the fallback, wait until it has completed (success or error)
+    // Note: isLoading is false for disabled queries, so we check completion status
+    if (needsFallback) {
+      const fallbackComplete = isTaskFallbackSuccess || isTaskFallbackError;
+      if (!fallbackComplete && isTaskFallbackLoading) return;
+      // Even if not loading, if it hasn't completed (success/error), it means
+      // the query was just enabled and hasn't fetched yet - wait
+      if (!fallbackComplete) return;
+    }
+
     if (selectedTask === null) {
       navigate(`/projects/${projectId}/tasks`, { replace: true });
     }
-  }, [projectId, taskId, isLoading, selectedTask, navigate]);
+  }, [
+    projectId,
+    taskId,
+    isInitialSyncComplete,
+    isTaskFallbackLoading,
+    isTaskFallbackSuccess,
+    isTaskFallbackError,
+    selectedTask,
+    tasksById,
+    navigate,
+  ]);
 
   const effectiveAttemptId = attemptId === 'latest' ? undefined : attemptId;
   const isTaskView = !!taskId && !effectiveAttemptId;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks';
 import { useProject } from '@/contexts/ProjectContext';
 import { useLiveQuery, eq, isNull } from '@tanstack/react-db';
@@ -20,6 +20,8 @@ export const projectTasksKeys = {
     ['projectTasks', projectId] as const,
   byProjectInfinite: (projectId: string | undefined) =>
     ['projectTasks', 'infinite', projectId] as const,
+  byProjectAndStatus: (projectId: string | undefined, status: TaskStatus) =>
+    ['projectTasks', projectId, 'status', status] as const,
 };
 
 export type SharedTaskRecord = SharedTask & {
@@ -88,6 +90,8 @@ export interface UseProjectTasksResult {
   sharedTasksById: Record<string, SharedTaskRecord>;
   sharedOnlyByStatus: Record<TaskStatus, SharedTaskRecord[]>;
   isLoading: boolean;
+  /** True once initial fetch AND local state sync are complete */
+  isInitialSyncComplete: boolean;
   error: string | null;
   // Per-status pagination controls
   loadMoreByStatus: Record<TaskStatus, () => void>;
@@ -103,7 +107,6 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
   const remoteProjectId = project?.remote_project_id;
   const [tasksById, setTasksById] = useState<TasksState['tasks']>({});
   const [paginationByStatus, setPaginationByStatus] = useState<PerStatusPagination>(createInitialPaginationState);
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const mergeTasks = useCallback((newTasks: TaskWithAttemptStatus[], replace: boolean) => {
@@ -123,69 +126,101 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     });
   }, []);
 
-  // Initial fetch - load all statuses in parallel
+  // Memoize query configurations to prevent recreation on every render
+  const queryConfigs = useMemo(
+    () =>
+      ALL_STATUSES.map((status) => ({
+        queryKey: projectTasksKeys.byProjectAndStatus(projectId || undefined, status),
+        queryFn: () =>
+          tasksApi.list(projectId, {
+            offset: 0,
+            limit: PAGE_SIZE,
+            status,
+            order_by: getOrderByForStatus(status),
+          }).then((page) => ({ status, page })),
+        enabled: !!projectId,
+        staleTime: 30_000, // 30 seconds - prevents refetches on component remounts
+        refetchOnMount: false as const,
+        refetchOnWindowFocus: false as const,
+      })),
+    [projectId]
+  );
+
+  // Initial fetch - load all statuses in parallel using React Query for automatic deduplication
+  const statusQueries = useQueries({ queries: queryConfigs });
+
+  // Track which query data we've already synced to avoid re-syncing
+  const [syncedDataIds, setSyncedDataIds] = useState<string | null>(null);
+
+  // Extract stable primitive values from queries to avoid dependency on the array reference
+  const allQueriesSuccess = statusQueries.every((q) => q.isSuccess);
+  const anyQueryError = statusQueries.some((q) => q.isError);
+  // Extract error message as a stable string primitive
+  const firstErrorMessage = useMemo(() => {
+    if (!anyQueryError) return null;
+    const errorObj = statusQueries.find((q) => q.isError)?.error;
+    return errorObj instanceof Error ? errorObj.message : 'Failed to load tasks';
+  }, [anyQueryError, statusQueries]);
+
+  // Compute a stable ID for the current query data - only when all queries succeed
+  const queryDataId = useMemo(() => {
+    if (!projectId || !allQueriesSuccess) return null;
+    // Create a stable ID based on the data content
+    return statusQueries
+      .map((q) => q.data?.page.tasks.map((t) => t.id).join(',') ?? '')
+      .join('|');
+  }, [projectId, allQueriesSuccess, statusQueries]);
+
+  // Sync query results to local state only when data actually changes
   useEffect(() => {
     if (!projectId) {
       setTasksById({});
       setPaginationByStatus(createInitialPaginationState());
-      setIsLoading(false);
-      setError(null);
+      setSyncedDataIds(null);
       return;
     }
 
-    let cancelled = false;
-    setIsLoading(true);
+    if (anyQueryError && firstErrorMessage) {
+      setError(firstErrorMessage);
+      return;
+    }
+
+    // Only sync if we have new data that hasn't been synced yet
+    if (queryDataId === null || queryDataId === syncedDataIds) return;
+
+    // All queries succeeded - merge results to local state
+    const allTasks: TaskWithAttemptStatus[] = [];
+    const newPagination = createInitialPaginationState();
+
+    for (const query of statusQueries) {
+      if (!query.data) continue;
+      const { status, page } = query.data;
+      allTasks.push(...page.tasks);
+      newPagination[status] = {
+        offset: page.tasks.length,
+        total: page.total,
+        hasMore: page.hasMore,
+        isLoading: false,
+      };
+    }
+
+    mergeTasks(allTasks, true);
+    setPaginationByStatus(newPagination);
     setError(null);
-    setPaginationByStatus(createInitialPaginationState());
+    setSyncedDataIds(queryDataId);
+  }, [projectId, queryDataId, syncedDataIds, anyQueryError, firstErrorMessage, mergeTasks, statusQueries]);
 
-    // Fetch all statuses in parallel
-    const fetchPromises = ALL_STATUSES.map((status) =>
-      tasksApi.list(projectId, {
-        offset: 0,
-        limit: PAGE_SIZE,
-        status,
-        order_by: getOrderByForStatus(status),
-      }).then((page) => ({ status, page }))
-    );
+  // Derive loading state from queries
+  // In React Query v5, isLoading = isPending && isFetching
+  // We want "loading" to mean: we have a projectId but not all queries have completed yet
+  const isQueriesLoading = !!projectId && !statusQueries.every((q) => q.isSuccess || q.isError);
 
-    Promise.all(fetchPromises)
-      .then((results) => {
-        if (cancelled) return;
-
-        // Merge all tasks
-        const allTasks: TaskWithAttemptStatus[] = [];
-        const newPagination = createInitialPaginationState();
-
-        for (const { status, page } of results) {
-          allTasks.push(...page.tasks);
-          newPagination[status] = {
-            offset: page.tasks.length,
-            total: page.total,
-            hasMore: page.hasMore,
-            isLoading: false,
-          };
-        }
-
-        mergeTasks(allTasks, true);
-        setPaginationByStatus(newPagination);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Failed to load tasks');
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setIsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId, mergeTasks]);
+  // Initial sync is complete once queries have loaded AND data has been synced to local state
+  const isInitialSyncComplete = !isQueriesLoading && syncedDataIds !== null;
 
   const loadMoreForStatus = useCallback((status: TaskStatus) => {
     const statusPagination = paginationByStatus[status];
-    if (!projectId || isLoading || statusPagination.isLoading || !statusPagination.hasMore) {
+    if (!projectId || isQueriesLoading || statusPagination.isLoading || !statusPagination.hasMore) {
       return;
     }
 
@@ -222,7 +257,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
           [status]: { ...prev[status], isLoading: false },
         }));
       });
-  }, [projectId, isLoading, paginationByStatus, mergeTasks]);
+  }, [projectId, isQueriesLoading, paginationByStatus, mergeTasks]);
 
   const applyTaskPatches = useCallback(
     (patches: Operation[]) => {
@@ -556,7 +591,7 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     sharedTasksById,
     localTasksById: tasksById,
     referencedSharedIds,
-    isLoading,
+    isLoading: isQueriesLoading,
     hasMore: anyStatusHasMore,
     remoteProjectId: project?.remote_project_id || undefined,
     projectId,
@@ -568,7 +603,8 @@ export const useProjectTasks = (projectId: string): UseProjectTasksResult => {
     tasksByStatus,
     sharedTasksById,
     sharedOnlyByStatus,
-    isLoading,
+    isLoading: isQueriesLoading,
+    isInitialSyncComplete,
     error,
     loadMoreByStatus,
     isLoadingMoreByStatus,
