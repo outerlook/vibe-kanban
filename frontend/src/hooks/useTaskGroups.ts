@@ -16,6 +16,13 @@ export const taskGroupKeys = {
     ['taskGroups', 'detail', groupId] as const,
 };
 
+export interface UseTaskGroupMutationsOptions {
+  onCreateSuccess?: (group: TaskGroup) => void;
+  onCreateError?: (err: unknown) => void;
+  onUpdateSuccess?: (group: TaskGroup) => void;
+  onUpdateError?: (err: unknown) => void;
+}
+
 type QueryOptions = {
   enabled?: boolean;
   refetchInterval?: number | false;
@@ -47,6 +54,60 @@ export function useTaskGroup(groupId?: string, opts?: QueryOptions) {
     staleTime: opts?.staleTime ?? 10_000,
     retry: opts?.retry ?? 2,
   });
+}
+
+export function useTaskGroupMutations(
+  projectId: string,
+  options?: UseTaskGroupMutationsOptions
+) {
+  const queryClient = useQueryClient();
+
+  const createTaskGroup = useMutation<
+    TaskGroup,
+    unknown,
+    Omit<CreateTaskGroup, 'project_id'>
+  >({
+    mutationKey: ['createTaskGroup', projectId],
+    mutationFn: (data) =>
+      taskGroupsApi.create({ ...data, project_id: projectId }),
+    onSuccess: (group) => {
+      queryClient.invalidateQueries({
+        queryKey: taskGroupKeys.byProject(projectId),
+      });
+      options?.onCreateSuccess?.(group);
+    },
+    onError: (err) => {
+      console.error('Failed to create task group:', err);
+      options?.onCreateError?.(err);
+    },
+  });
+
+  const updateTaskGroup = useMutation<
+    TaskGroup,
+    unknown,
+    { groupId: string; data: UpdateTaskGroup }
+  >({
+    mutationKey: ['updateTaskGroup'],
+    mutationFn: ({ groupId, data }) => taskGroupsApi.update(groupId, data),
+    onSuccess: (updatedGroup) => {
+      queryClient.invalidateQueries({
+        queryKey: taskGroupKeys.byId(updatedGroup.id),
+      });
+      queryClient.invalidateQueries({
+        queryKey: taskGroupKeys.byProject(updatedGroup.project_id),
+      });
+      options?.onUpdateSuccess?.(updatedGroup);
+    },
+    onError: (err) => {
+      console.error('Failed to update task group:', err);
+      options?.onUpdateError?.(err);
+    },
+  });
+
+  return {
+    createTaskGroup,
+    updateTaskGroup,
+  };
 }
 
 export function useCreateTaskGroup(projectId: string) {

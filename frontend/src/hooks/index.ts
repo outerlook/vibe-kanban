@@ -59,11 +59,13 @@ export {
   taskGroupKeys,
   useTaskGroups,
   useTaskGroup,
+  useTaskGroupMutations,
   useCreateTaskGroup,
   useUpdateTaskGroup,
   useDeleteTaskGroup,
   useAssignTasksToGroup,
 } from './useTaskGroups';
+export type { UseTaskGroupMutationsOptions } from './useTaskGroups';
 export { taskGroupStatsKeys, useTaskGroupStats } from './useTaskGroupStats';
 export { branchAncestorKeys, useBranchAncestorStatus } from './useBranchAncestorStatus';
 export { useGanttTasks } from './useGanttTasks';
