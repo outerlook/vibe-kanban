@@ -14,12 +14,18 @@ use crate::services::config::ConfigError;
 static CUSTOM_EDITORS_CACHE: LazyLock<RwLock<Arc<CustomEditorsConfig>>> =
     LazyLock::new(|| RwLock::new(Arc::new(CustomEditorsConfig::load_sync())));
 
+fn default_argument() -> String {
+    "%d".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 #[ts(export)]
 pub struct CustomEditor {
     pub id: Uuid,
     pub name: String,
     pub command: String,
+    #[serde(default = "default_argument")]
+    pub argument: String,
     pub icon: Option<String>,
     pub created_at: String,
 }
@@ -90,6 +96,7 @@ impl CustomEditorsConfig {
             id,
             name,
             command,
+            argument: default_argument(),
             icon: None,
             created_at: Utc::now().to_rfc3339(),
         };

@@ -295,6 +295,7 @@ mod tests {
                 id: custom_id,
                 name: "My Editor".to_string(),
                 command: "my-editor".to_string(),
+                argument: "%d".to_string(),
                 icon: None,
                 created_at: "now".to_string(),
             },

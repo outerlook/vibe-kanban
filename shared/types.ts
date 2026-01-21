@@ -480,7 +480,7 @@ export type EditorOpenError = { "type": "executable_not_found", executable: stri
 
 export type EditorIdentifier = { "type": "built_in" } & EditorType | { "type": "custom" } & string;
 
-export type CustomEditor = { id: string, name: string, command: string, icon: string | null, created_at: string, };
+export type CustomEditor = { id: string, name: string, command: string, argument: string, icon: string | null, created_at: string, };
 
 export type CustomEditorsConfig = { custom_editors: { [key in string]?: CustomEditor }, };
 
