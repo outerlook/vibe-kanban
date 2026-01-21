@@ -20,6 +20,7 @@ export function useCustomEditors() {
         id: editor.id,
         name: editor.name,
         command: editor.command,
+        argument: editor.argument,
         icon: editor.icon,
         created_at: editor.created_at,
         available: editor.available,

@@ -22,6 +22,8 @@ export interface CustomEditorDialogProps {
   onClose: () => void;
 }
 
+const DEFAULT_ARGUMENT = '%d';
+
 export function CustomEditorDialog({
   open,
   mode,
@@ -30,6 +32,7 @@ export function CustomEditorDialog({
 }: CustomEditorDialogProps) {
   const [name, setName] = useState('');
   const [command, setCommand] = useState('');
+  const [argument, setArgument] = useState(DEFAULT_ARGUMENT);
   const [error, setError] = useState<string | null>(null);
   const createEditor = useCreateCustomEditor();
   const updateEditor = useUpdateCustomEditor();
@@ -44,9 +47,11 @@ export function CustomEditorDialog({
     if (isEditMode && editor) {
       setName(editor.name);
       setCommand(editor.command);
+      setArgument(editor.argument);
     } else {
       setName('');
       setCommand('');
+      setArgument(DEFAULT_ARGUMENT);
     }
 
     setError(null);
@@ -73,16 +78,19 @@ export function CustomEditorDialog({
     setError(null);
 
     try {
+      const trimmedArgument = argument.trim() || null;
       if (isEditMode && editor) {
         await updateEditor.mutateAsync({
           id: editor.id,
           name: trimmedName,
           command: trimmedCommand,
+          argument: trimmedArgument,
         });
       } else {
         await createEditor.mutateAsync({
           name: trimmedName,
           command: trimmedCommand,
+          argument: trimmedArgument,
         });
       }
 
@@ -136,6 +144,23 @@ export function CustomEditorDialog({
               placeholder="e.g., code --folder-uri"
               disabled={isSaving}
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="custom-editor-argument">Arguments</Label>
+            <Input
+              id="custom-editor-argument"
+              value={argument}
+              onChange={(event) => {
+                setArgument(event.target.value);
+                setError(null);
+              }}
+              placeholder="%d"
+              disabled={isSaving}
+            />
+            <p className="text-xs text-muted-foreground">
+              Use %d for directory path, %f for file path
+            </p>
           </div>
 
           {error && (
