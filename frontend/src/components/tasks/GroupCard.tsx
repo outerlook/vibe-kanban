@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { getTaskGroupColorClass } from '@/lib/ganttColors';
-import { useBranchAncestorStatus, useGroupQueueCount } from '@/hooks';
+import { useBranchMergeStatus, useGroupQueueCount } from '@/hooks';
 import { useDeleteTaskGroup } from '@/hooks/useTaskGroups';
 import { StatusCountBadge } from './StatusCountBadge';
 import {
@@ -71,7 +71,7 @@ export function GroupCard({
 }: GroupCardProps) {
   const { t } = useTranslation('tasks');
   const { data: branchStatus, isLoading: isBranchLoading } =
-    useBranchAncestorStatus(repoId, group.base_branch ?? undefined);
+    useBranchMergeStatus(repoId, group.base_branch ?? undefined, projectId);
   const { data: queueCount } = useGroupQueueCount(group.id);
 
   const deleteMutation = useDeleteTaskGroup();
@@ -143,33 +143,39 @@ export function GroupCard({
               <div className="flex items-center gap-1.5 shrink-0">
                 {isBranchLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                ) : branchStatus?.is_ancestor ? (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div>
-                          <Check className="h-4 w-4 text-emerald-500" />
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom">
-                        Base branch is up to date
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                ) : (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div>
-                          <AlertTriangle className="h-4 w-4 text-amber-500" />
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom">
-                        Base branch needs updating
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
+                ) : branchStatus?.exists ? (
+                  branchStatus.is_merged ? (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div>
+                            <Check className="h-4 w-4 text-emerald-500" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          {branchStatus.target_branch
+                            ? `Branch merged into ${branchStatus.target_branch}`
+                            : 'Branch merged'}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div>
+                            <AlertTriangle className="h-4 w-4 text-amber-500" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          {branchStatus.target_branch
+                            ? `Branch not yet merged into ${branchStatus.target_branch}`
+                            : 'Branch not yet merged'}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )
+                ) : null}
               </div>
             )}
           </div>

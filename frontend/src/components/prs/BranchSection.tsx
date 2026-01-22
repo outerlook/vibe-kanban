@@ -22,7 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { PrCard, PrCardSkeleton, type PrData } from './PrCard';
 import { StatusCountBadge } from '@/components/tasks/StatusCountBadge';
 import { IdeIcon, getIdeName } from '@/components/ide/IdeIcon';
-import { useBranchAncestorStatus, useCustomEditors, useOpenInEditor } from '@/hooks';
+import { useBranchMergeStatus, useCustomEditors, useOpenInEditor } from '@/hooks';
 import { cn } from '@/lib/utils';
 import { EditorType } from 'shared/types';
 import type { TaskStatusCounts, TaskStatus } from 'shared/types';
@@ -42,6 +42,7 @@ export interface BranchSectionProps {
   prs: PrData[];
   taskCounts: TaskStatusCounts;
   repoId?: string;
+  projectId?: string;
   workspaceId?: string;
   defaultOpen?: boolean;
   className?: string;
@@ -52,6 +53,7 @@ export function BranchSection({
   prs,
   taskCounts,
   repoId,
+  projectId,
   workspaceId,
   defaultOpen = true,
   className,
@@ -65,7 +67,7 @@ export function BranchSection({
   }>({ open: false, x: 0, y: 0 });
 
   const { data: branchStatus, isLoading: isBranchLoading } =
-    useBranchAncestorStatus(repoId, branchName);
+    useBranchMergeStatus(repoId, branchName, projectId);
 
   const { data: customEditors = [] } = useCustomEditors();
   const openInEditor = useOpenInEditor(workspaceId);
@@ -133,16 +135,18 @@ export function BranchSection({
           <GitBranch className="w-4 h-4 flex-shrink-0 text-muted-foreground" />
           <span className="truncate">{branchName}</span>
 
-          {/* Git sync status */}
-          {repoId && (
+          {/* Git merge status */}
+          {repoId && projectId && (
             <span className="flex items-center ml-1">
               {isBranchLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              ) : branchStatus?.is_ancestor ? (
-                <Check className="h-4 w-4 text-emerald-500" />
-              ) : (
-                <AlertTriangle className="h-4 w-4 text-amber-500" />
-              )}
+              ) : branchStatus?.exists ? (
+                branchStatus.is_merged ? (
+                  <Check className="h-4 w-4 text-emerald-500" />
+                ) : (
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                )
+              ) : null}
             </span>
           )}
 

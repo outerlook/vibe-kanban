@@ -5,7 +5,7 @@ import {
   AccountInfo,
   ApprovalStatus,
   ApiResponse,
-  BranchAncestorStatus,
+  BranchMergeStatus,
   Config,
   CreateFollowUpAttempt,
   EditorType,
@@ -1212,18 +1212,19 @@ export const repoApi = {
     return handleApiResponse<GitBranch>(response);
   },
 
-  checkBranchAncestor: async (
+  checkBranchMergeStatus: async (
     repoId: string,
-    branchName: string
-  ): Promise<BranchAncestorStatus> => {
+    branchName: string,
+    projectId: string
+  ): Promise<BranchMergeStatus> => {
     const response = await makeRequest(
-      `/api/repos/${repoId}/branches/check-ancestor`,
+      `/api/repos/${repoId}/branches/check-merge-status`,
       {
         method: 'POST',
-        body: JSON.stringify({ branch_name: branchName }),
+        body: JSON.stringify({ branch_name: branchName, project_id: projectId }),
       }
     );
-    return handleApiResponse<BranchAncestorStatus>(response);
+    return handleApiResponse<BranchMergeStatus>(response);
   },
 
   init: async (data: {
