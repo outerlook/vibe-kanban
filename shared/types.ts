@@ -418,7 +418,13 @@ conflict_op: ConflictOp | null,
 /**
  * List of files currently in conflicted (unmerged) state
  */
-conflicted_files: Array<string>, };
+conflicted_files: Array<string>, 
+/**
+ * True if target branch checkout location has uncommitted tracked changes.
+ * `Some(false)` when target branch is clean or not checked out anywhere.
+ * `None` only if an error occurred while checking.
+ */
+target_branch_has_uncommitted_changes: boolean | null, };
 
 export type GitStateChangedMessage = { type: string, workspace_id: string, };
 
@@ -450,7 +456,13 @@ conflict_op: ConflictOp | null,
 /**
  * List of files currently in conflicted (unmerged) state
  */
-conflicted_files: Array<string>, };
+conflicted_files: Array<string>, 
+/**
+ * True if target branch checkout location has uncommitted tracked changes.
+ * `Some(false)` when target branch is clean or not checked out anywhere.
+ * `None` only if an error occurred while checking.
+ */
+target_branch_has_uncommitted_changes: boolean | null, };
 
 export type QueueMergeRequest = { repo_id: string, commit_message: string | null, };
 

@@ -515,6 +515,17 @@ function GitOperations({
         }
 
         const chips: React.ReactNode[] = [];
+        if (selectedRepoStatus?.target_branch_has_uncommitted_changes) {
+          chips.push(
+            <span
+              key="targetDirty"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100/60 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+            >
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {t('git.status.targetDirty')}
+            </span>
+          );
+        }
         if (commitsAhead > 0) {
           chips.push(
             <span

@@ -257,7 +257,8 @@
       "conflicts": "Conflicts",
       "upToDate": "Up to date",
       "ahead": "ahead",
-      "behind": "behind"
+      "behind": "behind",
+      "targetDirty": "Target dirty"
     },
     "states": {
       "merged": "Merged!",

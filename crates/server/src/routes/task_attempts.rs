@@ -907,6 +907,10 @@ pub struct BranchStatus {
     pub conflict_op: Option<ConflictOp>,
     /// List of files currently in conflicted (unmerged) state
     pub conflicted_files: Vec<String>,
+    /// True if target branch checkout location has uncommitted tracked changes.
+    /// `Some(false)` when target branch is clean or not checked out anywhere.
+    /// `None` only if an error occurred while checking.
+    pub target_branch_has_uncommitted_changes: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -975,7 +979,7 @@ pub async fn get_task_attempt_branch_status(
         let git = deployment.git();
 
         // Run independent git operations in parallel using spawn_blocking
-        let (head_result, rebase_result, conflicts_result, counts_result, branch_type_result) = tokio::join!(
+        let (head_result, rebase_result, conflicts_result, counts_result, branch_type_result, target_dirty_result) = tokio::join!(
             tokio::task::spawn_blocking({
                 let git = git.clone();
                 let path = worktree_path.clone();
@@ -1002,6 +1006,29 @@ pub async fn get_task_attempt_branch_status(
                 let target = target_branch.clone();
                 move || git.find_branch_type(&repo_path, &target)
             }),
+            // Check if target branch checkout location has uncommitted tracked changes
+            tokio::task::spawn_blocking({
+                let git = git.clone();
+                let repo_path = repo.path.clone();
+                let target = target_branch.clone();
+                move || -> Option<bool> {
+                    // Find where the target branch is checked out
+                    match git.find_checkout_path_for_branch(&repo_path, &target) {
+                        Ok(Some(checkout_path)) => {
+                            // Target branch is checked out somewhere, check for uncommitted tracked changes
+                            match git.get_worktree_change_counts(&checkout_path) {
+                                Ok((uncommitted_tracked, _untracked)) => Some(uncommitted_tracked > 0),
+                                Err(_) => None,
+                            }
+                        }
+                        Ok(None) => {
+                            // Target branch not checked out anywhere - safe (pure ref operations)
+                            Some(false)
+                        }
+                        Err(_) => None,
+                    }
+                }
+            }),
         );
 
         // Unwrap spawn_blocking results (JoinError would indicate thread panic)
@@ -1024,6 +1051,8 @@ pub async fn get_task_attempt_branch_status(
         let target_branch_type = branch_type_result
             .map_err(|e| ApiError::Internal(format!("spawn_blocking failed: {e}")))?
             .map_err(ApiError::from)?;
+        let target_branch_has_uncommitted_changes = target_dirty_result
+            .map_err(|e| ApiError::Internal(format!("spawn_blocking failed: {e}")))?;
 
         let has_uncommitted_changes = uncommitted_count.map(|c| c > 0);
 
@@ -1116,6 +1145,7 @@ pub async fn get_task_attempt_branch_status(
                 is_rebase_in_progress,
                 conflict_op,
                 conflicted_files,
+                target_branch_has_uncommitted_changes,
             },
         });
     }
