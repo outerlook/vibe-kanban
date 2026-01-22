@@ -165,13 +165,10 @@ impl MergeQueueProcessor {
 
         // Get paths
         let repo_path = &repo.path;
-        let worktree_path = workspace
-            .container_ref
-            .as_ref()
-            .map(std::path::PathBuf::from)
-            .ok_or_else(|| {
-                MergeQueueError::WorkspaceNotFound(workspace.id) // No container_ref means no worktree
-            })?;
+        let container_ref = workspace.container_ref.as_ref().ok_or_else(|| {
+            MergeQueueError::WorkspaceNotFound(workspace.id) // No container_ref means no worktree
+        })?;
+        let worktree_path = std::path::PathBuf::from(container_ref).join(&repo.name);
 
         let task_branch = &workspace.branch;
         let base_branch = &workspace_repo.target_branch;
