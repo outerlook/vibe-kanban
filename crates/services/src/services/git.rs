@@ -1778,6 +1778,41 @@ impl GitService {
         Ok(is_ancestor)
     }
 
+    /// Check if a branch has been merged into a target branch.
+    ///
+    /// Returns:
+    /// - `Ok(None)` if the source branch doesn't exist
+    /// - `Ok(Some(true))` if the source branch is merged into the target
+    /// - `Ok(Some(false))` if the source branch exists but is not merged
+    /// - `Err(BranchNotFound)` if the target branch doesn't exist
+    pub fn is_branch_merged_into(
+        &self,
+        repo_path: &Path,
+        branch_name: &str,
+        target_branch: &str,
+    ) -> Result<Option<bool>, GitServiceError> {
+        let repo = self.open_repo(repo_path)?;
+
+        // Check if source branch exists - return None if not found
+        let source_branch = match Self::find_branch(&repo, branch_name) {
+            Ok(branch) => branch,
+            Err(GitServiceError::BranchNotFound(_)) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+
+        // Check if target branch exists - return error if not found
+        let target_branch_ref = Self::find_branch(&repo, target_branch)?;
+
+        // Get OIDs for both branches
+        let source_oid = source_branch.get().peel_to_commit()?.id().to_string();
+        let target_oid = target_branch_ref.get().peel_to_commit()?.id().to_string();
+
+        // Use gix to check if source is ancestor of target (i.e., merged into target)
+        let gix_repo = GixReader::open(repo_path)?;
+        let is_merged = GixReader::is_ancestor_by_oid(&gix_repo, &source_oid, &target_oid)?;
+        Ok(Some(is_merged))
+    }
+
     /// Collect file statistics from recent commits for ranking purposes
     pub fn collect_recent_file_stats(
         &self,
@@ -2056,5 +2091,136 @@ mod tests {
         let (git_uncommitted, git_untracked) = git_status_counts(&worktree_path);
         assert_eq!(uncommitted, git_uncommitted);
         assert_eq!(untracked, git_untracked);
+    }
+
+    /// Test is_branch_merged_into with a merged branch
+    #[test]
+    fn test_is_branch_merged_into_merged() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        // Create a feature branch
+        Command::new("git")
+            .args(["checkout", "-b", "feature"])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to create feature branch");
+
+        // Add a commit on feature
+        fs::write(repo_path.join("feature.txt"), "feature content").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "Feature commit"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        // Go back to main and merge feature
+        Command::new("git")
+            .args(["checkout", "main"])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to checkout main");
+
+        Command::new("git")
+            .args(["merge", "feature", "--no-ff", "-m", "Merge feature"])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to merge feature");
+
+        let git_service = GitService::new();
+        let result = git_service
+            .is_branch_merged_into(repo_path, "feature", "main")
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Some(true),
+            "Feature branch should be merged into main"
+        );
+    }
+
+    /// Test is_branch_merged_into with a non-merged branch
+    #[test]
+    fn test_is_branch_merged_into_not_merged() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        // Create a feature branch with a commit
+        Command::new("git")
+            .args(["checkout", "-b", "feature"])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to create feature branch");
+
+        fs::write(repo_path.join("feature.txt"), "feature content").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "Feature commit"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        // Go back to main (don't merge)
+        Command::new("git")
+            .args(["checkout", "main"])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to checkout main");
+
+        let git_service = GitService::new();
+        let result = git_service
+            .is_branch_merged_into(repo_path, "feature", "main")
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Some(false),
+            "Feature branch should NOT be merged into main"
+        );
+    }
+
+    /// Test is_branch_merged_into with a non-existent source branch
+    #[test]
+    fn test_is_branch_merged_into_nonexistent_source() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        let git_service = GitService::new();
+        let result = git_service
+            .is_branch_merged_into(repo_path, "nonexistent-branch", "main")
+            .unwrap();
+
+        assert_eq!(
+            result, None,
+            "Should return None for non-existent source branch"
+        );
+    }
+
+    /// Test is_branch_merged_into with a non-existent target branch
+    #[test]
+    fn test_is_branch_merged_into_nonexistent_target() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        let git_service = GitService::new();
+        let result = git_service.is_branch_merged_into(repo_path, "main", "nonexistent-target");
+
+        assert!(
+            matches!(result, Err(GitServiceError::BranchNotFound(_))),
+            "Should return BranchNotFound error for non-existent target branch"
+        );
     }
 }
