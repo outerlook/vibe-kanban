@@ -1,3 +1,4 @@
+import { useCallback, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { attemptsApi } from '@/lib/api';
 import type {
@@ -21,6 +22,7 @@ export function useAttemptCreation({
   onSuccess,
 }: UseAttemptCreationArgs) {
   const queryClient = useQueryClient();
+  const isCreatingRef = useRef(false);
 
   const mutation = useMutation({
     mutationFn: ({ profile, repos }: CreateAttemptArgs) =>
@@ -38,8 +40,21 @@ export function useAttemptCreation({
     },
   });
 
+  const createAttempt = useCallback(
+    async (args: CreateAttemptArgs) => {
+      if (isCreatingRef.current) return;
+      isCreatingRef.current = true;
+      try {
+        return await mutation.mutateAsync(args);
+      } finally {
+        isCreatingRef.current = false;
+      }
+    },
+    [mutation]
+  );
+
   return {
-    createAttempt: mutation.mutateAsync,
+    createAttempt,
     isCreating: mutation.isPending,
     error: mutation.error,
   };
