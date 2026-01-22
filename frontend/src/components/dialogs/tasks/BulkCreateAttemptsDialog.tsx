@@ -40,8 +40,7 @@ type CreationResult = {
 
 type CreationState =
   | { phase: 'idle' }
-  | { phase: 'creating'; currentIndex: number; results: CreationResult[] }
-  | { phase: 'completed'; results: CreationResult[] };
+  | { phase: 'creating'; currentIndex: number; results: CreationResult[] };
 
 const BulkCreateAttemptsDialogImpl =
   NiceModal.create<BulkCreateAttemptsDialogProps>(({ taskIds }) => {
@@ -100,15 +99,13 @@ const BulkCreateAttemptsDialogImpl =
     );
 
     const isCreating = creationState.phase === 'creating';
-    const isCompleted = creationState.phase === 'completed';
 
     const canCreate = Boolean(
       effectiveProfile &&
       allBranchesSelected &&
       projectRepos.length > 0 &&
       !isCreating &&
-      !isLoadingInitial &&
-      !isCompleted
+      !isLoadingInitial
     );
 
     const createAttemptForTask = useCallback(
@@ -162,20 +159,8 @@ const BulkCreateAttemptsDialogImpl =
         results.push(result);
       }
 
-      setCreationState({ phase: 'completed', results });
-    }, [
-      effectiveProfile,
-      allBranchesSelected,
-      projectRepos.length,
-      getWorkspaceRepoInputs,
-      taskIds,
-      createAttemptForTask,
-    ]);
-
-    const handleComplete = useCallback(() => {
-      if (creationState.phase !== 'completed') return;
-
-      const firstSuccess = creationState.results.find((r) => r.success);
+      // Find first successful attempt and navigate to it
+      const firstSuccess = results.find((r) => r.success);
       clearSelection();
 
       if (firstSuccess && projectId) {
@@ -185,22 +170,24 @@ const BulkCreateAttemptsDialogImpl =
       }
 
       modal.hide();
-    }, [creationState, clearSelection, projectId, navigate, modal]);
+    }, [
+      effectiveProfile,
+      allBranchesSelected,
+      projectRepos.length,
+      getWorkspaceRepoInputs,
+      taskIds,
+      createAttemptForTask,
+      clearSelection,
+      projectId,
+      navigate,
+      modal,
+    ]);
 
     const handleOpenChange = (open: boolean) => {
       if (!open && !isCreating) {
         modal.hide();
       }
     };
-
-    const successCount =
-      creationState.phase === 'completed'
-        ? creationState.results.filter((r) => r.success).length
-        : 0;
-    const failedCount =
-      creationState.phase === 'completed'
-        ? creationState.results.filter((r) => !r.success).length
-        : 0;
 
     const progressPercent =
       creationState.phase === 'creating'
@@ -215,33 +202,13 @@ const BulkCreateAttemptsDialogImpl =
               {t('bulkCreateAttemptsDialog.title', { count: taskIds.length })}
             </DialogTitle>
             <DialogDescription>
-              {isCompleted
-                ? t('bulkCreateAttemptsDialog.completedDescription')
-                : t('bulkCreateAttemptsDialog.description', {
-                    count: taskIds.length,
-                  })}
+              {t('bulkCreateAttemptsDialog.description', {
+                count: taskIds.length,
+              })}
             </DialogDescription>
           </DialogHeader>
 
-          {isCompleted ? (
-            <div className="space-y-4 py-4">
-              <div className="text-center">
-                <p className="text-sm">
-                  {t('bulkCreateAttemptsDialog.summary', {
-                    success: successCount,
-                    total: taskIds.length,
-                    failed: failedCount,
-                  })}
-                </p>
-                {failedCount > 0 && (
-                  <p className="text-sm text-muted-foreground mt-2">
-                    {t('bulkCreateAttemptsDialog.someFailedHint')}
-                  </p>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-4 py-4">
+          <div className="space-y-4 py-4">
               {isCreating ? (
                 <div className="space-y-3">
                   <p className="text-sm text-muted-foreground text-center">
@@ -276,34 +243,23 @@ const BulkCreateAttemptsDialogImpl =
                   />
                 </>
               )}
-            </div>
-          )}
+          </div>
 
           <DialogFooter>
-            {isCompleted ? (
-              <Button onClick={handleComplete}>
-                {successCount > 0
-                  ? t('bulkCreateAttemptsDialog.goToFirst')
-                  : t('common:buttons.close')}
-              </Button>
-            ) : (
-              <>
-                <Button
-                  variant="outline"
-                  onClick={() => modal.hide()}
-                  disabled={isCreating}
-                >
-                  {t('common:buttons.cancel')}
-                </Button>
-                <Button onClick={handleCreate} disabled={!canCreate}>
-                  {isCreating
-                    ? t('bulkCreateAttemptsDialog.creating')
-                    : t('bulkCreateAttemptsDialog.start', {
-                        count: taskIds.length,
-                      })}
-                </Button>
-              </>
-            )}
+            <Button
+              variant="outline"
+              onClick={() => modal.hide()}
+              disabled={isCreating}
+            >
+              {t('common:buttons.cancel')}
+            </Button>
+            <Button onClick={handleCreate} disabled={!canCreate}>
+              {isCreating
+                ? t('bulkCreateAttemptsDialog.creating')
+                : t('bulkCreateAttemptsDialog.start', {
+                    count: taskIds.length,
+                  })}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

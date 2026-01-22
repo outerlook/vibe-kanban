@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/select';
 import { Plus } from 'lucide-react';
 import { useTaskGroups, useAssignTasksToGroup } from '@/hooks/useTaskGroups';
+import { useTaskSelection } from '@/contexts/TaskSelectionContext';
 import { TaskGroupFormDialog } from './TaskGroupFormDialog';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
@@ -34,6 +35,7 @@ const BulkAssignGroupDialogImpl = NiceModal.create<BulkAssignGroupDialogProps>(
   ({ projectId, taskIds }) => {
     const modal = useModal();
     const { t } = useTranslation(['tasks', 'common']);
+    const { clearSelection } = useTaskSelection();
 
     const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -80,6 +82,7 @@ const BulkAssignGroupDialogImpl = NiceModal.create<BulkAssignGroupDialogProps>(
           taskIds,
           projectId,
         });
+        clearSelection();
         modal.hide();
       } catch (err) {
         console.error('Failed to assign tasks to group:', err);

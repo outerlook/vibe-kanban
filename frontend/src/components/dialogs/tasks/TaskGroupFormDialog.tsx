@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import BranchSelector from '@/components/tasks/BranchSelector';
 import { useProjectRepos, useRepoBranches } from '@/hooks';
-import { useCreateTaskGroup, useUpdateTaskGroup } from '@/hooks/useTaskGroups';
+import { useTaskGroupMutations } from '@/hooks/useTaskGroups';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal, type SaveResult } from '@/lib/modals';
 import type { TaskGroup } from 'shared/types';
@@ -45,10 +45,27 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
         enabled: modal.visible && !!primaryRepo,
       });
 
-    const createMutation = useCreateTaskGroup(projectId);
-    const updateMutation = useUpdateTaskGroup();
+    const { createTaskGroup, updateTaskGroup } = useTaskGroupMutations(
+      projectId,
+      {
+        onCreateSuccess: () => {
+          modal.resolve('saved' as SaveResult);
+          modal.hide();
+        },
+        onCreateError: () => {
+          setError(t('taskGroupFormDialog.errors.createFailed'));
+        },
+        onUpdateSuccess: () => {
+          modal.resolve('saved' as SaveResult);
+          modal.hide();
+        },
+        onUpdateError: () => {
+          setError(t('taskGroupFormDialog.errors.updateFailed'));
+        },
+      }
+    );
 
-    const isLoading = createMutation.isPending || updateMutation.isPending;
+    const isLoading = createTaskGroup.isPending || updateTaskGroup.isPending;
     const isLoadingInitial = isLoadingRepos || isLoadingBranches;
 
     // Initialize form state when dialog opens or group changes
@@ -67,7 +84,7 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
 
     const canSubmit = !!name.trim() && !isLoading && !isLoadingInitial;
 
-    const handleSubmit = async () => {
+    const handleSubmit = () => {
       const trimmedName = name.trim();
       if (!trimmedName) {
         setError(t('taskGroupFormDialog.errors.nameRequired'));
@@ -76,31 +93,19 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
 
       setError(null);
 
-      try {
-        if (props.mode === 'create') {
-          await createMutation.mutateAsync({
+      if (props.mode === 'create') {
+        createTaskGroup.mutate({
+          name: trimmedName,
+          base_branch: baseBranch,
+        });
+      } else {
+        updateTaskGroup.mutate({
+          groupId: props.group.id,
+          data: {
             name: trimmedName,
             base_branch: baseBranch,
-          });
-        } else {
-          await updateMutation.mutateAsync({
-            groupId: props.group.id,
-            data: {
-              name: trimmedName,
-              base_branch: baseBranch,
-            },
-          });
-        }
-
-        modal.resolve('saved' as SaveResult);
-        modal.hide();
-      } catch (err) {
-        console.error('Failed to save task group:', err);
-        setError(
-          props.mode === 'create'
-            ? t('taskGroupFormDialog.errors.createFailed')
-            : t('taskGroupFormDialog.errors.updateFailed')
-        );
+          },
+        });
       }
     };
 
