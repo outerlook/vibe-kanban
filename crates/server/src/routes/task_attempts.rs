@@ -6,10 +6,17 @@ pub mod pr;
 pub mod util;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
+    sync::{LazyLock, Mutex},
     time::Duration,
 };
+
+/// Tracks which projects have an active merge queue processor.
+/// This prevents multiple processors from being spawned for the same project,
+/// which could cause race conditions when processing the queue.
+static ACTIVE_MERGE_PROCESSORS: LazyLock<Mutex<HashSet<Uuid>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 
 use axum::{
     Extension, Json, Router,
@@ -2014,20 +2021,37 @@ pub async fn queue_merge(
     )
     .await?;
 
-    // Spawn background processor
-    let processor_pool = pool.clone();
-    let processor_git = deployment.git().clone();
+    // Spawn background processor only if one isn't already running for this project.
+    // This prevents race conditions where multiple processors could claim the same entries.
     let project_id = task.project_id;
-    tokio::spawn(async move {
-        let processor = MergeQueueProcessor::new(processor_pool, processor_git);
-        if let Err(e) = processor.process_project_queue(project_id).await {
-            tracing::error!(
-                %project_id,
-                error = %e,
-                "Failed to process merge queue"
-            );
+    let should_spawn = {
+        let mut active = ACTIVE_MERGE_PROCESSORS.lock().unwrap();
+        if active.contains(&project_id) {
+            false
+        } else {
+            active.insert(project_id);
+            true
         }
-    });
+    };
+
+    if should_spawn {
+        let processor_pool = pool.clone();
+        let processor_git = deployment.git().clone();
+        tokio::spawn(async move {
+            let processor = MergeQueueProcessor::new(processor_pool, processor_git);
+            if let Err(e) = processor.process_project_queue(project_id).await {
+                tracing::error!(
+                    %project_id,
+                    error = %e,
+                    "Failed to process merge queue"
+                );
+            }
+            // Always remove from active set when done, regardless of success/failure
+            if let Ok(mut active) = ACTIVE_MERGE_PROCESSORS.lock() {
+                active.remove(&project_id);
+            }
+        });
+    }
 
     deployment
         .track_if_analytics_allowed(

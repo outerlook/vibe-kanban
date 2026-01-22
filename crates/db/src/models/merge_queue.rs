@@ -145,48 +145,39 @@ impl MergeQueue {
     /// Claim the next queued entry for processing by atomically updating its status to 'merging'.
     /// Unlike `pop_next`, this preserves the entry in the database for status tracking.
     /// Returns None if no queued entries exist for the project.
+    ///
+    /// This uses a single atomic UPDATE with a subquery to prevent race conditions
+    /// where multiple processors could claim the same entry.
     pub async fn claim_next(
         pool: &SqlitePool,
         project_id: Uuid,
     ) -> Result<Option<Self>, sqlx::Error> {
-        // Get the oldest queued entry for this project
-        let entry = sqlx::query_as!(
-            MergeQueue,
-            r#"SELECT
-                id AS "id!: Uuid",
-                project_id AS "project_id!: Uuid",
-                workspace_id AS "workspace_id!: Uuid",
-                repo_id AS "repo_id!: Uuid",
-                queued_at AS "queued_at!: DateTime<Utc>",
-                status AS "status!: MergeQueueStatus",
-                conflict_message,
-                commit_message,
-                started_at AS "started_at: DateTime<Utc>",
-                completed_at AS "completed_at: DateTime<Utc>"
-            FROM merge_queue
-            WHERE project_id = ? AND status = 'queued'
-            ORDER BY queued_at ASC
-            LIMIT 1"#,
+        let now = Utc::now();
+
+        // Atomic UPDATE: find and claim in one statement
+        // The subquery finds the oldest queued entry, and we update only that one
+        // If another processor already claimed it (status changed), this affects 0 rows
+        let result = sqlx::query!(
+            r#"UPDATE merge_queue
+               SET status = 'merging', started_at = ?
+               WHERE id = (
+                   SELECT id FROM merge_queue
+                   WHERE project_id = ? AND status = 'queued'
+                   ORDER BY queued_at ASC
+                   LIMIT 1
+               ) AND status = 'queued'
+               RETURNING id AS "id!: Uuid""#,
+            now,
             project_id
         )
         .fetch_optional(pool)
         .await?;
 
-        // If found, update status to 'merging' to claim it
-        if let Some(ref e) = entry {
-            let now = Utc::now();
-            sqlx::query!(
-                r#"UPDATE merge_queue
-                   SET status = 'merging', started_at = ?
-                   WHERE id = ?"#,
-                now,
-                e.id
-            )
-            .execute(pool)
-            .await?;
+        // If we successfully claimed an entry, fetch it
+        match result {
+            Some(row) => Self::find_by_id(pool, row.id).await,
+            None => Ok(None),
         }
-
-        Ok(entry)
     }
 
     /// Update the status of a merge queue entry
