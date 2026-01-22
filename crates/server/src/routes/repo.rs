@@ -200,11 +200,19 @@ pub async fn check_branch_merge_status(
             is_merged,
             target_branch: Some(target_branch),
         },
-        Err(_) => BranchMergeStatus {
-            exists: false,
-            is_merged: false,
-            target_branch: Some(target_branch),
-        },
+        Err(e) => {
+            tracing::warn!(
+                branch = %payload.branch_name,
+                target = %target_branch,
+                error = %e,
+                "Failed to check branch merge status"
+            );
+            BranchMergeStatus {
+                exists: false,
+                is_merged: false,
+                target_branch: Some(target_branch),
+            }
+        }
     };
 
     Ok(ResponseJson(ApiResponse::success(status)))

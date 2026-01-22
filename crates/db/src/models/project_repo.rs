@@ -267,10 +267,7 @@ impl ProjectRepo {
         let parallel_setup_script = payload
             .parallel_setup_script
             .unwrap_or(existing.parallel_setup_script);
-        let merge_target_branch = payload
-            .merge_target_branch
-            .clone()
-            .or(existing.merge_target_branch);
+        let merge_target_branch = payload.merge_target_branch.clone();
 
         sqlx::query_as!(
             ProjectRepo,
