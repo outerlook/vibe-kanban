@@ -426,9 +426,19 @@ impl WorkspaceWithSession {
         pool: &SqlitePool,
         task_id: Option<Uuid>,
     ) -> Result<Vec<Self>, WorkspaceError> {
-        // Use a raw query since we need to handle the complex LEFT JOIN with subquery
+        // Use CTE with window function for O(1) per workspace instead of correlated subquery
         let rows = sqlx::query!(
             r#"
+            WITH latest_sessions AS (
+                SELECT
+                    id,
+                    workspace_id,
+                    executor,
+                    created_at,
+                    updated_at,
+                    ROW_NUMBER() OVER (PARTITION BY workspace_id ORDER BY created_at DESC) AS rn
+                FROM sessions
+            )
             SELECT
                 w.id AS "w_id!: Uuid",
                 w.task_id AS "w_task_id!: Uuid",
@@ -444,14 +454,7 @@ impl WorkspaceWithSession {
                 s.created_at AS "s_created_at: DateTime<Utc>",
                 s.updated_at AS "s_updated_at: DateTime<Utc>"
             FROM workspaces w
-            LEFT JOIN sessions s
-                ON s.id = (
-                    SELECT s2.id
-                    FROM sessions s2
-                    WHERE s2.workspace_id = w.id
-                    ORDER BY s2.created_at DESC
-                    LIMIT 1
-                )
+            LEFT JOIN latest_sessions s ON s.workspace_id = w.id AND s.rn = 1
             WHERE ($1 IS NULL OR w.task_id = $1)
             ORDER BY w.created_at DESC
             "#,
