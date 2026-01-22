@@ -110,46 +110,6 @@ export function useTaskGroupMutations(
   };
 }
 
-export function useCreateTaskGroup(projectId: string) {
-  const queryClient = useQueryClient();
-
-  return useMutation<TaskGroup, unknown, Omit<CreateTaskGroup, 'project_id'>>({
-    mutationFn: (data) =>
-      taskGroupsApi.create({ ...data, project_id: projectId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: taskGroupKeys.byProject(projectId),
-      });
-    },
-    onError: (err) => {
-      console.error('Failed to create task group:', err);
-    },
-  });
-}
-
-export function useUpdateTaskGroup() {
-  const queryClient = useQueryClient();
-
-  return useMutation<
-    TaskGroup,
-    unknown,
-    { groupId: string; data: UpdateTaskGroup }
-  >({
-    mutationFn: ({ groupId, data }) => taskGroupsApi.update(groupId, data),
-    onSuccess: (updatedGroup) => {
-      queryClient.invalidateQueries({
-        queryKey: taskGroupKeys.byId(updatedGroup.id),
-      });
-      queryClient.invalidateQueries({
-        queryKey: taskGroupKeys.byProject(updatedGroup.project_id),
-      });
-    },
-    onError: (err) => {
-      console.error('Failed to update task group:', err);
-    },
-  });
-}
-
 export function useDeleteTaskGroup() {
   const queryClient = useQueryClient();
 
