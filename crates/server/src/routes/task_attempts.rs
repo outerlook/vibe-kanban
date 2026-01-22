@@ -20,11 +20,12 @@ use axum::{
     http::StatusCode,
     middleware::from_fn_with_state,
     response::{IntoResponse, Json as ResponseJson},
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
     execution_process_normalized_entry::ExecutionProcessNormalizedEntry,
+    execution_queue::ExecutionQueue,
     merge::{Merge, MergeStatus, PrMerge, PullRequestInfo},
     merge_queue::{MergeQueue, MergeQueueStatus},
     project_repo::ProjectRepo,
@@ -2034,6 +2035,29 @@ pub async fn cancel_queue_merge(
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
+/// DELETE /task-attempts/{id}/execution-queue - Cancel a queued execution
+#[axum::debug_handler]
+pub async fn cancel_execution_queue(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<StatusCode, ApiError> {
+    let pool = &deployment.db().pool;
+
+    ExecutionQueue::delete_by_workspace(pool, workspace.id).await?;
+    Task::update_materialized_status(pool, workspace.task_id).await?;
+
+    deployment
+        .track_if_analytics_allowed(
+            "execution_queue_entry_cancelled",
+            serde_json::json!({
+                "workspace_id": workspace.id.to_string(),
+            }),
+        )
+        .await;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// GET /task-attempts/{id}/queue-status - Get merge queue status for a workspace
 #[axum::debug_handler]
 pub async fn get_queue_status(
@@ -2079,6 +2103,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             post(queue_merge).delete(cancel_queue_merge),
         )
         .route("/queue-status", get(get_queue_status))
+        .route("/execution-queue", delete(cancel_execution_queue))
         .layer(from_fn_with_state(
             deployment.clone(),
             load_workspace_middleware,
