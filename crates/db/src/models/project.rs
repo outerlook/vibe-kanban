@@ -31,6 +31,20 @@ pub struct Project {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+pub struct ProjectTaskCounts {
+    pub inprogress: i64,
+    pub inreview: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ProjectWithTaskCounts {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub project: Project,
+    pub task_counts: ProjectTaskCounts,
+}
+
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct CreateProject {
     pub name: String,
@@ -66,22 +80,60 @@ impl Project {
             .await
     }
 
-    pub async fn find_all(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as!(
-            Project,
-            r#"SELECT id as "id!: Uuid",
-                      name,
-                      dev_script,
-                      dev_script_working_dir,
-                      default_agent_working_dir,
-                      remote_project_id as "remote_project_id: Uuid",
-                      created_at as "created_at!: DateTime<Utc>",
-                      updated_at as "updated_at!: DateTime<Utc>"
-               FROM projects
-               ORDER BY created_at DESC"#
+    pub async fn find_all(pool: &SqlitePool) -> Result<Vec<ProjectWithTaskCounts>, sqlx::Error> {
+        #[derive(FromRow)]
+        struct Row {
+            id: Uuid,
+            name: String,
+            dev_script: Option<String>,
+            dev_script_working_dir: Option<String>,
+            default_agent_working_dir: Option<String>,
+            remote_project_id: Option<Uuid>,
+            created_at: DateTime<Utc>,
+            updated_at: DateTime<Utc>,
+            inprogress: i64,
+            inreview: i64,
+        }
+
+        let rows: Vec<Row> = sqlx::query_as(
+            r#"SELECT
+                p.id,
+                p.name,
+                p.dev_script,
+                p.dev_script_working_dir,
+                p.default_agent_working_dir,
+                p.remote_project_id,
+                p.created_at,
+                p.updated_at,
+                COALESCE(SUM(CASE WHEN t.status = 'inprogress' THEN 1 ELSE 0 END), 0) AS inprogress,
+                COALESCE(SUM(CASE WHEN t.status = 'inreview' THEN 1 ELSE 0 END), 0) AS inreview
+            FROM projects p
+            LEFT JOIN tasks t ON t.project_id = p.id
+            GROUP BY p.id
+            ORDER BY p.created_at DESC"#,
         )
         .fetch_all(pool)
-        .await
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| ProjectWithTaskCounts {
+                project: Project {
+                    id: row.id,
+                    name: row.name,
+                    dev_script: row.dev_script,
+                    dev_script_working_dir: row.dev_script_working_dir,
+                    default_agent_working_dir: row.default_agent_working_dir,
+                    remote_project_id: row.remote_project_id,
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                },
+                task_counts: ProjectTaskCounts {
+                    inprogress: row.inprogress,
+                    inreview: row.inreview,
+                },
+            })
+            .collect())
     }
 
     /// Find the most actively used projects based on recent task activity
