@@ -6,6 +6,8 @@ use std::{
     time::Duration,
 };
 
+use dashmap::DashSet;
+
 use anyhow::anyhow;
 use async_trait::async_trait;
 use command_group::AsyncGroupChild;
@@ -133,6 +135,8 @@ pub struct LocalContainerService {
     watcher_manager: WatcherManager,
     /// Execution IDs for which feedback parser is pending - skip msg_store cleanup in exit monitor
     feedback_pending_cleanup: Arc<RwLock<HashSet<Uuid>>>,
+    /// Workspace IDs that currently have a running agent - used to prevent duplicate spawns
+    running_workspaces: Arc<DashSet<Uuid>>,
 }
 
 impl LocalContainerService {
@@ -152,6 +156,7 @@ impl LocalContainerService {
         let interrupt_senders = Arc::new(RwLock::new(HashMap::new()));
         let notification_service = NotificationService::new(config.clone());
         let feedback_pending_cleanup = Arc::new(RwLock::new(HashSet::new()));
+        let running_workspaces = Arc::new(DashSet::new());
 
         let container = LocalContainerService {
             db,
@@ -168,6 +173,7 @@ impl LocalContainerService {
             notification_service,
             watcher_manager: WatcherManager::new(),
             feedback_pending_cleanup,
+            running_workspaces,
         };
 
         container.spawn_workspace_cleanup().await;
