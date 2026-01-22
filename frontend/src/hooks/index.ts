@@ -73,4 +73,5 @@ export {
   type TaskFiltersHook,
 } from './useTaskFilters';
 export { useFilteredTasks, type UseFilteredTasksResult } from './useFilteredTasks';
+export { useCanBulkCreateAttempts } from './useCanBulkCreateAttempts';
 export { workspaceKeys, useProjectWorkspaces } from './useProjectWorkspaces';
