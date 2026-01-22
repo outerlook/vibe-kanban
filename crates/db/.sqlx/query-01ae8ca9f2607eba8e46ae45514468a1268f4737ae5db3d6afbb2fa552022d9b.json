@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n            SELECT\n                w.id AS \"w_id!: Uuid\",\n                w.task_id AS \"w_task_id!: Uuid\",\n                w.container_ref AS \"w_container_ref: String\",\n                w.branch AS \"w_branch!: String\",\n                w.agent_working_dir AS \"w_agent_working_dir: String\",\n                w.setup_completed_at AS \"w_setup_completed_at: DateTime<Utc>\",\n                w.created_at AS \"w_created_at!: DateTime<Utc>\",\n                w.updated_at AS \"w_updated_at!: DateTime<Utc>\",\n                s.id AS \"s_id: Uuid\",\n                s.workspace_id AS \"s_workspace_id: Uuid\",\n                s.executor AS \"s_executor: String\",\n                s.created_at AS \"s_created_at: DateTime<Utc>\",\n                s.updated_at AS \"s_updated_at: DateTime<Utc>\"\n            FROM workspaces w\n            LEFT JOIN sessions s\n                ON s.id = (\n                    SELECT s2.id\n                    FROM sessions s2\n                    WHERE s2.workspace_id = w.id\n                    ORDER BY s2.created_at DESC\n                    LIMIT 1\n                )\n            WHERE ($1 IS NULL OR w.task_id = $1)\n            ORDER BY w.created_at DESC\n            ",
+  "query": "\n            WITH latest_sessions AS (\n                SELECT\n                    id,\n                    workspace_id,\n                    executor,\n                    created_at,\n                    updated_at,\n                    ROW_NUMBER() OVER (PARTITION BY workspace_id ORDER BY created_at DESC) AS rn\n                FROM sessions\n            )\n            SELECT\n                w.id AS \"w_id!: Uuid\",\n                w.task_id AS \"w_task_id!: Uuid\",\n                w.container_ref AS \"w_container_ref: String\",\n                w.branch AS \"w_branch!: String\",\n                w.agent_working_dir AS \"w_agent_working_dir: String\",\n                w.setup_completed_at AS \"w_setup_completed_at: DateTime<Utc>\",\n                w.created_at AS \"w_created_at!: DateTime<Utc>\",\n                w.updated_at AS \"w_updated_at!: DateTime<Utc>\",\n                s.id AS \"s_id: Uuid\",\n                s.workspace_id AS \"s_workspace_id: Uuid\",\n                s.executor AS \"s_executor: String\",\n                s.created_at AS \"s_created_at: DateTime<Utc>\",\n                s.updated_at AS \"s_updated_at: DateTime<Utc>\"\n            FROM workspaces w\n            LEFT JOIN latest_sessions s ON s.workspace_id = w.id AND s.rn = 1\n            WHERE ($1 IS NULL OR w.task_id = $1)\n            ORDER BY w.created_at DESC\n            ",
   "describe": {
     "columns": [
       {
@@ -88,5 +88,5 @@
       true
     ]
   },
-  "hash": "aa1d30cb23823cd46367006b4a25d85c9107132f1195d81a2a00a7290e65e5b7"
+  "hash": "01ae8ca9f2607eba8e46ae45514468a1268f4737ae5db3d6afbb2fa552022d9b"
 }

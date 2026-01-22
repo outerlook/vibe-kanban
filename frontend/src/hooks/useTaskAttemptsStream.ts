@@ -46,8 +46,8 @@ export const useTaskAttemptsStream = (
     });
   }, [attemptsById]);
 
-  // isLoading = connected but no data received yet
-  const isLoading = isConnected && data === undefined;
+  // isLoading = we want data (taskId exists) but don't have it yet
+  const isLoading = !!taskId && data === undefined;
 
   return {
     attempts,
