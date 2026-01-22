@@ -57,7 +57,9 @@ import { useTranslation } from 'react-i18next';
 import { useScratch } from '@/hooks/useScratch';
 import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import { useQueueStatus } from '@/hooks/useQueueStatus';
+import { useQueryClient } from '@tanstack/react-query';
 import { imagesApi, attemptsApi } from '@/lib/api';
+import { invalidateTaskQueries } from '@/lib/queryInvalidation';
 import { GitHubCommentsDialog } from '@/components/dialogs/tasks/GitHubCommentsDialog';
 import type { NormalizedComment } from '@/components/ui/wysiwyg/nodes/github-comment-node';
 import type { Session } from 'shared/types';
@@ -73,6 +75,10 @@ export function TaskFollowUpSection({
 }: TaskFollowUpSectionProps) {
   const { t } = useTranslation('tasks');
   const { projectId } = useProject();
+  const queryClient = useQueryClient();
+
+  // State for cancelling queued execution
+  const [isCancellingExecution, setIsCancellingExecution] = useState(false);
 
   // Derive IDs from session
   const workspaceId = session?.workspace_id;
@@ -411,6 +417,23 @@ export function TaskFollowUpSection({
     }
   }, [workspaceId, isAttemptRunning]);
 
+  // Handler to cancel a queued execution
+  const handleCancelQueuedExecution = useCallback(async () => {
+    if (!workspaceId) return;
+    setIsCancellingExecution(true);
+    try {
+      await attemptsApi.cancelQueuedExecution(workspaceId);
+      invalidateTaskQueries(queryClient, task.id, {
+        projectId,
+        includeAttempts: true,
+      });
+    } catch (error) {
+      console.error('Failed to cancel queued execution:', error);
+    } finally {
+      setIsCancellingExecution(false);
+    }
+  }, [workspaceId, queryClient, task.id, projectId]);
+
   // Handler to queue the current message for execution after agent finishes
   const handleQueueMessage = useCallback(async () => {
     if (
@@ -748,6 +771,36 @@ export function TaskFollowUpSection({
                     'followUp.globallyQueued',
                     'Your follow-up has been queued and will start when capacity is available.'
                   )}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Execution queue indicator (task waiting to start) */}
+            {task.is_queued && (
+              <Alert>
+                <Clock className="h-4 w-4" />
+                <AlertDescription className="flex items-center justify-between">
+                  <span>
+                    {t(
+                      'followUp.executionQueued',
+                      'Execution queued - will start when capacity is available.'
+                    )}
+                  </span>
+                  <Button
+                    onClick={handleCancelQueuedExecution}
+                    disabled={isCancellingExecution}
+                    size="sm"
+                    variant="destructive"
+                  >
+                    {isCancellingExecution ? (
+                      <Loader2 className="animate-spin h-4 w-4" />
+                    ) : (
+                      <>
+                        <X className="h-4 w-4 mr-1" />
+                        {t('followUp.cancelQueue', 'Cancel')}
+                      </>
+                    )}
+                  </Button>
                 </AlertDescription>
               </Alert>
             )}
