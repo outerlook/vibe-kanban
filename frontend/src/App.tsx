@@ -14,6 +14,7 @@ import { SearchProvider } from '@/contexts/SearchContext';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 
 import { ProjectProvider } from '@/contexts/ProjectContext';
+import { ProjectTasksProvider } from '@/contexts/ProjectTasksContext';
 import { UnreadProvider } from '@/contexts/UnreadContext';
 import { TaskSelectionProvider } from '@/contexts/TaskSelectionContext';
 import { BulkActionsBar } from '@/components/tasks/BulkActionsBar';
@@ -263,16 +264,18 @@ function App() {
         <UnreadProvider>
           <ClickedElementsProvider>
             <ProjectProvider>
-              <TaskSelectionProvider>
-                <HotkeysProvider
-                  initiallyActiveScopes={['*', 'global', 'kanban']}
-                >
-                  <NiceModal.Provider>
-                    <AppContent />
-                    <BulkActionsBar />
-                  </NiceModal.Provider>
-                </HotkeysProvider>
-              </TaskSelectionProvider>
+              <ProjectTasksProvider>
+                <TaskSelectionProvider>
+                  <HotkeysProvider
+                    initiallyActiveScopes={['*', 'global', 'kanban']}
+                  >
+                    <NiceModal.Provider>
+                      <AppContent />
+                      <BulkActionsBar />
+                    </NiceModal.Provider>
+                  </HotkeysProvider>
+                </TaskSelectionProvider>
+              </ProjectTasksProvider>
             </ProjectProvider>
           </ClickedElementsProvider>
         </UnreadProvider>
