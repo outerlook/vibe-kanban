@@ -4,10 +4,10 @@ use axum::{
     response::Json as ResponseJson,
     routing::{get, post},
 };
-use db::models::repo::Repo;
+use db::models::{project_repo::ProjectRepo, repo::Repo};
 use deployment::Deployment;
 use serde::{Deserialize, Serialize};
-use services::services::git::{GitBranch, GitServiceError};
+use services::services::git::GitBranch;
 use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
@@ -44,15 +44,17 @@ pub struct CreateBranchRequest {
 
 #[derive(Debug, Deserialize, TS)]
 #[ts(export)]
-pub struct CheckBranchAncestorRequest {
+pub struct CheckBranchMergeStatusRequest {
     pub branch_name: String,
+    pub project_id: Uuid,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
-pub struct BranchAncestorStatus {
-    pub is_ancestor: bool,
-    pub error: Option<String>,
+pub struct BranchMergeStatus {
+    pub exists: bool,
+    pub is_merged: bool,
+    pub target_branch: Option<String>,
 }
 
 pub async fn register_repo(
@@ -162,32 +164,46 @@ pub async fn create_branch(
     Ok(ResponseJson(ApiResponse::success(created_branch)))
 }
 
-pub async fn check_branch_ancestor(
+pub async fn check_branch_merge_status(
     State(deployment): State<DeploymentImpl>,
     Path(repo_id): Path<Uuid>,
-    ResponseJson(payload): ResponseJson<CheckBranchAncestorRequest>,
-) -> Result<ResponseJson<ApiResponse<BranchAncestorStatus>>, ApiError> {
+    ResponseJson(payload): ResponseJson<CheckBranchMergeStatusRequest>,
+) -> Result<ResponseJson<ApiResponse<BranchMergeStatus>>, ApiError> {
     let repo = deployment
         .repo()
         .get_by_id(&deployment.db().pool, repo_id)
         .await?;
 
+    // Look up the ProjectRepo to get merge_target_branch
+    let project_repo =
+        ProjectRepo::find_by_project_and_repo(&deployment.db().pool, payload.project_id, repo_id)
+            .await?;
+
+    // Use configured merge_target_branch or default to "main"
+    let target_branch = project_repo
+        .as_ref()
+        .and_then(|pr| pr.merge_target_branch.clone())
+        .unwrap_or_else(|| "main".to_string());
+
     let result = deployment
         .git()
-        .is_branch_ancestor_of_head(&repo.path, &payload.branch_name);
+        .is_branch_merged_into(&repo.path, &payload.branch_name, &target_branch);
 
     let status = match result {
-        Ok(is_ancestor) => BranchAncestorStatus {
-            is_ancestor,
-            error: None,
+        Ok(None) => BranchMergeStatus {
+            exists: false,
+            is_merged: false,
+            target_branch: Some(target_branch),
         },
-        Err(GitServiceError::BranchNotFound(_)) => BranchAncestorStatus {
-            is_ancestor: false,
-            error: Some("Branch not found".to_string()),
+        Ok(Some(is_merged)) => BranchMergeStatus {
+            exists: true,
+            is_merged,
+            target_branch: Some(target_branch),
         },
-        Err(e) => BranchAncestorStatus {
-            is_ancestor: false,
-            error: Some(e.to_string()),
+        Err(_) => BranchMergeStatus {
+            exists: false,
+            is_merged: false,
+            target_branch: Some(target_branch),
         },
     };
 
@@ -204,7 +220,7 @@ pub fn router() -> Router<DeploymentImpl> {
             get(get_repo_branches).post(create_branch),
         )
         .route(
-            "/repos/{repo_id}/branches/check-ancestor",
-            post(check_branch_ancestor),
+            "/repos/{repo_id}/branches/check-merge-status",
+            post(check_branch_merge_status),
         )
 }

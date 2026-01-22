@@ -262,9 +262,9 @@ export type CloneRepoRequest = { url: string, destination: string | null, };
 
 export type CreateBranchRequest = { name: string, base_branch: string | null, };
 
-export type CheckBranchAncestorRequest = { branch_name: string, };
+export type CheckBranchMergeStatusRequest = { branch_name: string, project_id: string, };
 
-export type BranchAncestorStatus = { is_ancestor: boolean, error: string | null, };
+export type BranchMergeStatus = { exists: boolean, is_merged: boolean, target_branch: string | null, };
 
 export type TagSearchParams = { search: string | null, };
 
