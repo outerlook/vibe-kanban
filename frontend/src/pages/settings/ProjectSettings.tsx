@@ -46,6 +46,7 @@ interface RepoScriptsFormState {
   parallel_setup_script: boolean;
   cleanup_script: string;
   copy_files: string;
+  merge_target_branch: string;
 }
 
 function projectToFormState(project: Project): ProjectFormState {
@@ -65,6 +66,7 @@ function projectRepoToScriptsFormState(
     parallel_setup_script: projectRepo?.parallel_setup_script ?? false,
     cleanup_script: projectRepo?.cleanup_script ?? '',
     copy_files: projectRepo?.copy_files ?? '',
+    merge_target_branch: projectRepo?.merge_target_branch ?? '',
   };
 }
 
@@ -462,6 +464,7 @@ export function ProjectSettings() {
           cleanup_script: scriptsDraft.cleanup_script.trim() || null,
           copy_files: scriptsDraft.copy_files.trim() || null,
           parallel_setup_script: scriptsDraft.parallel_setup_script,
+          merge_target_branch: scriptsDraft.merge_target_branch.trim() || null,
         }
       );
       setSelectedProjectRepo(updatedRepo);
@@ -945,6 +948,24 @@ export function ProjectSettings() {
                     <SkeletonForm fields={3} />
                   ) : scriptsDraft ? (
                     <>
+                      <SettingsField
+                        label="Merge Target Branch"
+                        description="Branch to check merge status against for task groups (e.g., 'main' or 'develop')"
+                        htmlFor="merge-target-branch"
+                      >
+                        <Input
+                          id="merge-target-branch"
+                          value={scriptsDraft.merge_target_branch}
+                          onChange={(e) =>
+                            updateScriptsDraft({
+                              merge_target_branch: e.target.value,
+                            })
+                          }
+                          placeholder="main"
+                          className="font-mono"
+                        />
+                      </SettingsField>
+
                       <SettingsField
                         label={t('settings.projects.scripts.setup.label')}
                         description={t('settings.projects.scripts.setup.helper')}

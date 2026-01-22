@@ -320,6 +320,7 @@ export function PrOverview() {
                   cancelled: BigInt(0),
                 }}
                 repoId={meta?.repoId}
+                projectId={projectId}
                 workspaceId={meta?.workspaceId}
               />
             );
