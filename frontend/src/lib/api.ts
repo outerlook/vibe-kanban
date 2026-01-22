@@ -1103,6 +1103,16 @@ export const attemptsApi = {
     return handleApiResponse<void>(response);
   },
 
+  cancelQueuedExecution: async (attemptId: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/task-attempts/${attemptId}/execution-queue`,
+      {
+        method: 'DELETE',
+      }
+    );
+    return handleApiResponse<void>(response);
+  },
+
   getQueueStatus: async (attemptId: string): Promise<MergeQueue | null> => {
     const response = await makeRequest(
       `/api/task-attempts/${attemptId}/queue-status`
