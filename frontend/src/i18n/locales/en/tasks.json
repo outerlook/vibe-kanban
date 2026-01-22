@@ -13,7 +13,8 @@
     "selectedCount_other": "{{count}} tasks selected",
     "createAttempts": "Create Attempts",
     "assignToGroup": "Assign to Group",
-    "clearSelection": "Clear"
+    "clearSelection": "Clear",
+    "mixedGroupsDisabled": "Selected tasks belong to different groups"
   },
   "filters": {
     "sharedToggleAria": "Toggle shared tasks",
