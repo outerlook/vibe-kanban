@@ -299,10 +299,10 @@ impl EventService {
             // Convert projects array to object keyed by project ID
             let projects_map: serde_json::Map<String, serde_json::Value> = projects
                 .into_iter()
-                .map(|project| {
+                .map(|pwc| {
                     (
-                        project.project.id.to_string(),
-                        serde_json::to_value(project).unwrap(),
+                        pwc.project.id.to_string(),
+                        serde_json::to_value(pwc).unwrap(),
                     )
                 })
                 .collect();
