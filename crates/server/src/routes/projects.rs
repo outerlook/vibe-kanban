@@ -14,7 +14,9 @@ use axum::{
 };
 use db::models::{
     merge_queue::MergeQueue,
-    project::{CreateProject, Project, ProjectError, SearchResult, UpdateProject},
+    project::{
+        CreateProject, Project, ProjectError, ProjectWithTaskCounts, SearchResult, UpdateProject,
+    },
     project_repo::{CreateProjectRepo, ProjectRepo, UpdateProjectRepo},
     repo::Repo,
     task_group::TaskGroup,
@@ -77,7 +79,7 @@ pub struct ProjectPrsResponse {
 
 pub async fn get_projects(
     State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<Vec<Project>>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<Vec<ProjectWithTaskCounts>>>, ApiError> {
     let projects = Project::find_all(&deployment.db().pool).await?;
     Ok(ResponseJson(ApiResponse::success(projects)))
 }
