@@ -408,6 +408,8 @@ impl LocalContainerService {
         &self,
         exec_id: &Uuid,
         exit_signal: Option<ExecutorExitSignal>,
+        workspace_id: Uuid,
+        run_reason: ExecutionProcessRunReason,
     ) -> JoinHandle<()> {
         let exec_id = *exec_id;
         let child_store = self.child_store.clone();
@@ -418,6 +420,7 @@ impl LocalContainerService {
         let analytics = self.analytics.clone();
         let publisher = self.publisher.clone();
         let feedback_pending_cleanup = self.feedback_pending_cleanup.clone();
+        let running_workspaces = self.running_workspaces.clone();
 
         let mut process_exit_rx = self.spawn_os_exit_watcher(exec_id);
 
@@ -679,6 +682,11 @@ impl LocalContainerService {
 
             // Cleanup child handle
             child_store.write().await.remove(&exec_id);
+
+            // Remove workspace from running set (unless it was a dev server)
+            if !matches!(run_reason, ExecutionProcessRunReason::DevServer) {
+                running_workspaces.remove(&workspace_id);
+            }
         })
     }
 
@@ -1881,6 +1889,18 @@ impl ContainerService for LocalContainerService {
         executor_action: &ExecutorAction,
         purpose: &str,
     ) -> Result<(), ContainerError> {
+        // Guard against duplicate agent spawns for the same workspace.
+        // Dev servers are exempt - they're allowed to run concurrently with agents.
+        if !matches!(
+            execution_process.run_reason,
+            ExecutionProcessRunReason::DevServer
+        ) {
+            if !self.running_workspaces.insert(workspace.id) {
+                // Workspace ID was already present - another agent is running
+                return Err(ContainerError::WorkspaceAlreadyRunning(workspace.id));
+            }
+        }
+
         // Get the worktree path
         let container_ref = workspace
             .container_ref
@@ -1978,7 +1998,12 @@ impl ContainerService for LocalContainerService {
         }
 
         // Spawn unified exit monitor: watches OS exit and optional executor signal
-        let _hn = self.spawn_exit_monitor(&execution_process.id, spawned.exit_signal);
+        let _hn = self.spawn_exit_monitor(
+            &execution_process.id,
+            spawned.exit_signal,
+            workspace.id,
+            execution_process.run_reason.clone(),
+        );
 
         Ok(())
     }
