@@ -24,6 +24,7 @@ import {
   GitHubImportResponse,
   GitHubSettingsStatus,
   Project,
+  ProjectWithTaskCounts,
   ProjectRepo,
   Repo,
   RepoWithTargetBranch,
@@ -350,9 +351,9 @@ export const handleApiResponse = async <T, E = T>(
 
 // Project Management APIs
 export const projectsApi = {
-  list: async (): Promise<Project[]> => {
+  list: async (): Promise<ProjectWithTaskCounts[]> => {
     const response = await makeRequest('/api/projects');
-    return handleApiResponse<Project[]>(response);
+    return handleApiResponse<ProjectWithTaskCounts[]>(response);
   },
 
   create: async (data: CreateProject): Promise<Project> => {

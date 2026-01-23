@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { Operation } from 'rfc6902';
-import type { Project } from 'shared/types';
+import type { ProjectWithTaskCounts } from 'shared/types';
 import { projectsApi, getApiBaseUrlSync } from '@/lib/api';
 
 export const projectsKeys = {
@@ -10,8 +10,8 @@ export const projectsKeys = {
 };
 
 export interface UseProjectsResult {
-  projects: Project[];
-  projectsById: Record<string, Project>;
+  projects: ProjectWithTaskCounts[];
+  projectsById: Record<string, ProjectWithTaskCounts>;
   isLoading: boolean;
   isConnected: boolean;
   error: Error | null;
@@ -27,7 +27,7 @@ const decodePointerSegment = (value: string) =>
   value.replace(/~1/g, '/').replace(/~0/g, '~');
 
 export function useProjects(): UseProjectsResult {
-  const [projectsById, setProjectsById] = useState<Record<string, Project>>({});
+  const [projectsById, setProjectsById] = useState<Record<string, ProjectWithTaskCounts>>({});
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
@@ -51,7 +51,7 @@ export function useProjects(): UseProjectsResult {
   useEffect(() => {
     if (!initialProjects || syncedInitial) return;
 
-    const byId: Record<string, Project> = {};
+    const byId: Record<string, ProjectWithTaskCounts> = {};
     for (const project of initialProjects) {
       byId[project.id] = project;
     }
@@ -91,7 +91,7 @@ export function useProjects(): UseProjectsResult {
 
           if (op.op !== 'add' && op.op !== 'replace') continue;
 
-          const project = op.value as Project;
+          const project = op.value as ProjectWithTaskCounts;
           if (!project || typeof project !== 'object' || !project.id) continue;
 
           if (op.op === 'replace' && !next[project.id]) continue;
