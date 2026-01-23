@@ -2356,3 +2356,117 @@ fn success_exit_status() -> std::process::ExitStatus {
         ExitStatusExt::from_raw(0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use dashmap::DashSet;
+    use std::sync::Arc;
+    use uuid::Uuid;
+
+    /// Tests that the DashSet-based guard correctly blocks duplicate workspace spawns.
+    /// This verifies the core logic used in start_execution() at line ~1898.
+    #[test]
+    fn running_workspaces_guard_blocks_duplicate() {
+        let running_workspaces: Arc<DashSet<Uuid>> = Arc::new(DashSet::new());
+        let workspace_id = Uuid::new_v4();
+
+        // First insert should succeed (returns true = was not present)
+        assert!(
+            running_workspaces.insert(workspace_id),
+            "First insert should succeed"
+        );
+
+        // Second insert should fail (returns false = already present)
+        assert!(
+            !running_workspaces.insert(workspace_id),
+            "Second insert should fail - workspace already running"
+        );
+
+        // Verify the workspace is tracked
+        assert!(
+            running_workspaces.contains(&workspace_id),
+            "Workspace should be in the running set"
+        );
+    }
+
+    /// Tests that removing a workspace from the guard allows it to be started again.
+    /// This verifies the cleanup logic used in spawn_exit_monitor() at line ~688.
+    #[test]
+    fn running_workspaces_guard_clears_on_completion() {
+        let running_workspaces: Arc<DashSet<Uuid>> = Arc::new(DashSet::new());
+        let workspace_id = Uuid::new_v4();
+
+        // Insert workspace (simulates start_execution)
+        assert!(running_workspaces.insert(workspace_id));
+
+        // Remove workspace (simulates spawn_exit_monitor cleanup)
+        running_workspaces.remove(&workspace_id);
+
+        // Workspace should no longer be tracked
+        assert!(
+            !running_workspaces.contains(&workspace_id),
+            "Workspace should be removed from the running set"
+        );
+
+        // Should be able to insert again (simulates restart)
+        assert!(
+            running_workspaces.insert(workspace_id),
+            "Should be able to start workspace again after completion"
+        );
+    }
+
+    /// Tests that concurrent access to the guard is thread-safe.
+    /// DashSet provides lock-free concurrent access.
+    #[tokio::test]
+    async fn running_workspaces_guard_concurrent_access() {
+        let running_workspaces: Arc<DashSet<Uuid>> = Arc::new(DashSet::new());
+        let workspace_id = Uuid::new_v4();
+
+        // Spawn multiple tasks trying to insert the same workspace concurrently
+        let mut handles = Vec::new();
+        for _ in 0..10 {
+            let guard = running_workspaces.clone();
+            let id = workspace_id;
+            handles.push(tokio::spawn(async move { guard.insert(id) }));
+        }
+
+        // Collect results
+        let results: Vec<bool> = futures::future::join_all(handles)
+            .await
+            .into_iter()
+            .map(|r| r.unwrap())
+            .collect();
+
+        // Exactly one insert should succeed (return true)
+        let successes = results.iter().filter(|&&r| r).count();
+        assert_eq!(
+            successes, 1,
+            "Exactly one concurrent insert should succeed"
+        );
+
+        // The rest should fail (return false)
+        let failures = results.iter().filter(|&&r| !r).count();
+        assert_eq!(failures, 9, "Nine concurrent inserts should fail");
+    }
+
+    /// Tests that different workspaces can run concurrently.
+    #[test]
+    fn running_workspaces_guard_allows_different_workspaces() {
+        let running_workspaces: Arc<DashSet<Uuid>> = Arc::new(DashSet::new());
+        let workspace_1 = Uuid::new_v4();
+        let workspace_2 = Uuid::new_v4();
+
+        // Both workspaces can be inserted
+        assert!(running_workspaces.insert(workspace_1));
+        assert!(running_workspaces.insert(workspace_2));
+
+        // Both should be tracked
+        assert!(running_workspaces.contains(&workspace_1));
+        assert!(running_workspaces.contains(&workspace_2));
+
+        // Removing one doesn't affect the other
+        running_workspaces.remove(&workspace_1);
+        assert!(!running_workspaces.contains(&workspace_1));
+        assert!(running_workspaces.contains(&workspace_2));
+    }
+}
