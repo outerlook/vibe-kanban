@@ -31,6 +31,7 @@ use services::services::{
     git::{GitService, GitServiceError},
     git_watcher::GitWatcherManager,
     image::{ImageError, ImageService},
+    merge_queue_store::MergeQueueStore,
     operation_status::OperationStatusStore,
     pr_monitor::PrMonitorService,
     project::ProjectService,
@@ -125,6 +126,8 @@ pub trait Deployment: Clone + Send + Sync + 'static {
     fn git_watcher(&self) -> &GitWatcherManager;
 
     fn operation_status(&self) -> &OperationStatusStore;
+
+    fn merge_queue_store(&self) -> &MergeQueueStore;
 
     async fn update_sentry_scope(&self) -> Result<(), DeploymentError> {
         let user_id = self.user_id();

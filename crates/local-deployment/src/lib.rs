@@ -17,6 +17,7 @@ use services::services::{
     git::GitService,
     git_watcher::GitWatcherManager,
     image::ImageService,
+    merge_queue_store::MergeQueueStore,
     oauth_credentials::OAuthCredentials,
     operation_status::OperationStatusStore,
     project::ProjectService,
@@ -63,6 +64,7 @@ pub struct LocalDeployment {
     oauth_handoffs: Arc<RwLock<HashMap<Uuid, PendingHandoff>>>,
     git_watcher: GitWatcherManager,
     operation_status: OperationStatusStore,
+    merge_queue_store: MergeQueueStore,
 }
 
 #[derive(Debug, Clone)]
@@ -208,6 +210,7 @@ impl Deployment for LocalDeployment {
         .await;
 
         let operation_status = OperationStatusStore::new(events_msg_store.clone());
+        let merge_queue_store = MergeQueueStore::new(events_msg_store.clone());
 
         let events = EventService::new(db.clone(), events_msg_store, events_entry_count);
 
@@ -237,6 +240,7 @@ impl Deployment for LocalDeployment {
             oauth_handoffs,
             git_watcher,
             operation_status,
+            merge_queue_store,
         };
 
         Ok(deployment)
@@ -316,6 +320,10 @@ impl Deployment for LocalDeployment {
 
     fn operation_status(&self) -> &OperationStatusStore {
         &self.operation_status
+    }
+
+    fn merge_queue_store(&self) -> &MergeQueueStore {
+        &self.merge_queue_store
     }
 }
 
