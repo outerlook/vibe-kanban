@@ -54,11 +54,11 @@ export type EmbeddingStatus = { task_id: string, needs_embedding: boolean, last_
 
 export type TaskDependency = { id: string, task_id: string, depends_on_id: string, created_at: string, };
 
-export type TaskGroup = { id: string, project_id: string, name: string, base_branch: string | null, created_at: string, updated_at: string, };
+export type TaskGroup = { id: string, project_id: string, name: string, description: string | null, base_branch: string | null, created_at: string, updated_at: string, };
 
 export type TaskStatusCounts = { todo: bigint, inprogress: bigint, inreview: bigint, done: bigint, cancelled: bigint, };
 
-export type TaskGroupWithStats = { task_counts: TaskStatusCounts, id: string, project_id: string, name: string, base_branch: string | null, created_at: string, updated_at: string, };
+export type TaskGroupWithStats = { task_counts: TaskStatusCounts, id: string, project_id: string, name: string, description: string | null, base_branch: string | null, created_at: string, updated_at: string, };
 
 export type Notification = { id: string, project_id: string | null, notification_type: NotificationType, title: string, message: string, is_read: boolean, metadata: JsonValue | null, workspace_id: string | null, session_id: string | null, created_at: string, updated_at: string, };
 
@@ -80,9 +80,9 @@ export type GanttTask = { id: string, name: string, start: string, end: string, 
 
 export type PaginatedGanttTasks = { tasks: Array<GanttTask>, total: bigint, hasMore: boolean, };
 
-export type CreateTaskGroup = { project_id: string, name: string, base_branch: string | null, };
+export type CreateTaskGroup = { project_id: string, name: string, description: string | null, base_branch: string | null, };
 
-export type UpdateTaskGroup = { name: string | null, base_branch: string | null, };
+export type UpdateTaskGroup = { name: string | null, description: string | null, base_branch: string | null, };
 
 export type ConversationSession = { id: string, project_id: string, title: string, status: ConversationSessionStatus, executor: string | null, created_at: string, updated_at: string, };
 

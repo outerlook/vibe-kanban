@@ -92,7 +92,6 @@ pub async fn create_task_group(
         payload.name,
         payload.description,
         payload.base_branch,
-        payload.description,
     )
     .await?;
 
