@@ -27,6 +27,7 @@ type QueryOptions = {
 type QueueMergeParams = {
   repoId: string;
   commitMessage?: string;
+  generateCommitMessage?: boolean;
 };
 
 export function useQueueMerge(
@@ -42,6 +43,7 @@ export function useQueueMerge(
       return attemptsApi.queueMerge(attemptId, {
         repo_id: params.repoId,
         commit_message: params.commitMessage ?? null,
+        generate_commit_message: params.generateCommitMessage ?? null,
       });
     },
     onSuccess: (result) => {

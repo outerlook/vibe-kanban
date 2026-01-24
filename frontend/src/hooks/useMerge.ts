@@ -5,6 +5,7 @@ import { repoBranchKeys } from './useRepoBranches';
 type MergeParams = {
   repoId: string;
   commitMessage?: string;
+  generateCommitMessage?: boolean;
 };
 
 export function useMerge(
@@ -20,6 +21,7 @@ export function useMerge(
       return attemptsApi.merge(attemptId, {
         repo_id: params.repoId,
         commit_message: params.commitMessage ?? null,
+        generate_commit_message: params.generateCommitMessage ?? null,
       });
     },
     onSuccess: () => {
