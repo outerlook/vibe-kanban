@@ -29,6 +29,7 @@ pub mod scratch;
 pub mod sessions;
 pub mod settings;
 pub mod shared_tasks;
+pub mod skills;
 pub mod tags;
 pub mod task_attempts;
 pub mod task_dependencies;
@@ -63,6 +64,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(scratch::router(&deployment))
         .merge(sessions::router(&deployment))
         .merge(settings::router())
+        .merge(skills::router())
         .nest("/images", images::routes())
         .with_state(deployment);
 
