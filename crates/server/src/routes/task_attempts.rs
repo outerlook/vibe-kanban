@@ -579,24 +579,43 @@ pub async fn merge_task_attempt(
         .ensure_container_exists(&workspace)
         .await?;
     let workspace_path = Path::new(&container_ref);
-    let worktree_path = workspace_path.join(repo.name);
+    let worktree_path = workspace_path.join(&repo.name);
 
     let task = workspace
         .parent_task(pool)
         .await?
         .ok_or(ApiError::Workspace(WorkspaceError::TaskNotFound))?;
 
+    // Determine commit message:
+    // 1. If request.commit_message provided → use it
+    // 2. Else if generate_commit_message == Some(true) → call AI generation
+    // 3. Else → fallback to task title/description
     let commit_message = if let Some(msg) = request.commit_message {
         msg
-    } else {
-        let mut msg = task.title.clone();
-        if let Some(description) = &task.description
-            && !description.trim().is_empty()
-        {
-            msg.push_str("\n\n");
-            msg.push_str(description);
+    } else if request.generate_commit_message == Some(true) {
+        // Attempt AI generation with fallback on failure
+        let ai_result = generate_commit_message_for_merge_internal(
+            &deployment,
+            &workspace,
+            &task,
+            &repo,
+            &workspace_repo,
+        )
+        .await;
+
+        match ai_result {
+            Ok(msg) => msg,
+            Err(e) => {
+                tracing::warn!(
+                    workspace_id = %workspace.id,
+                    error = %e,
+                    "AI commit message generation failed, falling back to task title/description"
+                );
+                build_fallback_commit_message(&task)
+            }
         }
-        msg
+    } else {
+        build_fallback_commit_message(&task)
     };
 
     let merge_commit_id = deployment.git().merge_changes(
@@ -682,6 +701,81 @@ pub async fn merge_task_attempt(
         .await;
 
     Ok(ResponseJson(ApiResponse::success(())))
+}
+
+/// Builds a fallback commit message from task title and description.
+fn build_fallback_commit_message(task: &Task) -> String {
+    let mut msg = task.title.clone();
+    if let Some(description) = &task.description
+        && !description.trim().is_empty()
+    {
+        msg.push_str("\n\n");
+        msg.push_str(description);
+    }
+    msg
+}
+
+/// Internal helper to generate a commit message via AI for direct merge.
+/// Sets operation status during generation and clears it on completion.
+/// Returns the generated commit message or an error.
+async fn generate_commit_message_for_merge_internal(
+    deployment: &DeploymentImpl,
+    workspace: &Workspace,
+    task: &Task,
+    repo: &Repo,
+    workspace_repo: &WorkspaceRepo,
+) -> Result<String, ApiError> {
+    let pool = &deployment.db().pool;
+
+    // Set operation status before starting
+    deployment.operation_status().set(OperationStatus::new(
+        workspace.id,
+        workspace.task_id,
+        OperationStatusType::GeneratingCommit,
+    ));
+
+    let result = async {
+        let execution_process = pr::generate_commit_message_for_merge(
+            deployment,
+            workspace,
+            task,
+            Path::new(&repo.path),
+            &workspace.branch,
+            &workspace_repo.target_branch,
+        )
+        .await?;
+
+        // Wait for the agent to complete (60s timeout)
+        deployment
+            .container()
+            .wait_for_execution_completion(execution_process.id, Duration::from_secs(60))
+            .await?;
+
+        // Fetch all normalized entries for this execution
+        let entries =
+            ExecutionProcessNormalizedEntry::fetch_all_for_execution(pool, execution_process.id)
+                .await
+                .map_err(|e| ApiError::BadRequest(format!("Failed to fetch agent output: {e}")))?;
+
+        // Find the last AssistantMessage entry and extract its content
+        let commit_message = entries
+            .iter()
+            .rev()
+            .find(|e| matches!(e.entry.entry_type, NormalizedEntryType::AssistantMessage))
+            .map(|e| e.entry.content.trim().to_string())
+            .filter(|s: &String| !s.is_empty())
+            .ok_or_else(|| {
+                ApiError::BadRequest("Agent did not produce a commit message".to_string())
+            })?;
+
+        Ok::<_, ApiError>(commit_message)
+    }
+    .await;
+
+    // Clear operation status after completion (success or failure)
+    deployment.operation_status().clear(workspace.id);
+
+    result
 }
 
 #[axum::debug_handler]
