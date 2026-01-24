@@ -64,11 +64,11 @@ export type TaskStatusCounts = { todo: bigint, inprogress: bigint, inreview: big
 
 export type TaskGroupWithStats = { task_counts: TaskStatusCounts, id: string, project_id: string, name: string, description: string | null, base_branch: string | null, created_at: string, updated_at: string, };
 
-export type Notification = { id: string, project_id: string | null, notification_type: NotificationType, title: string, message: string, is_read: boolean, metadata: JsonValue | null, workspace_id: string | null, session_id: string | null, created_at: string, updated_at: string, };
+export type Notification = { id: string, project_id: string | null, notification_type: NotificationType, title: string, message: string, is_read: boolean, metadata: JsonValue | null, workspace_id: string | null, session_id: string | null, conversation_session_id: string | null, created_at: string, updated_at: string, };
 
 export type NotificationType = "agent_complete" | "agent_approval_needed" | "agent_error" | "conversation_response";
 
-export type CreateNotification = { project_id: string | null, notification_type: NotificationType, title: string, message: string, metadata: JsonValue | null, workspace_id: string | null, session_id: string | null, };
+export type CreateNotification = { project_id: string | null, notification_type: NotificationType, title: string, message: string, metadata: JsonValue | null, workspace_id: string | null, session_id: string | null, conversation_session_id: string | null, };
 
 export type UpdateNotification = { title: string | null, message: string | null, is_read: boolean | null, metadata: JsonValue | null, };
 
