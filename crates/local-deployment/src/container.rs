@@ -6,6 +6,8 @@ use std::{
     time::Duration,
 };
 
+use dashmap::DashSet;
+
 use anyhow::anyhow;
 use async_trait::async_trait;
 use command_group::AsyncGroupChild;
@@ -133,6 +135,8 @@ pub struct LocalContainerService {
     watcher_manager: WatcherManager,
     /// Execution IDs for which feedback parser is pending - skip msg_store cleanup in exit monitor
     feedback_pending_cleanup: Arc<RwLock<HashSet<Uuid>>>,
+    /// Workspace IDs that currently have a running agent - used to prevent duplicate spawns
+    running_workspaces: Arc<DashSet<Uuid>>,
 }
 
 impl LocalContainerService {
@@ -152,6 +156,7 @@ impl LocalContainerService {
         let interrupt_senders = Arc::new(RwLock::new(HashMap::new()));
         let notification_service = NotificationService::new(config.clone());
         let feedback_pending_cleanup = Arc::new(RwLock::new(HashSet::new()));
+        let running_workspaces = Arc::new(DashSet::new());
 
         let container = LocalContainerService {
             db,
@@ -168,6 +173,7 @@ impl LocalContainerService {
             notification_service,
             watcher_manager: WatcherManager::new(),
             feedback_pending_cleanup,
+            running_workspaces,
         };
 
         container.spawn_workspace_cleanup().await;
@@ -402,6 +408,8 @@ impl LocalContainerService {
         &self,
         exec_id: &Uuid,
         exit_signal: Option<ExecutorExitSignal>,
+        workspace_id: Uuid,
+        run_reason: ExecutionProcessRunReason,
     ) -> JoinHandle<()> {
         let exec_id = *exec_id;
         let child_store = self.child_store.clone();
@@ -412,6 +420,7 @@ impl LocalContainerService {
         let analytics = self.analytics.clone();
         let publisher = self.publisher.clone();
         let feedback_pending_cleanup = self.feedback_pending_cleanup.clone();
+        let running_workspaces = self.running_workspaces.clone();
 
         let mut process_exit_rx = self.spawn_os_exit_watcher(exec_id);
 
@@ -673,6 +682,11 @@ impl LocalContainerService {
 
             // Cleanup child handle
             child_store.write().await.remove(&exec_id);
+
+            // Remove workspace from running set (unless it was a dev server)
+            if !matches!(run_reason, ExecutionProcessRunReason::DevServer) {
+                running_workspaces.remove(&workspace_id);
+            }
         })
     }
 
@@ -1875,6 +1889,18 @@ impl ContainerService for LocalContainerService {
         executor_action: &ExecutorAction,
         purpose: &str,
     ) -> Result<(), ContainerError> {
+        // Guard against duplicate agent spawns for the same workspace.
+        // Dev servers are exempt - they're allowed to run concurrently with agents.
+        if !matches!(
+            execution_process.run_reason,
+            ExecutionProcessRunReason::DevServer
+        ) {
+            if !self.running_workspaces.insert(workspace.id) {
+                // Workspace ID was already present - another agent is running
+                return Err(ContainerError::WorkspaceAlreadyRunning(workspace.id));
+            }
+        }
+
         // Get the worktree path
         let container_ref = workspace
             .container_ref
@@ -1972,7 +1998,12 @@ impl ContainerService for LocalContainerService {
         }
 
         // Spawn unified exit monitor: watches OS exit and optional executor signal
-        let _hn = self.spawn_exit_monitor(&execution_process.id, spawned.exit_signal);
+        let _hn = self.spawn_exit_monitor(
+            &execution_process.id,
+            spawned.exit_signal,
+            workspace.id,
+            execution_process.run_reason.clone(),
+        );
 
         Ok(())
     }
@@ -2323,5 +2354,119 @@ fn success_exit_status() -> std::process::ExitStatus {
     {
         use std::os::windows::process::ExitStatusExt;
         ExitStatusExt::from_raw(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use dashmap::DashSet;
+    use std::sync::Arc;
+    use uuid::Uuid;
+
+    /// Tests that the DashSet-based guard correctly blocks duplicate workspace spawns.
+    /// This verifies the core logic used in start_execution() at line ~1898.
+    #[test]
+    fn running_workspaces_guard_blocks_duplicate() {
+        let running_workspaces: Arc<DashSet<Uuid>> = Arc::new(DashSet::new());
+        let workspace_id = Uuid::new_v4();
+
+        // First insert should succeed (returns true = was not present)
+        assert!(
+            running_workspaces.insert(workspace_id),
+            "First insert should succeed"
+        );
+
+        // Second insert should fail (returns false = already present)
+        assert!(
+            !running_workspaces.insert(workspace_id),
+            "Second insert should fail - workspace already running"
+        );
+
+        // Verify the workspace is tracked
+        assert!(
+            running_workspaces.contains(&workspace_id),
+            "Workspace should be in the running set"
+        );
+    }
+
+    /// Tests that removing a workspace from the guard allows it to be started again.
+    /// This verifies the cleanup logic used in spawn_exit_monitor() at line ~688.
+    #[test]
+    fn running_workspaces_guard_clears_on_completion() {
+        let running_workspaces: Arc<DashSet<Uuid>> = Arc::new(DashSet::new());
+        let workspace_id = Uuid::new_v4();
+
+        // Insert workspace (simulates start_execution)
+        assert!(running_workspaces.insert(workspace_id));
+
+        // Remove workspace (simulates spawn_exit_monitor cleanup)
+        running_workspaces.remove(&workspace_id);
+
+        // Workspace should no longer be tracked
+        assert!(
+            !running_workspaces.contains(&workspace_id),
+            "Workspace should be removed from the running set"
+        );
+
+        // Should be able to insert again (simulates restart)
+        assert!(
+            running_workspaces.insert(workspace_id),
+            "Should be able to start workspace again after completion"
+        );
+    }
+
+    /// Tests that concurrent access to the guard is thread-safe.
+    /// DashSet provides lock-free concurrent access.
+    #[tokio::test]
+    async fn running_workspaces_guard_concurrent_access() {
+        let running_workspaces: Arc<DashSet<Uuid>> = Arc::new(DashSet::new());
+        let workspace_id = Uuid::new_v4();
+
+        // Spawn multiple tasks trying to insert the same workspace concurrently
+        let mut handles = Vec::new();
+        for _ in 0..10 {
+            let guard = running_workspaces.clone();
+            let id = workspace_id;
+            handles.push(tokio::spawn(async move { guard.insert(id) }));
+        }
+
+        // Collect results
+        let results: Vec<bool> = futures::future::join_all(handles)
+            .await
+            .into_iter()
+            .map(|r| r.unwrap())
+            .collect();
+
+        // Exactly one insert should succeed (return true)
+        let successes = results.iter().filter(|&&r| r).count();
+        assert_eq!(
+            successes, 1,
+            "Exactly one concurrent insert should succeed"
+        );
+
+        // The rest should fail (return false)
+        let failures = results.iter().filter(|&&r| !r).count();
+        assert_eq!(failures, 9, "Nine concurrent inserts should fail");
+    }
+
+    /// Tests that different workspaces can run concurrently.
+    #[test]
+    fn running_workspaces_guard_allows_different_workspaces() {
+        let running_workspaces: Arc<DashSet<Uuid>> = Arc::new(DashSet::new());
+        let workspace_1 = Uuid::new_v4();
+        let workspace_2 = Uuid::new_v4();
+
+        // Both workspaces can be inserted
+        assert!(running_workspaces.insert(workspace_1));
+        assert!(running_workspaces.insert(workspace_2));
+
+        // Both should be tracked
+        assert!(running_workspaces.contains(&workspace_1));
+        assert!(running_workspaces.contains(&workspace_2));
+
+        // Removing one doesn't affect the other
+        running_workspaces.remove(&workspace_1);
+        assert!(!running_workspaces.contains(&workspace_1));
+        assert!(running_workspaces.contains(&workspace_2));
     }
 }

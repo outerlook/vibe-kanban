@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { sessionsApi } from '@/lib/api';
 import type { CreateFollowUpAttempt } from 'shared/types';
 
@@ -29,9 +29,17 @@ export function useFollowUpSend({
   const [followUpError, setFollowUpError] = useState<string | null>(null);
   // True when follow-up was queued due to global concurrency limit
   const [isGloballyQueued, setIsGloballyQueued] = useState(false);
+  // Sync guard to prevent duplicate calls before React state updates
+  const isSendingRef = useRef(false);
 
   const onSendFollowUp = useCallback(async () => {
-    if (!sessionId) return;
+    if (isSendingRef.current) return;
+    isSendingRef.current = true;
+
+    if (!sessionId) {
+      isSendingRef.current = false;
+      return;
+    }
     const extraMessage = message.trim();
     const finalPrompt = [
       conflictMarkdown,
@@ -41,7 +49,10 @@ export function useFollowUpSend({
     ]
       .filter(Boolean)
       .join('\n\n');
-    if (!finalPrompt) return;
+    if (!finalPrompt) {
+      isSendingRef.current = false;
+      return;
+    }
     try {
       setIsSendingFollowUp(true);
       setFollowUpError(null);
@@ -68,6 +79,7 @@ export function useFollowUpSend({
         `Failed to start follow-up execution: ${err.message ?? 'Unknown error'}`
       );
     } finally {
+      isSendingRef.current = false;
       setIsSendingFollowUp(false);
     }
   }, [

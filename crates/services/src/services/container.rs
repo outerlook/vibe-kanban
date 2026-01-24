@@ -238,6 +238,8 @@ pub enum ContainerError {
     ExecutionFailed(ExecutionProcessStatus),
     #[error("Execution not found: {0}")]
     ExecutionNotFound(Uuid),
+    #[error("Workspace {0} already has a running agent")]
+    WorkspaceAlreadyRunning(Uuid),
     #[error(transparent)]
     Other(#[from] AnyhowError), // Catches any unclassified errors
 }

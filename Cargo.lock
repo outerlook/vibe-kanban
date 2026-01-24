@@ -6723,6 +6723,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "command-group",
+ "dashmap",
  "db",
  "deployment",
  "executors",

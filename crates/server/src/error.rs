@@ -199,7 +199,12 @@ impl IntoResponse for ApiError {
             },
             ApiError::GitHubService(_) => (StatusCode::INTERNAL_SERVER_ERROR, "GitHubServiceError"),
             ApiError::Deployment(_) => (StatusCode::INTERNAL_SERVER_ERROR, "DeploymentError"),
-            ApiError::Container(_) => (StatusCode::INTERNAL_SERVER_ERROR, "ContainerError"),
+            ApiError::Container(container_err) => match container_err {
+                ContainerError::WorkspaceAlreadyRunning(_) => {
+                    (StatusCode::CONFLICT, "WorkspaceAlreadyRunning")
+                }
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, "ContainerError"),
+            },
             ApiError::Executor(_) => (StatusCode::INTERNAL_SERVER_ERROR, "ExecutorError"),
             ApiError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, "DatabaseError"),
             ApiError::Worktree(_) => (StatusCode::INTERNAL_SERVER_ERROR, "WorktreeError"),
@@ -319,6 +324,12 @@ impl IntoResponse for ApiError {
                 _ => format!("{}: {}", error_type, self),
             },
             ApiError::Multipart(_) => "Failed to upload file. Please ensure the file is valid and try again.".to_string(),
+            ApiError::Container(container_err) => match container_err {
+                ContainerError::WorkspaceAlreadyRunning(_) => {
+                    "An agent is already running for this workspace. Please wait for it to complete.".to_string()
+                }
+                _ => format!("ContainerError: {}", container_err),
+            },
             ApiError::RemoteClient(err) => match err {
                 RemoteClientError::Auth => "Unauthorized. Please sign in again.".to_string(),
                 RemoteClientError::Timeout => "Remote service timeout. Please try again.".to_string(),
