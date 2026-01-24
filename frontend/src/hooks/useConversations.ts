@@ -254,31 +254,26 @@ export function useSendMessage() {
   });
 }
 
-export function useStopConversationExecution(
-  executionProcessId: string | undefined,
-  conversationId: string | undefined
-) {
+export function useStopConversationExecution(conversationId: string | undefined) {
   const queryClient = useQueryClient();
-  const [isStopping, setIsStopping] = useState(false);
 
-  const stopExecution = useCallback(async () => {
-    if (!executionProcessId || isStopping) return;
-
-    try {
-      setIsStopping(true);
-      await executionProcessesApi.stopExecutionProcess(executionProcessId);
+  const mutation = useMutation({
+    mutationFn: (executionProcessId: string) =>
+      executionProcessesApi.stopExecutionProcess(executionProcessId),
+    onSuccess: () => {
       if (conversationId) {
         queryClient.invalidateQueries({
           queryKey: conversationKeys.executions(conversationId),
         });
       }
-    } catch (error) {
+    },
+    onError: (error) => {
       console.error('Failed to stop execution:', error);
-      throw error;
-    } finally {
-      setIsStopping(false);
-    }
-  }, [executionProcessId, conversationId, isStopping, queryClient]);
+    },
+  });
 
-  return { stopExecution, isStopping };
+  return {
+    stopExecution: mutation.mutate,
+    isStopping: mutation.isPending,
+  };
 }

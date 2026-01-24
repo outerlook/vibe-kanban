@@ -27,13 +27,11 @@ export function ConversationPanel({ projectId }: ConversationPanelProps) {
   );
 
   // Check if there's an active execution (agent is responding)
-  const runningExecution = executions?.find(
+  const runningExecutionId = executions?.find(
     (ep) => ep.status === ('running' as ExecutionProcessStatus)
-  );
-  const hasActiveExecution = !!runningExecution;
+  )?.id;
 
   const { stopExecution, isStopping } = useStopConversationExecution(
-    runningExecution?.id,
     selectedConversation?.id
   );
 
@@ -99,10 +97,10 @@ export function ConversationPanel({ projectId }: ConversationPanelProps) {
             {/* Message input */}
             <MessageInput
               onSend={handleSendMessage}
-              disabled={hasActiveExecution || sendMessage.isPending}
-              onStop={stopExecution}
+              disabled={!!runningExecutionId || sendMessage.isPending}
+              onStop={() => runningExecutionId && stopExecution(runningExecutionId)}
               isStopping={isStopping}
-              showStopButton={hasActiveExecution}
+              showStopButton={!!runningExecutionId}
             />
           </>
         ) : (
