@@ -128,12 +128,15 @@ impl MergeQueueProcessor {
                 "Processing merge queue entry"
             );
 
-            // Set Merging operation status
+            // Set Merging operation status (load workspace to get task_id)
             if let Some(ref op_status) = self.operation_status {
-                op_status.set(OperationStatus::new(
-                    entry.workspace_id,
-                    OperationStatusType::Merging,
-                ));
+                if let Ok(Some(workspace)) = Workspace::find_by_id(&self.pool, entry.workspace_id).await {
+                    op_status.set(OperationStatus::new(
+                        entry.workspace_id,
+                        workspace.task_id,
+                        OperationStatusType::Merging,
+                    ));
+                }
             }
 
             // Process this entry, handling errors gracefully

@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/tooltip';
 
 interface OperationStatusBadgeProps {
-  workspaceId: string;
+  taskId: string;
 }
 
 const operationLabels: Record<OperationStatusType, string> = {
@@ -19,9 +19,9 @@ const operationLabels: Record<OperationStatusType, string> = {
   merging: 'Merging...',
 };
 
-export function OperationStatusBadge({ workspaceId }: OperationStatusBadgeProps) {
-  const { operationStatuses } = useProjectTasksContext();
-  const status = operationStatuses[workspaceId];
+export function OperationStatusBadge({ taskId }: OperationStatusBadgeProps) {
+  const { operationStatusesByTaskId } = useProjectTasksContext();
+  const status = operationStatusesByTaskId[taskId];
 
   if (!status) return null;
 

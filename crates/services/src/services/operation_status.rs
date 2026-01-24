@@ -26,16 +26,18 @@ pub enum OperationStatusType {
 pub struct OperationStatus {
     pub id: Uuid,
     pub workspace_id: Uuid,
+    pub task_id: Uuid,
     pub operation_type: OperationStatusType,
     pub error: Option<String>,
     pub started_at: DateTime<Utc>,
 }
 
 impl OperationStatus {
-    pub fn new(workspace_id: Uuid, operation_type: OperationStatusType) -> Self {
+    pub fn new(workspace_id: Uuid, task_id: Uuid, operation_type: OperationStatusType) -> Self {
         Self {
             id: Uuid::new_v4(),
             workspace_id,
+            task_id,
             operation_type,
             error: None,
             started_at: Utc::now(),

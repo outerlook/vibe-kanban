@@ -60,6 +60,7 @@ const decodePointerSegment = (value: string) =>
 interface ProjectTasksContextValue {
   tasksById: Record<string, TaskWithAttemptStatus>;
   operationStatuses: Record<string, OperationStatus>;
+  operationStatusesByTaskId: Record<string, OperationStatus>;
   paginationByStatus: PerStatusPagination;
   isQueriesLoading: boolean;
   isInitialSyncComplete: boolean;
@@ -413,10 +414,20 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
     };
   }, [projectId, applyTaskPatches, applyOperationStatusPatches]);
 
+  // Compute a mapping from task_id to OperationStatus for quick lookup
+  const operationStatusesByTaskId = useMemo(() => {
+    const byTaskId: Record<string, OperationStatus> = {};
+    for (const status of Object.values(operationStatuses)) {
+      byTaskId[status.task_id] = status;
+    }
+    return byTaskId;
+  }, [operationStatuses]);
+
   const value = useMemo(
     () => ({
       tasksById,
       operationStatuses,
+      operationStatusesByTaskId,
       paginationByStatus,
       isQueriesLoading,
       isInitialSyncComplete,
@@ -424,7 +435,7 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
       loadMoreForStatus,
       mergeTasks,
     }),
-    [tasksById, operationStatuses, paginationByStatus, isQueriesLoading, isInitialSyncComplete, error, loadMoreForStatus, mergeTasks]
+    [tasksById, operationStatuses, operationStatusesByTaskId, paginationByStatus, isQueriesLoading, isInitialSyncComplete, error, loadMoreForStatus, mergeTasks]
   );
 
   return (

@@ -707,6 +707,7 @@ pub async fn generate_commit_message(
     // Set operation status before starting
     deployment.operation_status().set(OperationStatus::new(
         workspace.id,
+        workspace.task_id,
         OperationStatusType::GeneratingCommit,
     ));
 
@@ -787,7 +788,7 @@ pub async fn push_task_attempt_branch(
     // Set operation status before starting push
     deployment
         .operation_status()
-        .set(OperationStatus::new(workspace.id, OperationStatusType::Pushing));
+        .set(OperationStatus::new(workspace.id, workspace.task_id, OperationStatusType::Pushing));
 
     let result = deployment
         .git()
@@ -834,7 +835,7 @@ pub async fn force_push_task_attempt_branch(
     // Set operation status before starting force push
     deployment
         .operation_status()
-        .set(OperationStatus::new(workspace.id, OperationStatusType::Pushing));
+        .set(OperationStatus::new(workspace.id, workspace.task_id, OperationStatusType::Pushing));
 
     let result = deployment
         .git()
@@ -1489,7 +1490,7 @@ pub async fn rebase_task_attempt(
     // Set operation status before starting rebase
     deployment
         .operation_status()
-        .set(OperationStatus::new(workspace.id, OperationStatusType::Rebasing));
+        .set(OperationStatus::new(workspace.id, workspace.task_id, OperationStatusType::Rebasing));
 
     let result = deployment.git().rebase_branch(
         &repo.path,
