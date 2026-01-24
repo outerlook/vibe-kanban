@@ -64,6 +64,45 @@ pub struct SkillsData {
     pub skills: Vec<SkillInfo>,
 }
 
+impl SkillsData {
+    /// Parse skills data from Claude Code's init message fields.
+    ///
+    /// Takes the raw JSON values for slash_commands and skills from the init message
+    /// and converts them to a structured SkillsData instance.
+    pub fn from_init_message(
+        slash_commands: Option<Vec<String>>,
+        skills_json: Option<Vec<serde_json::Value>>,
+    ) -> Option<Self> {
+        // Only return data if at least one field has content
+        let slash_commands = slash_commands.unwrap_or_default();
+        let skills: Vec<SkillInfo> = skills_json
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|v| {
+                // Try to parse each skill JSON object into SkillInfo
+                // Skills typically have: name, description (optional), namespace (optional)
+                let name = v.get("name")?.as_str()?.to_string();
+                let description = v.get("description").and_then(|d| d.as_str()).map(String::from);
+                let namespace = v.get("namespace").and_then(|n| n.as_str()).map(String::from);
+                Some(SkillInfo {
+                    name,
+                    description,
+                    namespace,
+                })
+            })
+            .collect();
+
+        if slash_commands.is_empty() && skills.is_empty() {
+            None
+        } else {
+            Some(SkillsData {
+                slash_commands,
+                skills,
+            })
+        }
+    }
+}
+
 #[derive(Derivative, Clone, Serialize, Deserialize, TS, JsonSchema)]
 #[derivative(Debug, PartialEq)]
 pub struct ClaudeCode {
@@ -222,6 +261,27 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         normalize_stderr_logs(msg_store, entry_index_provider);
     }
 
+    fn normalize_logs_with_skills_callback(
+        &self,
+        msg_store: Arc<MsgStore>,
+        current_dir: &Path,
+        skills_callback: Option<Box<dyn FnOnce(SkillsData) + Send + 'static>>,
+    ) {
+        let entry_index_provider = EntryIndexProvider::start_from(&msg_store);
+
+        // Process stdout logs (Claude's JSON output) with skills callback
+        ClaudeLogProcessor::process_logs_with_skills_callback(
+            msg_store.clone(),
+            current_dir,
+            entry_index_provider.clone(),
+            HistoryStrategy::Default,
+            skills_callback,
+        );
+
+        // Process stderr logs using the standard stderr processor
+        normalize_stderr_logs(msg_store, entry_index_provider);
+    }
+
     // MCP configuration methods
     fn default_mcp_config_path(&self) -> Option<std::path::PathBuf> {
         dirs::home_dir().map(|home| home.join(".claude.json"))
@@ -350,6 +410,8 @@ pub struct ClaudeLogProcessor {
     // Accumulated token usage from the session
     total_input_tokens: i64,
     total_output_tokens: i64,
+    // Skills data extracted from init message, to be taken by the caller
+    pending_skills_data: Option<SkillsData>,
 }
 
 impl ClaudeLogProcessor {
@@ -367,7 +429,14 @@ impl ClaudeLogProcessor {
             streaming_message_id: None,
             total_input_tokens: 0,
             total_output_tokens: 0,
+            pending_skills_data: None,
         }
+    }
+
+    /// Take any pending skills data extracted from init messages.
+    /// Returns `Some(SkillsData)` once after init message is processed, then `None`.
+    pub fn take_skills_data(&mut self) -> Option<SkillsData> {
+        self.pending_skills_data.take()
     }
 
     /// Get the accumulated token usage
@@ -375,13 +444,41 @@ impl ClaudeLogProcessor {
         (self.total_input_tokens, self.total_output_tokens)
     }
 
-    /// Process raw logs and convert them to normalized entries with patches
+    /// Process raw logs and convert them to normalized entries with patches.
+    ///
+    /// This is a convenience wrapper around `process_logs_with_skills_callback` that
+    /// ignores skills data. Use `process_logs_with_skills_callback` if you need to
+    /// capture skills from init messages.
     pub fn process_logs(
         msg_store: Arc<MsgStore>,
         current_dir: &Path,
         entry_index_provider: EntryIndexProvider,
         strategy: HistoryStrategy,
     ) {
+        Self::process_logs_with_skills_callback(
+            msg_store,
+            current_dir,
+            entry_index_provider,
+            strategy,
+            None::<Box<dyn FnOnce(SkillsData) + Send + 'static>>,
+        );
+    }
+
+    /// Process raw logs with an optional callback for skills data.
+    ///
+    /// When Claude Code emits an init message containing skills/slash_commands,
+    /// the provided callback will be invoked with the parsed `SkillsData`.
+    /// This allows callers to update a skills cache without creating a dependency
+    /// from this crate to the services crate.
+    pub fn process_logs_with_skills_callback<F>(
+        msg_store: Arc<MsgStore>,
+        current_dir: &Path,
+        entry_index_provider: EntryIndexProvider,
+        strategy: HistoryStrategy,
+        skills_callback: Option<F>,
+    ) where
+        F: FnOnce(SkillsData) + Send + 'static,
+    {
         let current_dir_clone = current_dir.to_owned();
         tokio::spawn(async move {
             let mut stream = msg_store.history_plus_stream();
@@ -389,6 +486,7 @@ impl ClaudeLogProcessor {
             let worktree_path = current_dir_clone.to_string_lossy().to_string();
             let mut session_id_extracted = false;
             let mut processor = Self::new_with_strategy(strategy);
+            let mut skills_callback = skills_callback;
 
             while let Some(Ok(msg)) = stream.next().await {
                 let chunk = match msg {
@@ -436,6 +534,13 @@ impl ClaudeLogProcessor {
                             );
                             for patch in patches {
                                 msg_store.push_patch(patch);
+                            }
+
+                            // Check if skills data was extracted from an init message
+                            if let Some(skills_data) = processor.take_skills_data() {
+                                if let Some(callback) = skills_callback.take() {
+                                    callback(skills_data);
+                                }
                             }
                         }
                         Err(_) => {
@@ -790,6 +895,8 @@ impl ClaudeLogProcessor {
             ClaudeJson::System {
                 subtype,
                 api_key_source,
+                slash_commands,
+                skills,
                 ..
             } => {
                 // emit billing warning if required
@@ -801,6 +908,13 @@ impl ClaudeLogProcessor {
                 // keep the existing behaviour for the normal system message
                 match subtype.as_deref() {
                     Some("init") => {
+                        // Extract skills data from init message if available
+                        if let Some(skills_data) = SkillsData::from_init_message(
+                            slash_commands.clone(),
+                            skills.clone(),
+                        ) {
+                            self.pending_skills_data = Some(skills_data);
+                        }
                         // Skip system init messages because it doesn't contain the actual model that will be used in assistant messages in case of claude-code-router.
                         // We'll send system initialized message with first assistant message that has a model field.
                     }
@@ -1506,6 +1620,10 @@ pub enum ClaudeJson {
         model: Option<String>,
         #[serde(default, rename = "apiKeySource")]
         api_key_source: Option<String>,
+        #[serde(default)]
+        slash_commands: Option<Vec<String>>,
+        #[serde(default)]
+        skills: Option<Vec<serde_json::Value>>,
     },
     #[serde(rename = "assistant")]
     Assistant {
@@ -2393,5 +2511,197 @@ mod tests {
         assert_eq!(entries[1].content, "I'll help you with that");
 
         // ToolResult entry is ignored - no third entry
+    }
+
+    #[test]
+    fn test_skills_data_from_init_message_with_skills() {
+        // Test parsing skills from init message fields
+        let slash_commands = Some(vec![
+            "/commit".to_string(),
+            "/review-pr".to_string(),
+            "/help".to_string(),
+        ]);
+        let skills_json = Some(vec![
+            serde_json::json!({
+                "name": "commit",
+                "description": "Create a git commit",
+                "namespace": "git-tools"
+            }),
+            serde_json::json!({
+                "name": "review-pr",
+                "description": "Review a pull request"
+            }),
+            serde_json::json!({
+                "name": "minimal-skill"
+                // No description or namespace
+            }),
+        ]);
+
+        let skills_data = SkillsData::from_init_message(slash_commands, skills_json);
+        assert!(skills_data.is_some());
+
+        let data = skills_data.unwrap();
+        assert_eq!(data.slash_commands.len(), 3);
+        assert_eq!(data.slash_commands[0], "/commit");
+        assert_eq!(data.slash_commands[1], "/review-pr");
+        assert_eq!(data.slash_commands[2], "/help");
+
+        assert_eq!(data.skills.len(), 3);
+        assert_eq!(data.skills[0].name, "commit");
+        assert_eq!(
+            data.skills[0].description,
+            Some("Create a git commit".to_string())
+        );
+        assert_eq!(data.skills[0].namespace, Some("git-tools".to_string()));
+
+        assert_eq!(data.skills[1].name, "review-pr");
+        assert_eq!(
+            data.skills[1].description,
+            Some("Review a pull request".to_string())
+        );
+        assert_eq!(data.skills[1].namespace, None);
+
+        assert_eq!(data.skills[2].name, "minimal-skill");
+        assert_eq!(data.skills[2].description, None);
+        assert_eq!(data.skills[2].namespace, None);
+    }
+
+    #[test]
+    fn test_skills_data_from_init_message_empty() {
+        // Test with empty/missing fields returns None
+        let result = SkillsData::from_init_message(None, None);
+        assert!(result.is_none());
+
+        let result = SkillsData::from_init_message(Some(vec![]), Some(vec![]));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_skills_data_from_init_message_only_slash_commands() {
+        // Test with only slash commands
+        let slash_commands = Some(vec!["/commit".to_string()]);
+        let result = SkillsData::from_init_message(slash_commands, None);
+        assert!(result.is_some());
+        let data = result.unwrap();
+        assert_eq!(data.slash_commands.len(), 1);
+        assert!(data.skills.is_empty());
+    }
+
+    #[test]
+    fn test_skills_data_from_init_message_only_skills() {
+        // Test with only skills
+        let skills_json = Some(vec![serde_json::json!({
+            "name": "test-skill"
+        })]);
+        let result = SkillsData::from_init_message(None, skills_json);
+        assert!(result.is_some());
+        let data = result.unwrap();
+        assert!(data.slash_commands.is_empty());
+        assert_eq!(data.skills.len(), 1);
+    }
+
+    #[test]
+    fn test_skills_data_from_init_message_filters_invalid_skills() {
+        // Test that skills without name field are filtered out
+        let skills_json = Some(vec![
+            serde_json::json!({
+                "name": "valid-skill"
+            }),
+            serde_json::json!({
+                "description": "Missing name field"
+            }),
+            serde_json::json!({
+                "name": 123  // Non-string name
+            }),
+        ]);
+
+        let result = SkillsData::from_init_message(None, skills_json);
+        assert!(result.is_some());
+        let data = result.unwrap();
+        assert_eq!(data.skills.len(), 1);
+        assert_eq!(data.skills[0].name, "valid-skill");
+    }
+
+    #[test]
+    fn test_parse_init_message_captures_skills() {
+        // Test that ClaudeLogProcessor captures skills from init message
+        let init_json = r#"{
+            "type": "system",
+            "subtype": "init",
+            "session_id": "test-session",
+            "model": "claude-sonnet-4",
+            "slash_commands": ["/commit", "/help"],
+            "skills": [
+                {"name": "commit", "description": "Create a commit", "namespace": "git"},
+                {"name": "help", "description": "Get help"}
+            ]
+        }"#;
+        let parsed: ClaudeJson = serde_json::from_str(init_json).unwrap();
+
+        let mut processor = ClaudeLogProcessor::new();
+        let provider = EntryIndexProvider::test_new();
+
+        // Process the init message
+        let _ = processor.normalize_entries(&parsed, "/tmp/worktree", &provider);
+
+        // Verify skills were captured
+        let skills_data = processor.take_skills_data();
+        assert!(skills_data.is_some());
+
+        let data = skills_data.unwrap();
+        assert_eq!(data.slash_commands.len(), 2);
+        assert_eq!(data.slash_commands[0], "/commit");
+        assert_eq!(data.slash_commands[1], "/help");
+
+        assert_eq!(data.skills.len(), 2);
+        assert_eq!(data.skills[0].name, "commit");
+        assert_eq!(data.skills[0].namespace, Some("git".to_string()));
+        assert_eq!(data.skills[1].name, "help");
+        assert_eq!(data.skills[1].namespace, None);
+    }
+
+    #[test]
+    fn test_parse_init_message_without_skills() {
+        // Test that init messages without skills don't set skills_data
+        let init_json = r#"{
+            "type": "system",
+            "subtype": "init",
+            "session_id": "test-session",
+            "model": "claude-sonnet-4"
+        }"#;
+        let parsed: ClaudeJson = serde_json::from_str(init_json).unwrap();
+
+        let mut processor = ClaudeLogProcessor::new();
+        let provider = EntryIndexProvider::test_new();
+
+        // Process the init message
+        let _ = processor.normalize_entries(&parsed, "/tmp/worktree", &provider);
+
+        // Verify no skills were captured
+        let skills_data = processor.take_skills_data();
+        assert!(skills_data.is_none());
+    }
+
+    #[test]
+    fn test_take_skills_data_returns_only_once() {
+        // Test that take_skills_data returns data only once
+        let init_json = r#"{
+            "type": "system",
+            "subtype": "init",
+            "slash_commands": ["/test"]
+        }"#;
+        let parsed: ClaudeJson = serde_json::from_str(init_json).unwrap();
+
+        let mut processor = ClaudeLogProcessor::new();
+        let provider = EntryIndexProvider::test_new();
+        let _ = processor.normalize_entries(&parsed, "/tmp/worktree", &provider);
+
+        // First take should return data
+        let first = processor.take_skills_data();
+        assert!(first.is_some());
+
+        // Second take should return None
+        let second = processor.take_skills_data();
+        assert!(second.is_none());
     }
 }

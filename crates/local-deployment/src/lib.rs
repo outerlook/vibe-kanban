@@ -198,6 +198,7 @@ impl Deployment for LocalDeployment {
             user_id: user_id.clone(),
             analytics_service: s.clone(),
         });
+        let skills_cache = GlobalSkillsCache::new();
         let container = LocalContainerService::new(
             db.clone(),
             msg_stores.clone(),
@@ -208,12 +209,12 @@ impl Deployment for LocalDeployment {
             approvals.clone(),
             queued_message_service.clone(),
             share_publisher.clone(),
+            skills_cache.clone(),
         )
         .await;
 
         let operation_status = OperationStatusStore::new(events_msg_store.clone());
         let merge_queue_store = MergeQueueStore::new(events_msg_store.clone());
-        let skills_cache = GlobalSkillsCache::new();
 
         let events = EventService::new(db.clone(), events_msg_store, events_entry_count);
 

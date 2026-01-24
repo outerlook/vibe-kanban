@@ -37,7 +37,7 @@ use executors::{
         coding_agent_initial::CodingAgentInitialRequest,
         script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
     },
-    executors::{ExecutorError, StandardCodingAgentExecutor},
+    executors::{ExecutorError, StandardCodingAgentExecutor, claude::SkillsData},
     logs::{NormalizedEntry, NormalizedEntryError, NormalizedEntryType, utils::ConversationPatch},
     profile::{ExecutorConfigs, ExecutorProfileId},
 };
@@ -57,6 +57,7 @@ use crate::services::{
     git::{GitService, GitServiceError},
     notification::NotificationService,
     share::SharePublisher,
+    skills_cache::GlobalSkillsCache,
     watcher_manager::WatcherManager,
     workspace_manager::WorkspaceError as WorkspaceManagerError,
     worktree_manager::WorktreeError,
@@ -262,6 +263,9 @@ pub trait ContainerService {
 
     /// Get the deployment config for accessing max_concurrent_agents setting.
     fn config(&self) -> &Arc<RwLock<Config>>;
+
+    /// Get the global skills cache for storing Claude Code skills data.
+    fn skills_cache(&self) -> &GlobalSkillsCache;
 
     fn workspace_to_current_dir(&self, workspace: &Workspace) -> PathBuf;
 
@@ -1136,16 +1140,30 @@ pub trait ContainerService {
             return None;
         };
 
+        // Create skills callback that updates the global cache
+        let skills_cache = self.skills_cache().clone();
+        let skills_callback: Option<Box<dyn FnOnce(SkillsData) + Send + 'static>> =
+            Some(Box::new(move |skills_data| {
+                let cache = skills_cache;
+                tokio::spawn(async move {
+                    cache.update_skills(skills_data).await;
+                });
+            }));
+
         match executor_action.typ() {
             ExecutorActionType::CodingAgentInitialRequest(request) => {
                 let executor = ExecutorConfigs::get_cached()
                     .get_coding_agent_or_default(&request.executor_profile_id);
-                executor.normalize_logs(temp_store.clone(), &current_dir);
+                executor.normalize_logs_with_skills_callback(
+                    temp_store.clone(),
+                    &current_dir,
+                    skills_callback,
+                );
             }
             ExecutorActionType::CodingAgentFollowUpRequest(request) => {
                 let executor = ExecutorConfigs::get_cached()
                     .get_coding_agent_or_default(&request.executor_profile_id);
-                executor.normalize_logs(temp_store.clone(), &current_dir);
+                executor.normalize_logs_with_skills_callback(temp_store.clone(), &current_dir, None);
             }
             _ => {
                 tracing::debug!(
@@ -1610,12 +1628,12 @@ pub trait ContainerService {
 
         // Start processing normalised logs for executor requests and follow ups
         if let Some(msg_store) = self.get_msg_store_by_id(&execution_process.id).await
-            && let Some(executor_profile_id) = match executor_action.typ() {
+            && let Some((executor_profile_id, is_initial)) = match executor_action.typ() {
                 ExecutorActionType::CodingAgentInitialRequest(request) => {
-                    Some(&request.executor_profile_id)
+                    Some((&request.executor_profile_id, true))
                 }
                 ExecutorActionType::CodingAgentFollowUpRequest(request) => {
-                    Some(&request.executor_profile_id)
+                    Some((&request.executor_profile_id, false))
                 }
                 _ => None,
             }
@@ -1623,7 +1641,24 @@ pub trait ContainerService {
             if let Some(executor) =
                 ExecutorConfigs::get_cached().get_coding_agent(executor_profile_id)
             {
-                executor.normalize_logs(msg_store, &self.workspace_to_current_dir(workspace));
+                // Only capture skills on initial requests (init message is only sent once)
+                let skills_callback: Option<Box<dyn FnOnce(SkillsData) + Send + 'static>> =
+                    if is_initial {
+                        let skills_cache = self.skills_cache().clone();
+                        Some(Box::new(move |skills_data| {
+                            let cache = skills_cache;
+                            tokio::spawn(async move {
+                                cache.update_skills(skills_data).await;
+                            });
+                        }))
+                    } else {
+                        None
+                    };
+                executor.normalize_logs_with_skills_callback(
+                    msg_store,
+                    &self.workspace_to_current_dir(workspace),
+                    skills_callback,
+                );
             } else {
                 tracing::error!(
                     "Failed to resolve profile '{:?}' for normalization",
@@ -1740,12 +1775,12 @@ pub trait ContainerService {
 
         // Start log streaming
         if let Some(msg_store) = self.get_msg_store_by_id(&execution_process.id).await
-            && let Some(executor_profile_id) = match executor_action.typ() {
+            && let Some((executor_profile_id, is_initial)) = match executor_action.typ() {
                 ExecutorActionType::CodingAgentInitialRequest(request) => {
-                    Some(&request.executor_profile_id)
+                    Some((&request.executor_profile_id, true))
                 }
                 ExecutorActionType::CodingAgentFollowUpRequest(request) => {
-                    Some(&request.executor_profile_id)
+                    Some((&request.executor_profile_id, false))
                 }
                 _ => None,
             }
@@ -1755,7 +1790,20 @@ pub trait ContainerService {
             if let Some(executor) =
                 ExecutorConfigs::get_cached().get_coding_agent(executor_profile_id)
             {
-                executor.normalize_logs(msg_store, &current_dir);
+                // Only capture skills on initial requests (init message is only sent once)
+                let skills_callback: Option<Box<dyn FnOnce(SkillsData) + Send + 'static>> =
+                    if is_initial {
+                        let skills_cache = self.skills_cache().clone();
+                        Some(Box::new(move |skills_data| {
+                            let cache = skills_cache;
+                            tokio::spawn(async move {
+                                cache.update_skills(skills_data).await;
+                            });
+                        }))
+                    } else {
+                        None
+                    };
+                executor.normalize_logs_with_skills_callback(msg_store, &current_dir, skills_callback);
             }
 
             self.spawn_stream_normalized_entries_to_db(&execution_process.id);

@@ -18,8 +18,15 @@ use crate::{
     command::CommandBuildError,
     env::ExecutionEnv,
     executors::{
-        amp::Amp, claude::ClaudeCode, codex::Codex, copilot::Copilot, cursor::CursorAgent,
-        droid::Droid, gemini::Gemini, opencode::Opencode, qwen::QwenCode,
+        amp::Amp,
+        claude::{ClaudeCode, SkillsData},
+        codex::Codex,
+        copilot::Copilot,
+        cursor::CursorAgent,
+        droid::Droid,
+        gemini::Gemini,
+        opencode::Opencode,
+        qwen::QwenCode,
     },
     mcp_config::McpConfig,
 };
@@ -208,6 +215,24 @@ pub trait StandardCodingAgentExecutor {
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError>;
     fn normalize_logs(&self, _raw_logs_event_store: Arc<MsgStore>, _worktree_path: &Path);
+
+    /// Normalize logs with a callback for capturing skills data.
+    ///
+    /// This method is called instead of `normalize_logs` when the caller wants to
+    /// capture skills data from init messages (e.g., Claude Code's skills/slash_commands).
+    /// The default implementation just calls `normalize_logs` and ignores the callback.
+    ///
+    /// Executors that emit skills data (like Claude Code) should override this method
+    /// to call the callback with the extracted skills.
+    fn normalize_logs_with_skills_callback(
+        &self,
+        raw_logs_event_store: Arc<MsgStore>,
+        worktree_path: &Path,
+        _skills_callback: Option<Box<dyn FnOnce(SkillsData) + Send + 'static>>,
+    ) {
+        // Default implementation just calls normalize_logs, ignoring the callback
+        self.normalize_logs(raw_logs_event_store, worktree_path);
+    }
 
     // MCP configuration methods
     fn default_mcp_config_path(&self) -> Option<std::path::PathBuf>;
