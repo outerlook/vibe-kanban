@@ -112,6 +112,131 @@ const nextActionPatch: (
   executionProcessId: '',
 });
 
+const categorizeEntry = (entry: PatchTypeWithKey): 'message' | 'groupable' => {
+  if (entry.type !== 'NORMALIZED_ENTRY') {
+    return 'groupable';
+  }
+  const entryType = entry.content.entry_type.type;
+  if (entryType === 'user_message' || entryType === 'assistant_message') {
+    return 'message';
+  }
+  return 'groupable';
+};
+
+const computeGroupSummary = (entries: PatchTypeWithKey[]): GroupSummary => {
+  const summary: GroupSummary = {
+    commands: 0,
+    file_reads: 0,
+    file_edits: 0,
+    searches: 0,
+    web_fetches: 0,
+    tools: 0,
+    system_messages: 0,
+    errors: 0,
+    thinking: 0,
+    token_usage: 0,
+  };
+
+  for (const entry of entries) {
+    if (entry.type !== 'NORMALIZED_ENTRY') continue;
+
+    const entryType = entry.content.entry_type;
+    switch (entryType.type) {
+      case 'tool_use': {
+        const action = entryType.action_type.action;
+        switch (action) {
+          case 'command_run':
+            summary.commands++;
+            break;
+          case 'file_read':
+            summary.file_reads++;
+            break;
+          case 'file_edit':
+            summary.file_edits++;
+            break;
+          case 'search':
+            summary.searches++;
+            break;
+          case 'web_fetch':
+            summary.web_fetches++;
+            break;
+          default:
+            summary.tools++;
+            break;
+        }
+        break;
+      }
+      case 'system_message':
+        summary.system_messages++;
+        break;
+      case 'error_message':
+        summary.errors++;
+        break;
+      case 'thinking':
+        summary.thinking++;
+        break;
+      case 'token_usage':
+        summary.token_usage++;
+        break;
+      // These types are categorized as 'message' and won't appear in groups,
+      // but we handle them for exhaustiveness
+      case 'user_message':
+      case 'user_feedback':
+      case 'assistant_message':
+      case 'loading':
+      case 'next_action':
+        break;
+    }
+  }
+
+  return summary;
+};
+
+const groupConsecutiveNonMessages = (
+  entries: PatchTypeWithKey[]
+): PatchTypeWithKey[] => {
+  const result: PatchTypeWithKey[] = [];
+  let groupableAccumulator: PatchTypeWithKey[] = [];
+
+  const flushAccumulator = () => {
+    if (groupableAccumulator.length === 0) return;
+
+    if (groupableAccumulator.length === 1) {
+      result.push(groupableAccumulator[0]);
+    } else {
+      const firstEntry = groupableAccumulator[0];
+      const lastEntry = groupableAccumulator[groupableAccumulator.length - 1];
+      const groupContent: EntryGroup = {
+        entries: groupableAccumulator.map((e) =>
+          e.type === 'NORMALIZED_ENTRY' ? e.content : ({} as NormalizedEntry)
+        ),
+        summary: computeGroupSummary(groupableAccumulator),
+      };
+      const groupPatch: PatchTypeWithKey = {
+        type: 'ENTRY_GROUP',
+        content: groupContent,
+        patchKey: `group:${firstEntry.patchKey}:${lastEntry.patchKey}`,
+        executionProcessId: firstEntry.executionProcessId,
+      };
+      result.push(groupPatch);
+    }
+    groupableAccumulator = [];
+  };
+
+  for (const entry of entries) {
+    const category = categorizeEntry(entry);
+    if (category === 'message') {
+      flushAccumulator();
+      result.push(entry);
+    } else {
+      groupableAccumulator.push(entry);
+    }
+  }
+
+  flushAccumulator();
+  return result;
+};
+
 export const useConversationHistory = ({
   mode,
   onEntriesUpdated,
@@ -304,125 +429,6 @@ export const useConversationHistory = ({
           new Date(b.executionProcess.created_at as unknown as string).getTime()
       )
       .flatMap((p) => p.entries);
-  };
-
-  const categorizeEntry = (
-    entry: PatchTypeWithKey
-  ): 'message' | 'groupable' => {
-    if (entry.type !== 'NORMALIZED_ENTRY') {
-      return 'groupable';
-    }
-    const entryType = entry.content.entry_type.type;
-    if (entryType === 'user_message' || entryType === 'assistant_message') {
-      return 'message';
-    }
-    return 'groupable';
-  };
-
-  const computeGroupSummary = (entries: PatchTypeWithKey[]): GroupSummary => {
-    const summary: GroupSummary = {
-      commands: 0,
-      file_reads: 0,
-      file_edits: 0,
-      searches: 0,
-      web_fetches: 0,
-      tools: 0,
-      system_messages: 0,
-      errors: 0,
-      thinking: 0,
-      token_usage: 0,
-    };
-
-    for (const entry of entries) {
-      if (entry.type !== 'NORMALIZED_ENTRY') continue;
-
-      const entryType = entry.content.entry_type;
-      switch (entryType.type) {
-        case 'tool_use': {
-          const action = entryType.action_type.action;
-          switch (action) {
-            case 'command_run':
-              summary.commands++;
-              break;
-            case 'file_read':
-              summary.file_reads++;
-              break;
-            case 'file_edit':
-              summary.file_edits++;
-              break;
-            case 'search':
-              summary.searches++;
-              break;
-            case 'web_fetch':
-              summary.web_fetches++;
-              break;
-            default:
-              summary.tools++;
-              break;
-          }
-          break;
-        }
-        case 'system_message':
-          summary.system_messages++;
-          break;
-        case 'error_message':
-          summary.errors++;
-          break;
-        case 'thinking':
-          summary.thinking++;
-          break;
-        case 'token_usage':
-          summary.token_usage++;
-          break;
-      }
-    }
-
-    return summary;
-  };
-
-  const groupConsecutiveNonMessages = (
-    entries: PatchTypeWithKey[]
-  ): PatchTypeWithKey[] => {
-    const result: PatchTypeWithKey[] = [];
-    let groupableAccumulator: PatchTypeWithKey[] = [];
-
-    const flushAccumulator = () => {
-      if (groupableAccumulator.length === 0) return;
-
-      if (groupableAccumulator.length === 1) {
-        result.push(groupableAccumulator[0]);
-      } else {
-        const firstEntry = groupableAccumulator[0];
-        const lastEntry = groupableAccumulator[groupableAccumulator.length - 1];
-        const groupContent: EntryGroup = {
-          entries: groupableAccumulator.map((e) =>
-            e.type === 'NORMALIZED_ENTRY' ? e.content : ({} as NormalizedEntry)
-          ),
-          summary: computeGroupSummary(groupableAccumulator),
-        };
-        const groupPatch: PatchTypeWithKey = {
-          type: 'ENTRY_GROUP',
-          content: groupContent,
-          patchKey: `group:${firstEntry.patchKey}:${lastEntry.patchKey}`,
-          executionProcessId: firstEntry.executionProcessId,
-        };
-        result.push(groupPatch);
-      }
-      groupableAccumulator = [];
-    };
-
-    for (const entry of entries) {
-      const category = categorizeEntry(entry);
-      if (category === 'message') {
-        flushAccumulator();
-        result.push(entry);
-      } else {
-        groupableAccumulator.push(entry);
-      }
-    }
-
-    flushAccumulator();
-    return result;
   };
 
   const getActiveAgentProcesses = (): ExecutionProcess[] => {

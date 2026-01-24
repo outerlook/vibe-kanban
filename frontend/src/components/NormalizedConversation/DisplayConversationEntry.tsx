@@ -628,6 +628,8 @@ function DisplayConversationEntry({
 }: Props) {
   const { t } = useTranslation('common');
   const { t: tTasks } = useTranslation('tasks');
+  const { isProcessGreyed } = useRetryUi();
+  const greyed = isProcessGreyed(executionProcessId);
 
   // Type guard for EntryGroup - check for 'entries' and 'summary' properties
   const isEntryGroup = (
@@ -655,9 +657,6 @@ function DisplayConversationEntry({
   const isProcessStart = (
     entry: NormalizedEntry | ProcessStartPayload
   ): entry is ProcessStartPayload => 'processId' in entry;
-
-  const { isProcessGreyed } = useRetryUi();
-  const greyed = isProcessGreyed(executionProcessId);
 
   if (isProcessStart(entry)) {
     return (
