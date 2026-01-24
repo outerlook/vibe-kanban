@@ -548,6 +548,8 @@ export type OperationStatusType = "generating_commit" | "rebasing" | "pushing" |
 
 export type MergeQueueEntry = { id: string, project_id: string, workspace_id: string, repo_id: string, queued_at: string, status: MergeQueueStatus, commit_message: string, };
 
+export type MergeQueueStatus = "queued" | "merging";
+
 export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert";
 
 export type ExecutorAction = { typ: ExecutorActionType, next_action: ExecutorAction | null, };

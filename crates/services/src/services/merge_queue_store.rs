@@ -9,8 +9,16 @@ use uuid::Uuid;
 
 use super::events::patches::merge_queue_patch;
 
-// Re-export MergeQueueStatus from db models for TypeScript type consistency
-pub use db::models::merge_queue::MergeQueueStatus;
+/// Status of a merge queue entry
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeQueueStatus {
+    /// Entry is waiting in queue
+    Queued,
+    /// Entry is currently being merged
+    Merging,
+}
 
 /// An entry in the merge queue
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

@@ -232,7 +232,7 @@ fn generate_types_content() -> String {
         services::services::operation_status::OperationStatus::decl(),
         services::services::operation_status::OperationStatusType::decl(),
         services::services::merge_queue_store::MergeQueueEntry::decl(),
-        // MergeQueueStatus is already exported from db::models::merge_queue
+        services::services::merge_queue_store::MergeQueueStatus::decl(),
         services::services::git::ConflictOp::decl(),
         executors::actions::ExecutorAction::decl(),
         executors::mcp_config::McpConfig::decl(),

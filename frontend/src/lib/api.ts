@@ -102,7 +102,7 @@ import {
   QueueStatus,
   QueueMergeRequest,
   QueueMergeError,
-  MergeQueue,
+  MergeQueueEntry,
   MergeQueueCountResponse,
   FollowUpResult,
   PrCommentsResponse,
@@ -1084,7 +1084,7 @@ export const attemptsApi = {
   queueMerge: async (
     attemptId: string,
     data: QueueMergeRequest
-  ): Promise<Result<MergeQueue, QueueMergeError>> => {
+  ): Promise<Result<MergeQueueEntry, QueueMergeError>> => {
     const response = await makeRequest(
       `/api/task-attempts/${attemptId}/queue-merge`,
       {
@@ -1092,7 +1092,7 @@ export const attemptsApi = {
         body: JSON.stringify(data),
       }
     );
-    return handleApiResponseAsResult<MergeQueue, QueueMergeError>(response);
+    return handleApiResponseAsResult<MergeQueueEntry, QueueMergeError>(response);
   },
 
   cancelQueuedMerge: async (attemptId: string): Promise<void> => {
@@ -1115,11 +1115,11 @@ export const attemptsApi = {
     return handleApiResponse<void>(response);
   },
 
-  getQueueStatus: async (attemptId: string): Promise<MergeQueue | null> => {
+  getQueueStatus: async (attemptId: string): Promise<MergeQueueEntry | null> => {
     const response = await makeRequest(
       `/api/task-attempts/${attemptId}/queue-status`
     );
-    return handleApiResponse<MergeQueue | null>(response);
+    return handleApiResponse<MergeQueueEntry | null>(response);
   },
 };
 
