@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE task_groups\n               SET name = COALESCE($2, name),\n                   description = CASE WHEN $3 THEN $4 ELSE description END,\n                   base_branch = CASE WHEN $5 THEN $6 ELSE base_branch END,\n                   updated_at = datetime('now', 'subsec')\n               WHERE id = $1\n               RETURNING id as \"id!: Uuid\",\n                         project_id as \"project_id!: Uuid\",\n                         name,\n                         description,\n                         base_branch,\n                         created_at as \"created_at!: DateTime<Utc>\",\n                         updated_at as \"updated_at!: DateTime<Utc>\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "project_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "name",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "description",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "base_branch",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 6,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "6a4559cfcee0918e148cadb5a6acc5b4ed1c3ade9c42b431fab246c4657b0d04"
+}
