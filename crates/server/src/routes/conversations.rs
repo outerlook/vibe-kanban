@@ -220,35 +220,23 @@ pub async fn send_message(
         )));
     }
 
-    // Get conversation history for context
-    let conversation_history =
-        ConversationService::get_conversation_history_for_prompt(pool, conversation.id).await?;
-
     // Check if we have a previous agent session to continue
     let latest_agent_session_id =
         ConversationService::get_latest_agent_session_id(pool, conversation.id).await?;
 
-    // Build the prompt with conversation history
-    let prompt = if conversation_history.is_empty() {
-        payload.content.clone()
-    } else {
-        format!(
-            "Previous conversation:\n{}\n\nUser: {}",
-            conversation_history, payload.content
-        )
-    };
-
     // Build ExecutorAction
+    // Note: For follow-up requests, the agent's --resume flag already loads conversation context,
+    // so we only send the new user message, not the entire history.
     let action_type = if let Some(agent_session_id) = latest_agent_session_id {
         ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
-            prompt,
+            prompt: payload.content.clone(),
             session_id: agent_session_id,
             executor_profile_id: executor_profile_id.clone(),
             working_dir: None,
         })
     } else {
         ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-            prompt,
+            prompt: payload.content.clone(),
             executor_profile_id: executor_profile_id.clone(),
             working_dir: None,
         })

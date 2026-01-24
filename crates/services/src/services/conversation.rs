@@ -136,30 +136,6 @@ impl ConversationService {
         Ok(message)
     }
 
-    /// Get the conversation history formatted for the agent prompt.
-    pub async fn get_conversation_history_for_prompt(
-        pool: &SqlitePool,
-        conversation_session_id: Uuid,
-    ) -> Result<String, ConversationServiceError> {
-        let messages =
-            ConversationMessage::find_by_conversation_session_id(pool, conversation_session_id)
-                .await?;
-
-        let history = messages
-            .iter()
-            .map(|msg| {
-                let role = match msg.role {
-                    MessageRole::User => "User",
-                    MessageRole::Assistant => "Assistant",
-                };
-                format!("{}: {}", role, msg.content)
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n");
-
-        Ok(history)
-    }
-
     /// Get the latest agent session ID for continuing conversation
     pub async fn get_latest_agent_session_id(
         pool: &SqlitePool,
