@@ -538,6 +538,8 @@ async fn handle_git_status_ws(
 pub struct MergeTaskAttemptRequest {
     pub repo_id: Uuid,
     pub commit_message: Option<String>,
+    #[serde(default)]
+    pub generate_commit_message: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -1963,6 +1965,8 @@ pub async fn get_task_attempt_repos(
 pub struct QueueMergeRequest {
     pub repo_id: Uuid,
     pub commit_message: Option<String>,
+    #[serde(default)]
+    pub generate_commit_message: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]

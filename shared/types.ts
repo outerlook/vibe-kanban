@@ -370,7 +370,7 @@ export type ChangeTargetBranchRequest = { repo_id: string, new_target_branch: st
 
 export type ChangeTargetBranchResponse = { repo_id: string, new_target_branch: string, status: [number, number], };
 
-export type MergeTaskAttemptRequest = { repo_id: string, commit_message: string | null, };
+export type MergeTaskAttemptRequest = { repo_id: string, commit_message: string | null, generate_commit_message: boolean | null, };
 
 export type GenerateCommitMessageRequest = { repo_id: string, };
 
@@ -476,7 +476,7 @@ conflicted_files: Array<string>,
  */
 target_branch_has_uncommitted_changes: boolean | null, };
 
-export type QueueMergeRequest = { repo_id: string, commit_message: string | null, };
+export type QueueMergeRequest = { repo_id: string, commit_message: string | null, generate_commit_message: boolean | null, };
 
 export type QueueMergeError = { "type": "no_commits_ahead" } | { "type": "has_conflicts" } | { "type": "already_merged" } | { "type": "already_queued" } | { "type": "workspace_repo_not_found" };
 
