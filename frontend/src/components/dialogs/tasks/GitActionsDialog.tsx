@@ -123,7 +123,7 @@ const GitActionsDialogImpl = NiceModal.create<GitActionsDialogProps>(
             </div>
           ) : (
             <GitOperationsProvider attemptId={attempt.id}>
-              <BranchStatusProvider attemptId={attempt.id}>
+              <BranchStatusProvider workspace={attempt}>
                 <ExecutionProcessesProvider
                   key={attempt.id}
                   source={{ type: 'workspace', workspaceId: attempt.id }}

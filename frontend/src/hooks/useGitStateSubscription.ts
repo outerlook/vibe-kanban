@@ -7,12 +7,20 @@ interface GitStateChangedMessage {
   workspace_id: string;
 }
 
+interface UseGitStateSubscriptionOptions {
+  enabled?: boolean;
+}
+
 /**
  * Subscribes to git state changes via WebSocket and invalidates branchStatus query.
  * When the backend detects file system changes in the git worktree, it sends a
  * "git_state_changed" message, triggering a refetch of branch status.
  */
-export function useGitStateSubscription(attemptId: string | undefined): void {
+export function useGitStateSubscription(
+  attemptId: string | undefined,
+  options: UseGitStateSubscriptionOptions = {}
+): void {
+  const { enabled = true } = options;
   const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
   const retryTimerRef = useRef<number | null>(null);
@@ -31,8 +39,8 @@ export function useGitStateSubscription(attemptId: string | undefined): void {
   }, []);
 
   useEffect(() => {
-    if (!attemptId) {
-      // Clean up if no attemptId
+    if (!enabled || !attemptId) {
+      // Clean up if disabled or no attemptId
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -107,5 +115,5 @@ export function useGitStateSubscription(attemptId: string | undefined): void {
         retryTimerRef.current = null;
       }
     };
-  }, [attemptId, queryClient, scheduleReconnect, retryNonce]);
+  }, [enabled, attemptId, queryClient, scheduleReconnect, retryNonce]);
 }

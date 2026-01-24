@@ -55,7 +55,7 @@ export function DiffsPanel({ selectedAttempt, gitOps }: DiffsPanelProps) {
   >('loading');
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [processedIds, setProcessedIds] = useState<Set<string>>(new Set());
-  const { diffs, error } = useDiffStream(selectedAttempt?.id ?? null, true);
+  const { diffs, error } = useDiffStream(selectedAttempt?.id ?? null, !!selectedAttempt?.container_ref);
   const { fileCount, added, deleted } = useDiffSummary(
     selectedAttempt?.id ?? null
   );
