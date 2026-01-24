@@ -13,6 +13,8 @@ use db::models::{
     task::{Task, TaskWithAttemptStatus},
     workspace::{Workspace, WorkspaceWithSession},
 };
+
+use crate::services::operation_status::{OperationStatus, OperationStatusStore};
 use futures::StreamExt;
 use moka::future::Cache;
 use once_cell::sync::Lazy;
@@ -37,6 +39,14 @@ static TASK_PROJECT_CACHE: Lazy<Cache<Uuid, Uuid>> = Lazy::new(|| {
 static TASK_PROJECT_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
 static TASK_PROJECT_CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
 static TASK_PROJECT_CACHE_LOOKUPS: AtomicU64 = AtomicU64::new(0);
+
+/// Cache mapping workspace_id -> project_id for operation_status filtering
+static WORKSPACE_PROJECT_CACHE: Lazy<Cache<Uuid, Uuid>> = Lazy::new(|| {
+    Cache::builder()
+        .time_to_live(Duration::from_secs(300))
+        .max_capacity(1000)
+        .build()
+});
 
 async fn cache_project_for_task(task_id: Uuid, project_id: Uuid) {
     TASK_PROJECT_CACHE.insert(task_id, project_id).await;
@@ -66,6 +76,33 @@ fn task_id_from_path(path: &str) -> Option<Uuid> {
     let suffix = path.strip_prefix("/tasks/")?;
     let id_str = suffix.split('/').next()?;
     Uuid::parse_str(id_str).ok()
+}
+
+fn workspace_id_from_operation_status_path(path: &str) -> Option<Uuid> {
+    let suffix = path.strip_prefix("/operation_status/")?;
+    let id_str = suffix.split('/').next()?;
+    Uuid::parse_str(id_str).ok()
+}
+
+async fn cache_project_for_workspace(workspace_id: Uuid, project_id: Uuid) {
+    WORKSPACE_PROJECT_CACHE.insert(workspace_id, project_id).await;
+}
+
+async fn get_project_for_workspace(db: &SqlitePool, workspace_id: Uuid) -> Option<Uuid> {
+    // Check cache first
+    if let Some(project_id) = WORKSPACE_PROJECT_CACHE.get(&workspace_id).await {
+        return Some(project_id);
+    }
+
+    // Look up workspace -> task -> project
+    if let Ok(Some(workspace)) = Workspace::find_by_id(db, workspace_id).await {
+        if let Some(project_id) = get_project_for_task(db, workspace.task_id).await {
+            WORKSPACE_PROJECT_CACHE.insert(workspace_id, project_id).await;
+            return Some(project_id);
+        }
+    }
+
+    None
 }
 
 fn record_task_cache_result(hit: bool) {
@@ -107,19 +144,34 @@ async fn get_task_id_for_execution_process(
 }
 
 impl EventService {
-    /// Stream raw task messages for a specific project with optional snapshot
+    /// Stream raw task messages for a specific project with optional snapshot.
+    /// Also includes operation_status updates for workspaces belonging to tasks in this project.
     pub async fn stream_tasks_raw(
         &self,
         project_id: Uuid,
         include_snapshot: bool,
+        operation_status_store: OperationStatusStore,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, EventError>
     {
         async fn build_tasks_snapshot(
             db_pool: &SqlitePool,
             project_id: Uuid,
-        ) -> Result<LogMsg, sqlx::Error> {
+        ) -> Result<(LogMsg, Vec<Uuid>), sqlx::Error> {
             let tasks =
                 Task::find_by_project_id_with_attempt_status(db_pool, project_id).await?;
+
+            // Collect workspace IDs for operation_status filtering
+            let task_ids: Vec<Uuid> = tasks.iter().map(|t| t.id).collect();
+            let mut workspace_ids = Vec::new();
+            for task_id in &task_ids {
+                let workspaces = Workspace::fetch_all(db_pool, Some(*task_id))
+                    .await
+                    .unwrap_or_default();
+                for ws in workspaces {
+                    cache_project_for_workspace(ws.id, project_id).await;
+                    workspace_ids.push(ws.id);
+                }
+            }
 
             for task in &tasks {
                 cache_project_for_task(task.id, task.project_id).await;
@@ -136,7 +188,30 @@ impl EventService {
                 "value": tasks_map
             }]);
 
-            Ok(LogMsg::JsonPatch(serde_json::from_value(patch).unwrap()))
+            Ok((
+                LogMsg::JsonPatch(serde_json::from_value(patch).unwrap()),
+                workspace_ids,
+            ))
+        }
+
+        fn build_operation_status_snapshot(statuses: Vec<OperationStatus>) -> LogMsg {
+            let status_map: serde_json::Map<String, serde_json::Value> = statuses
+                .into_iter()
+                .map(|status| {
+                    (
+                        status.workspace_id.to_string(),
+                        serde_json::to_value(status).unwrap(),
+                    )
+                })
+                .collect();
+
+            let patch = json!([{
+                "op": "replace",
+                "path": "/operation_status",
+                "value": status_map
+            }]);
+
+            LogMsg::JsonPatch(serde_json::from_value(patch).unwrap())
         }
 
         // Clone necessary data for the async filter
@@ -195,6 +270,73 @@ impl EventService {
                                             return Some(Ok(LogMsg::JsonPatch(patch)));
                                         }
                                         _ => {}
+                                    }
+                                }
+                                // Handle operation_status patches
+                                else if patch_op.path().starts_with("/operation_status/") {
+                                    // Extract workspace_id from path and check if it belongs to this project
+                                    if let Some(workspace_id) =
+                                        workspace_id_from_operation_status_path(patch_op.path())
+                                    {
+                                        // Helper to check if status belongs to project
+                                        async fn check_status_belongs_to_project(
+                                            db_pool: &SqlitePool,
+                                            value: &serde_json::Value,
+                                            project_id: Uuid,
+                                        ) -> bool {
+                                            if let Ok(status) =
+                                                serde_json::from_value::<OperationStatus>(
+                                                    value.clone(),
+                                                )
+                                            {
+                                                if let Some(ws_project_id) =
+                                                    get_project_for_workspace(
+                                                        db_pool,
+                                                        status.workspace_id,
+                                                    )
+                                                    .await
+                                                {
+                                                    return ws_project_id == project_id;
+                                                }
+                                            }
+                                            false
+                                        }
+
+                                        match patch_op {
+                                            json_patch::PatchOperation::Add(op) => {
+                                                if check_status_belongs_to_project(
+                                                    &db_pool,
+                                                    &op.value,
+                                                    project_id,
+                                                )
+                                                .await
+                                                {
+                                                    return Some(Ok(LogMsg::JsonPatch(patch)));
+                                                }
+                                            }
+                                            json_patch::PatchOperation::Replace(op) => {
+                                                if check_status_belongs_to_project(
+                                                    &db_pool,
+                                                    &op.value,
+                                                    project_id,
+                                                )
+                                                .await
+                                                {
+                                                    return Some(Ok(LogMsg::JsonPatch(patch)));
+                                                }
+                                            }
+                                            json_patch::PatchOperation::Remove(_) => {
+                                                // For remove, check cache or allow through
+                                                if let Some(ws_project_id) =
+                                                    get_project_for_workspace(&db_pool, workspace_id)
+                                                        .await
+                                                    && ws_project_id == project_id
+                                                {
+                                                    return Some(Ok(LogMsg::JsonPatch(patch)));
+                                                }
+                                            }
+                                            _ => {}
+                                        }
                                     }
                                 } else if let Ok(event_patch_value) = serde_json::to_value(patch_op)
                                     && let Ok(event_patch) =
@@ -259,8 +401,11 @@ impl EventService {
                                 "tasks stream lagged; resyncing snapshot"
                             );
 
+                            // Note: For lag resync, we only resync tasks.
+                            // Operation status is ephemeral and clients should
+                            // handle missing updates gracefully.
                             match build_tasks_snapshot(&db_pool, project_id).await {
-                                Ok(snapshot) => Some(Ok(snapshot)),
+                                Ok((snapshot, _workspace_ids)) => Some(Ok(snapshot)),
                                 Err(err) => {
                                     tracing::error!(
                                         error = %err,
@@ -280,11 +425,16 @@ impl EventService {
             return Ok(filtered_stream.boxed());
         }
 
-        // Get initial snapshot of tasks
-        let initial_msg = build_tasks_snapshot(&self.db.pool, project_id).await?;
+        // Get initial snapshot of tasks and workspace IDs
+        let (tasks_msg, workspace_ids) =
+            build_tasks_snapshot(&self.db.pool, project_id).await?;
 
-        // Start with initial snapshot, then live updates
-        let initial_stream = futures::stream::once(async move { Ok(initial_msg) });
+        // Get operation statuses for workspaces in this project
+        let operation_statuses = operation_status_store.get_by_workspace_ids(&workspace_ids);
+        let operation_status_msg = build_operation_status_snapshot(operation_statuses);
+
+        // Start with initial snapshots (tasks first, then operation_status), then live updates
+        let initial_stream = futures::stream::iter(vec![Ok(tasks_msg), Ok(operation_status_msg)]);
         let combined_stream = initial_stream.chain(filtered_stream).boxed();
 
         Ok(combined_stream)

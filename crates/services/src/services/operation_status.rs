@@ -105,4 +105,14 @@ impl OperationStatusStore {
     pub fn get_all(&self) -> Vec<OperationStatus> {
         self.operations.read().values().cloned().collect()
     }
+
+    /// Get operation statuses for specific workspace IDs.
+    /// Useful for filtering by project (caller determines which workspaces belong to the project).
+    pub fn get_by_workspace_ids(&self, workspace_ids: &[Uuid]) -> Vec<OperationStatus> {
+        let ops = self.operations.read();
+        workspace_ids
+            .iter()
+            .filter_map(|ws_id| ops.get(ws_id).cloned())
+            .collect()
+    }
 }

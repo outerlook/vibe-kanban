@@ -251,7 +251,11 @@ async fn handle_tasks_ws(
     // Get the raw stream and convert LogMsg to WebSocket messages
     let mut stream = deployment
         .events()
-        .stream_tasks_raw(project_id, include_snapshot)
+        .stream_tasks_raw(
+            project_id,
+            include_snapshot,
+            deployment.operation_status().clone(),
+        )
         .await?
         .map_ok(|msg| msg.to_ws_message_unchecked());
 
