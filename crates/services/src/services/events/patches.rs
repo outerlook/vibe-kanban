@@ -294,9 +294,10 @@ pub mod notification_patch {
 pub mod operation_status_patch {
     use super::*;
 
-    fn operation_status_path(workspace_id: Uuid) -> String {
+    /// Get the JSON Pointer path for an operation status
+    pub fn path(workspace_id: Uuid) -> String {
         format!(
-            "/operation_statuses/{}",
+            "/operation_status/{}",
             escape_pointer_segment(&workspace_id.to_string())
         )
     }
@@ -304,7 +305,7 @@ pub mod operation_status_patch {
     /// Create patch for adding a new operation status
     pub fn add(status: &OperationStatus) -> Patch {
         Patch(vec![PatchOperation::Add(AddOperation {
-            path: operation_status_path(status.workspace_id)
+            path: path(status.workspace_id)
                 .try_into()
                 .expect("Operation status path should be valid"),
             value: serde_json::to_value(status)
@@ -315,7 +316,7 @@ pub mod operation_status_patch {
     /// Create patch for updating an existing operation status
     pub fn replace(status: &OperationStatus) -> Patch {
         Patch(vec![PatchOperation::Replace(ReplaceOperation {
-            path: operation_status_path(status.workspace_id)
+            path: path(status.workspace_id)
                 .try_into()
                 .expect("Operation status path should be valid"),
             value: serde_json::to_value(status)
@@ -326,7 +327,7 @@ pub mod operation_status_patch {
     /// Create patch for removing an operation status
     pub fn remove(workspace_id: Uuid) -> Patch {
         Patch(vec![PatchOperation::Remove(RemoveOperation {
-            path: operation_status_path(workspace_id)
+            path: path(workspace_id)
                 .try_into()
                 .expect("Operation status path should be valid"),
         })])
