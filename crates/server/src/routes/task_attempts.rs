@@ -2072,6 +2072,7 @@ pub enum QueueMergeError {
     AlreadyMerged,
     AlreadyQueued,
     WorkspaceRepoNotFound,
+    CommitMessageGenerationFailed { message: String },
 }
 
 /// POST /task-attempts/{id}/queue-merge - Queue a task attempt for merge
@@ -2149,30 +2150,33 @@ pub async fn queue_merge(
 
     // Determine commit message:
     // 1. If request.commit_message provided → use it
-    // 2. Else if generate_commit_message == Some(true) → call AI generation
+    // 2. Else if generate_commit_message == Some(true) → call AI generation (fail if it errors)
     // 3. Else → fallback to task title/description
     let commit_message = if let Some(msg) = request.commit_message {
         msg
     } else if request.generate_commit_message == Some(true) {
-        // Attempt AI generation with fallback on failure
-        let ai_result = generate_commit_message_for_merge_internal(
+        // AI generation requested - fail if it errors (no fallback)
+        match generate_commit_message_for_merge_internal(
             &deployment,
             &workspace,
             &task,
             &repo,
             &workspace_repo,
         )
-        .await;
-
-        match ai_result {
+        .await
+        {
             Ok(msg) => msg,
             Err(e) => {
                 tracing::warn!(
                     workspace_id = %workspace.id,
                     error = %e,
-                    "AI commit message generation failed for queue_merge, falling back to task title/description"
+                    "AI commit message generation failed for queue_merge"
                 );
-                build_fallback_commit_message(&task)
+                return Ok(ResponseJson(ApiResponse::error_with_data(
+                    QueueMergeError::CommitMessageGenerationFailed {
+                        message: e.to_string(),
+                    },
+                )));
             }
         }
     } else {
