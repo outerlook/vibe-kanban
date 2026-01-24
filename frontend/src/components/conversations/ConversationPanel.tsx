@@ -8,6 +8,7 @@ import { NewConversationDialog } from '@/components/dialogs/conversations/NewCon
 import {
   useSendMessage,
   useConversationExecutions,
+  useStopConversationExecution,
 } from '@/hooks/useConversations';
 import type { ConversationSession, ExecutionProcessStatus } from 'shared/types';
 
@@ -26,8 +27,14 @@ export function ConversationPanel({ projectId }: ConversationPanelProps) {
   );
 
   // Check if there's an active execution (agent is responding)
-  const hasActiveExecution = executions?.some(
+  const runningExecution = executions?.find(
     (ep) => ep.status === ('running' as ExecutionProcessStatus)
+  );
+  const hasActiveExecution = !!runningExecution;
+
+  const { stopExecution, isStopping } = useStopConversationExecution(
+    runningExecution?.id,
+    selectedConversation?.id
   );
 
   const handleSelectConversation = useCallback(
@@ -93,6 +100,9 @@ export function ConversationPanel({ projectId }: ConversationPanelProps) {
             <MessageInput
               onSend={handleSendMessage}
               disabled={hasActiveExecution || sendMessage.isPending}
+              onStop={stopExecution}
+              isStopping={isStopping}
+              showStopButton={hasActiveExecution}
             />
           </>
         ) : (
