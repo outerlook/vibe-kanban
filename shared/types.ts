@@ -14,6 +14,10 @@ export type UserData = { user_id: string, first_name: string | null, last_name: 
 
 export type Project = { id: string, name: string, dev_script: string | null, dev_script_working_dir: string | null, default_agent_working_dir: string | null, remote_project_id: string | null, created_at: Date, updated_at: Date, };
 
+export type ProjectTaskCounts = { inprogress: bigint, inreview: bigint, };
+
+export type ProjectWithTaskCounts = { task_counts: ProjectTaskCounts, id: string, name: string, dev_script: string | null, dev_script_working_dir: string | null, default_agent_working_dir: string | null, remote_project_id: string | null, created_at: Date, updated_at: Date, };
+
 export type CreateProject = { name: string, repositories: Array<CreateProjectRepo>, };
 
 export type UpdateProject = { name: string | null, dev_script: string | null, dev_script_working_dir: string | null, default_agent_working_dir: string | null, };

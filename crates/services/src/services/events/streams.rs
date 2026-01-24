@@ -7,7 +7,7 @@ use db::models::{
     execution_process::ExecutionProcess,
     gantt::GanttTask,
     notification::Notification,
-    project::Project,
+    project::{Project, ProjectWithTaskCounts},
     scratch::Scratch,
     session::Session,
     task::{Task, TaskWithAttemptStatus},
@@ -295,14 +295,14 @@ impl EventService {
         &self,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, EventError>
     {
-        fn build_projects_snapshot(projects: Vec<Project>) -> LogMsg {
+        fn build_projects_snapshot(projects: Vec<ProjectWithTaskCounts>) -> LogMsg {
             // Convert projects array to object keyed by project ID
             let projects_map: serde_json::Map<String, serde_json::Value> = projects
                 .into_iter()
-                .map(|project| {
+                .map(|pwc| {
                     (
-                        project.id.to_string(),
-                        serde_json::to_value(project).unwrap(),
+                        pwc.project.id.to_string(),
+                        serde_json::to_value(pwc).unwrap(),
                     )
                 })
                 .collect();

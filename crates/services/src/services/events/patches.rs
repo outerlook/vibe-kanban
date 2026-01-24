@@ -1,6 +1,7 @@
 use db::models::{
     execution_process::ExecutionProcess, notification::Notification, project::Project,
-    scratch::Scratch, task::TaskWithAttemptStatus, workspace::Workspace,
+    project::ProjectWithTaskCounts, scratch::Scratch, task::TaskWithAttemptStatus,
+    workspace::Workspace,
 };
 use json_patch::{AddOperation, Patch, PatchOperation, RemoveOperation, ReplaceOperation};
 use uuid::Uuid;
@@ -85,6 +86,31 @@ pub mod project_patch {
             path: project_path(project_id)
                 .try_into()
                 .expect("Project path should be valid"),
+        })])
+    }
+}
+
+/// Helper functions for creating project-with-task-counts patches.
+/// Uses the same path format as project_patch (/projects/{id}) but with
+/// ProjectWithTaskCounts data.
+pub mod project_with_counts_patch {
+    use super::*;
+
+    fn project_path(project_id: Uuid) -> String {
+        format!(
+            "/projects/{}",
+            escape_pointer_segment(&project_id.to_string())
+        )
+    }
+
+    /// Create patch for replacing a project with updated task counts
+    pub fn replace(project: &ProjectWithTaskCounts) -> Patch {
+        Patch(vec![PatchOperation::Replace(ReplaceOperation {
+            path: project_path(project.project.id)
+                .try_into()
+                .expect("Project path should be valid"),
+            value: serde_json::to_value(project)
+                .expect("ProjectWithTaskCounts serialization should not fail"),
         })])
     }
 }

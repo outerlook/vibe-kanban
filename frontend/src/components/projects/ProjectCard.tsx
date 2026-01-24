@@ -18,13 +18,15 @@ import {
   Clock,
   Edit,
   ExternalLink,
+  Eye,
   FolderOpen,
   Link2,
   MoreHorizontal,
+  PlayCircle,
   Trash2,
   Unlink,
 } from 'lucide-react';
-import { Project } from 'shared/types';
+import { Project, ProjectWithTaskCounts } from 'shared/types';
 import { useEffect, useRef } from 'react';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { useNavigateWithSearch, useProjectRepos } from '@/hooks';
@@ -35,7 +37,7 @@ import { useProjectMutations } from '@/hooks/useProjectMutations';
 import { useUnread } from '@/contexts/UnreadContext';
 
 type Props = {
-  project: Project;
+  project: ProjectWithTaskCounts;
   isFocused: boolean;
   setError: (error: string) => void;
   onEdit: (project: Project) => void;
@@ -220,6 +222,23 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
               date: new Date(project.created_at).toLocaleDateString(),
             })}
           </CardDescription>
+          {(project.task_counts.inprogress > 0 ||
+            project.task_counts.inreview > 0) && (
+            <CardDescription className="flex items-center gap-3 mt-1">
+              {project.task_counts.inprogress > 0 && (
+                <span className="flex items-center text-xs">
+                  <PlayCircle className="mr-1 h-3 w-3" />
+                  {Number(project.task_counts.inprogress)} in progress
+                </span>
+              )}
+              {project.task_counts.inreview > 0 && (
+                <span className="flex items-center text-xs">
+                  <Eye className="mr-1 h-3 w-3" />
+                  {Number(project.task_counts.inreview)} in review
+                </span>
+              )}
+            </CardDescription>
+          )}
         </div>
       </CardHeader>
     </Card>
