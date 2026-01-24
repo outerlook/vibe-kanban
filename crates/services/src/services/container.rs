@@ -334,14 +334,7 @@ pub trait ContainerService {
                 }
             };
 
-            // Update materialized is_queued status for the task (queue entry was just removed)
-            if let Err(e) = Task::update_materialized_status(&self.db().pool, workspace.task_id).await {
-                tracing::error!(
-                    "Failed to update materialized status after dequeuing workspace {}: {}",
-                    workspace.id,
-                    e
-                );
-            }
+            // Note: is_queued is updated automatically via database trigger on execution_queue DELETE
 
             // Check if this is a follow-up or initial start
             if entry.is_follow_up() {
@@ -1337,14 +1330,7 @@ pub trait ContainerService {
             );
             let queue_entry =
                 ExecutionQueue::create(&self.db().pool, workspace.id, &executor_profile_id).await?;
-            // Update materialized is_queued status for the task
-            if let Err(e) = Task::update_materialized_status(&self.db().pool, workspace.task_id).await {
-                tracing::error!(
-                    "Failed to update materialized status after queueing workspace {}: {}",
-                    workspace.id,
-                    e
-                );
-            }
+            // Note: is_queued is updated automatically via database trigger on execution_queue INSERT
             return Ok(StartWorkspaceResult::Queued(queue_entry));
         }
 

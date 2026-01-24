@@ -586,7 +586,8 @@ pub async fn delete_task(
         total_children_affected += children_affected;
     }
 
-    // Delete task from database (FK CASCADE will handle task_attempts)
+    // Delete task from database (FK CASCADE will handle task_attempts and task_dependencies)
+    // Note: is_blocked of dependent tasks is updated automatically via database trigger
     let rows_affected = Task::delete(&mut *tx, task.id).await?;
 
     if rows_affected == 0 {

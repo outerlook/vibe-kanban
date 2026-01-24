@@ -107,20 +107,6 @@ impl EventService {
         Ok(())
     }
 
-    async fn update_materialized_status_for_session(
-        pool: &SqlitePool,
-        session_id: Uuid,
-    ) -> Result<(), SqlxError> {
-        use db::models::session::Session;
-        if let Some(session) = Session::find_by_id(pool, session_id).await?
-            && let Some(workspace) = Workspace::find_by_id(pool, session.workspace_id).await?
-        {
-            Task::update_materialized_status(pool, workspace.task_id).await?;
-        }
-
-        Ok(())
-    }
-
     /// Spawns the event worker and returns a handle for shutdown.
     /// Must be called before `create_hook` to get the sender.
     pub fn spawn_event_worker(
@@ -271,22 +257,10 @@ impl EventService {
                     };
                     msg_store.push_patch(patch);
 
-                    // Push updates for tasks that depend on this one.
-                    // Their is_blocked status may have changed.
+                    // Push WebSocket updates for tasks that depend on this one.
+                    // Note: is_blocked column is updated automatically via database trigger.
                     if let Ok(dependent_tasks) = TaskDependency::find_blocking(&db.pool, task.id).await
                     {
-                        // Update materialized status for dependent tasks (is_blocked column)
-                        let dependent_task_ids: Vec<Uuid> =
-                            dependent_tasks.iter().map(|t| t.id).collect();
-                        if let Err(err) =
-                            Task::update_materialized_status_bulk(&db.pool, &dependent_task_ids).await
-                        {
-                            tracing::error!(
-                                "Failed to update materialized status for dependent tasks: {:?}",
-                                err
-                            );
-                        }
-
                         for dep_task in dependent_tasks {
                             let _ = Self::push_task_update_for_task(
                                 &db.pool,
@@ -344,15 +318,8 @@ impl EventService {
                 };
                 msg_store.push_patch(workspace_patch);
 
-                // Update materialized status columns for the task
-                if let Err(err) =
-                    Task::update_materialized_status(&db.pool, workspace.task_id).await
-                {
-                    tracing::error!(
-                        "Failed to update materialized status for task after workspace change: {:?}",
-                        err
-                    );
-                }
+                // Note: materialized status columns are updated via database triggers
+                // on sessions, execution_processes, and execution_queue tables
 
                 // Then, update the parent task with fresh data
                 if let Ok(Some(task_with_status)) =
@@ -368,13 +335,8 @@ impl EventService {
                 task_id: Some(task_id),
                 ..
             } => {
-                // Update materialized status columns for the task
-                if let Err(err) = Task::update_materialized_status(&db.pool, *task_id).await {
-                    tracing::error!(
-                        "Failed to update materialized status for task after workspace deletion: {:?}",
-                        err
-                    );
-                }
+                // Note: materialized status columns are updated via database triggers
+                // (CASCADE deletes on sessions/execution_processes will trigger updates)
 
                 // Workspace deletion should update the parent task with fresh data
                 if let Ok(Some(task_with_status)) =
@@ -393,19 +355,9 @@ impl EventService {
                 };
                 msg_store.push_patch(patch);
 
-                // Only push task update for workspace-based executions
+                // Push task update via WebSocket for workspace-based executions
+                // Note: materialized status columns are updated via database triggers on execution_processes
                 if let Some(session_id) = process.session_id {
-                    // Update materialized status columns first
-                    if let Err(err) =
-                        Self::update_materialized_status_for_session(&db.pool, session_id).await
-                    {
-                        tracing::error!(
-                            "Failed to update materialized status after execution process change: {:?}",
-                            err
-                        );
-                    }
-
-                    // Then push task update via WebSocket
                     if let Err(err) =
                         Self::push_task_update_for_session(&db.pool, msg_store.clone(), session_id)
                             .await
@@ -427,18 +379,9 @@ impl EventService {
                 let patch = execution_process_patch::remove(*process_id);
                 msg_store.push_patch(patch);
 
+                // Push task update via WebSocket
+                // Note: materialized status columns are updated via database triggers on execution_processes
                 if let Some(session_id) = session_id {
-                    // Update materialized status columns first
-                    if let Err(err) =
-                        Self::update_materialized_status_for_session(&db.pool, *session_id).await
-                    {
-                        tracing::error!(
-                            "Failed to update materialized status after execution process removal: {:?}",
-                            err
-                        );
-                    }
-
-                    // Then push task update via WebSocket
                     if let Err(err) =
                         Self::push_task_update_for_session(&db.pool, msg_store.clone(), *session_id)
                             .await

@@ -2098,7 +2098,7 @@ pub async fn cancel_execution_queue(
     let pool = &deployment.db().pool;
 
     ExecutionQueue::delete_by_workspace(pool, workspace.id).await?;
-    Task::update_materialized_status(pool, workspace.task_id).await?;
+    // Note: is_queued is updated automatically via database trigger on execution_queue DELETE
 
     deployment
         .track_if_analytics_allowed(
