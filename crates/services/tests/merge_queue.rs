@@ -21,7 +21,10 @@ use git2::Repository;
 use services::services::{
     git::GitService,
     merge_queue_processor::{MergeQueueError, MergeQueueProcessor},
+    merge_queue_store::MergeQueueStore,
 };
+use std::sync::Arc;
+use utils::msg_store::MsgStore;
 use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -40,6 +43,12 @@ async fn create_test_db() -> SqlitePool {
         .expect("Failed to run migrations");
 
     pool
+}
+
+/// Creates a test MergeQueueStore.
+fn create_test_merge_queue_store() -> MergeQueueStore {
+    let msg_store = Arc::new(MsgStore::new());
+    MergeQueueStore::new(msg_store)
 }
 
 /// Creates a test project in the database.
@@ -521,7 +530,7 @@ async fn test_processor_empty_queue_returns_ok() {
     let pool = create_test_db().await;
     let project_id = create_test_project(&pool, "Empty Queue Project").await;
 
-    let processor = MergeQueueProcessor::new(pool, GitService::new());
+    let processor = MergeQueueProcessor::new(pool, GitService::new(), create_test_merge_queue_store());
     let result = processor.process_project_queue(project_id).await;
 
     assert!(result.is_ok());
@@ -565,7 +574,7 @@ async fn test_workspace_deletion_cascades_to_queue() {
         .is_none());
 
     // Processor should handle empty queue gracefully
-    let processor = MergeQueueProcessor::new(pool.clone(), GitService::new());
+    let processor = MergeQueueProcessor::new(pool.clone(), GitService::new(), create_test_merge_queue_store());
     let result = processor.process_project_queue(project_id).await;
     assert!(result.is_ok());
 }
@@ -621,7 +630,7 @@ async fn test_full_merge_flow_success() {
     assert_eq!(entry.status, MergeQueueStatus::Queued);
 
     // Process the queue
-    let processor = MergeQueueProcessor::new(pool.clone(), GitService::new());
+    let processor = MergeQueueProcessor::new(pool.clone(), GitService::new(), create_test_merge_queue_store());
     processor.process_project_queue(project_id).await.unwrap();
 
     // Merge queue entry should be deleted after successful processing
@@ -703,7 +712,7 @@ async fn test_merge_with_conflict_marks_entry() {
         .unwrap();
 
     // Process - should fail with conflict
-    let processor = MergeQueueProcessor::new(pool.clone(), GitService::new());
+    let processor = MergeQueueProcessor::new(pool.clone(), GitService::new(), create_test_merge_queue_store());
     processor.process_project_queue(project_id).await.unwrap();
 
     // Merge queue entry should be deleted after conflict
@@ -783,7 +792,7 @@ async fn test_queue_processes_multiple_entries_fifo() {
     }
 
     // Process all
-    let processor = MergeQueueProcessor::new(pool.clone(), GitService::new());
+    let processor = MergeQueueProcessor::new(pool.clone(), GitService::new(), create_test_merge_queue_store());
     processor.process_project_queue(project_id).await.unwrap();
 
     // All should be deleted after processing
@@ -884,7 +893,7 @@ async fn test_conflict_skips_to_next_entry() {
         .unwrap();
 
     // Process queue
-    let processor = MergeQueueProcessor::new(pool.clone(), GitService::new());
+    let processor = MergeQueueProcessor::new(pool.clone(), GitService::new(), create_test_merge_queue_store());
     processor.process_project_queue(project_id).await.unwrap();
 
     // First entry should be deleted after conflict

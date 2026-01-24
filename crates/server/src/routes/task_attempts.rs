@@ -34,7 +34,6 @@ use db::models::{
     execution_process_normalized_entry::ExecutionProcessNormalizedEntry,
     execution_queue::ExecutionQueue,
     merge::{Merge, MergeStatus, PrMerge, PullRequestInfo},
-    merge_queue::{MergeQueue, MergeQueueStatus},
     project_repo::ProjectRepo,
     repo::{Repo, RepoError},
     session::{CreateSession, Session},
@@ -59,6 +58,7 @@ use services::services::{
     git::{ConflictOp, GitCliError, GitServiceError},
     github::GitHubService,
     merge_queue_processor::MergeQueueProcessor,
+    merge_queue_store::MergeQueueEntry,
     operation_status::{OperationStatus, OperationStatusType},
 };
 use sqlx::Error as SqlxError;
@@ -2080,8 +2080,9 @@ pub async fn queue_merge(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
     Json(request): Json<QueueMergeRequest>,
-) -> Result<ResponseJson<ApiResponse<MergeQueue, QueueMergeError>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<MergeQueueEntry, QueueMergeError>>, ApiError> {
     let pool = &deployment.db().pool;
+    let merge_queue_store = deployment.merge_queue_store();
 
     // Load workspace repo
     let workspace_repo =
@@ -2093,20 +2094,11 @@ pub async fn queue_merge(
         .await?
         .ok_or(RepoError::NotFound)?;
 
-    // Check if already queued - only block if entry is actively being processed
-    if let Some(existing) = MergeQueue::find_by_workspace(pool, workspace.id).await? {
-        match existing.status {
-            // Terminal statuses: delete old entry and allow re-queue
-            MergeQueueStatus::Completed | MergeQueueStatus::Conflict => {
-                MergeQueue::delete_by_workspace(pool, workspace.id).await?;
-            }
-            // Active statuses: block new queue
-            MergeQueueStatus::Queued | MergeQueueStatus::Merging => {
-                return Ok(ResponseJson(ApiResponse::error_with_data(
-                    QueueMergeError::AlreadyQueued,
-                )));
-            }
-        }
+    // Check if already queued using in-memory store
+    if merge_queue_store.get(workspace.id).is_some() {
+        return Ok(ResponseJson(ApiResponse::error_with_data(
+            QueueMergeError::AlreadyQueued,
+        )));
     }
 
     // Check if already merged
@@ -2155,15 +2147,45 @@ pub async fn queue_merge(
         .await?
         .ok_or(ApiError::Workspace(WorkspaceError::TaskNotFound))?;
 
-    // Create the merge queue entry
-    let entry = MergeQueue::create(
-        pool,
+    // Determine commit message:
+    // 1. If request.commit_message provided → use it
+    // 2. Else if generate_commit_message == Some(true) → call AI generation
+    // 3. Else → fallback to task title/description
+    let commit_message = if let Some(msg) = request.commit_message {
+        msg
+    } else if request.generate_commit_message == Some(true) {
+        // Attempt AI generation with fallback on failure
+        let ai_result = generate_commit_message_for_merge_internal(
+            &deployment,
+            &workspace,
+            &task,
+            &repo,
+            &workspace_repo,
+        )
+        .await;
+
+        match ai_result {
+            Ok(msg) => msg,
+            Err(e) => {
+                tracing::warn!(
+                    workspace_id = %workspace.id,
+                    error = %e,
+                    "AI commit message generation failed for queue_merge, falling back to task title/description"
+                );
+                build_fallback_commit_message(&task)
+            }
+        }
+    } else {
+        build_fallback_commit_message(&task)
+    };
+
+    // Create the merge queue entry in the in-memory store
+    let entry = merge_queue_store.enqueue(
         task.project_id,
         workspace.id,
         request.repo_id,
-        request.commit_message.as_deref(),
-    )
-    .await?;
+        commit_message,
+    );
 
     // Spawn background processor only if one isn't already running for this project.
     // This prevents race conditions where multiple processors could claim the same entries.
@@ -2181,11 +2203,13 @@ pub async fn queue_merge(
     if should_spawn {
         let processor_pool = pool.clone();
         let processor_git = deployment.git().clone();
+        let processor_store = deployment.merge_queue_store().clone();
         let processor_op_status = deployment.operation_status().clone();
         tokio::spawn(async move {
             let processor = MergeQueueProcessor::with_operation_status(
                 processor_pool,
                 processor_git,
+                processor_store,
                 processor_op_status,
             );
             if let Err(e) = processor.process_project_queue(project_id).await {
@@ -2222,9 +2246,7 @@ pub async fn cancel_queue_merge(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
-    let pool = &deployment.db().pool;
-
-    MergeQueue::delete_by_workspace(pool, workspace.id).await?;
+    deployment.merge_queue_store().remove(workspace.id);
 
     deployment
         .track_if_analytics_allowed(
@@ -2266,10 +2288,8 @@ pub async fn cancel_execution_queue(
 pub async fn get_queue_status(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<Option<MergeQueue>>>, ApiError> {
-    let pool = &deployment.db().pool;
-
-    let entry = MergeQueue::find_by_workspace(pool, workspace.id).await?;
+) -> Result<ResponseJson<ApiResponse<Option<MergeQueueEntry>>>, ApiError> {
+    let entry = deployment.merge_queue_store().get(workspace.id);
 
     Ok(ResponseJson(ApiResponse::success(entry)))
 }
