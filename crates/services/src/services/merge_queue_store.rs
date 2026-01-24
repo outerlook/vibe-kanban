@@ -159,6 +159,25 @@ impl MergeQueueStore {
         entries.sort_by_key(|e| e.queued_at);
         entries
     }
+
+    /// Count entries for a project.
+    pub fn count_by_project(&self, project_id: Uuid) -> i64 {
+        self.entries
+            .read()
+            .iter()
+            .filter(|e| e.project_id == project_id)
+            .count() as i64
+    }
+
+    /// Count entries for a set of workspace IDs.
+    /// Useful for counting entries belonging to a task group.
+    pub fn count_by_workspace_ids(&self, workspace_ids: &[Uuid]) -> i64 {
+        self.entries
+            .read()
+            .iter()
+            .filter(|e| workspace_ids.contains(&e.workspace_id))
+            .count() as i64
+    }
 }
 
 #[cfg(test)]

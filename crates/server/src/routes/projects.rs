@@ -13,7 +13,6 @@ use axum::{
     routing::{get, post},
 };
 use db::models::{
-    merge_queue::MergeQueue,
     project::{
         CreateProject, Project, ProjectError, ProjectWithTaskCounts, SearchResult, UpdateProject,
     },
@@ -738,8 +737,7 @@ pub async fn get_merge_queue_count(
     Extension(project): Extension<Project>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<MergeQueueCountResponse>>, ApiError> {
-    let pool = &deployment.db().pool;
-    let count = MergeQueue::count_by_project(pool, project.id).await?;
+    let count = deployment.merge_queue_store().count_by_project(project.id);
     Ok(ResponseJson(ApiResponse::success(MergeQueueCountResponse {
         count,
     })))

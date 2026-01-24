@@ -418,6 +418,24 @@ impl Workspace {
             project_id: result.project_id,
         })
     }
+
+    /// Get workspace IDs for tasks belonging to a task group.
+    /// Used for merge queue count by task group.
+    pub async fn fetch_ids_by_task_group(
+        pool: &SqlitePool,
+        task_group_id: Uuid,
+    ) -> Result<Vec<Uuid>, sqlx::Error> {
+        let rows = sqlx::query_scalar!(
+            r#"SELECT w.id AS "id!: Uuid"
+            FROM workspaces w
+            JOIN tasks t ON w.task_id = t.id
+            WHERE t.task_group_id = ?"#,
+            task_group_id
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
 }
 
 impl WorkspaceWithSession {

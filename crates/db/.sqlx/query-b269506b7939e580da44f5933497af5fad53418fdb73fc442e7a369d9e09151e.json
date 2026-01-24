@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT w.id AS \"id!: Uuid\"\n            FROM workspaces w\n            JOIN tasks t ON w.task_id = t.id\n            WHERE t.task_group_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "b269506b7939e580da44f5933497af5fad53418fdb73fc442e7a369d9e09151e"
+}

@@ -362,10 +362,6 @@ session_id: string | null,
  */
 executor_action: string | null, };
 
-export type MergeQueue = { id: string, project_id: string, workspace_id: string, repo_id: string, queued_at: string, status: string, conflict_message: string | null, commit_message: string | null, started_at: string | null, completed_at: string | null, };
-
-export type MergeQueueStatus = "queued" | "merging" | "conflict" | "completed";
-
 export type ChangeTargetBranchRequest = { repo_id: string, new_target_branch: string, };
 
 export type ChangeTargetBranchResponse = { repo_id: string, new_target_branch: string, status: [number, number], };

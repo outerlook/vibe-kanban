@@ -7,8 +7,8 @@ use axum::{
     routing::{get, post},
 };
 use db::models::{
-    merge_queue::MergeQueue,
     task_group::{MergeError, TaskGroup, TaskGroupWithStats, UpdateTaskGroup},
+    workspace::Workspace,
 };
 use deployment::Deployment;
 use serde::{Deserialize, Serialize};
@@ -185,7 +185,10 @@ pub async fn get_merge_queue_count(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<MergeQueueCountResponse>>, ApiError> {
     let pool = &deployment.db().pool;
-    let count = MergeQueue::count_by_task_group(pool, task_group.id).await?;
+    let workspace_ids = Workspace::fetch_ids_by_task_group(pool, task_group.id).await?;
+    let count = deployment
+        .merge_queue_store()
+        .count_by_workspace_ids(&workspace_ids);
     Ok(ResponseJson(ApiResponse::success(MergeQueueCountResponse {
         count,
     })))
