@@ -125,6 +125,13 @@ export {
   type DeleteConfigurationResult,
 } from './settings/DeleteConfigurationDialog';
 
+// Conversation dialogs
+export {
+  RenameConversationDialog,
+  type RenameConversationDialogProps,
+  type RenameConversationDialogResult,
+} from './conversations/RenameConversationDialog';
+
 // Shared/Generic dialogs
 export { ConfirmDialog, type ConfirmDialogProps } from './shared/ConfirmDialog';
 export {
