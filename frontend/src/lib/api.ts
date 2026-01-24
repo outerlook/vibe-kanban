@@ -9,6 +9,7 @@ import {
   Config,
   CreateFollowUpAttempt,
   EditorType,
+  ExecutorProfileId,
   CreateGitHubPrRequest,
   CreateTask,
   CreateAndStartTaskRequest,
@@ -1855,7 +1856,7 @@ export const notificationsApi = {
 export interface CreateConversationRequest {
   title: string;
   initial_message: string;
-  executor?: string;
+  executor_profile_id: ExecutorProfileId | null;
 }
 
 export interface CreateConversationResponse {
