@@ -19,6 +19,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use super::git::{GitService, GitServiceError};
+use super::operation_status::{OperationStatus, OperationStatusStore, OperationStatusType};
 
 /// Errors that can occur during merge queue processing
 #[derive(Debug, Error)]
@@ -70,12 +71,30 @@ impl MergeQueueError {
 pub struct MergeQueueProcessor {
     pool: SqlitePool,
     git: GitService,
+    operation_status: Option<OperationStatusStore>,
 }
 
 impl MergeQueueProcessor {
     /// Create a new MergeQueueProcessor
     pub fn new(pool: SqlitePool, git: GitService) -> Self {
-        Self { pool, git }
+        Self {
+            pool,
+            git,
+            operation_status: None,
+        }
+    }
+
+    /// Create a new MergeQueueProcessor with operation status tracking
+    pub fn with_operation_status(
+        pool: SqlitePool,
+        git: GitService,
+        operation_status: OperationStatusStore,
+    ) -> Self {
+        Self {
+            pool,
+            git,
+            operation_status: Some(operation_status),
+        }
     }
 
     /// Process all queued entries for a project until the queue is empty.
@@ -109,8 +128,23 @@ impl MergeQueueProcessor {
                 "Processing merge queue entry"
             );
 
+            // Set Merging operation status
+            if let Some(ref op_status) = self.operation_status {
+                op_status.set(OperationStatus::new(
+                    entry.workspace_id,
+                    OperationStatusType::Merging,
+                ));
+            }
+
             // Process this entry, handling errors gracefully
-            match self.process_entry(&entry).await {
+            let result = self.process_entry(&entry).await;
+
+            // Clear operation status after processing (success or failure)
+            if let Some(ref op_status) = self.operation_status {
+                op_status.clear(entry.workspace_id);
+            }
+
+            match result {
                 Ok(merge_commit) => {
                     info!(
                         entry_id = %entry.id,

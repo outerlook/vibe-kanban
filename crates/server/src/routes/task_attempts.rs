@@ -59,6 +59,7 @@ use services::services::{
     git::{ConflictOp, GitCliError, GitServiceError},
     github::GitHubService,
     merge_queue_processor::MergeQueueProcessor,
+    operation_status::{OperationStatus, OperationStatusType},
 };
 use sqlx::Error as SqlxError;
 use ts_rs::TS;
@@ -703,38 +704,54 @@ pub async fn generate_commit_message(
         .await?
         .ok_or(ApiError::Workspace(WorkspaceError::TaskNotFound))?;
 
-    let execution_process = pr::generate_commit_message_for_merge(
-        &deployment,
-        &workspace,
-        &task,
-        Path::new(&repo.path),
-        &workspace.branch,
-        &workspace_repo.target_branch,
-    )
-    .await?;
+    // Set operation status before starting
+    deployment.operation_status().set(OperationStatus::new(
+        workspace.id,
+        OperationStatusType::GeneratingCommit,
+    ));
 
-    // Wait for the agent to complete (60s timeout)
-    deployment
-        .container()
-        .wait_for_execution_completion(execution_process.id, Duration::from_secs(60))
+    let result = async {
+        let execution_process = pr::generate_commit_message_for_merge(
+            &deployment,
+            &workspace,
+            &task,
+            Path::new(&repo.path),
+            &workspace.branch,
+            &workspace_repo.target_branch,
+        )
         .await?;
 
-    // Fetch all normalized entries for this execution
-    let entries =
-        ExecutionProcessNormalizedEntry::fetch_all_for_execution(pool, execution_process.id)
-            .await
-            .map_err(|e| ApiError::BadRequest(format!("Failed to fetch agent output: {e}")))?;
+        // Wait for the agent to complete (60s timeout)
+        deployment
+            .container()
+            .wait_for_execution_completion(execution_process.id, Duration::from_secs(60))
+            .await?;
 
-    // Find the last AssistantMessage entry and extract its content
-    let commit_message = entries
-        .iter()
-        .rev()
-        .find(|e| matches!(e.entry.entry_type, NormalizedEntryType::AssistantMessage))
-        .map(|e| e.entry.content.trim().to_string())
-        .filter(|s: &String| !s.is_empty())
-        .ok_or_else(|| {
-            ApiError::BadRequest("Agent did not produce a commit message".to_string())
-        })?;
+        // Fetch all normalized entries for this execution
+        let entries =
+            ExecutionProcessNormalizedEntry::fetch_all_for_execution(pool, execution_process.id)
+                .await
+                .map_err(|e| ApiError::BadRequest(format!("Failed to fetch agent output: {e}")))?;
+
+        // Find the last AssistantMessage entry and extract its content
+        let commit_message = entries
+            .iter()
+            .rev()
+            .find(|e| matches!(e.entry.entry_type, NormalizedEntryType::AssistantMessage))
+            .map(|e| e.entry.content.trim().to_string())
+            .filter(|s: &String| !s.is_empty())
+            .ok_or_else(|| {
+                ApiError::BadRequest("Agent did not produce a commit message".to_string())
+            })?;
+
+        Ok::<_, ApiError>(commit_message)
+    }
+    .await;
+
+    // Clear operation status after completion (success or failure)
+    deployment.operation_status().clear(workspace.id);
+
+    let commit_message = result?;
 
     Ok(ResponseJson(ApiResponse::success(
         GenerateCommitMessageResponse { commit_message },
@@ -767,10 +784,19 @@ pub async fn push_task_attempt_branch(
     let workspace_path = Path::new(&container_ref);
     let worktree_path = workspace_path.join(&repo.name);
 
-    match deployment
+    // Set operation status before starting push
+    deployment
+        .operation_status()
+        .set(OperationStatus::new(workspace.id, OperationStatusType::Pushing));
+
+    let result = deployment
         .git()
-        .push_to_github(&worktree_path, &workspace.branch, false)
-    {
+        .push_to_github(&worktree_path, &workspace.branch, false);
+
+    // Clear operation status after push completes (success or failure)
+    deployment.operation_status().clear(workspace.id);
+
+    match result {
         Ok(_) => Ok(ResponseJson(ApiResponse::success(()))),
         Err(GitServiceError::GitCLI(GitCliError::PushRejected(_))) => Ok(ResponseJson(
             ApiResponse::error_with_data(PushError::ForcePushRequired),
@@ -805,9 +831,19 @@ pub async fn force_push_task_attempt_branch(
     let workspace_path = Path::new(&container_ref);
     let worktree_path = workspace_path.join(&repo.name);
 
+    // Set operation status before starting force push
     deployment
+        .operation_status()
+        .set(OperationStatus::new(workspace.id, OperationStatusType::Pushing));
+
+    let result = deployment
         .git()
-        .push_to_github(&worktree_path, &workspace.branch, true)?;
+        .push_to_github(&worktree_path, &workspace.branch, true);
+
+    // Clear operation status after push completes (success or failure)
+    deployment.operation_status().clear(workspace.id);
+
+    result?;
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
@@ -1450,6 +1486,11 @@ pub async fn rebase_task_attempt(
     let workspace_path = Path::new(&container_ref);
     let worktree_path = workspace_path.join(&repo.name);
 
+    // Set operation status before starting rebase
+    deployment
+        .operation_status()
+        .set(OperationStatus::new(workspace.id, OperationStatusType::Rebasing));
+
     let result = deployment.git().rebase_branch(
         &repo.path,
         &worktree_path,
@@ -1457,6 +1498,10 @@ pub async fn rebase_task_attempt(
         &old_base_branch,
         &workspace.branch.clone(),
     );
+
+    // Clear operation status after rebase completes (success or failure)
+    deployment.operation_status().clear(workspace.id);
+
     if let Err(e) = result {
         use services::services::git::GitServiceError;
         return match e {
@@ -2037,8 +2082,13 @@ pub async fn queue_merge(
     if should_spawn {
         let processor_pool = pool.clone();
         let processor_git = deployment.git().clone();
+        let processor_op_status = deployment.operation_status().clone();
         tokio::spawn(async move {
-            let processor = MergeQueueProcessor::new(processor_pool, processor_git);
+            let processor = MergeQueueProcessor::with_operation_status(
+                processor_pool,
+                processor_git,
+                processor_op_status,
+            );
             if let Err(e) = processor.process_project_queue(project_id).await {
                 tracing::error!(
                     %project_id,
