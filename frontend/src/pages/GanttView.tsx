@@ -388,7 +388,7 @@ export function GanttView() {
 
   const attemptArea = (
     <GitOperationsProvider attemptId={attempt?.id}>
-      <BranchStatusProvider attemptId={attempt?.id}>
+      <BranchStatusProvider workspace={attempt}>
         <ClickedElementsProvider attempt={attempt}>
           <ReviewProvider attemptId={attempt?.id}>
             <ExecutionProcessesProvider
