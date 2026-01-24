@@ -70,7 +70,8 @@ export function NextActionCard({
 
   const openInEditor = useOpenInEditor(attemptId);
   const { fileCount, added, deleted, error } = useDiffSummary(
-    attemptId ?? null
+    attemptId ?? null,
+    containerRef
   );
   const {
     start,
