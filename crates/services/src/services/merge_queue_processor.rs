@@ -1,13 +1,12 @@
 //! Merge Queue Processor Service
 //!
 //! Processes entries in the merge queue for a project, orchestrating:
-//! rebase → generate commit message → merge, handling conflicts by skipping to next task.
+//! rebase → merge, handling conflicts by skipping to next task.
 
 use std::path::Path;
 
 use db::models::{
     merge::Merge,
-    merge_queue::MergeQueue,
     repo::Repo,
     task::{Task, TaskStatus},
     workspace::Workspace,
@@ -19,6 +18,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use super::git::{GitService, GitServiceError};
+use super::merge_queue_store::{MergeQueueEntry, MergeQueueStore};
 use super::operation_status::{OperationStatus, OperationStatusStore, OperationStatusType};
 
 /// Errors that can occur during merge queue processing
@@ -71,15 +71,17 @@ impl MergeQueueError {
 pub struct MergeQueueProcessor {
     pool: SqlitePool,
     git: GitService,
+    merge_queue_store: MergeQueueStore,
     operation_status: Option<OperationStatusStore>,
 }
 
 impl MergeQueueProcessor {
     /// Create a new MergeQueueProcessor
-    pub fn new(pool: SqlitePool, git: GitService) -> Self {
+    pub fn new(pool: SqlitePool, git: GitService, merge_queue_store: MergeQueueStore) -> Self {
         Self {
             pool,
             git,
+            merge_queue_store,
             operation_status: None,
         }
     }
@@ -88,11 +90,13 @@ impl MergeQueueProcessor {
     pub fn with_operation_status(
         pool: SqlitePool,
         git: GitService,
+        merge_queue_store: MergeQueueStore,
         operation_status: OperationStatusStore,
     ) -> Self {
         Self {
             pool,
             git,
+            merge_queue_store,
             operation_status: Some(operation_status),
         }
     }
@@ -102,18 +106,16 @@ impl MergeQueueProcessor {
     /// This method loops through the queue, processing each entry:
     /// 1. Claims the next queued entry (updates status to 'merging')
     /// 2. Performs rebase to update task branch with base branch changes
-    /// 3. Generates a commit message based on task info
+    /// 3. Uses pre-populated commit message
     /// 4. Performs the merge
-    /// 5. Updates status to 'completed' or 'conflict'
     ///
-    /// On conflict, the entry is marked with 'conflict' status and processing
-    /// continues with the next entry.
+    /// On conflict, the entry is removed and processing continues with the next entry.
     pub async fn process_project_queue(&self, project_id: Uuid) -> Result<(), MergeQueueError> {
         info!(%project_id, "Starting merge queue processing");
 
         loop {
-            // Claim the next queued entry
-            let entry = match MergeQueue::claim_next(&self.pool, project_id).await? {
+            // Claim the next queued entry from the in-memory store
+            let entry = match self.merge_queue_store.claim_next(project_id) {
                 Some(entry) => entry,
                 None => {
                     info!(%project_id, "Merge queue empty, processing complete");
@@ -130,7 +132,9 @@ impl MergeQueueProcessor {
 
             // Set Merging operation status (load workspace to get task_id)
             if let Some(ref op_status) = self.operation_status {
-                if let Ok(Some(workspace)) = Workspace::find_by_id(&self.pool, entry.workspace_id).await {
+                if let Ok(Some(workspace)) =
+                    Workspace::find_by_id(&self.pool, entry.workspace_id).await
+                {
                     op_status.set(OperationStatus::new(
                         entry.workspace_id,
                         workspace.task_id,
@@ -154,24 +158,24 @@ impl MergeQueueProcessor {
                         %merge_commit,
                         "Merge completed successfully"
                     );
-                    // Status already updated in process_entry
+                    // Entry already removed in process_entry
                 }
                 Err(e) if e.is_conflict() => {
                     warn!(
                         entry_id = %entry.id,
                         error = %e,
-                        "Merge queue entry has conflicts, deleting entry"
+                        "Merge queue entry has conflicts, removing entry"
                     );
-                    MergeQueue::delete_by_workspace(&self.pool, entry.workspace_id).await?;
+                    self.merge_queue_store.remove(entry.workspace_id);
                     // Continue to next entry
                 }
                 Err(e) => {
                     error!(
                         entry_id = %entry.id,
                         error = %e,
-                        "Unexpected error processing merge queue entry, deleting entry"
+                        "Unexpected error processing merge queue entry, removing entry"
                     );
-                    MergeQueue::delete_by_workspace(&self.pool, entry.workspace_id).await?;
+                    self.merge_queue_store.remove(entry.workspace_id);
                     // Continue to next entry
                 }
             }
@@ -181,7 +185,7 @@ impl MergeQueueProcessor {
     /// Process a single merge queue entry
     ///
     /// Returns the merge commit SHA on success
-    async fn process_entry(&self, entry: &MergeQueue) -> Result<String, MergeQueueError> {
+    async fn process_entry(&self, entry: &MergeQueueEntry) -> Result<String, MergeQueueError> {
         // Load required entities
         let workspace = Workspace::find_by_id(&self.pool, entry.workspace_id)
             .await?
@@ -223,19 +227,16 @@ impl MergeQueueProcessor {
         self.rebase_if_needed(repo_path, &worktree_path, base_branch, task_branch)
             .await?;
 
-        // Step 2: Use stored commit message or generate one
-        let commit_message = entry
-            .commit_message
-            .clone()
-            .unwrap_or_else(|| self.generate_commit_message(&task, base_branch));
+        // Step 2: Use commit message from entry (always populated at enqueue time)
+        let commit_message = &entry.commit_message;
 
         // Step 3: Merge changes
         let merge_commit = self
-            .merge_changes(repo_path, &worktree_path, task_branch, base_branch, &commit_message)
+            .merge_changes(repo_path, &worktree_path, task_branch, base_branch, commit_message)
             .await?;
 
-        // Step 4: Delete the queue entry (completed successfully)
-        MergeQueue::delete_by_workspace(&self.pool, entry.workspace_id).await?;
+        // Step 4: Remove the queue entry (completed successfully)
+        self.merge_queue_store.remove(entry.workspace_id);
 
         // Step 5: Create merge record
         Merge::create_direct(&self.pool, workspace.id, repo.id, base_branch, &merge_commit).await?;
@@ -299,21 +300,6 @@ impl MergeQueueProcessor {
         }
     }
 
-    /// Generate a commit message for the merge
-    fn generate_commit_message(&self, task: &Task, base_branch: &str) -> String {
-        let description = task
-            .description
-            .as_deref()
-            .filter(|d| !d.is_empty())
-            .map(|d| format!("\n\n{}", d))
-            .unwrap_or_default();
-
-        format!(
-            "Merge: {}{}\n\nMerged to {} via merge queue",
-            task.title, description, base_branch
-        )
-    }
-
     /// Perform the merge
     async fn merge_changes(
         &self,
@@ -372,99 +358,5 @@ mod tests {
 
         let other_err = MergeQueueError::TaskNotFound(Uuid::new_v4());
         assert_eq!(other_err.conflict_message(), None);
-    }
-
-    /// Helper function to generate commit message without needing a full processor
-    fn generate_commit_message_for_test(task: &Task, base_branch: &str) -> String {
-        let description = task
-            .description
-            .as_deref()
-            .filter(|d| !d.is_empty())
-            .map(|d| format!("\n\n{}", d))
-            .unwrap_or_default();
-
-        format!(
-            "Merge: {}{}\n\nMerged to {} via merge queue",
-            task.title, description, base_branch
-        )
-    }
-
-    #[test]
-    fn test_generate_commit_message_with_description() {
-        let task = Task {
-            id: Uuid::new_v4(),
-            project_id: Uuid::new_v4(),
-            title: "Add new feature".to_string(),
-            description: Some("This adds a great new feature".to_string()),
-            status: TaskStatus::InProgress,
-            parent_workspace_id: None,
-            shared_task_id: None,
-            task_group_id: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-            is_blocked: false,
-            has_in_progress_attempt: false,
-            last_attempt_failed: false,
-            is_queued: false,
-            last_executor: String::new(),
-        };
-
-        let message = generate_commit_message_for_test(&task, "main");
-        assert!(message.contains("Add new feature"));
-        assert!(message.contains("This adds a great new feature"));
-        assert!(message.contains("Merged to main via merge queue"));
-    }
-
-    #[test]
-    fn test_generate_commit_message_without_description() {
-        let task = Task {
-            id: Uuid::new_v4(),
-            project_id: Uuid::new_v4(),
-            title: "Fix bug".to_string(),
-            description: None,
-            status: TaskStatus::InProgress,
-            parent_workspace_id: None,
-            shared_task_id: None,
-            task_group_id: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-            is_blocked: false,
-            has_in_progress_attempt: false,
-            last_attempt_failed: false,
-            is_queued: false,
-            last_executor: String::new(),
-        };
-
-        let message = generate_commit_message_for_test(&task, "develop");
-        assert!(message.contains("Fix bug"));
-        assert!(!message.contains("\n\nThis")); // No description block
-        assert!(message.contains("Merged to develop via merge queue"));
-    }
-
-    #[test]
-    fn test_generate_commit_message_with_empty_description() {
-        let task = Task {
-            id: Uuid::new_v4(),
-            project_id: Uuid::new_v4(),
-            title: "Update docs".to_string(),
-            description: Some("".to_string()), // Empty string
-            status: TaskStatus::InProgress,
-            parent_workspace_id: None,
-            shared_task_id: None,
-            task_group_id: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-            is_blocked: false,
-            has_in_progress_attempt: false,
-            last_attempt_failed: false,
-            is_queued: false,
-            last_executor: String::new(),
-        };
-
-        let message = generate_commit_message_for_test(&task, "main");
-        assert!(message.contains("Update docs"));
-        // Empty description should be treated same as None
-        assert!(!message.contains("\n\n\n")); // No double newlines from empty description
-        assert!(message.contains("Merged to main via merge queue"));
     }
 }
