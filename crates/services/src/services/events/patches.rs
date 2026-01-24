@@ -1,11 +1,12 @@
 use db::models::{
-    execution_process::ExecutionProcess, merge_queue::MergeQueue, notification::Notification,
-    project::Project, project::ProjectWithTaskCounts, scratch::Scratch,
-    task::TaskWithAttemptStatus, workspace::Workspace,
+    execution_process::ExecutionProcess, notification::Notification, project::Project,
+    project::ProjectWithTaskCounts, scratch::Scratch, task::TaskWithAttemptStatus,
+    workspace::Workspace,
 };
 use json_patch::{AddOperation, Patch, PatchOperation, RemoveOperation, ReplaceOperation};
 use uuid::Uuid;
 
+use crate::services::merge_queue_store::MergeQueueEntry;
 use crate::services::operation_status::OperationStatus;
 
 // Shared helper to escape JSON Pointer segments
@@ -339,7 +340,8 @@ pub mod operation_status_patch {
 pub mod merge_queue_patch {
     use super::*;
 
-    fn merge_queue_path(workspace_id: Uuid) -> String {
+    /// Get the JSON Pointer path for a merge queue entry
+    pub fn path(workspace_id: Uuid) -> String {
         format!(
             "/merge_queue/{}",
             escape_pointer_segment(&workspace_id.to_string())
@@ -347,31 +349,31 @@ pub mod merge_queue_patch {
     }
 
     /// Create patch for adding a new merge queue entry
-    pub fn add(entry: &MergeQueue) -> Patch {
+    pub fn add(entry: &MergeQueueEntry) -> Patch {
         Patch(vec![PatchOperation::Add(AddOperation {
-            path: merge_queue_path(entry.workspace_id)
+            path: path(entry.workspace_id)
                 .try_into()
                 .expect("Merge queue path should be valid"),
             value: serde_json::to_value(entry)
-                .expect("MergeQueue serialization should not fail"),
+                .expect("MergeQueueEntry serialization should not fail"),
         })])
     }
 
-    /// Create patch for updating an existing merge queue entry (e.g., Queued → Merging)
-    pub fn replace(entry: &MergeQueue) -> Patch {
+    /// Create patch for updating an existing merge queue entry
+    pub fn replace(entry: &MergeQueueEntry) -> Patch {
         Patch(vec![PatchOperation::Replace(ReplaceOperation {
-            path: merge_queue_path(entry.workspace_id)
+            path: path(entry.workspace_id)
                 .try_into()
                 .expect("Merge queue path should be valid"),
             value: serde_json::to_value(entry)
-                .expect("MergeQueue serialization should not fail"),
+                .expect("MergeQueueEntry serialization should not fail"),
         })])
     }
 
     /// Create patch for removing a merge queue entry
     pub fn remove(workspace_id: Uuid) -> Patch {
         Patch(vec![PatchOperation::Remove(RemoveOperation {
-            path: merge_queue_path(workspace_id)
+            path: path(workspace_id)
                 .try_into()
                 .expect("Merge queue path should be valid"),
         })])
