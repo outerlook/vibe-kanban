@@ -7,10 +7,12 @@ import {
   type NormalizedEntryType,
   type TaskWithAttemptStatus,
   type JsonValue,
+  type EntryGroup,
 } from 'shared/types.ts';
 import type { WorkspaceWithSession } from 'shared/types';
 import type { ProcessStartPayload } from '@/types/logs';
 import FileChangeRenderer from './FileChangeRenderer';
+import CollapsibleEntryGroup from './CollapsibleEntryGroup';
 import { useExpandable } from '@/stores/useExpandableStore';
 import {
   Activity,
@@ -37,7 +39,7 @@ import { cn, formatTokenCount } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 
 type Props = {
-  entry: NormalizedEntry | ProcessStartPayload;
+  entry: NormalizedEntry | ProcessStartPayload | EntryGroup;
   expansionKey: string;
   diffDeletable?: boolean;
   executionProcessId?: string;
@@ -626,6 +628,26 @@ function DisplayConversationEntry({
 }: Props) {
   const { t } = useTranslation('common');
   const { t: tTasks } = useTranslation('tasks');
+
+  // Type guard for EntryGroup - check for 'entries' and 'summary' properties
+  const isEntryGroup = (
+    entry: NormalizedEntry | ProcessStartPayload | EntryGroup
+  ): entry is EntryGroup => 'entries' in entry && 'summary' in entry;
+
+  // Handle ENTRY_GROUP type first
+  if (isEntryGroup(entry)) {
+    return (
+      <CollapsibleEntryGroup
+        entries={entry.entries}
+        summary={entry.summary}
+        expansionKey={expansionKey}
+        executionProcessId={executionProcessId ?? ''}
+        taskAttempt={taskAttempt}
+        task={task}
+      />
+    );
+  }
+
   const isNormalizedEntry = (
     entry: NormalizedEntry | ProcessStartPayload
   ): entry is NormalizedEntry => 'entry_type' in entry;

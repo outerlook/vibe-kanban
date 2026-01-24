@@ -64,6 +64,17 @@ const ItemContent: VirtuosoMessageListProps<
       />
     );
   }
+  if (data.type === 'ENTRY_GROUP') {
+    return (
+      <DisplayConversationEntry
+        expansionKey={data.patchKey}
+        entry={data.content}
+        executionProcessId={data.executionProcessId}
+        taskAttempt={mode?.type === 'workspace' ? mode.attempt : undefined}
+        task={mode?.type === 'workspace' ? mode.task : undefined}
+      />
+    );
+  }
 
   return null;
 };
