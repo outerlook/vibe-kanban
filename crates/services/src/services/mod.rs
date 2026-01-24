@@ -32,6 +32,7 @@ pub mod queued_message;
 pub mod remote_client;
 pub mod repo;
 pub mod share;
+pub mod skills_cache;
 pub mod watcher_manager;
 pub mod workspace_manager;
 pub mod worktree_manager;
