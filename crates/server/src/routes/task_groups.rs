@@ -90,6 +90,7 @@ pub async fn create_task_group(
         &deployment.db().pool,
         payload.project_id,
         payload.name,
+        payload.description,
         payload.base_branch,
         payload.description,
     )
