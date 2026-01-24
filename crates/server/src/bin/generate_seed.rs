@@ -239,8 +239,8 @@ async fn create_task_groups(
         let name_pair = TASK_GROUP_NAMES
             .get(index)
             .unwrap_or(&("Sprint 1", "Sprint 2"));
-        let first = TaskGroup::create(pool, project.id, name_pair.0.to_string(), None).await?;
-        let second = TaskGroup::create(pool, project.id, name_pair.1.to_string(), None).await?;
+        let first = TaskGroup::create(pool, project.id, name_pair.0.to_string(), None, None).await?;
+        let second = TaskGroup::create(pool, project.id, name_pair.1.to_string(), None, None).await?;
         groups.push(first);
         groups.push(second);
     }

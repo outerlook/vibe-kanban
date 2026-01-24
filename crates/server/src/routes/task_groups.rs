@@ -29,12 +29,14 @@ pub struct ListTaskGroupsQuery {
 pub struct CreateTaskGroupRequest {
     pub project_id: Uuid,
     pub name: String,
+    pub description: Option<String>,
     pub base_branch: Option<String>,
 }
 
 #[derive(Debug, Deserialize, TS)]
 pub struct UpdateTaskGroupRequest {
     pub name: Option<String>,
+    pub description: Option<String>,
     pub base_branch: Option<String>,
 }
 
@@ -88,6 +90,7 @@ pub async fn create_task_group(
         &deployment.db().pool,
         payload.project_id,
         payload.name,
+        payload.description,
         payload.base_branch,
     )
     .await?;
@@ -102,6 +105,7 @@ pub async fn update_task_group(
 ) -> Result<ResponseJson<ApiResponse<TaskGroup>>, ApiError> {
     let update = UpdateTaskGroup {
         name: payload.name,
+        description: payload.description,
         base_branch: payload.base_branch,
     };
 

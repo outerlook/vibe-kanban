@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import BranchSelector from '@/components/tasks/BranchSelector';
 import { useProjectRepos, useRepoBranches } from '@/hooks';
 import { useTaskGroupMutations } from '@/hooks/useTaskGroups';
@@ -30,6 +31,7 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
     const group = props.mode === 'edit' ? props.group : undefined;
 
     const [name, setName] = useState('');
+    const [description, setDescription] = useState('');
     const [baseBranch, setBaseBranch] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
 
@@ -73,9 +75,11 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
       if (modal.visible) {
         if (group) {
           setName(group.name);
+          setDescription(group.description || '');
           setBaseBranch(group.base_branch);
         } else {
           setName('');
+          setDescription('');
           setBaseBranch(null);
         }
         setError(null);
@@ -96,6 +100,7 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
       if (props.mode === 'create') {
         createTaskGroup.mutate({
           name: trimmedName,
+          description: description.trim() || null,
           base_branch: baseBranch,
         });
       } else {
@@ -103,6 +108,7 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
           groupId: props.group.id,
           data: {
             name: trimmedName,
+            description: description.trim() || null,
             base_branch: baseBranch,
           },
         });
@@ -152,6 +158,22 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
                 placeholder={t('taskGroupFormDialog.namePlaceholder')}
                 autoFocus
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="group-description">
+                {t('taskGroupFormDialog.descriptionLabel')}
+              </Label>
+              <Textarea
+                id="group-description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder={t('taskGroupFormDialog.descriptionPlaceholder')}
+                rows={3}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('taskGroupFormDialog.descriptionHint')}
+              </p>
             </div>
 
             {repos.length > 0 && (

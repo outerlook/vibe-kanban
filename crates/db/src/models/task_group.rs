@@ -41,6 +41,7 @@ pub struct TaskGroup {
     pub id: Uuid,
     pub project_id: Uuid,
     pub name: String,
+    pub description: Option<String>,
     pub base_branch: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -50,12 +51,14 @@ pub struct TaskGroup {
 pub struct CreateTaskGroup {
     pub project_id: Uuid,
     pub name: String,
+    pub description: Option<String>,
     pub base_branch: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct UpdateTaskGroup {
     pub name: Option<String>,
+    pub description: Option<String>,
     pub base_branch: Option<String>,
 }
 
@@ -64,22 +67,25 @@ impl TaskGroup {
         pool: &SqlitePool,
         project_id: Uuid,
         name: String,
+        description: Option<String>,
         base_branch: Option<String>,
     ) -> Result<Self, sqlx::Error> {
         let id = Uuid::new_v4();
         sqlx::query_as!(
             TaskGroup,
-            r#"INSERT INTO task_groups (id, project_id, name, base_branch)
-               VALUES ($1, $2, $3, $4)
+            r#"INSERT INTO task_groups (id, project_id, name, description, base_branch)
+               VALUES ($1, $2, $3, $4, $5)
                RETURNING id as "id!: Uuid",
                          project_id as "project_id!: Uuid",
                          name,
+                         description,
                          base_branch,
                          created_at as "created_at!: DateTime<Utc>",
                          updated_at as "updated_at!: DateTime<Utc>""#,
             id,
             project_id,
             name,
+            description,
             base_branch
         )
         .fetch_one(pool)
@@ -92,6 +98,7 @@ impl TaskGroup {
             r#"SELECT id as "id!: Uuid",
                       project_id as "project_id!: Uuid",
                       name,
+                      description,
                       base_branch,
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>"
@@ -112,6 +119,7 @@ impl TaskGroup {
             r#"SELECT id as "id!: Uuid",
                       project_id as "project_id!: Uuid",
                       name,
+                      description,
                       base_branch,
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>"
@@ -129,22 +137,27 @@ impl TaskGroup {
         id: Uuid,
         update: &UpdateTaskGroup,
     ) -> Result<Option<Self>, sqlx::Error> {
+        let update_description = update.description.is_some();
         let update_base_branch = update.base_branch.is_some();
         sqlx::query_as!(
             TaskGroup,
             r#"UPDATE task_groups
                SET name = COALESCE($2, name),
-                   base_branch = CASE WHEN $3 THEN $4 ELSE base_branch END,
+                   description = CASE WHEN $3 THEN $4 ELSE description END,
+                   base_branch = CASE WHEN $5 THEN $6 ELSE base_branch END,
                    updated_at = datetime('now', 'subsec')
                WHERE id = $1
                RETURNING id as "id!: Uuid",
                          project_id as "project_id!: Uuid",
                          name,
+                         description,
                          base_branch,
                          created_at as "created_at!: DateTime<Utc>",
                          updated_at as "updated_at!: DateTime<Utc>""#,
             id,
             update.name,
+            update_description,
+            update.description,
             update_base_branch,
             update.base_branch
         )
@@ -245,6 +258,7 @@ impl TaskGroup {
             id: Uuid,
             project_id: Uuid,
             name: String,
+            description: Option<String>,
             base_branch: Option<String>,
             created_at: DateTime<Utc>,
             updated_at: DateTime<Utc>,
@@ -260,6 +274,7 @@ impl TaskGroup {
                 tg.id,
                 tg.project_id,
                 tg.name,
+                tg.description,
                 tg.base_branch,
                 tg.created_at,
                 tg.updated_at,
@@ -285,6 +300,7 @@ impl TaskGroup {
                     id: row.id,
                     project_id: row.project_id,
                     name: row.name,
+                    description: row.description,
                     base_branch: row.base_branch,
                     created_at: row.created_at,
                     updated_at: row.updated_at,
