@@ -430,6 +430,8 @@ pub struct CreateTaskGroupRequest {
     pub project_id: Uuid,
     #[schemars(description = "The name of the task group")]
     pub name: String,
+    #[schemars(description = "Optional description of the task group")]
+    pub description: Option<String>,
     #[schemars(description = "Optional base branch for tasks in this group")]
     pub base_branch: Option<String>,
 }
@@ -456,6 +458,8 @@ pub struct UpdateTaskGroupRequest {
     pub group_id: Uuid,
     #[schemars(description = "New name for the task group")]
     pub name: Option<String>,
+    #[schemars(description = "New description for the task group (set to null to clear)")]
+    pub description: Option<String>,
     #[schemars(description = "New base branch for the task group (set to null to clear)")]
     pub base_branch: Option<String>,
 }
@@ -648,6 +652,8 @@ pub struct TaskGroupSummary {
     pub project_id: String,
     #[schemars(description = "The name of the task group")]
     pub name: String,
+    #[schemars(description = "Optional description of the task group")]
+    pub description: Option<String>,
     #[schemars(description = "The base branch for tasks in this group")]
     pub base_branch: Option<String>,
     #[schemars(description = "When the task group was created")]
@@ -662,6 +668,7 @@ impl TaskGroupSummary {
             id: group.id.to_string(),
             project_id: group.project_id.to_string(),
             name: group.name,
+            description: group.description,
             base_branch: group.base_branch,
             created_at: group.created_at.to_rfc3339(),
             updated_at: group.updated_at.to_rfc3339(),
@@ -1666,7 +1673,11 @@ impl TaskServer {
 
         let group_summaries: Vec<TaskGroupSummary> = groups
             .into_iter()
-            .map(TaskGroupSummary::from_task_group)
+            .map(|g| {
+                let mut summary = TaskGroupSummary::from_task_group(g);
+                summary.description = None;
+                summary
+            })
             .collect();
 
         let response = ListTaskGroupsResponse {
@@ -1686,6 +1697,7 @@ impl TaskServer {
         Parameters(CreateTaskGroupRequest {
             project_id,
             name,
+            description,
             base_branch,
         }): Parameters<CreateTaskGroupRequest>,
     ) -> Result<CallToolResult, ErrorData> {
@@ -1693,6 +1705,7 @@ impl TaskServer {
         let payload = serde_json::json!({
             "project_id": project_id,
             "name": name,
+            "description": description,
             "base_branch": base_branch
         });
 
@@ -1726,18 +1739,20 @@ impl TaskServer {
         TaskServer::success(&response)
     }
 
-    #[tool(description = "Update a task group's name or base branch. `group_id` is required!")]
+    #[tool(description = "Update a task group's name, description, or base branch. `group_id` is required!")]
     async fn update_task_group(
         &self,
         Parameters(UpdateTaskGroupRequest {
             group_id,
             name,
+            description,
             base_branch,
         }): Parameters<UpdateTaskGroupRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let url = self.url(&format!("/api/task-groups/{}", group_id));
         let payload = serde_json::json!({
             "name": name,
+            "description": description,
             "base_branch": base_branch
         });
 
