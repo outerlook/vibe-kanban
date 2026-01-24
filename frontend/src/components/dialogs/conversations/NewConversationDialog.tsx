@@ -12,10 +12,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { ExecutorProfileSelector } from '@/components/settings';
 import { useCreateConversation } from '@/hooks/useConversations';
+import { useUserSystem } from '@/components/ConfigProvider';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
-import type { ConversationSession } from 'shared/types';
+import type { ConversationSession, ExecutorProfileId } from 'shared/types';
 
 export interface NewConversationDialogProps {
   projectId: string;
@@ -26,13 +28,19 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
     const modal = useModal();
     const { t } = useTranslation(['common']);
     const { projectId } = props;
+    const { profiles, config } = useUserSystem();
 
     const [title, setTitle] = useState('');
     const [initialMessage, setInitialMessage] = useState('');
     const [error, setError] = useState<string | null>(null);
+    const [selectedProfile, setSelectedProfile] =
+      useState<ExecutorProfileId | null>(null);
 
     const createMutation = useCreateConversation();
     const isLoading = createMutation.isPending;
+
+    const defaultProfile = config?.executor_profile ?? null;
+    const effectiveProfile = selectedProfile ?? defaultProfile;
 
     // Reset form when dialog opens
     useEffect(() => {
@@ -40,6 +48,7 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
         setTitle('');
         setInitialMessage('');
         setError(null);
+        setSelectedProfile(null);
       }
     }, [modal.visible]);
 
@@ -75,6 +84,7 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
           data: {
             title: trimmedTitle,
             initial_message: trimmedMessage,
+            executor_profile_id: effectiveProfile,
           },
         });
 
@@ -135,6 +145,17 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
                 autoFocus
               />
             </div>
+
+            {profiles && (
+              <div className="space-y-2">
+                <ExecutorProfileSelector
+                  profiles={profiles}
+                  selectedProfile={effectiveProfile}
+                  onProfileSelect={setSelectedProfile}
+                  showLabel={true}
+                />
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="initial-message">
