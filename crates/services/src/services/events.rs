@@ -21,8 +21,8 @@ mod streams;
 pub mod types;
 
 pub use patches::{
-    execution_process_patch, notification_patch, project_patch, scratch_patch, task_patch,
-    workspace_patch,
+    execution_process_patch, notification_patch, project_patch, project_with_counts_patch,
+    scratch_patch, task_patch, workspace_patch,
 };
 pub use types::{EventError, EventPatch, EventPatchInner, HookTables, RecordTypes};
 
@@ -38,10 +38,19 @@ pub struct HookEvent {
     rowid: i64,
 }
 
+/// Event sent to request a project counts refresh.
+/// Used when a task is deleted to update the project's task counts in real-time.
+#[derive(Debug)]
+pub struct ProjectCountsRefreshEvent {
+    project_id: Uuid,
+}
+
 /// Handle to the event worker task, allowing graceful shutdown.
 pub struct EventWorkerHandle {
     sender: mpsc::Sender<HookEvent>,
+    project_counts_sender: mpsc::Sender<ProjectCountsRefreshEvent>,
     worker_handle: tokio::task::JoinHandle<()>,
+    project_counts_worker_handle: tokio::task::JoinHandle<()>,
 }
 
 impl EventWorkerHandle {
@@ -50,13 +59,22 @@ impl EventWorkerHandle {
         self.sender.clone()
     }
 
+    /// Returns a clone of the project counts sender for use with `create_hook`.
+    pub fn project_counts_sender(&self) -> mpsc::Sender<ProjectCountsRefreshEvent> {
+        self.project_counts_sender.clone()
+    }
+
     /// Shuts down the event worker, waiting for pending events to be processed.
     pub async fn shutdown(self) {
-        // Drop sender to signal worker to stop
+        // Drop senders to signal workers to stop
         drop(self.sender);
-        // Wait for worker to finish processing remaining events
+        drop(self.project_counts_sender);
+        // Wait for workers to finish processing remaining events
         if let Err(e) = self.worker_handle.await {
             tracing::error!("Event worker task panicked: {:?}", e);
+        }
+        if let Err(e) = self.project_counts_worker_handle.await {
+            tracing::error!("Project counts worker task panicked: {:?}", e);
         }
     }
 }
@@ -115,17 +133,27 @@ impl EventService {
         db_service: DBService,
     ) -> EventWorkerHandle {
         let (sender, receiver) = mpsc::channel::<HookEvent>(EVENT_CHANNEL_CAPACITY);
+        let (project_counts_sender, project_counts_receiver) =
+            mpsc::channel::<ProjectCountsRefreshEvent>(EVENT_CHANNEL_CAPACITY);
 
         let worker_handle = tokio::spawn(Self::event_worker_loop(
             receiver,
-            msg_store,
+            msg_store.clone(),
             entry_count,
+            db_service.clone(),
+        ));
+
+        let project_counts_worker_handle = tokio::spawn(Self::project_counts_worker_loop(
+            project_counts_receiver,
+            msg_store,
             db_service,
         ));
 
         EventWorkerHandle {
             sender,
+            project_counts_sender,
             worker_handle,
+            project_counts_worker_handle,
         }
     }
 
@@ -140,6 +168,23 @@ impl EventService {
             Self::process_hook_event(&event, &msg_store, &entry_count, &db).await;
         }
         tracing::info!("Event worker shutting down, channel closed");
+    }
+
+    /// Worker loop that processes project counts refresh events.
+    /// Used to update project task counts when tasks are deleted.
+    async fn project_counts_worker_loop(
+        mut receiver: mpsc::Receiver<ProjectCountsRefreshEvent>,
+        msg_store: Arc<MsgStore>,
+        db: DBService,
+    ) {
+        while let Some(event) = receiver.recv().await {
+            if let Ok(Some(project_with_counts)) =
+                Project::find_by_id_with_task_counts(&db.pool, event.project_id).await
+            {
+                msg_store.push_patch(project_with_counts_patch::replace(&project_with_counts));
+            }
+        }
+        tracing::info!("Project counts worker shutting down, channel closed");
     }
 
     /// Process a single hook event.
@@ -257,8 +302,15 @@ impl EventService {
                     };
                     msg_store.push_patch(patch);
 
-                    // Push WebSocket updates for tasks that depend on this one.
-                    // Note: is_blocked column is updated automatically via database trigger.
+                    // Push project counts update for real-time task count updates on projects page
+                    if let Ok(Some(project_with_counts)) =
+                        Project::find_by_id_with_task_counts(&db.pool, task.project_id).await
+                    {
+                        msg_store.push_patch(project_with_counts_patch::replace(&project_with_counts));
+                    }
+
+                    // Push updates for tasks that depend on this one.
+                    // Their is_blocked status may have changed.
                     if let Ok(dependent_tasks) = TaskDependency::find_blocking(&db.pool, task.id).await
                     {
                         for dep_task in dependent_tasks {
@@ -438,10 +490,11 @@ impl EventService {
     }
 
     /// Creates the hook function that should be used with DBService::new_with_after_connect.
-    /// The `event_sender` should come from `spawn_event_worker`.
+    /// The `event_sender` and `project_counts_sender` should come from `spawn_event_worker`.
     pub fn create_hook(
         msg_store: Arc<MsgStore>,
         event_sender: mpsc::Sender<HookEvent>,
+        project_counts_sender: mpsc::Sender<ProjectCountsRefreshEvent>,
     ) -> impl for<'a> Fn(
         &'a mut sqlx::sqlite::SqliteConnection,
     ) -> std::pin::Pin<
@@ -452,10 +505,12 @@ impl EventService {
         move |conn: &mut sqlx::sqlite::SqliteConnection| {
             let msg_store_for_hook = msg_store.clone();
             let event_sender = event_sender.clone();
+            let project_counts_sender = project_counts_sender.clone();
             Box::pin(async move {
                 let mut handle = conn.lock_handle().await?;
                 handle.set_preupdate_hook({
                     let msg_store_for_preupdate = msg_store_for_hook.clone();
+                    let project_counts_sender = project_counts_sender.clone();
                     move |preupdate: sqlx::sqlite::PreupdateHookResult<'_>| {
                         if preupdate.operation != SqliteOperation::Delete {
                             return;
@@ -463,11 +518,22 @@ impl EventService {
 
                         match preupdate.table {
                             "tasks" => {
+                                // Column 0 is task_id, column 1 is project_id
                                 if let Ok(value) = preupdate.get_old_column_value(0)
                                     && let Ok(task_id) = <Uuid as Decode<Sqlite>>::decode(value)
                                 {
                                     let patch = task_patch::remove(task_id);
                                     msg_store_for_preupdate.push_patch(patch);
+
+                                    // Also trigger project counts update
+                                    if let Ok(project_value) = preupdate.get_old_column_value(1)
+                                        && let Ok(project_id) =
+                                            <Uuid as Decode<Sqlite>>::decode(project_value)
+                                    {
+                                        let _ = project_counts_sender.try_send(
+                                            ProjectCountsRefreshEvent { project_id },
+                                        );
+                                    }
                                 }
                             }
                             "projects" => {

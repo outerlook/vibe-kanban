@@ -198,6 +198,64 @@ impl Project {
         .await
     }
 
+    /// Fetch a single project with its task counts
+    pub async fn find_by_id_with_task_counts(
+        pool: &SqlitePool,
+        id: Uuid,
+    ) -> Result<Option<ProjectWithTaskCounts>, sqlx::Error> {
+        #[derive(FromRow)]
+        struct Row {
+            id: Uuid,
+            name: String,
+            dev_script: Option<String>,
+            dev_script_working_dir: Option<String>,
+            default_agent_working_dir: Option<String>,
+            remote_project_id: Option<Uuid>,
+            created_at: DateTime<Utc>,
+            updated_at: DateTime<Utc>,
+            inprogress: i64,
+            inreview: i64,
+        }
+
+        let row: Option<Row> = sqlx::query_as(
+            r#"SELECT
+                p.id,
+                p.name,
+                p.dev_script,
+                p.dev_script_working_dir,
+                p.default_agent_working_dir,
+                p.remote_project_id,
+                p.created_at,
+                p.updated_at,
+                COALESCE(SUM(CASE WHEN t.status = 'inprogress' THEN 1 ELSE 0 END), 0) AS inprogress,
+                COALESCE(SUM(CASE WHEN t.status = 'inreview' THEN 1 ELSE 0 END), 0) AS inreview
+            FROM projects p
+            LEFT JOIN tasks t ON t.project_id = p.id
+            WHERE p.id = $1
+            GROUP BY p.id"#,
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(row.map(|row| ProjectWithTaskCounts {
+            project: Project {
+                id: row.id,
+                name: row.name,
+                dev_script: row.dev_script,
+                dev_script_working_dir: row.dev_script_working_dir,
+                default_agent_working_dir: row.default_agent_working_dir,
+                remote_project_id: row.remote_project_id,
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+            },
+            task_counts: ProjectTaskCounts {
+                inprogress: row.inprogress,
+                inreview: row.inreview,
+            },
+        }))
+    }
+
     pub async fn find_by_remote_project_id(
         pool: &SqlitePool,
         remote_project_id: Uuid,
