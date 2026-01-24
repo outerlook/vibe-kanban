@@ -231,6 +231,8 @@ fn generate_types_content() -> String {
         services::services::share::SharedTaskDetails::decl(),
         services::services::queued_message::QueuedMessage::decl(),
         services::services::queued_message::QueueStatus::decl(),
+        services::services::operation_status::OperationStatus::decl(),
+        services::services::operation_status::OperationStatusType::decl(),
         services::services::git::ConflictOp::decl(),
         executors::actions::ExecutorAction::decl(),
         executors::mcp_config::McpConfig::decl(),

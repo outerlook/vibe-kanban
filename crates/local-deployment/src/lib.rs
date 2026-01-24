@@ -18,6 +18,7 @@ use services::services::{
     git_watcher::GitWatcherManager,
     image::ImageService,
     oauth_credentials::OAuthCredentials,
+    operation_status::OperationStatusStore,
     project::ProjectService,
     queued_message::QueuedMessageService,
     remote_client::{RemoteClient, RemoteClientError},
@@ -61,6 +62,7 @@ pub struct LocalDeployment {
     auth_context: AuthContext,
     oauth_handoffs: Arc<RwLock<HashMap<Uuid, PendingHandoff>>>,
     git_watcher: GitWatcherManager,
+    operation_status: OperationStatusStore,
 }
 
 #[derive(Debug, Clone)]
@@ -205,6 +207,8 @@ impl Deployment for LocalDeployment {
         )
         .await;
 
+        let operation_status = OperationStatusStore::new(events_msg_store.clone());
+
         let events = EventService::new(db.clone(), events_msg_store, events_entry_count);
 
         let file_search_cache = Arc::new(FileSearchCache::new());
@@ -232,6 +236,7 @@ impl Deployment for LocalDeployment {
             auth_context,
             oauth_handoffs,
             git_watcher,
+            operation_status,
         };
 
         Ok(deployment)
@@ -307,6 +312,10 @@ impl Deployment for LocalDeployment {
 
     fn git_watcher(&self) -> &GitWatcherManager {
         &self.git_watcher
+    }
+
+    fn operation_status(&self) -> &OperationStatusStore {
+        &self.operation_status
     }
 }
 

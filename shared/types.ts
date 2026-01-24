@@ -546,6 +546,10 @@ queued_at: string, };
 
 export type QueueStatus = { "status": "empty" } | { "status": "queued", message: QueuedMessage, };
 
+export type OperationStatus = { id: string, workspace_id: string, task_id: string, operation_type: OperationStatusType, error: string | null, started_at: string, };
+
+export type OperationStatusType = "generating_commit" | "rebasing" | "pushing" | "merging";
+
 export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert";
 
 export type ExecutorAction = { typ: ExecutorActionType, next_action: ExecutorAction | null, };

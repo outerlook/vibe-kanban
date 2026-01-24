@@ -21,6 +21,7 @@ import { useUnread } from '@/contexts/UnreadContext';
 import { useTaskSelection } from '@/contexts/TaskSelectionContext';
 import { useTaskGroupsContext } from '@/contexts/TaskGroupsContext';
 import { TaskGroupBadge } from './TaskGroupBadge';
+import { OperationStatusBadge } from './OperationStatusBadge';
 import { TaskGroupFormDialog } from '@/components/dialogs';
 import { useIsCompactView } from '@/stores/useKanbanViewStore';
 
@@ -216,6 +217,7 @@ export function TaskCard({
             Queued
           </Badge>
         )}
+        <OperationStatusBadge taskId={task.id} />
         <TaskGroupBadge
           groupId={task.task_group_id}
           groupName={groupName}
