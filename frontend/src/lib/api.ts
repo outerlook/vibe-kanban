@@ -129,6 +129,7 @@ import {
   RepoPrs,
   PrWithComments,
   FeedbackResponse,
+  SkillsData,
 } from 'shared/types';
 import type { WorkspaceWithSession } from 'shared/types';
 
@@ -2027,5 +2028,19 @@ export const feedbackApi = {
     const url = `/api/feedback/recent${queryString ? `?${queryString}` : ''}`;
     const response = await makeRequest(url);
     return handleApiResponse<FeedbackResponse[]>(response);
+  },
+};
+
+// Skills API
+export const skillsApi = {
+  /** Get available slash commands and skills for autocomplete */
+  getSkills: async (): Promise<SkillsData> => {
+    try {
+      const response = await makeRequest('/api/skills');
+      return handleApiResponse<SkillsData>(response);
+    } catch {
+      // Return empty arrays on failure - don't break autocomplete
+      return { slash_commands: [], skills: [] };
+    }
   },
 };
