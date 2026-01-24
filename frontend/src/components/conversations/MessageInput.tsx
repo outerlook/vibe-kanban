@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Send } from 'lucide-react';
+import { Send, StopCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
@@ -9,12 +9,18 @@ interface MessageInputProps {
   onSend: (content: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  onStop?: () => void;
+  isStopping?: boolean;
+  showStopButton?: boolean;
 }
 
 export function MessageInput({
   onSend,
   disabled = false,
   placeholder,
+  onStop,
+  isStopping = false,
+  showStopButton = false,
 }: MessageInputProps) {
   const { t } = useTranslation('common');
   const [content, setContent] = useState('');
@@ -73,16 +79,33 @@ export function MessageInput({
             )}
             rows={1}
           />
-          <Button
-            onClick={handleSubmit}
-            disabled={disabled || !content.trim()}
-            size="icon"
-            className="h-11 w-11 flex-shrink-0"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+          {showStopButton ? (
+            <Button
+              onClick={onStop}
+              disabled={isStopping}
+              size="sm"
+              variant="destructive"
+              className="flex-shrink-0"
+            >
+              {isStopping ? (
+                <Loader2 className="animate-spin h-4 w-4 mr-2" />
+              ) : (
+                <StopCircle className="h-4 w-4 mr-2" />
+              )}
+              {t('conversations.stop', { defaultValue: 'Stop' })}
+            </Button>
+          ) : (
+            <Button
+              onClick={handleSubmit}
+              disabled={disabled || !content.trim()}
+              size="icon"
+              className="h-11 w-11 flex-shrink-0"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          )}
         </div>
-        {disabled && (
+        {disabled && !showStopButton && (
           <p className="text-xs text-muted-foreground mt-2">
             {t('conversations.waitingForResponse', {
               defaultValue: 'Waiting for response...',
