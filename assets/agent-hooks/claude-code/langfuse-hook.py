@@ -224,6 +224,134 @@ def classify_activity(tool_name: str, tool_input: dict | None) -> str:
     return "OTHER"
 
 
+def extract_background_task_id(tool_output) -> str | None:
+    """
+    Extract background task ID from Bash tool output.
+
+    Parses output for pattern: "Command running in background with ID: <task_id>"
+
+    Args:
+        tool_output: Tool result content - can be:
+            - Plain string
+            - List of content blocks (each may be string or dict with type: text)
+            - Dict with type: text and text field
+
+    Returns:
+        The task_id string if found, None otherwise.
+    """
+    if tool_output is None:
+        return None
+
+    # Normalize to string for pattern matching
+    text_content = ""
+    if isinstance(tool_output, str):
+        text_content = tool_output
+    elif isinstance(tool_output, list):
+        # List of content blocks
+        parts = []
+        for block in tool_output:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+        text_content = "\n".join(parts)
+    elif isinstance(tool_output, dict) and tool_output.get("type") == "text":
+        text_content = tool_output.get("text", "")
+
+    # Match the background task pattern
+    match = re.search(r"Command running in background with ID:\s*(\S+)", text_content)
+    if match:
+        return match.group(1)
+    return None
+
+
+def extract_task_output_info(tool_name: str, tool_input: dict | None) -> tuple[str | None, bool]:
+    """
+    Extract task ID and blocking status from TaskOutput tool calls.
+
+    Args:
+        tool_name: The name of the tool being called
+        tool_input: The tool input dict (may contain task_id, block)
+
+    Returns:
+        Tuple of (task_id, is_blocking):
+            - task_id: The task ID being retrieved, or None if not a TaskOutput call
+            - is_blocking: True if block=true (default), False otherwise
+    """
+    if tool_name != "TaskOutput":
+        return (None, False)
+
+    tool_input = tool_input or {}
+    task_id = tool_input.get("task_id")
+    # block defaults to true in TaskOutput
+    is_blocking = tool_input.get("block", True)
+
+    return (task_id, is_blocking)
+
+
+def create_background_umbrella_span(
+    background_task_id: str,
+    pending_task: dict,
+    completion_time: datetime,
+    trace_id: str,
+    generation_id: str,
+    ingestion_now: str,
+):
+    """
+    Create an umbrella span for a background task that has completed.
+
+    This span represents the wall-clock duration of a background task from when
+    it was started until its output was retrieved via TaskOutput.
+
+    Args:
+        background_task_id: The ID of the background task (e.g., "be2438c")
+        pending_task: Dict with info about when the task was started:
+            - bash_tool_use_id: The original Bash tool_use_id that started the task
+            - start_time: datetime when the background task was started
+            - activity_kind: The classified activity kind (e.g., "BUILD")
+            - tool_name: The tool that started the task (e.g., "Bash")
+        completion_time: datetime when TaskOutput retrieved the result
+        trace_id: The trace ID for this session
+        generation_id: The parent generation ID for the umbrella span
+        ingestion_now: ISO timestamp string for the ingestion event
+
+    Returns:
+        IngestionEvent_SpanCreate for the umbrella span
+    """
+    # Import here to avoid circular dependency issues at module load
+    from langfuse.api.resources.ingestion.types import IngestionEvent_SpanCreate
+    from langfuse.api.resources.ingestion.types.create_span_body import CreateSpanBody
+
+    bash_tool_use_id = pending_task.get("bash_tool_use_id", "")
+    start_time = pending_task.get("start_time")
+    activity_kind = pending_task.get("activity_kind", "OTHER")
+    tool_name = pending_task.get("tool_name", "Bash")
+
+    # Generate deterministic span ID for idempotent upserts
+    span_id = generate_deterministic_id(f"umbrella_{bash_tool_use_id}_{background_task_id}")
+
+    return IngestionEvent_SpanCreate(
+        id=str(uuid.uuid4()),  # Event ID must be unique per request
+        timestamp=ingestion_now,
+        body=CreateSpanBody(
+            id=span_id,
+            trace_id=trace_id,
+            parent_observation_id=generation_id,
+            name=f"BACKGROUND/{activity_kind}/{tool_name}",
+            input={"background_task_id": background_task_id},
+            output=None,  # Output will be set when we have the actual result
+            start_time=start_time,
+            end_time=completion_time,
+            metadata={
+                "activity_kind": activity_kind,
+                "background_task_id": background_task_id,
+                "bash_tool_use_id": bash_tool_use_id,
+                "is_background": True,
+            },
+        ),
+    )
+
+
 def parse_transcript(transcript_path: str) -> dict:
     """
     Parse the Claude Code transcript JSONL file and extract complete conversation structure.
