@@ -24,6 +24,7 @@ pub mod image;
 pub mod merge_queue_processor;
 pub mod notification;
 pub mod oauth_credentials;
+pub mod operation_status;
 pub mod pr_monitor;
 pub mod project;
 pub mod queued_message;

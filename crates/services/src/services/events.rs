@@ -21,8 +21,8 @@ mod streams;
 pub mod types;
 
 pub use patches::{
-    execution_process_patch, notification_patch, project_patch, project_with_counts_patch,
-    scratch_patch, task_patch, workspace_patch,
+    execution_process_patch, notification_patch, operation_status_patch, project_patch,
+    project_with_counts_patch, scratch_patch, task_patch, workspace_patch,
 };
 pub use types::{EventError, EventPatch, EventPatchInner, HookTables, RecordTypes};
 

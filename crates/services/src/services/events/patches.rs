@@ -6,6 +6,8 @@ use db::models::{
 use json_patch::{AddOperation, Patch, PatchOperation, RemoveOperation, ReplaceOperation};
 use uuid::Uuid;
 
+use crate::services::operation_status::OperationStatus;
+
 // Shared helper to escape JSON Pointer segments
 fn escape_pointer_segment(s: &str) -> String {
     s.replace('~', "~0").replace('/', "~1")
@@ -283,6 +285,50 @@ pub mod notification_patch {
             path: notification_path(notification_id)
                 .try_into()
                 .expect("Notification path should be valid"),
+        })])
+    }
+}
+
+/// Helper functions for creating operation status patches.
+/// Keyed by workspace_id since each workspace can have at most one active operation.
+pub mod operation_status_patch {
+    use super::*;
+
+    fn operation_status_path(workspace_id: Uuid) -> String {
+        format!(
+            "/operation_statuses/{}",
+            escape_pointer_segment(&workspace_id.to_string())
+        )
+    }
+
+    /// Create patch for adding a new operation status
+    pub fn add(status: &OperationStatus) -> Patch {
+        Patch(vec![PatchOperation::Add(AddOperation {
+            path: operation_status_path(status.workspace_id)
+                .try_into()
+                .expect("Operation status path should be valid"),
+            value: serde_json::to_value(status)
+                .expect("OperationStatus serialization should not fail"),
+        })])
+    }
+
+    /// Create patch for updating an existing operation status
+    pub fn replace(status: &OperationStatus) -> Patch {
+        Patch(vec![PatchOperation::Replace(ReplaceOperation {
+            path: operation_status_path(status.workspace_id)
+                .try_into()
+                .expect("Operation status path should be valid"),
+            value: serde_json::to_value(status)
+                .expect("OperationStatus serialization should not fail"),
+        })])
+    }
+
+    /// Create patch for removing an operation status
+    pub fn remove(workspace_id: Uuid) -> Patch {
+        Patch(vec![PatchOperation::Remove(RemoveOperation {
+            path: operation_status_path(workspace_id)
+                .try_into()
+                .expect("Operation status path should be valid"),
         })])
     }
 }
