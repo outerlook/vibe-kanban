@@ -12,11 +12,12 @@ import { useQueries } from '@tanstack/react-query';
 import { useProject } from '@/contexts/ProjectContext';
 import { tasksApi, getApiBaseUrlSync } from '@/lib/api';
 import type { Operation } from 'rfc6902';
-import type { TaskStatus, TaskWithAttemptStatus } from 'shared/types';
+import type { OperationStatus, TaskStatus, TaskWithAttemptStatus } from 'shared/types';
 
 const PAGE_SIZE = 25;
 const ALL_STATUSES: TaskStatus[] = ['todo', 'inprogress', 'inreview', 'done', 'cancelled'];
 const TASK_PATH_PREFIX = '/tasks/';
+const OPERATION_STATUS_PATH_PREFIX = '/operation_status/';
 
 type WsJsonPatchMsg = { JsonPatch: Operation[] };
 type WsFinishedMsg = { finished: boolean };
@@ -58,6 +59,7 @@ const decodePointerSegment = (value: string) =>
 
 interface ProjectTasksContextValue {
   tasksById: Record<string, TaskWithAttemptStatus>;
+  operationStatuses: Record<string, OperationStatus>;
   paginationByStatus: PerStatusPagination;
   isQueriesLoading: boolean;
   isInitialSyncComplete: boolean;
@@ -75,6 +77,7 @@ interface ProjectTasksProviderProps {
 export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
   const { projectId } = useProject();
   const [tasksById, setTasksById] = useState<Record<string, TaskWithAttemptStatus>>({});
+  const [operationStatuses, setOperationStatuses] = useState<Record<string, OperationStatus>>({});
   const [paginationByStatus, setPaginationByStatus] = useState<PerStatusPagination>(createInitialPaginationState);
   const [error, setError] = useState<string | null>(null);
   const [syncedDataIds, setSyncedDataIds] = useState<string | null>(null);
@@ -140,6 +143,7 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
   useEffect(() => {
     if (!projectId) {
       setTasksById((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+      setOperationStatuses((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       setPaginationByStatus(createInitialPaginationState);
       setSyncedDataIds(null);
       return;
@@ -292,6 +296,42 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
     [projectId]
   );
 
+  // Apply operation status patches from WebSocket
+  const applyOperationStatusPatches = useCallback((patches: Operation[]) => {
+    if (!patches.length) return;
+
+    setOperationStatuses((prev) => {
+      let next = prev;
+
+      for (const op of patches) {
+        if (!op.path.startsWith(OPERATION_STATUS_PATH_PREFIX)) continue;
+
+        const rawId = op.path.slice(OPERATION_STATUS_PATH_PREFIX.length);
+        const workspaceId = decodePointerSegment(rawId);
+        if (!workspaceId) continue;
+
+        if (op.op === 'remove') {
+          if (!next[workspaceId]) continue;
+          if (next === prev) next = { ...prev };
+          delete next[workspaceId];
+          continue;
+        }
+
+        if (op.op !== 'add' && op.op !== 'replace') continue;
+
+        const status = op.value as OperationStatus;
+        if (!status || typeof status !== 'object' || !status.workspace_id) continue;
+
+        if (op.op === 'replace' && !next[workspaceId]) continue;
+
+        if (next === prev) next = { ...prev };
+        next[workspaceId] = status;
+      }
+
+      return next;
+    });
+  }, []);
+
   // Single WebSocket connection for the entire app
   useEffect(() => {
     if (!projectId) {
@@ -330,6 +370,7 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
           const msg: WsMsg = JSON.parse(event.data);
           if ('JsonPatch' in msg) {
             applyTaskPatches(msg.JsonPatch);
+            applyOperationStatusPatches(msg.JsonPatch);
           }
           if ('finished' in msg) {
             ws?.close(1000, 'finished');
@@ -370,11 +411,12 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
         ws = null;
       }
     };
-  }, [projectId, applyTaskPatches]);
+  }, [projectId, applyTaskPatches, applyOperationStatusPatches]);
 
   const value = useMemo(
     () => ({
       tasksById,
+      operationStatuses,
       paginationByStatus,
       isQueriesLoading,
       isInitialSyncComplete,
@@ -382,7 +424,7 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
       loadMoreForStatus,
       mergeTasks,
     }),
-    [tasksById, paginationByStatus, isQueriesLoading, isInitialSyncComplete, error, loadMoreForStatus, mergeTasks]
+    [tasksById, operationStatuses, paginationByStatus, isQueriesLoading, isInitialSyncComplete, error, loadMoreForStatus, mergeTasks]
   );
 
   return (
