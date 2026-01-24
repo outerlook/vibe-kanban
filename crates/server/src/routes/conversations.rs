@@ -40,13 +40,14 @@ pub struct ListConversationsQuery {
 pub struct CreateConversationRequest {
     pub title: String,
     pub initial_message: String,
-    pub executor: Option<String>,
+    pub executor_profile_id: Option<ExecutorProfileId>,
 }
 
 #[derive(Debug, Serialize, TS)]
 pub struct CreateConversationResponse {
     pub session: ConversationSession,
     pub initial_message: db::models::conversation_message::ConversationMessage,
+    pub execution_process_id: Uuid,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -81,19 +82,54 @@ pub async fn create_conversation(
     axum::extract::Path(project_id): axum::extract::Path<Uuid>,
     Json(payload): Json<CreateConversationRequest>,
 ) -> Result<ResponseJson<ApiResponse<CreateConversationResponse>>, ApiError> {
+    // Determine executor profile: use provided or default to CLAUDE_CODE
+    let executor_profile_id = payload
+        .executor_profile_id
+        .clone()
+        .unwrap_or_else(|| ExecutorProfileId::new(BaseCodingAgent::ClaudeCode));
+
+    // Validate the executor profile exists
+    if ExecutorConfigs::get_cached()
+        .get_coding_agent(&executor_profile_id)
+        .is_none()
+    {
+        return Err(ApiError::BadRequest(format!(
+            "Invalid executor profile: {}",
+            executor_profile_id
+        )));
+    }
+
+    // Store executor name in session for future messages
+    let executor_name = Some(executor_profile_id.executor.to_string());
+
     let (session, initial_message) = ConversationService::create_conversation(
         &deployment.db().pool,
         project_id,
         payload.title,
-        payload.initial_message,
-        payload.executor,
+        payload.initial_message.clone(),
+        executor_name,
     )
     .await?;
+
+    // Build ExecutorAction for initial conversation
+    let action_type = ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+        prompt: payload.initial_message,
+        executor_profile_id,
+        working_dir: None,
+    });
+    let executor_action = ExecutorAction::new(action_type, None);
+
+    // Start conversation execution
+    let execution_process = deployment
+        .container()
+        .start_conversation_execution(&session, &executor_action)
+        .await?;
 
     Ok(ResponseJson(ApiResponse::success(
         CreateConversationResponse {
             session,
             initial_message,
+            execution_process_id: execution_process.id,
         },
     )))
 }

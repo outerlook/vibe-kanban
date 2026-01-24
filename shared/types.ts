@@ -104,6 +104,14 @@ export type ConversationWithMessages = { messages: Array<ConversationMessage>, i
 
 export type SendMessageResponse = { user_message: ConversationMessage, execution_process_id: string, };
 
+export type CreateConversationRequest = { title: string, initial_message: string, executor_profile_id: ExecutorProfileId | null, };
+
+export type CreateConversationResponse = { session: ConversationSession, initial_message: ConversationMessage, execution_process_id: string, };
+
+export type UpdateConversationRequest = { title: string | null, status: ConversationSessionStatus | null, };
+
+export type SendMessageRequest = { content: string, variant: string | null, };
+
 export type MergeTaskGroupRequest = { target_group_id: string, };
 
 export type CreateTask = { project_id: string, title: string, description: string | null, status: TaskStatus | null, parent_workspace_id: string | null, image_ids: Array<string> | null, shared_task_id: string | null, task_group_id: string | null, };
