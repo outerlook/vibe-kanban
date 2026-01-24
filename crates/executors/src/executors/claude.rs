@@ -49,6 +49,21 @@ fn base_command(claude_code_router: bool) -> &'static str {
 
 use derivative::Derivative;
 
+/// Information about a single skill available in Claude Code
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct SkillInfo {
+    pub name: String,
+    pub description: Option<String>,
+    pub namespace: Option<String>,
+}
+
+/// Skills data captured from Claude Code's init message
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct SkillsData {
+    pub slash_commands: Vec<String>,
+    pub skills: Vec<SkillInfo>,
+}
+
 #[derive(Derivative, Clone, Serialize, Deserialize, TS, JsonSchema)]
 #[derivative(Debug, PartialEq)]
 pub struct ClaudeCode {
