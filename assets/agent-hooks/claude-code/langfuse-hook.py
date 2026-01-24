@@ -574,6 +574,17 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
     # Track previous end_time for continuations without user_timestamp
     prev_end_time: datetime | None = None
 
+    # Track background tasks started but not yet completed (Bash with run_in_background)
+    # Maps background_task_id -> {
+    #   "bash_tool_use_id": str,
+    #   "generation_id": str,
+    #   "original_activity": str,
+    #   "tool_name": str,
+    #   "start_time": datetime,
+    #   "command": str | None,
+    # }
+    pending_background_tasks: dict[str, dict] = {}
+
     for i, turn in enumerate(turns):
         user_message = turn.get("user_message")
         user_timestamp = parse_iso_timestamp(turn.get("user_timestamp"))
@@ -663,6 +674,10 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
 
         # Update prev_end_time for next iteration
         prev_end_time = end_time
+
+    # Warn about background tasks that were started but never completed
+    if pending_background_tasks:
+        debug_log(f"Warning: {len(pending_background_tasks)} background tasks not completed: {list(pending_background_tasks.keys())}")
 
     # Send batch to Langfuse
     try:
