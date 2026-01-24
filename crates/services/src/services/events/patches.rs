@@ -1,7 +1,7 @@
 use db::models::{
-    execution_process::ExecutionProcess, notification::Notification, project::Project,
-    project::ProjectWithTaskCounts, scratch::Scratch, task::TaskWithAttemptStatus,
-    workspace::Workspace,
+    execution_process::ExecutionProcess, merge_queue::MergeQueue, notification::Notification,
+    project::Project, project::ProjectWithTaskCounts, scratch::Scratch,
+    task::TaskWithAttemptStatus, workspace::Workspace,
 };
 use json_patch::{AddOperation, Patch, PatchOperation, RemoveOperation, ReplaceOperation};
 use uuid::Uuid;
@@ -330,6 +330,50 @@ pub mod operation_status_patch {
             path: path(workspace_id)
                 .try_into()
                 .expect("Operation status path should be valid"),
+        })])
+    }
+}
+
+/// Helper functions for creating merge queue patches.
+/// Keyed by workspace_id since each workspace can have at most one queue entry.
+pub mod merge_queue_patch {
+    use super::*;
+
+    fn merge_queue_path(workspace_id: Uuid) -> String {
+        format!(
+            "/merge_queue/{}",
+            escape_pointer_segment(&workspace_id.to_string())
+        )
+    }
+
+    /// Create patch for adding a new merge queue entry
+    pub fn add(entry: &MergeQueue) -> Patch {
+        Patch(vec![PatchOperation::Add(AddOperation {
+            path: merge_queue_path(entry.workspace_id)
+                .try_into()
+                .expect("Merge queue path should be valid"),
+            value: serde_json::to_value(entry)
+                .expect("MergeQueue serialization should not fail"),
+        })])
+    }
+
+    /// Create patch for updating an existing merge queue entry (e.g., Queued → Merging)
+    pub fn replace(entry: &MergeQueue) -> Patch {
+        Patch(vec![PatchOperation::Replace(ReplaceOperation {
+            path: merge_queue_path(entry.workspace_id)
+                .try_into()
+                .expect("Merge queue path should be valid"),
+            value: serde_json::to_value(entry)
+                .expect("MergeQueue serialization should not fail"),
+        })])
+    }
+
+    /// Create patch for removing a merge queue entry
+    pub fn remove(workspace_id: Uuid) -> Patch {
+        Patch(vec![PatchOperation::Remove(RemoveOperation {
+            path: merge_queue_path(workspace_id)
+                .try_into()
+                .expect("Merge queue path should be valid"),
         })])
     }
 }
