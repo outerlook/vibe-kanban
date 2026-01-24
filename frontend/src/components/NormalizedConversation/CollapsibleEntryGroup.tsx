@@ -51,7 +51,7 @@ export function formatSummaryText(summary: GroupSummary): string {
     parts.push(`${summary.errors} ${summary.errors === 1 ? 'error' : 'errors'}`);
   }
   if (summary.thinking > 0) {
-    parts.push(`${summary.thinking} ${summary.thinking === 1 ? 'thinking' : 'thinking'}`);
+    parts.push(`${summary.thinking} thinking`);
   }
 
   return parts.length > 0 ? parts.join(' • ') : 'Empty group';

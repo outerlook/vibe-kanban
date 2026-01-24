@@ -53,18 +53,7 @@ const ItemContent: VirtuosoMessageListProps<
   if (data.type === 'STDERR') {
     return <p>{data.content}</p>;
   }
-  if (data.type === 'NORMALIZED_ENTRY') {
-    return (
-      <DisplayConversationEntry
-        expansionKey={data.patchKey}
-        entry={data.content}
-        executionProcessId={data.executionProcessId}
-        taskAttempt={mode?.type === 'workspace' ? mode.attempt : undefined}
-        task={mode?.type === 'workspace' ? mode.task : undefined}
-      />
-    );
-  }
-  if (data.type === 'ENTRY_GROUP') {
+  if (data.type === 'NORMALIZED_ENTRY' || data.type === 'ENTRY_GROUP') {
     return (
       <DisplayConversationEntry
         expansionKey={data.patchKey}
