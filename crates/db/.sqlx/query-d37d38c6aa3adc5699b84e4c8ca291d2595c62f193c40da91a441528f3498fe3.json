@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id AS \"id!: Uuid\",\n                      project_id AS \"project_id: Uuid\",\n                      notification_type AS \"notification_type!: NotificationType\",\n                      title,\n                      message,\n                      is_read AS \"is_read!: bool\",\n                      metadata AS \"metadata: serde_json::Value\",\n                      workspace_id AS \"workspace_id: Uuid\",\n                      session_id AS \"session_id: Uuid\",\n                      created_at AS \"created_at!: DateTime<Utc>\",\n                      updated_at AS \"updated_at!: DateTime<Utc>\"\n               FROM notifications\n               WHERE project_id IS NULL\n               ORDER BY created_at DESC\n               LIMIT $1",
+  "query": "SELECT id AS \"id!: Uuid\",\n                      project_id AS \"project_id: Uuid\",\n                      notification_type AS \"notification_type!: NotificationType\",\n                      title,\n                      message,\n                      is_read AS \"is_read!: bool\",\n                      metadata AS \"metadata: serde_json::Value\",\n                      workspace_id AS \"workspace_id: Uuid\",\n                      session_id AS \"session_id: Uuid\",\n                      conversation_session_id AS \"conversation_session_id: Uuid\",\n                      created_at AS \"created_at!: DateTime<Utc>\",\n                      updated_at AS \"updated_at!: DateTime<Utc>\"\n               FROM notifications\n               WHERE rowid = $1",
   "describe": {
     "columns": [
       {
@@ -49,13 +49,18 @@
         "type_info": "Blob"
       },
       {
-        "name": "created_at!: DateTime<Utc>",
+        "name": "conversation_session_id: Uuid",
         "ordinal": 9,
+        "type_info": "Blob"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 10,
         "type_info": "Text"
       },
       {
         "name": "updated_at!: DateTime<Utc>",
-        "ordinal": 10,
+        "ordinal": 11,
         "type_info": "Text"
       }
     ],
@@ -72,9 +77,10 @@
       true,
       true,
       true,
+      true,
       false,
       false
     ]
   },
-  "hash": "68c3b45d8cbc316e73b0c5f340a77e0efa4f3f9b6996ae659ff0f336962dafb8"
+  "hash": "d37d38c6aa3adc5699b84e4c8ca291d2595c62f193c40da91a441528f3498fe3"
 }

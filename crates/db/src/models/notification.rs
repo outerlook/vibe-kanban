@@ -30,6 +30,7 @@ pub struct Notification {
     pub metadata: Option<serde_json::Value>,
     pub workspace_id: Option<Uuid>,
     pub session_id: Option<Uuid>,
+    pub conversation_session_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -43,6 +44,7 @@ pub struct CreateNotification {
     pub metadata: Option<serde_json::Value>,
     pub workspace_id: Option<Uuid>,
     pub session_id: Option<Uuid>,
+    pub conversation_session_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -67,8 +69,8 @@ impl Notification {
 
         sqlx::query_as!(
             Notification,
-            r#"INSERT INTO notifications (id, project_id, notification_type, title, message, metadata, workspace_id, session_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            r#"INSERT INTO notifications (id, project_id, notification_type, title, message, metadata, workspace_id, session_id, conversation_session_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                RETURNING id AS "id!: Uuid",
                          project_id AS "project_id: Uuid",
                          notification_type AS "notification_type!: NotificationType",
@@ -78,6 +80,7 @@ impl Notification {
                          metadata AS "metadata: serde_json::Value",
                          workspace_id AS "workspace_id: Uuid",
                          session_id AS "session_id: Uuid",
+                         conversation_session_id AS "conversation_session_id: Uuid",
                          created_at AS "created_at!: DateTime<Utc>",
                          updated_at AS "updated_at!: DateTime<Utc>""#,
             id,
@@ -87,7 +90,8 @@ impl Notification {
             data.message,
             metadata_json,
             data.workspace_id,
-            data.session_id
+            data.session_id,
+            data.conversation_session_id
         )
         .fetch_one(pool)
         .await
@@ -105,6 +109,7 @@ impl Notification {
                       metadata AS "metadata: serde_json::Value",
                       workspace_id AS "workspace_id: Uuid",
                       session_id AS "session_id: Uuid",
+                      conversation_session_id AS "conversation_session_id: Uuid",
                       created_at AS "created_at!: DateTime<Utc>",
                       updated_at AS "updated_at!: DateTime<Utc>"
                FROM notifications
@@ -127,6 +132,7 @@ impl Notification {
                       metadata AS "metadata: serde_json::Value",
                       workspace_id AS "workspace_id: Uuid",
                       session_id AS "session_id: Uuid",
+                      conversation_session_id AS "conversation_session_id: Uuid",
                       created_at AS "created_at!: DateTime<Utc>",
                       updated_at AS "updated_at!: DateTime<Utc>"
                FROM notifications
@@ -154,6 +160,7 @@ impl Notification {
                       metadata AS "metadata: serde_json::Value",
                       workspace_id AS "workspace_id: Uuid",
                       session_id AS "session_id: Uuid",
+                      conversation_session_id AS "conversation_session_id: Uuid",
                       created_at AS "created_at!: DateTime<Utc>",
                       updated_at AS "updated_at!: DateTime<Utc>"
                FROM notifications
@@ -183,6 +190,7 @@ impl Notification {
                       metadata AS "metadata: serde_json::Value",
                       workspace_id AS "workspace_id: Uuid",
                       session_id AS "session_id: Uuid",
+                      conversation_session_id AS "conversation_session_id: Uuid",
                       created_at AS "created_at!: DateTime<Utc>",
                       updated_at AS "updated_at!: DateTime<Utc>"
                FROM notifications
@@ -221,6 +229,7 @@ impl Notification {
                          metadata AS "metadata: serde_json::Value",
                          workspace_id AS "workspace_id: Uuid",
                          session_id AS "session_id: Uuid",
+                         conversation_session_id AS "conversation_session_id: Uuid",
                          created_at AS "created_at!: DateTime<Utc>",
                          updated_at AS "updated_at!: DateTime<Utc>""#,
             id,

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "UPDATE notifications\n               SET title = COALESCE($2, title),\n                   message = COALESCE($3, message),\n                   is_read = COALESCE($4, is_read),\n                   metadata = CASE WHEN $5 THEN $6 ELSE metadata END,\n                   updated_at = datetime('now', 'subsec')\n               WHERE id = $1\n               RETURNING id AS \"id!: Uuid\",\n                         project_id AS \"project_id: Uuid\",\n                         notification_type AS \"notification_type!: NotificationType\",\n                         title,\n                         message,\n                         is_read AS \"is_read!: bool\",\n                         metadata AS \"metadata: serde_json::Value\",\n                         workspace_id AS \"workspace_id: Uuid\",\n                         session_id AS \"session_id: Uuid\",\n                         created_at AS \"created_at!: DateTime<Utc>\",\n                         updated_at AS \"updated_at!: DateTime<Utc>\"",
+  "query": "SELECT id AS \"id!: Uuid\",\n                      project_id AS \"project_id: Uuid\",\n                      notification_type AS \"notification_type!: NotificationType\",\n                      title,\n                      message,\n                      is_read AS \"is_read!: bool\",\n                      metadata AS \"metadata: serde_json::Value\",\n                      workspace_id AS \"workspace_id: Uuid\",\n                      session_id AS \"session_id: Uuid\",\n                      conversation_session_id AS \"conversation_session_id: Uuid\",\n                      created_at AS \"created_at!: DateTime<Utc>\",\n                      updated_at AS \"updated_at!: DateTime<Utc>\"\n               FROM notifications\n               WHERE project_id = $1\n               ORDER BY created_at DESC\n               LIMIT $2",
   "describe": {
     "columns": [
       {
@@ -49,18 +49,23 @@
         "type_info": "Blob"
       },
       {
-        "name": "created_at!: DateTime<Utc>",
+        "name": "conversation_session_id: Uuid",
         "ordinal": 9,
+        "type_info": "Blob"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 10,
         "type_info": "Text"
       },
       {
         "name": "updated_at!: DateTime<Utc>",
-        "ordinal": 10,
+        "ordinal": 11,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 6
+      "Right": 2
     },
     "nullable": [
       true,
@@ -72,9 +77,10 @@
       true,
       true,
       true,
+      true,
       false,
       false
     ]
   },
-  "hash": "1582e408ea08d84b79132ce0479a3ab5a89e60b7c3eee7d20c1995040bd71244"
+  "hash": "da5c711e865438e72bba716cf536f5067b2bba53cb0eae1add705821a9116f1c"
 }
