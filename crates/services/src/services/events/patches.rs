@@ -6,6 +6,7 @@ use db::models::{
 use json_patch::{AddOperation, Patch, PatchOperation, RemoveOperation, ReplaceOperation};
 use uuid::Uuid;
 
+use crate::services::merge_queue_store::MergeQueueEntry;
 use crate::services::operation_status::OperationStatus;
 
 // Shared helper to escape JSON Pointer segments
@@ -330,6 +331,51 @@ pub mod operation_status_patch {
             path: path(workspace_id)
                 .try_into()
                 .expect("Operation status path should be valid"),
+        })])
+    }
+}
+
+/// Helper functions for creating merge queue patches.
+/// Keyed by workspace_id since each workspace can have at most one queue entry.
+pub mod merge_queue_patch {
+    use super::*;
+
+    /// Get the JSON Pointer path for a merge queue entry
+    pub fn path(workspace_id: Uuid) -> String {
+        format!(
+            "/merge_queue/{}",
+            escape_pointer_segment(&workspace_id.to_string())
+        )
+    }
+
+    /// Create patch for adding a new merge queue entry
+    pub fn add(entry: &MergeQueueEntry) -> Patch {
+        Patch(vec![PatchOperation::Add(AddOperation {
+            path: path(entry.workspace_id)
+                .try_into()
+                .expect("Merge queue path should be valid"),
+            value: serde_json::to_value(entry)
+                .expect("MergeQueueEntry serialization should not fail"),
+        })])
+    }
+
+    /// Create patch for updating an existing merge queue entry
+    pub fn replace(entry: &MergeQueueEntry) -> Patch {
+        Patch(vec![PatchOperation::Replace(ReplaceOperation {
+            path: path(entry.workspace_id)
+                .try_into()
+                .expect("Merge queue path should be valid"),
+            value: serde_json::to_value(entry)
+                .expect("MergeQueueEntry serialization should not fail"),
+        })])
+    }
+
+    /// Create patch for removing a merge queue entry
+    pub fn remove(workspace_id: Uuid) -> Patch {
+        Patch(vec![PatchOperation::Remove(RemoveOperation {
+            path: path(workspace_id)
+                .try_into()
+                .expect("Merge queue path should be valid"),
         })])
     }
 }

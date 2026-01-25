@@ -362,15 +362,11 @@ session_id: string | null,
  */
 executor_action: string | null, };
 
-export type MergeQueue = { id: string, project_id: string, workspace_id: string, repo_id: string, queued_at: string, status: string, conflict_message: string | null, commit_message: string | null, started_at: string | null, completed_at: string | null, };
-
-export type MergeQueueStatus = "queued" | "merging" | "conflict" | "completed";
-
 export type ChangeTargetBranchRequest = { repo_id: string, new_target_branch: string, };
 
 export type ChangeTargetBranchResponse = { repo_id: string, new_target_branch: string, status: [number, number], };
 
-export type MergeTaskAttemptRequest = { repo_id: string, commit_message: string | null, };
+export type MergeTaskAttemptRequest = { repo_id: string, commit_message: string | null, generate_commit_message: boolean | null, };
 
 export type GenerateCommitMessageRequest = { repo_id: string, };
 
@@ -476,9 +472,9 @@ conflicted_files: Array<string>,
  */
 target_branch_has_uncommitted_changes: boolean | null, };
 
-export type QueueMergeRequest = { repo_id: string, commit_message: string | null, };
+export type QueueMergeRequest = { repo_id: string, commit_message: string | null, generate_commit_message: boolean | null, };
 
-export type QueueMergeError = { "type": "no_commits_ahead" } | { "type": "has_conflicts" } | { "type": "already_merged" } | { "type": "already_queued" } | { "type": "workspace_repo_not_found" };
+export type QueueMergeError = { "type": "no_commits_ahead" } | { "type": "has_conflicts" } | { "type": "already_merged" } | { "type": "already_queued" } | { "type": "workspace_repo_not_found" } | { "type": "commit_message_generation_failed", message: string, };
 
 export type MergeQueueCountResponse = { count: bigint, };
 
@@ -549,6 +545,10 @@ export type QueueStatus = { "status": "empty" } | { "status": "queued", message:
 export type OperationStatus = { id: string, workspace_id: string, task_id: string, operation_type: OperationStatusType, error: string | null, started_at: string, };
 
 export type OperationStatusType = "generating_commit" | "rebasing" | "pushing" | "merging";
+
+export type MergeQueueEntry = { id: string, project_id: string, workspace_id: string, repo_id: string, queued_at: string, status: MergeQueueStatus, commit_message: string, };
+
+export type MergeQueueStatus = "queued" | "merging";
 
 export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert";
 

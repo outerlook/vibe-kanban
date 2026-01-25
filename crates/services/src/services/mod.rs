@@ -22,6 +22,7 @@ pub mod github;
 pub mod github_client;
 pub mod image;
 pub mod merge_queue_processor;
+pub mod merge_queue_store;
 pub mod notification;
 pub mod oauth_credentials;
 pub mod operation_status;

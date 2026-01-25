@@ -324,20 +324,14 @@ function GitOperations({
 
   const performGenerateAndMerge = async (repoId: string) => {
     try {
-      setGenerating(true);
-      const response = await generateCommitMessage.mutateAsync({ repoId });
-
-      setGenerating(false);
       setMerging(true);
-
       await git.actions.merge({
         repoId,
-        commitMessage: response.commit_message,
+        generateCommitMessage: true,
       });
       setMergeSuccess(true);
       setTimeout(() => setMergeSuccess(false), 2000);
     } finally {
-      setGenerating(false);
       setMerging(false);
     }
   };
@@ -397,17 +391,11 @@ function GitOperations({
 
   const performGenerateAndQueueMerge = async (repoId: string) => {
     try {
-      setGenerating(true);
-      const response = await generateCommitMessage.mutateAsync({ repoId });
-
-      setGenerating(false);
       setQueuing(true);
-
-      await queueMerge.mutateAsync({ repoId, commitMessage: response.commit_message });
+      await queueMerge.mutateAsync({ repoId, generateCommitMessage: true });
       setQueueSuccess(true);
       setTimeout(() => setQueueSuccess(false), 2000);
     } finally {
-      setGenerating(false);
       setQueuing(false);
     }
   };

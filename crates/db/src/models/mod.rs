@@ -12,7 +12,6 @@ pub mod execution_queue;
 pub mod gantt;
 pub mod image;
 pub mod merge;
-pub mod merge_queue;
 pub mod notification;
 pub mod project;
 pub mod project_repo;

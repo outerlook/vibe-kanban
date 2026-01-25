@@ -26,10 +26,7 @@ export function QueueStatusBadge({ workspaceId }: QueueStatusBadgeProps) {
   if (!queueEntry) return null;
 
   const status = queueEntry.status as MergeQueueStatus;
-  // Hide terminal statuses - only show active queue states
-  if (status === 'completed' || status === 'conflict') return null;
-
-  const style = statusStyles[status as 'queued' | 'merging'];
+  const style = statusStyles[status];
 
   return (
     <span

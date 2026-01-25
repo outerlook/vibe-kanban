@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { attemptsApi, projectsApi, taskGroupsApi, Result } from '@/lib/api';
 import type {
-  MergeQueue,
+  MergeQueueEntry,
   MergeQueueCountResponse,
   QueueMergeError,
 } from 'shared/types';
@@ -27,21 +27,23 @@ type QueryOptions = {
 type QueueMergeParams = {
   repoId: string;
   commitMessage?: string;
+  generateCommitMessage?: boolean;
 };
 
 export function useQueueMerge(
   attemptId?: string,
-  onSuccess?: (entry: MergeQueue) => void,
+  onSuccess?: (entry: MergeQueueEntry) => void,
   onError?: (err: QueueMergeError | undefined, message?: string) => void
 ) {
   const queryClient = useQueryClient();
 
-  return useMutation<Result<MergeQueue, QueueMergeError>, unknown, QueueMergeParams>({
+  return useMutation<Result<MergeQueueEntry, QueueMergeError>, unknown, QueueMergeParams>({
     mutationFn: (params: QueueMergeParams) => {
       if (!attemptId) return Promise.resolve({ success: false, error: undefined });
       return attemptsApi.queueMerge(attemptId, {
         repo_id: params.repoId,
         commit_message: params.commitMessage ?? null,
+        generate_commit_message: params.generateCommitMessage ?? null,
       });
     },
     onSuccess: (result) => {
@@ -92,7 +94,7 @@ export function useCancelQueuedMerge(
 export function useQueueStatus(workspaceId?: string, opts?: QueryOptions) {
   const enabled = (opts?.enabled ?? true) && !!workspaceId;
 
-  return useQuery<MergeQueue | null>({
+  return useQuery<MergeQueueEntry | null>({
     queryKey: mergeQueueKeys.status(workspaceId),
     queryFn: () => attemptsApi.getQueueStatus(workspaceId!),
     enabled,
