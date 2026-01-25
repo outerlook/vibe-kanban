@@ -774,9 +774,60 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
 
         # Create span events for tool calls as children of the generation
         for tool_call in tool_calls:
+            tool_name = tool_call["tool_name"]
             tool_use_id = tool_call.get("tool_use_id")
+            tool_input = tool_call.get("tool_input")
+            activity_kind = tool_call["activity_kind"]
+
             # Look up tool result by tool_use_id to add as span output
             tool_output = tool_results.get(tool_use_id) if tool_use_id else None
+
+            # Build mutable metadata dict
+            span_metadata: dict = {
+                "activity_kind": activity_kind,
+                "tool_use_id": tool_use_id,
+            }
+
+            # Detect background task starts from Bash output
+            if tool_name == "Bash" and tool_output:
+                background_task_id = extract_background_task_id(tool_output)
+                if background_task_id:
+                    pending_background_tasks[background_task_id] = {
+                        "bash_tool_use_id": tool_use_id,
+                        "generation_id": generation_id,
+                        "activity_kind": activity_kind,
+                        "tool_name": tool_name,
+                        "start_time": start_time,
+                        "command": tool_input.get("command") if tool_input else None,
+                    }
+                    span_metadata["is_background_start"] = True
+                    span_metadata["background_task_id"] = background_task_id
+
+            # Detect TaskOutput completions and create umbrella spans
+            task_id, is_blocking = extract_task_output_info(tool_name, tool_input)
+            if task_id and is_blocking and task_id in pending_background_tasks:
+                pending_task = pending_background_tasks[task_id]
+                wall_time = (end_time - pending_task["start_time"]).total_seconds()
+
+                # Create umbrella span for the background task
+                umbrella_span = create_background_umbrella_span(
+                    background_task_id=task_id,
+                    pending_task=pending_task,
+                    completion_time=end_time,
+                    trace_id=trace_id,
+                    generation_id=pending_task["generation_id"],
+                    ingestion_now=ingestion_now,
+                )
+                events.append(umbrella_span)
+
+                # Add completion metadata to the TaskOutput span
+                span_metadata["is_background_completion"] = True
+                span_metadata["background_task_id"] = task_id
+                span_metadata["background_wall_time_seconds"] = wall_time
+
+                # Remove from pending dict
+                del pending_background_tasks[task_id]
+
             # Generate deterministic span ID from tool_use_id (assigned by Claude API, stable across sessions)
             span_id = generate_deterministic_id(tool_use_id) if tool_use_id else str(uuid.uuid4())
             events.append(
@@ -787,15 +838,12 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
                         id=span_id,  # Body ID is deterministic for upsert
                         trace_id=trace_id,
                         parent_observation_id=generation_id,
-                        name=f"{tool_call['activity_kind']}/{tool_call['tool_name']}",
-                        input=tool_call.get("tool_input"),
+                        name=f"{activity_kind}/{tool_name}",
+                        input=tool_input,
                         output=tool_output,
                         start_time=start_time,
                         end_time=end_time,
-                        metadata={
-                            "activity_kind": tool_call["activity_kind"],
-                            "tool_use_id": tool_use_id,
-                        },
+                        metadata=span_metadata,
                     ),
                 )
             )
