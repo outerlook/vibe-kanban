@@ -259,7 +259,8 @@ def extract_background_task_id(tool_output) -> str | None:
         text_content = tool_output.get("text", "")
 
     # Match the background task pattern
-    match = re.search(r"Command running in background with ID:\s*(\S+)", text_content)
+    # Use [a-zA-Z0-9]+ to avoid capturing trailing punctuation (e.g., period)
+    match = re.search(r"Command running in background with ID:\s*([a-zA-Z0-9]+)", text_content)
     if match:
         return match.group(1)
     return None
