@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   conversationsApi,
+  executionProcessesApi,
   type CreateConversationRequest,
   type UpdateConversationRequest,
   type SendConversationMessageRequest,
@@ -251,4 +252,28 @@ export function useSendMessage() {
       });
     },
   });
+}
+
+export function useStopConversationExecution(conversationId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: (executionProcessId: string) =>
+      executionProcessesApi.stopExecutionProcess(executionProcessId),
+    onSuccess: () => {
+      if (conversationId) {
+        queryClient.invalidateQueries({
+          queryKey: conversationKeys.executions(conversationId),
+        });
+      }
+    },
+    onError: (error) => {
+      console.error('Failed to stop execution:', error);
+    },
+  });
+
+  return {
+    stopExecution: mutation.mutate,
+    isStopping: mutation.isPending,
+  };
 }
