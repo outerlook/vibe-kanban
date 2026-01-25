@@ -25,6 +25,7 @@ use services::services::{
     remote_client::{RemoteClient, RemoteClientError},
     repo::RepoService,
     share::{ShareConfig, SharePublisher},
+    skills_cache::GlobalSkillsCache,
 };
 use tokio::sync::{Mutex, RwLock};
 use utils::{
@@ -65,6 +66,7 @@ pub struct LocalDeployment {
     git_watcher: GitWatcherManager,
     operation_status: OperationStatusStore,
     merge_queue_store: MergeQueueStore,
+    skills_cache: GlobalSkillsCache,
 }
 
 #[derive(Debug, Clone)]
@@ -196,6 +198,7 @@ impl Deployment for LocalDeployment {
             user_id: user_id.clone(),
             analytics_service: s.clone(),
         });
+        let skills_cache = GlobalSkillsCache::new();
         let container = LocalContainerService::new(
             db.clone(),
             msg_stores.clone(),
@@ -206,6 +209,7 @@ impl Deployment for LocalDeployment {
             approvals.clone(),
             queued_message_service.clone(),
             share_publisher.clone(),
+            skills_cache.clone(),
         )
         .await;
 
@@ -241,6 +245,7 @@ impl Deployment for LocalDeployment {
             git_watcher,
             operation_status,
             merge_queue_store,
+            skills_cache,
         };
 
         Ok(deployment)
@@ -324,6 +329,10 @@ impl Deployment for LocalDeployment {
 
     fn merge_queue_store(&self) -> &MergeQueueStore {
         &self.merge_queue_store
+    }
+
+    fn skills_cache(&self) -> &GlobalSkillsCache {
+        &self.skills_cache
     }
 }
 

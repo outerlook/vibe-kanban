@@ -58,6 +58,7 @@ use services::services::{
     notification::NotificationService,
     queued_message::QueuedMessageService,
     share::SharePublisher,
+    skills_cache::GlobalSkillsCache,
     watcher_manager::WatcherManager,
     workspace_manager::{RepoWorkspaceInput, WorkspaceManager},
 };
@@ -133,6 +134,7 @@ pub struct LocalContainerService {
     publisher: Result<SharePublisher, RemoteClientNotConfigured>,
     notification_service: NotificationService,
     watcher_manager: WatcherManager,
+    skills_cache: GlobalSkillsCache,
     /// Execution IDs for which feedback parser is pending - skip msg_store cleanup in exit monitor
     feedback_pending_cleanup: Arc<RwLock<HashSet<Uuid>>>,
     /// Workspace IDs that currently have a running agent - used to prevent duplicate spawns
@@ -151,6 +153,7 @@ impl LocalContainerService {
         approvals: Approvals,
         queued_message_service: QueuedMessageService,
         publisher: Result<SharePublisher, RemoteClientNotConfigured>,
+        skills_cache: GlobalSkillsCache,
     ) -> Self {
         let child_store = Arc::new(RwLock::new(HashMap::new()));
         let interrupt_senders = Arc::new(RwLock::new(HashMap::new()));
@@ -172,6 +175,7 @@ impl LocalContainerService {
             publisher,
             notification_service,
             watcher_manager: WatcherManager::new(),
+            skills_cache,
             feedback_pending_cleanup,
             running_workspaces,
         };
@@ -1612,6 +1616,10 @@ impl ContainerService for LocalContainerService {
 
     fn config(&self) -> &Arc<RwLock<Config>> {
         &self.config
+    }
+
+    fn skills_cache(&self) -> &GlobalSkillsCache {
+        &self.skills_cache
     }
 
     async fn git_branch_prefix(&self) -> String {

@@ -38,6 +38,7 @@ use services::services::{
     queued_message::QueuedMessageService,
     repo::RepoService,
     share::SharePublisher,
+    skills_cache::GlobalSkillsCache,
     worktree_manager::WorktreeError,
 };
 use sqlx::Error as SqlxError;
@@ -128,6 +129,8 @@ pub trait Deployment: Clone + Send + Sync + 'static {
     fn operation_status(&self) -> &OperationStatusStore;
 
     fn merge_queue_store(&self) -> &MergeQueueStore;
+
+    fn skills_cache(&self) -> &GlobalSkillsCache;
 
     async fn update_sentry_scope(&self) -> Result<(), DeploymentError> {
         let user_id = self.user_id();
