@@ -224,6 +224,112 @@ def classify_activity(tool_name: str, tool_input: dict | None) -> str:
     return "OTHER"
 
 
+def extract_background_task_id(tool_output) -> str | None:
+    """
+    Extract background task ID from Bash tool output.
+
+    Parses output for pattern: "Command running in background with ID: <task_id>"
+    Handles various tool_output formats (string, list of blocks, or dict).
+    """
+    if tool_output is None:
+        return None
+
+    # Normalize to string for pattern matching
+    text_content = ""
+    if isinstance(tool_output, str):
+        text_content = tool_output
+    elif isinstance(tool_output, list):
+        # List of content blocks
+        parts = []
+        for block in tool_output:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+        text_content = "\n".join(parts)
+    elif isinstance(tool_output, dict) and tool_output.get("type") == "text":
+        text_content = tool_output.get("text", "")
+
+    # Match the background task pattern
+    # Use [a-zA-Z0-9]+ to avoid capturing trailing punctuation (e.g., period)
+    match = re.search(r"Command running in background with ID:\s*([a-zA-Z0-9]+)", text_content)
+    if match:
+        return match.group(1)
+    return None
+
+
+def extract_task_output_info(tool_name: str, tool_input: dict | None) -> tuple[str | None, bool]:
+    """
+    Extract task ID and blocking status from TaskOutput tool calls.
+
+    Args:
+        tool_name: The name of the tool being called
+        tool_input: The tool input dict (may contain task_id, block)
+
+    Returns:
+        Tuple of (task_id, is_blocking):
+            - task_id: The task ID being retrieved, or None if not a TaskOutput call
+            - is_blocking: True if block=true (default), False otherwise
+    """
+    if tool_name != "TaskOutput":
+        return (None, False)
+
+    tool_input = tool_input or {}
+    task_id = tool_input.get("task_id")
+    # block defaults to true in TaskOutput
+    is_blocking = tool_input.get("block", True)
+
+    return (task_id, is_blocking)
+
+
+def create_background_umbrella_span(
+    background_task_id: str,
+    pending_task: dict,
+    completion_time: datetime,
+    trace_id: str,
+    generation_id: str,
+    ingestion_now: str,
+):
+    """
+    Create an umbrella span representing the wall-clock duration of a background task.
+
+    The span tracks from when the task was started (Bash with run_in_background)
+    until its output was retrieved via TaskOutput.
+    """
+    # Import here to avoid circular dependency issues at module load
+    from langfuse.api.resources.ingestion.types import IngestionEvent_SpanCreate
+    from langfuse.api.resources.ingestion.types.create_span_body import CreateSpanBody
+
+    bash_tool_use_id = pending_task.get("bash_tool_use_id", "")
+    start_time = pending_task.get("start_time")
+    activity_kind = pending_task.get("activity_kind", "OTHER")
+    tool_name = pending_task.get("tool_name", "Bash")
+
+    # Generate deterministic span ID for idempotent upserts
+    span_id = generate_deterministic_id(f"umbrella_{bash_tool_use_id}_{background_task_id}")
+
+    return IngestionEvent_SpanCreate(
+        id=str(uuid.uuid4()),  # Event ID must be unique per request
+        timestamp=ingestion_now,
+        body=CreateSpanBody(
+            id=span_id,
+            trace_id=trace_id,
+            parent_observation_id=generation_id,
+            name=f"BACKGROUND/{activity_kind}/{tool_name}",
+            input={"background_task_id": background_task_id},
+            output=None,
+            start_time=start_time,
+            end_time=completion_time,
+            metadata={
+                "activity_kind": activity_kind,
+                "background_task_id": background_task_id,
+                "bash_tool_use_id": bash_tool_use_id,
+                "is_background": True,
+            },
+        ),
+    )
+
+
 def parse_transcript(transcript_path: str) -> dict:
     """
     Parse the Claude Code transcript JSONL file and extract complete conversation structure.
@@ -574,6 +680,10 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
     # Track previous end_time for continuations without user_timestamp
     prev_end_time: datetime | None = None
 
+    # Track background tasks started but not yet completed (Bash with run_in_background)
+    # Maps background_task_id -> {bash_tool_use_id, generation_id, activity_kind, tool_name, start_time}
+    pending_background_tasks: dict[str, dict] = {}
+
     for i, turn in enumerate(turns):
         user_message = turn.get("user_message")
         user_timestamp = parse_iso_timestamp(turn.get("user_timestamp"))
@@ -635,9 +745,59 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
 
         # Create span events for tool calls as children of the generation
         for tool_call in tool_calls:
+            tool_name = tool_call["tool_name"]
             tool_use_id = tool_call.get("tool_use_id")
+            tool_input = tool_call.get("tool_input")
+            activity_kind = tool_call["activity_kind"]
+
             # Look up tool result by tool_use_id to add as span output
             tool_output = tool_results.get(tool_use_id) if tool_use_id else None
+
+            # Build mutable metadata dict
+            span_metadata: dict = {
+                "activity_kind": activity_kind,
+                "tool_use_id": tool_use_id,
+            }
+
+            # Detect background task starts from Bash output
+            if tool_name == "Bash" and tool_output:
+                background_task_id = extract_background_task_id(tool_output)
+                if background_task_id:
+                    pending_background_tasks[background_task_id] = {
+                        "bash_tool_use_id": tool_use_id,
+                        "generation_id": generation_id,
+                        "activity_kind": activity_kind,
+                        "tool_name": tool_name,
+                        "start_time": start_time,
+                    }
+                    span_metadata["is_background_start"] = True
+                    span_metadata["background_task_id"] = background_task_id
+
+            # Detect TaskOutput completions and create umbrella spans
+            task_id, is_blocking = extract_task_output_info(tool_name, tool_input)
+            if task_id and is_blocking and task_id in pending_background_tasks:
+                pending_task = pending_background_tasks[task_id]
+                wall_time = (end_time - pending_task["start_time"]).total_seconds()
+
+                # Create umbrella span for the background task
+                umbrella_span = create_background_umbrella_span(
+                    background_task_id=task_id,
+                    pending_task=pending_task,
+                    completion_time=end_time,
+                    trace_id=trace_id,
+                    generation_id=pending_task["generation_id"],
+                    ingestion_now=ingestion_now,
+                )
+                events.append(umbrella_span)
+
+                # Add completion metadata to the TaskOutput span
+                span_metadata["is_background_completion"] = True
+                span_metadata["background_task_id"] = task_id
+                span_metadata["background_wall_time_seconds"] = wall_time
+
+                # Remove from pending dict
+                del pending_background_tasks[task_id]
+
             # Generate deterministic span ID from tool_use_id (assigned by Claude API, stable across sessions)
             span_id = generate_deterministic_id(tool_use_id) if tool_use_id else str(uuid.uuid4())
             events.append(
@@ -648,21 +808,22 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
                         id=span_id,  # Body ID is deterministic for upsert
                         trace_id=trace_id,
                         parent_observation_id=generation_id,
-                        name=f"{tool_call['activity_kind']}/{tool_call['tool_name']}",
-                        input=tool_call.get("tool_input"),
+                        name=f"{activity_kind}/{tool_name}",
+                        input=tool_input,
                         output=tool_output,
                         start_time=start_time,
                         end_time=end_time,
-                        metadata={
-                            "activity_kind": tool_call["activity_kind"],
-                            "tool_use_id": tool_use_id,
-                        },
+                        metadata=span_metadata,
                     ),
                 )
             )
 
         # Update prev_end_time for next iteration
         prev_end_time = end_time
+
+    # Warn about background tasks that were started but never completed
+    if pending_background_tasks:
+        debug_log(f"Warning: {len(pending_background_tasks)} background tasks not completed: {list(pending_background_tasks.keys())}")
 
     # Send batch to Langfuse
     try:
