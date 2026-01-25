@@ -229,15 +229,7 @@ def extract_background_task_id(tool_output) -> str | None:
     Extract background task ID from Bash tool output.
 
     Parses output for pattern: "Command running in background with ID: <task_id>"
-
-    Args:
-        tool_output: Tool result content - can be:
-            - Plain string
-            - List of content blocks (each may be string or dict with type: text)
-            - Dict with type: text and text field
-
-    Returns:
-        The task_id string if found, None otherwise.
+    Handles various tool_output formats (string, list of blocks, or dict).
     """
     if tool_output is None:
         return None
@@ -299,25 +291,10 @@ def create_background_umbrella_span(
     ingestion_now: str,
 ):
     """
-    Create an umbrella span for a background task that has completed.
+    Create an umbrella span representing the wall-clock duration of a background task.
 
-    This span represents the wall-clock duration of a background task from when
-    it was started until its output was retrieved via TaskOutput.
-
-    Args:
-        background_task_id: The ID of the background task (e.g., "be2438c")
-        pending_task: Dict with info about when the task was started:
-            - bash_tool_use_id: The original Bash tool_use_id that started the task
-            - start_time: datetime when the background task was started
-            - activity_kind: The classified activity kind (e.g., "BUILD")
-            - tool_name: The tool that started the task (e.g., "Bash")
-        completion_time: datetime when TaskOutput retrieved the result
-        trace_id: The trace ID for this session
-        generation_id: The parent generation ID for the umbrella span
-        ingestion_now: ISO timestamp string for the ingestion event
-
-    Returns:
-        IngestionEvent_SpanCreate for the umbrella span
+    The span tracks from when the task was started (Bash with run_in_background)
+    until its output was retrieved via TaskOutput.
     """
     # Import here to avoid circular dependency issues at module load
     from langfuse.api.resources.ingestion.types import IngestionEvent_SpanCreate
@@ -340,7 +317,7 @@ def create_background_umbrella_span(
             parent_observation_id=generation_id,
             name=f"BACKGROUND/{activity_kind}/{tool_name}",
             input={"background_task_id": background_task_id},
-            output=None,  # Output will be set when we have the actual result
+            output=None,
             start_time=start_time,
             end_time=completion_time,
             metadata={
@@ -704,14 +681,7 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
     prev_end_time: datetime | None = None
 
     # Track background tasks started but not yet completed (Bash with run_in_background)
-    # Maps background_task_id -> {
-    #   "bash_tool_use_id": str,
-    #   "generation_id": str,
-    #   "original_activity": str,
-    #   "tool_name": str,
-    #   "start_time": datetime,
-    #   "command": str | None,
-    # }
+    # Maps background_task_id -> {bash_tool_use_id, generation_id, activity_kind, tool_name, start_time}
     pending_background_tasks: dict[str, dict] = {}
 
     for i, turn in enumerate(turns):
@@ -799,7 +769,6 @@ def send_to_langfuse(session_id: str, parsed: dict, vk_context: dict[str, str | 
                         "activity_kind": activity_kind,
                         "tool_name": tool_name,
                         "start_time": start_time,
-                        "command": tool_input.get("command") if tool_input else None,
                     }
                     span_metadata["is_background_start"] = True
                     span_metadata["background_task_id"] = background_task_id
