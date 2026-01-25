@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id AS \"id!: Uuid\",\n                      project_id AS \"project_id: Uuid\",\n                      notification_type AS \"notification_type!: NotificationType\",\n                      title,\n                      message,\n                      is_read AS \"is_read!: bool\",\n                      metadata AS \"metadata: serde_json::Value\",\n                      workspace_id AS \"workspace_id: Uuid\",\n                      session_id AS \"session_id: Uuid\",\n                      created_at AS \"created_at!: DateTime<Utc>\",\n                      updated_at AS \"updated_at!: DateTime<Utc>\"\n               FROM notifications\n               WHERE rowid = $1",
+  "query": "INSERT INTO notifications (id, project_id, notification_type, title, message, metadata, workspace_id, session_id, conversation_session_id)\n               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n               RETURNING id AS \"id!: Uuid\",\n                         project_id AS \"project_id: Uuid\",\n                         notification_type AS \"notification_type!: NotificationType\",\n                         title,\n                         message,\n                         is_read AS \"is_read!: bool\",\n                         metadata AS \"metadata: serde_json::Value\",\n                         workspace_id AS \"workspace_id: Uuid\",\n                         session_id AS \"session_id: Uuid\",\n                         conversation_session_id AS \"conversation_session_id: Uuid\",\n                         created_at AS \"created_at!: DateTime<Utc>\",\n                         updated_at AS \"updated_at!: DateTime<Utc>\"",
   "describe": {
     "columns": [
       {
@@ -49,18 +49,23 @@
         "type_info": "Blob"
       },
       {
-        "name": "created_at!: DateTime<Utc>",
+        "name": "conversation_session_id: Uuid",
         "ordinal": 9,
+        "type_info": "Blob"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 10,
         "type_info": "Text"
       },
       {
         "name": "updated_at!: DateTime<Utc>",
-        "ordinal": 10,
+        "ordinal": 11,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 9
     },
     "nullable": [
       true,
@@ -72,9 +77,10 @@
       true,
       true,
       true,
+      true,
       false,
       false
     ]
   },
-  "hash": "711d5470635c8e34f1ecda733382add351ac30f9b46c74b22d68b28e411966ab"
+  "hash": "a532cc30569d719e43e149e705ac91e06a710890234f5450efb5b9139010f087"
 }

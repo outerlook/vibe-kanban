@@ -348,6 +348,7 @@ impl NotificationService {
                 metadata: Some(json!({ "workspace_id": workspace_id.to_string() })),
                 workspace_id: Some(workspace_id),
                 session_id: None,
+                conversation_session_id: None,
             },
         )
         .await
@@ -373,6 +374,7 @@ impl NotificationService {
                 })),
                 workspace_id: Some(workspace_id),
                 session_id: None,
+                conversation_session_id: None,
             },
         )
         .await
@@ -395,6 +397,7 @@ impl NotificationService {
                 metadata: Some(json!({ "workspace_id": workspace_id.to_string() })),
                 workspace_id: Some(workspace_id),
                 session_id: None,
+                conversation_session_id: None,
             },
         )
         .await
@@ -433,7 +436,8 @@ impl NotificationService {
                     "preview": preview_text
                 })),
                 workspace_id: None,
-                session_id: Some(conversation_session_id),
+                session_id: None,
+                conversation_session_id: Some(conversation_session_id),
             },
         )
         .await

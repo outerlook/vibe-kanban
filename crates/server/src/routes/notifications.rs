@@ -41,6 +41,7 @@ pub struct CreateNotificationRequest {
     pub metadata: Option<serde_json::Value>,
     pub workspace_id: Option<Uuid>,
     pub session_id: Option<Uuid>,
+    pub conversation_session_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -93,6 +94,7 @@ pub async fn create_notification(
         metadata: payload.metadata,
         workspace_id: payload.workspace_id,
         session_id: payload.session_id,
+        conversation_session_id: payload.conversation_session_id,
     };
 
     let notification = Notification::create(&deployment.db().pool, &create_data).await?;
