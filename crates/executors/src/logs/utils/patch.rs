@@ -16,6 +16,26 @@ enum PatchOperation {
     Remove,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct GroupSummary {
+    pub commands: u32,
+    pub file_reads: u32,
+    pub file_edits: u32,
+    pub searches: u32,
+    pub web_fetches: u32,
+    pub tools: u32,
+    pub system_messages: u32,
+    pub errors: u32,
+    pub thinking: u32,
+    pub token_usage: u32,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct EntryGroup {
+    pub entries: Vec<NormalizedEntry>,
+    pub summary: GroupSummary,
+}
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Serialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE", tag = "type", content = "content")]
@@ -24,6 +44,7 @@ pub enum PatchType {
     Stdout(String),
     Stderr(String),
     Diff(Diff),
+    EntryGroup(EntryGroup),
 }
 
 #[derive(Serialize)]

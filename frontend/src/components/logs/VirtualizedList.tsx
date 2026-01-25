@@ -53,7 +53,7 @@ const ItemContent: VirtuosoMessageListProps<
   if (data.type === 'STDERR') {
     return <p>{data.content}</p>;
   }
-  if (data.type === 'NORMALIZED_ENTRY') {
+  if (data.type === 'NORMALIZED_ENTRY' || data.type === 'ENTRY_GROUP') {
     return (
       <DisplayConversationEntry
         expansionKey={data.patchKey}
