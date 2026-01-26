@@ -12,22 +12,34 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ExecutorProfileSelector } from '@/components/settings';
 import { useCreateConversation } from '@/hooks/useConversations';
+import { useWorktrees } from '@/hooks/useWorktrees';
 import { useUserSystem } from '@/components/ConfigProvider';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
 import type { ConversationSession, ExecutorProfileId } from 'shared/types';
+import { Home, GitBranch } from 'lucide-react';
 
 export interface NewConversationDialogProps {
   projectId: string;
+  defaultWorktreePath?: string;
 }
+
+const MAIN_REPO_VALUE = '__main__';
 
 const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
   (props) => {
     const modal = useModal();
     const { t } = useTranslation(['common']);
-    const { projectId } = props;
+    const { projectId, defaultWorktreePath } = props;
     const { profiles, config } = useUserSystem();
 
     const [title, setTitle] = useState('');
@@ -35,6 +47,14 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
     const [error, setError] = useState<string | null>(null);
     const [selectedProfile, setSelectedProfile] =
       useState<ExecutorProfileId | null>(null);
+    const [selectedWorktree, setSelectedWorktree] = useState<string>(
+      defaultWorktreePath ?? MAIN_REPO_VALUE
+    );
+
+    const { data: worktreesData } = useWorktrees(projectId);
+    const worktrees = worktreesData?.worktrees ?? [];
+    const nonMainWorktrees = worktrees.filter((w) => !w.is_main);
+    const hasWorktrees = nonMainWorktrees.length > 0;
 
     const createMutation = useCreateConversation();
     const isLoading = createMutation.isPending;
@@ -49,8 +69,9 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
         setInitialMessage('');
         setError(null);
         setSelectedProfile(null);
+        setSelectedWorktree(defaultWorktreePath ?? MAIN_REPO_VALUE);
       }
-    }, [modal.visible]);
+    }, [modal.visible, defaultWorktreePath]);
 
     const canSubmit = !!title.trim() && !!initialMessage.trim() && !isLoading;
 
@@ -79,12 +100,19 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
       setError(null);
 
       try {
+        const selectedWorktreeInfo =
+          selectedWorktree !== MAIN_REPO_VALUE
+            ? worktrees.find((w) => w.path === selectedWorktree)
+            : null;
+
         const result = await createMutation.mutateAsync({
           projectId,
           data: {
             title: trimmedTitle,
             initial_message: trimmedMessage,
             executor_profile_id: effectiveProfile,
+            worktree_path: selectedWorktreeInfo?.path ?? null,
+            worktree_branch: selectedWorktreeInfo?.branch ?? null,
           },
         });
 
@@ -154,6 +182,49 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
                   onProfileSelect={setSelectedProfile}
                   showLabel={true}
                 />
+              </div>
+            )}
+
+            {hasWorktrees && (
+              <div className="space-y-2">
+                <Label htmlFor="worktree-select">
+                  {t('conversations.worktreeLabel', {
+                    defaultValue: 'Start from',
+                  })}
+                </Label>
+                <Select
+                  value={selectedWorktree}
+                  onValueChange={setSelectedWorktree}
+                >
+                  <SelectTrigger id="worktree-select">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={MAIN_REPO_VALUE}>
+                      <div className="flex items-center gap-2">
+                        <Home className="h-4 w-4" />
+                        <span>
+                          {t('conversations.mainRepository', {
+                            defaultValue: 'Main repository',
+                          })}
+                        </span>
+                      </div>
+                    </SelectItem>
+                    {nonMainWorktrees.map((worktree) => (
+                      <SelectItem key={worktree.path} value={worktree.path}>
+                        <div className="flex items-center gap-2">
+                          <GitBranch className="h-4 w-4" />
+                          <span>{worktree.branch ?? worktree.path}</span>
+                          {worktree.branch && (
+                            <span className="text-muted-foreground text-xs ml-1 truncate max-w-[200px]">
+                              {worktree.path}
+                            </span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
 
