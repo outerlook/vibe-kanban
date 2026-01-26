@@ -34,6 +34,7 @@ import {
 import RawLogText from '../common/RawLogText';
 import UserMessage from './UserMessage';
 import PendingApprovalEntry from './PendingApprovalEntry';
+import PendingUserQuestionEntry from './PendingUserQuestionEntry';
 import { NextActionCard } from './NextActionCard';
 import { cn, formatTokenCount } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
@@ -601,6 +602,11 @@ const isPendingApprovalStatus = (
 ): status is Extract<ToolStatus, { status: 'pending_approval' }> =>
   status.status === 'pending_approval';
 
+const isPendingUserInputStatus = (
+  status: ToolStatus
+): status is Extract<ToolStatus, { status: 'pending_user_input' }> =>
+  status.status === 'pending_user_input';
+
 const getToolStatusAppearance = (status: ToolStatus): ToolStatusAppearance => {
   if (status.status === 'denied') return 'denied';
   if (status.status === 'timed_out') return 'timed_out';
@@ -778,6 +784,17 @@ function DisplayConversationEntry({
         {body}
       </div>
     );
+
+    if (isPendingUserInputStatus(status)) {
+      return (
+        <PendingUserQuestionEntry
+          pendingStatus={status}
+          executionProcessId={executionProcessId}
+        >
+          {content}
+        </PendingUserQuestionEntry>
+      );
+    }
 
     if (isPendingApprovalStatus(status)) {
       return (
