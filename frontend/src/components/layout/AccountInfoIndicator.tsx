@@ -7,6 +7,7 @@ import {
 } from '@/components/ui/tooltip';
 import { useAccountInfo } from '@/hooks/useAccountInfo';
 import { UsageLimitDisplay } from '@/components/layout/UsageLimitDisplay';
+import { WeekProgressTracker } from '@/components/layout/WeekProgressTracker';
 
 export function AccountInfoIndicator() {
   const { data, isLoading } = useAccountInfo();
@@ -55,22 +56,32 @@ export function AccountInfoIndicator() {
                 {data.claude.usage && (
                   <div className="mt-2 pt-2 border-t space-y-2">
                     <UsageLimitDisplay
-                      label="5-hour limit"
+                      label="Session (5h)"
                       usedPercent={data.claude.usage.fiveHour.usedPercent}
                       resetsAt={data.claude.usage.fiveHour.resetsAt}
                     />
                     <UsageLimitDisplay
-                      label="Weekly limit"
+                      label="Weekly total"
                       usedPercent={data.claude.usage.sevenDay.usedPercent}
                       resetsAt={data.claude.usage.sevenDay.resetsAt}
                     />
-                    {data.claude.usage.sevenDayOpus.usedPercent > 0 && (
+                    {data.claude.usage.sevenDaySonnet && (
                       <UsageLimitDisplay
-                        label="Weekly Opus limit"
+                        label="Weekly Sonnet"
+                        usedPercent={data.claude.usage.sevenDaySonnet.usedPercent}
+                        resetsAt={data.claude.usage.sevenDaySonnet.resetsAt}
+                      />
+                    )}
+                    {data.claude.usage.sevenDayOpus && (
+                      <UsageLimitDisplay
+                        label="Weekly Opus"
                         usedPercent={data.claude.usage.sevenDayOpus.usedPercent}
                         resetsAt={data.claude.usage.sevenDayOpus.resetsAt}
                       />
                     )}
+                    <WeekProgressTracker
+                      resetsAt={data.claude.usage.sevenDay.resetsAt}
+                    />
                   </div>
                 )}
               </div>
