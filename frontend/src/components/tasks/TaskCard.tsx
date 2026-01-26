@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
-import { Circle, Clock, Filter, Link, Loader2, Lock, Pencil, XCircle } from 'lucide-react';
+import {
+  AlertTriangle,
+  Circle,
+  Clock,
+  Filter,
+  Link,
+  Loader2,
+  Lock,
+  Pencil,
+  XCircle,
+} from 'lucide-react';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import { ActionsDropdown } from '@/components/ui/actions-dropdown';
 import { Badge } from '@/components/ui/badge';
@@ -188,6 +198,11 @@ export function TaskCard({
               )}
               {task.last_attempt_failed && (
                 <XCircle className="h-4 w-4 text-destructive" />
+              )}
+              {task.needs_attention === true && (
+                <span title="Review attention needed">
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                </span>
               )}
               {task.parent_workspace_id && (
                 <Button

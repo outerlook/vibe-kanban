@@ -187,6 +187,7 @@ mod tests {
             last_attempt_failed: false,
             is_queued: false,
             last_executor: String::new(),
+            needs_attention: None,
         };
 
         let text = format_task_text(&task_with_desc);

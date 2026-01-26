@@ -96,7 +96,8 @@ impl TaskDependency {
                       t.has_in_progress_attempt as "has_in_progress_attempt!: bool",
                       t.last_attempt_failed as "last_attempt_failed!: bool",
                       t.is_queued as "is_queued!: bool",
-                      t.last_executor as "last_executor!: String"
+                      t.last_executor as "last_executor!: String",
+                      t.needs_attention as "needs_attention: bool"
                FROM task_dependencies td
                JOIN tasks t ON t.id = td.depends_on_id
                WHERE td.task_id = $1
@@ -124,7 +125,8 @@ impl TaskDependency {
                       t.has_in_progress_attempt as "has_in_progress_attempt!: bool",
                       t.last_attempt_failed as "last_attempt_failed!: bool",
                       t.is_queued as "is_queued!: bool",
-                      t.last_executor as "last_executor!: String"
+                      t.last_executor as "last_executor!: String",
+                      t.needs_attention as "needs_attention: bool"
                FROM task_dependencies td
                JOIN tasks t ON t.id = td.task_id
                WHERE td.depends_on_id = $1

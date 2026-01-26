@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id as \"id!: Uuid\", project_id as \"project_id!: Uuid\", title, description, status as \"status!: TaskStatus\", parent_workspace_id as \"parent_workspace_id: Uuid\", shared_task_id as \"shared_task_id: Uuid\", task_group_id as \"task_group_id: Uuid\", created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", is_blocked as \"is_blocked!: bool\", has_in_progress_attempt as \"has_in_progress_attempt!: bool\", last_attempt_failed as \"last_attempt_failed!: bool\", is_queued as \"is_queued!: bool\", last_executor as \"last_executor!: String\"\n               FROM tasks\n               WHERE rowid = $1",
+  "query": "SELECT\n                id AS \"id!: Uuid\",\n                project_id AS \"project_id!: Uuid\",\n                title,\n                description,\n                status AS \"status!: TaskStatus\",\n                parent_workspace_id AS \"parent_workspace_id: Uuid\",\n                shared_task_id AS \"shared_task_id: Uuid\",\n                task_group_id AS \"task_group_id: Uuid\",\n                created_at AS \"created_at!: DateTime<Utc>\",\n                updated_at AS \"updated_at!: DateTime<Utc>\",\n                is_blocked AS \"is_blocked!: bool\",\n                has_in_progress_attempt AS \"has_in_progress_attempt!: bool\",\n                last_attempt_failed AS \"last_attempt_failed!: bool\",\n                is_queued AS \"is_queued!: bool\",\n                last_executor AS \"last_executor!: String\",\n                needs_attention AS \"needs_attention: bool\"\n            FROM tasks\n            WHERE project_id = $1\n            ORDER BY created_at DESC",
   "describe": {
     "columns": [
       {
@@ -77,6 +77,11 @@
         "name": "last_executor!: String",
         "ordinal": 14,
         "type_info": "Text"
+      },
+      {
+        "name": "needs_attention: bool",
+        "ordinal": 15,
+        "type_info": "Integer"
       }
     ],
     "parameters": {
@@ -97,8 +102,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "1e72730f6592238ad104641b072e049a07ae0ead2117c7c97d1b89936049d040"
+  "hash": "012442cf6aa124c047a27efd97ca8c0e7390cac9670284b84b18295353ec9ba1"
 }

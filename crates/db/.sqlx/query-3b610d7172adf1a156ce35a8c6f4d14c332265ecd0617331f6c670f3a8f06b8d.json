@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT t.id as \"id!: Uuid\",\n                      t.project_id as \"project_id!: Uuid\",\n                      t.title,\n                      t.description,\n                      t.status as \"status!: TaskStatus\",\n                      t.parent_workspace_id as \"parent_workspace_id: Uuid\",\n                      t.shared_task_id as \"shared_task_id: Uuid\",\n                      t.task_group_id as \"task_group_id: Uuid\",\n                      t.created_at as \"created_at!: DateTime<Utc>\",\n                      t.updated_at as \"updated_at!: DateTime<Utc>\",\n                      t.is_blocked as \"is_blocked!: bool\",\n                      t.has_in_progress_attempt as \"has_in_progress_attempt!: bool\",\n                      t.last_attempt_failed as \"last_attempt_failed!: bool\",\n                      t.is_queued as \"is_queued!: bool\",\n                      t.last_executor as \"last_executor!: String\"\n               FROM task_dependencies td\n               JOIN tasks t ON t.id = td.task_id\n               WHERE td.depends_on_id = $1\n               ORDER BY td.created_at DESC",
+  "query": "SELECT id as \"id!: Uuid\", project_id as \"project_id!: Uuid\", title, description, status as \"status!: TaskStatus\", parent_workspace_id as \"parent_workspace_id: Uuid\", shared_task_id as \"shared_task_id: Uuid\", task_group_id as \"task_group_id: Uuid\", created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", is_blocked as \"is_blocked!: bool\", has_in_progress_attempt as \"has_in_progress_attempt!: bool\", last_attempt_failed as \"last_attempt_failed!: bool\", is_queued as \"is_queued!: bool\", last_executor as \"last_executor!: String\", needs_attention as \"needs_attention: bool\"\n               FROM tasks\n               WHERE parent_workspace_id = $1\n               ORDER BY created_at DESC",
   "describe": {
     "columns": [
       {
@@ -77,6 +77,11 @@
         "name": "last_executor!: String",
         "ordinal": 14,
         "type_info": "Text"
+      },
+      {
+        "name": "needs_attention: bool",
+        "ordinal": 15,
+        "type_info": "Integer"
       }
     ],
     "parameters": {
@@ -97,8 +102,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "26cd64bc785c56ae3df32243daa7dfe288ae916401d4ca5c2fabd1aea405c379"
+  "hash": "3b610d7172adf1a156ce35a8c6f4d14c332265ecd0617331f6c670f3a8f06b8d"
 }

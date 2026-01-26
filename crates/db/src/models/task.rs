@@ -60,6 +60,8 @@ pub struct Task {
     pub last_attempt_failed: bool,
     pub is_queued: bool,
     pub last_executor: String,
+    // Review attention status: None = not analyzed, Some(true) = needs attention, Some(false) = looks good
+    pub needs_attention: Option<bool>,
 }
 
 /// Wrapper around Task for API responses.
@@ -193,7 +195,8 @@ impl Task {
                 has_in_progress_attempt AS "has_in_progress_attempt!: bool",
                 last_attempt_failed AS "last_attempt_failed!: bool",
                 is_queued AS "is_queued!: bool",
-                last_executor AS "last_executor!: String"
+                last_executor AS "last_executor!: String",
+                needs_attention AS "needs_attention: bool"
             FROM tasks
             WHERE project_id = $1
             ORDER BY created_at DESC"#,
@@ -226,7 +229,8 @@ impl Task {
                 has_in_progress_attempt AS "has_in_progress_attempt!: bool",
                 last_attempt_failed AS "last_attempt_failed!: bool",
                 is_queued AS "is_queued!: bool",
-                last_executor AS "last_executor!: String"
+                last_executor AS "last_executor!: String",
+                needs_attention AS "needs_attention: bool"
             FROM tasks
             WHERE id = $1"#,
             task_id
@@ -281,7 +285,8 @@ impl Task {
                 t.has_in_progress_attempt,
                 t.last_attempt_failed,
                 t.is_queued,
-                t.last_executor
+                t.last_executor,
+                t.needs_attention
             FROM tasks t
             WHERE t.project_id = ?1
               AND (?2 IS NULL OR t.status = ?2)
@@ -311,7 +316,7 @@ impl Task {
     pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
             Task,
-            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String"
+            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String", needs_attention as "needs_attention: bool"
                FROM tasks
                WHERE id = $1"#,
             id
@@ -323,7 +328,7 @@ impl Task {
     pub async fn find_by_rowid(pool: &SqlitePool, rowid: i64) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
             Task,
-            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String"
+            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String", needs_attention as "needs_attention: bool"
                FROM tasks
                WHERE rowid = $1"#,
             rowid
@@ -341,7 +346,7 @@ impl Task {
     {
         sqlx::query_as!(
             Task,
-            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String"
+            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String", needs_attention as "needs_attention: bool"
                FROM tasks
                WHERE shared_task_id = $1
                LIMIT 1"#,
@@ -354,7 +359,7 @@ impl Task {
     pub async fn find_all_shared(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as!(
             Task,
-            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String"
+            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String", needs_attention as "needs_attention: bool"
                FROM tasks
                WHERE shared_task_id IS NOT NULL"#
         )
@@ -372,7 +377,7 @@ impl Task {
             Task,
             r#"INSERT INTO tasks (id, project_id, title, description, status, parent_workspace_id, shared_task_id, task_group_id)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String""#,
+               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String", needs_attention as "needs_attention: bool""#,
             task_id,
             data.project_id,
             data.title,
@@ -402,7 +407,7 @@ impl Task {
             r#"UPDATE tasks
                SET title = $3, description = $4, status = $5, parent_workspace_id = $6, task_group_id = $7
                WHERE id = $1 AND project_id = $2
-               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String""#,
+               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String", needs_attention as "needs_attention: bool""#,
             id,
             project_id,
             title,
@@ -424,6 +429,23 @@ impl Task {
             "UPDATE tasks SET status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
             id,
             status
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Update the needs_attention field for a task.
+    /// None = not analyzed, Some(true) = needs attention, Some(false) = looks good
+    pub async fn update_needs_attention(
+        pool: &SqlitePool,
+        task_id: Uuid,
+        needs_attention: Option<bool>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "UPDATE tasks SET needs_attention = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+            task_id,
+            needs_attention
         )
         .execute(pool)
         .await?;
@@ -563,7 +585,7 @@ impl Task {
         // Find only child tasks that have this workspace as their parent
         sqlx::query_as!(
             Task,
-            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String"
+            r#"SELECT id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String", needs_attention as "needs_attention: bool"
                FROM tasks
                WHERE parent_workspace_id = $1
                ORDER BY created_at DESC"#,
@@ -627,6 +649,7 @@ impl Task {
             last_attempt_failed: i64,
             is_queued: i64,
             executor: String,
+            needs_attention: Option<bool>,
             rank_score: f64,
         }
 
@@ -688,6 +711,8 @@ impl Task {
       LIMIT 1
     ), '') AS executor,
 
+  t.needs_attention,
+
   -bm25(tasks_fts) AS rank_score
 
 FROM tasks_fts
@@ -726,6 +751,7 @@ LIMIT ?4"#,
                             last_attempt_failed: rec.last_attempt_failed != 0,
                             is_queued: rec.is_queued != 0,
                             last_executor: rec.executor,
+                            needs_attention: rec.needs_attention,
                         },
                     },
                     rec.rank_score,
@@ -794,6 +820,7 @@ LIMIT ?4"#,
             last_attempt_failed: i64,
             is_queued: i64,
             executor: String,
+            needs_attention: Option<bool>,
             hybrid_score: f64,
         }
 
@@ -875,6 +902,8 @@ LIMIT ?4"#,
                     ORDER BY s.created_at DESC
                     LIMIT 1
                 ), '') AS executor,
+
+                t.needs_attention,
 
                 -- Hybrid score calculation:
                 -- When both exist: weighted combination
@@ -965,6 +994,8 @@ LIMIT ?4"#,
                     LIMIT 1
                 ), '') AS executor,
 
+                t.needs_attention,
+
                 vs.score AS hybrid_score
 
             FROM tasks t
@@ -1016,6 +1047,7 @@ LIMIT ?4"#,
                             last_attempt_failed: rec.last_attempt_failed != 0,
                             is_queued: rec.is_queued != 0,
                             last_executor: rec.executor,
+                            needs_attention: rec.needs_attention,
                         },
                     },
                     rec.hybrid_score,
@@ -1302,7 +1334,8 @@ mod deser_tests {
             "has_in_progress_attempt": false,
             "last_attempt_failed": false,
             "is_queued": false,
-            "last_executor": ""
+            "last_executor": "",
+            "needs_attention": null
         }"#;
         
         let result: Result<TaskWithAttemptStatus, _> = serde_json::from_str(json);
