@@ -459,6 +459,23 @@
       "action": "Sign in"
     }
   },
+  "createPrFromGroupDialog": {
+    "title": "Create Pull Request",
+    "description": "Create a pull request from branch {{branch}}.",
+    "titleLabel": "Title",
+    "titlePlaceholder": "Enter PR title",
+    "bodyLabel": "Description (optional)",
+    "bodyPlaceholder": "Enter PR description",
+    "baseBranchLabel": "Base Branch",
+    "loadingBranches": "Loading branches...",
+    "selectBaseBranch": "Select base branch",
+    "draftLabel": "Create as draft",
+    "creating": "Creating...",
+    "createButton": "Create PR",
+    "errors": {
+      "failedToCreate": "Failed to create pull request"
+    }
+  },
   "showcases": {
     "taskPanel": {
       "companion": {

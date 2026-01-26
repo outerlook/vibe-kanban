@@ -109,6 +109,10 @@ export {
   MergeGroupDialog,
   type MergeGroupDialogProps,
 } from './tasks/MergeGroupDialog';
+export {
+  CreatePRFromGroupDialog,
+  type CreatePRFromGroupDialogProps,
+} from './tasks/CreatePRFromGroupDialog';
 
 // Auth dialogs
 export { GhCliSetupDialog } from './auth/GhCliSetupDialog';
