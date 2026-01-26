@@ -13,7 +13,10 @@ use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use ts_rs::TS;
 use workspace_utils::{
-    approvals::ApprovalStatus, diff::create_unified_diff, log_msg::LogMsg, msg_store::MsgStore,
+    approvals::{ApprovalStatus, QuestionData, QuestionOption},
+    diff::create_unified_diff,
+    log_msg::LogMsg,
+    msg_store::MsgStore,
     path::make_path_relative,
 };
 
@@ -166,7 +169,6 @@ impl ClaudeCode {
             "--output-format=stream-json",
             "--input-format=stream-json",
             "--include-partial-messages",
-            "--disallowedTools=AskUserQuestion",
         ]);
 
         apply_overrides(builder, &self.cmd)
@@ -852,6 +854,10 @@ impl ClaudeLogProcessor {
             },
             ClaudeToolData::UndoEdit { .. } => ActionType::Other {
                 description: "Undo edit".to_string(),
+            },
+            ClaudeToolData::AskUserQuestion { questions } => ActionType::UserQuestion {
+                questions: questions.iter().map(|q| q.to_question_data()).collect(),
+                answers: None,
             },
             ClaudeToolData::Unknown { .. } => {
                 // Surface MCP tools as generic Tool with args
@@ -1912,6 +1918,10 @@ pub enum ClaudeToolData {
     },
     #[serde(rename = "TodoRead", alias = "todo_read")]
     TodoRead {},
+    #[serde(rename = "AskUserQuestion", alias = "ask_user_question")]
+    AskUserQuestion {
+        questions: Vec<ClaudeQuestionData>,
+    },
     #[serde(untagged)]
     Unknown {
         #[serde(flatten)]
@@ -1966,6 +1976,45 @@ pub struct ClaudeEditItem {
     pub new_string: Option<String>,
 }
 
+/// Question option as sent by Claude (camelCase format)
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+pub struct ClaudeQuestionOption {
+    pub label: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// Question data as sent by Claude (uses camelCase `multiSelect`)
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+pub struct ClaudeQuestionData {
+    pub question: String,
+    #[serde(default)]
+    pub header: Option<String>,
+    #[serde(rename = "multiSelect", default)]
+    pub multi_select: bool,
+    #[serde(default)]
+    pub options: Vec<ClaudeQuestionOption>,
+}
+
+impl ClaudeQuestionData {
+    /// Convert to the canonical QuestionData type
+    pub fn to_question_data(&self) -> QuestionData {
+        QuestionData {
+            question: self.question.clone(),
+            header: self.header.clone(),
+            multi_select: self.multi_select,
+            options: self
+                .options
+                .iter()
+                .map(|o| QuestionOption {
+                    label: o.label.clone(),
+                    description: o.description.clone(),
+                })
+                .collect(),
+        }
+    }
+}
+
 impl ClaudeToolData {
     pub fn get_name(&self) -> &str {
         match self {
@@ -1984,6 +2033,7 @@ impl ClaudeToolData {
             ClaudeToolData::WebFetch { .. } => "WebFetch",
             ClaudeToolData::WebSearch { .. } => "WebSearch",
             ClaudeToolData::TodoRead { .. } => "TodoRead",
+            ClaudeToolData::AskUserQuestion { .. } => "AskUserQuestion",
             ClaudeToolData::Oracle { .. } => "Oracle",
             ClaudeToolData::Mermaid { .. } => "Mermaid",
             ClaudeToolData::CodebaseSearchAgent { .. } => "CodebaseSearchAgent",
@@ -2704,5 +2754,96 @@ mod tests {
         // Second take should return None
         let second = processor.take_skills_data();
         assert!(second.is_none());
+    }
+
+    #[test]
+    fn test_ask_user_question_normalization() {
+        // Test that AskUserQuestion tool is correctly normalized with camelCase multiSelect
+        let ask_json = r#"{
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tool123",
+                        "name": "AskUserQuestion",
+                        "input": {
+                            "questions": [
+                                {
+                                    "question": "Which environment should we deploy to?",
+                                    "header": "Deployment Target",
+                                    "multiSelect": false,
+                                    "options": [
+                                        {"label": "Development", "description": "Local dev environment"},
+                                        {"label": "Staging", "description": "Pre-production testing"},
+                                        {"label": "Production"}
+                                    ]
+                                },
+                                {
+                                    "question": "Select features to enable",
+                                    "multiSelect": true,
+                                    "options": [
+                                        {"label": "Feature A"},
+                                        {"label": "Feature B"}
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        }"#;
+
+        let parsed: ClaudeJson = serde_json::from_str(ask_json).unwrap();
+        let entries = normalize(&parsed, "/tmp/work");
+
+        assert_eq!(entries.len(), 1);
+
+        match &entries[0].entry_type {
+            NormalizedEntryType::ToolUse {
+                tool_name,
+                action_type,
+                status,
+            } => {
+                assert_eq!(tool_name, "AskUserQuestion");
+                assert!(matches!(status, ToolStatus::Created));
+
+                match action_type {
+                    ActionType::UserQuestion { questions, answers } => {
+                        assert_eq!(questions.len(), 2);
+                        assert!(answers.is_none());
+
+                        // First question
+                        assert_eq!(
+                            questions[0].question,
+                            "Which environment should we deploy to?"
+                        );
+                        assert_eq!(questions[0].header, Some("Deployment Target".to_string()));
+                        assert!(!questions[0].multi_select);
+                        assert_eq!(questions[0].options.len(), 3);
+                        assert_eq!(questions[0].options[0].label, "Development");
+                        assert_eq!(
+                            questions[0].options[0].description,
+                            Some("Local dev environment".to_string())
+                        );
+                        assert_eq!(questions[0].options[2].label, "Production");
+                        assert!(questions[0].options[2].description.is_none());
+
+                        // Second question
+                        assert_eq!(questions[1].question, "Select features to enable");
+                        assert!(questions[1].header.is_none());
+                        assert!(questions[1].multi_select);
+                        assert_eq!(questions[1].options.len(), 2);
+                    }
+                    other => panic!("Expected UserQuestion action type, got {other:?}"),
+                }
+            }
+            other => panic!("Expected ToolUse entry type, got {other:?}"),
+        }
+
+        // Verify metadata contains tool_call_id
+        let metadata = entries[0].metadata.as_ref().unwrap();
+        assert_eq!(metadata["tool_call_id"], "tool123");
     }
 }
