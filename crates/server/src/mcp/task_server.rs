@@ -407,6 +407,25 @@ impl TaskDependencyTreeNode {
     }
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetTaskDependencyContextRequest {
+    #[schemars(description = "The task to fetch dependency context for")]
+    pub task_id: Uuid,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct GetTaskDependencyContextResponse {
+    pub task_id: String,
+    pub ancestors: Vec<TaskDetails>,
+    pub descendants: Vec<TaskDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskDependencyContextApi {
+    ancestors: Vec<Task>,
+    descendants: Vec<Task>,
+}
+
 // ============================================================================
 // Task Group MCP Types
 // ============================================================================
@@ -1651,6 +1670,39 @@ impl TaskServer {
 
         let response = GetTaskDependencyTreeResponse {
             tree: TaskDependencyTreeNode::from_api(tree),
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(
+        description = "Get bidirectional dependency context for a task, including both tasks it depends on (ancestors) and tasks that depend on it (descendants). Use this to understand a task's position in the dependency graph."
+    )]
+    async fn get_task_dependency_context(
+        &self,
+        Parameters(GetTaskDependencyContextRequest { task_id }): Parameters<
+            GetTaskDependencyContextRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/tasks/{}/dependency-context", task_id));
+
+        let context: TaskDependencyContextApi = match self.send_json(self.client.get(&url)).await {
+            Ok(ctx) => ctx,
+            Err(e) => return Ok(e),
+        };
+
+        let response = GetTaskDependencyContextResponse {
+            task_id: task_id.to_string(),
+            ancestors: context
+                .ancestors
+                .into_iter()
+                .map(TaskDetails::from_task)
+                .collect(),
+            descendants: context
+                .descendants
+                .into_iter()
+                .map(TaskDetails::from_task)
+                .collect(),
         };
 
         TaskServer::success(&response)
