@@ -99,26 +99,27 @@ impl Approvals {
                     .ok_or(ApprovalError::NoToolUseEntry)?;
                 store.push_patch(ConversationPatch::replace(idx, approval_entry));
 
+                let tool_name = request.tool_name().unwrap_or("unknown").to_string();
                 self.pending.insert(
                     req_id.clone(),
                     PendingApproval {
                         entry_index: idx,
                         entry: matching_tool,
                         execution_process_id: request.execution_process_id,
-                        tool_name: request.tool_name.clone(),
+                        tool_name: tool_name.clone(),
                         response_tx: tx,
                     },
                 );
                 tracing::debug!(
                     "Created approval {} for tool '{}' at entry index {}",
                     req_id,
-                    request.tool_name,
+                    tool_name,
                     idx
                 );
             } else {
                 tracing::warn!(
                     "No matching tool use entry found for approval request: tool='{}', execution_process_id={}",
-                    request.tool_name,
+                    request.tool_name().unwrap_or("unknown"),
                     request.execution_process_id
                 );
             }
