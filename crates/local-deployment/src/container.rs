@@ -689,6 +689,9 @@ impl LocalContainerService {
             // Cleanup child handle
             child_store.write().await.remove(&exec_id);
 
+            // Cleanup protocol peer (releases stdin reference, allowing Claude to receive EOF)
+            container.approvals.unregister_protocol_peer(&exec_id).await;
+
             // Remove workspace from running set (unless it was a dev server)
             if !matches!(run_reason, ExecutionProcessRunReason::DevServer) {
                 running_workspaces.remove(&workspace_id);
@@ -2521,6 +2524,11 @@ impl ContainerService for LocalContainerService {
         if let Some(msg) = self.msg_stores.write().await.remove(&execution_process.id) {
             msg.push_finished();
         }
+
+        // Cleanup protocol peer (releases stdin reference)
+        self.approvals
+            .unregister_protocol_peer(&execution_process.id)
+            .await;
 
         // Update task status to InReview when execution is stopped
         if let Ok(ctx) = ExecutionProcess::load_context(&self.db.pool, execution_process.id).await

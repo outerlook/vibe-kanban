@@ -25,24 +25,27 @@ pub struct ProtocolPeer {
 }
 
 impl ProtocolPeer {
+    /// Spawns the protocol peer and returns both the peer and a handle to await read loop completion.
+    /// The caller should await the handle to know when Claude has finished, then unregister the peer
+    /// to release stdin and allow the process to exit.
     pub fn spawn(
         stdin: ChildStdin,
         stdout: ChildStdout,
         client: Arc<ClaudeAgentClient>,
         interrupt_rx: oneshot::Receiver<()>,
-    ) -> Self {
+    ) -> (Self, tokio::task::JoinHandle<()>) {
         let peer = Self {
             stdin: Arc::new(Mutex::new(stdin)),
         };
 
         let reader_peer = peer.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             if let Err(e) = reader_peer.read_loop(stdout, client, interrupt_rx).await {
                 tracing::error!("Protocol reader loop error: {}", e);
             }
         });
 
-        peer
+        (peer, handle)
     }
 
     async fn read_loop(

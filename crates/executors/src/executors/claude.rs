@@ -359,7 +359,7 @@ impl ClaudeCode {
         tokio::spawn(async move {
             let log_writer = LogWriter::new(new_stdout);
             let client = ClaudeAgentClient::new(log_writer.clone(), approvals_clone.clone());
-            let protocol_peer =
+            let (protocol_peer, read_loop_handle) =
                 ProtocolPeer::spawn(child_stdin, child_stdout, client.clone(), interrupt_rx);
 
             // Register the protocol peer with approval service for sending tool results
@@ -373,6 +373,10 @@ impl ClaudeCode {
                 let _ = log_writer
                     .log_raw(&format!("Error: Failed to initialize - {e}"))
                     .await;
+                // Unregister before returning
+                if let Some(ref approvals) = approvals_clone {
+                    approvals.unregister_protocol_peer().await;
+                }
                 return;
             }
 
@@ -386,6 +390,13 @@ impl ClaudeCode {
                 let _ = log_writer
                     .log_raw(&format!("Error: Failed to send prompt - {e}"))
                     .await;
+            }
+
+            // Wait for the read loop to complete (Claude finished), then unregister
+            // to release stdin reference so the process can exit
+            let _ = read_loop_handle.await;
+            if let Some(ref approvals) = approvals_clone {
+                approvals.unregister_protocol_peer().await;
             }
         });
 
