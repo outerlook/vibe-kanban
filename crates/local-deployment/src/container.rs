@@ -23,6 +23,7 @@ use db::{
         execution_process_repo_state::ExecutionProcessRepoState,
         project_repo::ProjectRepo,
         repo::Repo,
+        review_attention::{CreateReviewAttention, ReviewAttention},
         scratch::{DraftFollowUpData, Scratch, ScratchType},
         session::Session,
         task::{Task, TaskStatus},
@@ -57,6 +58,7 @@ use services::services::{
     image::ImageService,
     notification::NotificationService,
     queued_message::QueuedMessageService,
+    review_attention::ReviewAttentionService,
     share::SharePublisher,
     skills_cache::GlobalSkillsCache,
     watcher_manager::WatcherManager,
@@ -1573,6 +1575,387 @@ impl LocalContainerService {
             .await;
         });
     }
+
+    /// Collect review attention analysis when a task moves to InReview status.
+    ///
+    /// This sends a follow-up prompt to the agent asking it to analyze whether
+    /// its completed work needs human attention, then spawns a parser to handle
+    /// the response.
+    ///
+    /// # Arguments
+    /// * `ctx` - The execution context from the completed CodingAgent execution
+    /// * `agent_session_id` - The session ID to continue the conversation with
+    ///
+    /// # Returns
+    /// The execution process for the review attention collection, or an error if starting fails
+    async fn collect_review_attention(
+        &self,
+        ctx: &ExecutionContext,
+        agent_session_id: &str,
+    ) -> Result<ExecutionProcess, ContainerError> {
+        // Check if review attention is enabled in config
+        let review_attention_profile = {
+            let config = self.config.read().await;
+            config.review_attention_executor_profile.clone()
+        };
+
+        let Some(executor_profile_id) = review_attention_profile else {
+            return Err(ContainerError::Other(anyhow!(
+                "Review attention is disabled (no executor profile configured)"
+            )));
+        };
+
+        // Get the CodingAgentTurn to retrieve prompt and summary
+        let turn = CodingAgentTurn::find_by_execution_process_id(
+            &self.db.pool,
+            ctx.execution_process.id,
+        )
+        .await
+        .map_err(|e| ContainerError::Other(anyhow!("Failed to get coding agent turn: {e}")))?
+        .ok_or_else(|| {
+            ContainerError::Other(anyhow!(
+                "No coding agent turn found for execution {}",
+                ctx.execution_process.id
+            ))
+        })?;
+
+        // If no summary, we can't analyze
+        let summary = turn.summary.ok_or_else(|| {
+            ContainerError::Other(anyhow!(
+                "No summary available for execution {}, cannot analyze",
+                ctx.execution_process.id
+            ))
+        })?;
+
+        // If no prompt, use a default description
+        let task_description = turn.prompt.unwrap_or_else(|| ctx.task.title.clone());
+
+        // Get working directory from workspace
+        let working_dir = ctx
+            .workspace
+            .agent_working_dir
+            .as_ref()
+            .filter(|dir| !dir.is_empty())
+            .cloned();
+
+        // Create the review attention action
+        let action = ReviewAttentionService::create_review_attention_action(
+            agent_session_id.to_string(),
+            executor_profile_id,
+            working_dir,
+            &task_description,
+            &summary,
+        );
+
+        // Start the execution with InternalAgent run reason and "review_attention" purpose
+        let review_exec = self
+            .start_execution(
+                &ctx.workspace,
+                &ctx.session,
+                &action,
+                &ExecutionProcessRunReason::InternalAgent,
+                Some("review_attention"),
+            )
+            .await?;
+
+        // Mark this execution as pending cleanup - exit monitor will skip msg_store cleanup
+        self.feedback_pending_cleanup
+            .write()
+            .await
+            .insert(review_exec.id);
+
+        // Spawn background task to monitor and parse the review attention response
+        self.spawn_review_attention_parser(review_exec.id, ctx.task.id, ctx.workspace.id);
+
+        Ok(review_exec)
+    }
+
+    /// Spawn a background task that monitors a review attention execution and parses the response.
+    ///
+    /// When the execution completes, this task extracts the assistant message,
+    /// parses it using `ReviewAttentionService::parse_review_attention_response`,
+    /// creates a `ReviewAttention` record, and updates `Task.needs_attention`.
+    ///
+    /// Failures are logged but don't affect task finalization.
+    fn spawn_review_attention_parser(
+        &self,
+        review_exec_id: Uuid,
+        task_id: Uuid,
+        workspace_id: Uuid,
+    ) {
+        let db = self.db.clone();
+        let msg_stores = self.msg_stores.clone();
+        let feedback_pending_cleanup = self.feedback_pending_cleanup.clone();
+
+        tokio::spawn(async move {
+            // Helper to cleanup msg_store and remove from pending set
+            let cleanup = |msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
+                           feedback_pending_cleanup: Arc<RwLock<HashSet<Uuid>>>,
+                           db: DBService,
+                           exec_id: Uuid| async move {
+                // Remove from pending set first
+                feedback_pending_cleanup.write().await.remove(&exec_id);
+
+                // Cleanup msg_store (same logic as spawn_exit_monitor)
+                if let Some(msg_arc) = msg_stores.write().await.remove(&exec_id) {
+                    // Extract and store token usage before cleaning up
+                    if let Some((input_tokens, output_tokens)) =
+                        extract_token_usage_from_msg_store(&msg_arc)
+                        && let Err(e) = ExecutionProcess::update_token_usage(
+                            &db.pool,
+                            exec_id,
+                            Some(input_tokens),
+                            Some(output_tokens),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to update token usage for {}: {}", exec_id, e);
+                    }
+
+                    msg_arc.push_finished();
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    if let Err(arc) = Arc::try_unwrap(msg_arc) {
+                        tracing::error!(
+                            "There are still {} strong Arcs to MsgStore for {}",
+                            Arc::strong_count(&arc),
+                            exec_id
+                        );
+                    }
+                }
+            };
+
+            // Wait for the review attention execution to complete
+            loop {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+
+                let exec = match ExecutionProcess::find_by_id(&db.pool, review_exec_id).await {
+                    Ok(Some(exec)) => exec,
+                    Ok(None) => {
+                        tracing::warn!(
+                            "Review attention execution {} not found, stopping parser",
+                            review_exec_id
+                        );
+                        cleanup(
+                            msg_stores,
+                            feedback_pending_cleanup,
+                            db,
+                            review_exec_id,
+                        )
+                        .await;
+                        return;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to query review attention execution {}: {}",
+                            review_exec_id,
+                            e
+                        );
+                        cleanup(
+                            msg_stores,
+                            feedback_pending_cleanup,
+                            db,
+                            review_exec_id,
+                        )
+                        .await;
+                        return;
+                    }
+                };
+
+                match exec.status {
+                    ExecutionProcessStatus::Running => continue,
+                    ExecutionProcessStatus::Completed => break,
+                    ExecutionProcessStatus::Failed | ExecutionProcessStatus::Killed => {
+                        tracing::warn!(
+                            "Review attention execution {} ended with status {:?}, skipping parsing",
+                            review_exec_id,
+                            exec.status
+                        );
+                        cleanup(
+                            msg_stores,
+                            feedback_pending_cleanup,
+                            db,
+                            review_exec_id,
+                        )
+                        .await;
+                        return;
+                    }
+                }
+            }
+
+            // Extract the assistant message from MsgStore BEFORE cleanup
+            let assistant_message = {
+                let stores = msg_stores.read().await;
+                if let Some(store) = stores.get(&review_exec_id) {
+                    extract_assistant_message_from_msg_store(store)
+                } else {
+                    None
+                }
+            };
+
+            let Some(message) = assistant_message else {
+                tracing::warn!(
+                    "No assistant message found for review attention execution {}",
+                    review_exec_id
+                );
+                cleanup(
+                    msg_stores,
+                    feedback_pending_cleanup,
+                    db,
+                    review_exec_id,
+                )
+                .await;
+                return;
+            };
+
+            // Parse the review attention response
+            let result = match ReviewAttentionService::parse_review_attention_response(&message) {
+                Ok(result) => result,
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to parse review attention response for execution {}: {}",
+                        review_exec_id,
+                        e
+                    );
+                    cleanup(
+                        msg_stores,
+                        feedback_pending_cleanup,
+                        db,
+                        review_exec_id,
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            // Store the ReviewAttention record
+            let create_data = CreateReviewAttention {
+                execution_process_id: review_exec_id,
+                task_id,
+                workspace_id,
+                needs_attention: result.needs_attention,
+                reasoning: result.reasoning.clone(),
+            };
+
+            match ReviewAttention::create(&db.pool, &create_data, Uuid::new_v4()).await {
+                Ok(review_attention) => {
+                    tracing::info!(
+                        "Stored review attention {} for task {} (needs_attention: {})",
+                        review_attention.id,
+                        task_id,
+                        result.needs_attention
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to store review attention for task {}: {}",
+                        task_id,
+                        e
+                    );
+                }
+            }
+
+            // Update Task.needs_attention field
+            if let Err(e) =
+                Task::update_needs_attention(&db.pool, task_id, Some(result.needs_attention)).await
+            {
+                tracing::warn!(
+                    "Failed to update task {} needs_attention to {}: {}",
+                    task_id,
+                    result.needs_attention,
+                    e
+                );
+            } else {
+                tracing::info!(
+                    "Updated task {} needs_attention to {}",
+                    task_id,
+                    result.needs_attention
+                );
+            }
+
+            // Final cleanup after successful processing
+            cleanup(
+                msg_stores,
+                feedback_pending_cleanup,
+                db,
+                review_exec_id,
+            )
+            .await;
+        });
+    }
+
+    /// Try to collect review attention for a task that just moved to InReview.
+    ///
+    /// This is a fire-and-forget helper that checks if review attention is enabled,
+    /// finds the required context, and spawns the collection in the background.
+    /// Errors are logged but don't propagate - review attention is non-blocking.
+    async fn try_collect_review_attention(&self, task_id: Uuid, execution_process_id: Uuid) {
+        // Check if review attention is enabled
+        let is_enabled = {
+            let config = self.config.read().await;
+            config.review_attention_executor_profile.is_some()
+        };
+
+        if !is_enabled {
+            tracing::debug!(
+                "Review attention is disabled, skipping for task {}",
+                task_id
+            );
+            return;
+        }
+
+        // Load execution context
+        let ctx = match ExecutionProcess::load_context(&self.db.pool, execution_process_id).await {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to load execution context for review attention: {}",
+                    e
+                );
+                return;
+            }
+        };
+
+        // Find the agent session ID
+        let agent_session_id = match ExecutionProcess::find_latest_coding_agent_turn_session_id(
+            &self.db.pool,
+            ctx.session.id,
+        )
+        .await
+        {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                tracing::debug!(
+                    "No agent session ID found for session {}, skipping review attention",
+                    ctx.session.id
+                );
+                return;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to query agent session ID for session {}: {}",
+                    ctx.session.id,
+                    e
+                );
+                return;
+            }
+        };
+
+        // Spawn review attention collection as background task
+        let container = self.clone();
+        tokio::spawn(async move {
+            if let Err(e) = container
+                .collect_review_attention(&ctx, &agent_session_id)
+                .await
+            {
+                // Log at debug level since "no summary" is expected for some executions
+                tracing::debug!(
+                    "Failed to start review attention for task {}: {}",
+                    task_id,
+                    e
+                );
+            }
+        });
+    }
 }
 
 fn failure_exit_status() -> std::process::ExitStatus {
@@ -2062,14 +2445,20 @@ impl ContainerService for LocalContainerService {
                     Task::update_status(&self.db.pool, ctx.task.id, TaskStatus::InReview).await
                 {
                     tracing::error!("Failed to update task status to InReview: {e}");
-                } else if let Some(publisher) = self.share_publisher()
-                    && let Err(err) = publisher.update_shared_task_by_id(ctx.task.id).await
-                {
-                    tracing::warn!(
-                        ?err,
-                        "Failed to propagate shared task update for {}",
-                        ctx.task.id
-                    );
+                } else {
+                    if let Some(publisher) = self.share_publisher()
+                        && let Err(err) = publisher.update_shared_task_by_id(ctx.task.id).await
+                    {
+                        tracing::warn!(
+                            ?err,
+                            "Failed to propagate shared task update for {}",
+                            ctx.task.id
+                        );
+                    }
+
+                    // Trigger review attention collection (non-blocking)
+                    self.try_collect_review_attention(ctx.task.id, execution_process.id)
+                        .await;
                 }
             }
 
@@ -2151,6 +2540,10 @@ impl ContainerService for LocalContainerService {
                             ctx.task.id
                         );
                     }
+
+                    // Trigger review attention collection (non-blocking)
+                    self.try_collect_review_attention(ctx.task.id, execution_process.id)
+                        .await;
                 }
                 Err(e) => {
                     tracing::error!("Failed to update task status to InReview: {e}");
