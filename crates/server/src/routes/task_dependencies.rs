@@ -49,6 +49,12 @@ pub struct TaskDependencyTreeNode {
     pub dependencies: Vec<TaskDependencyTreeNode>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct TaskDependencyContext {
+    pub ancestors: Vec<Task>,
+    pub descendants: Vec<Task>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct DependencyPath {
     pub task_id: Uuid,
@@ -132,6 +138,25 @@ pub async fn get_dependency_tree(
     Ok(ResponseJson(ApiResponse::success(tree)))
 }
 
+pub async fn get_dependency_context(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<TaskDependencyContext>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    let (ancestors, descendants) = tokio::join!(
+        TaskDependency::find_blocked_by(pool, task.id),
+        TaskDependency::find_blocking(pool, task.id)
+    );
+
+    let context = TaskDependencyContext {
+        ancestors: ancestors?,
+        descendants: descendants?,
+    };
+
+    Ok(ResponseJson(ApiResponse::success(context)))
+}
+
 fn build_dependency_tree<'a>(
     pool: &'a SqlitePool,
     task: Task,
@@ -189,6 +214,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/dependencies", get(get_dependencies).post(add_dependency))
         .route("/dependencies/{dep_id}", delete(remove_dependency))
         .route("/dependency-tree", get(get_dependency_tree))
+        .route("/dependency-context", get(get_dependency_context))
         .layer(from_fn_with_state(deployment.clone(), load_task_middleware));
 
     Router::new().nest("/tasks/{task_id}", task_dependencies)

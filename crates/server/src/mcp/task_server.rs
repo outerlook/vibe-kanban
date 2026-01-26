@@ -407,6 +407,25 @@ impl TaskDependencyTreeNode {
     }
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetTaskDependencyContextRequest {
+    #[schemars(description = "The task to fetch dependency context for")]
+    pub task_id: Uuid,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct GetTaskDependencyContextResponse {
+    pub task_id: String,
+    pub ancestors: Vec<TaskDetails>,
+    pub descendants: Vec<TaskDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskDependencyContextApi {
+    ancestors: Vec<Task>,
+    descendants: Vec<Task>,
+}
+
 // ============================================================================
 // Task Group MCP Types
 // ============================================================================
@@ -1656,6 +1675,39 @@ impl TaskServer {
         TaskServer::success(&response)
     }
 
+    #[tool(
+        description = "Get bidirectional dependency context for a task, including both tasks it depends on (ancestors) and tasks that depend on it (descendants). Use this to understand a task's position in the dependency graph."
+    )]
+    async fn get_task_dependency_context(
+        &self,
+        Parameters(GetTaskDependencyContextRequest { task_id }): Parameters<
+            GetTaskDependencyContextRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/tasks/{}/dependency-context", task_id));
+
+        let context: TaskDependencyContextApi = match self.send_json(self.client.get(&url)).await {
+            Ok(ctx) => ctx,
+            Err(e) => return Ok(e),
+        };
+
+        let response = GetTaskDependencyContextResponse {
+            task_id: task_id.to_string(),
+            ancestors: context
+                .ancestors
+                .into_iter()
+                .map(TaskDetails::from_task)
+                .collect(),
+            descendants: context
+                .descendants
+                .into_iter()
+                .map(TaskDetails::from_task)
+                .collect(),
+        };
+
+        TaskServer::success(&response)
+    }
+
     // ========================================================================
     // Task Group Tools
     // ========================================================================
@@ -1991,9 +2043,9 @@ impl TaskServer {
 #[tool_handler]
 impl ServerHandler for TaskServer {
     fn get_info(&self) -> ServerInfo {
-        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`. TOOLS: 'health_check', 'list_projects', 'list_tasks', 'search_similar_tasks', 'create_task', 'bulk_create_tasks', 'create_task_with_dependencies', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree', 'list_task_groups', 'create_task_group', 'get_task_group', 'update_task_group', 'delete_task_group', 'bulk_assign_tasks_to_group', 'get_task_feedback', 'get_recent_feedback'. Make sure to pass `project_id`, `task_id`, or `group_id` where required. You can use list tools to get the available ids.".to_string();
+        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`. TOOLS: 'health_check', 'list_projects', 'list_tasks', 'search_similar_tasks', 'create_task', 'bulk_create_tasks', 'create_task_with_dependencies', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree', 'get_task_dependency_context', 'list_task_groups', 'create_task_group', 'get_task_group', 'update_task_group', 'delete_task_group', 'bulk_assign_tasks_to_group', 'get_task_feedback', 'get_recent_feedback'. Make sure to pass `project_id`, `task_id`, or `group_id` where required. You can use list tools to get the available ids.".to_string();
         if self.context.is_some() {
-            let context_instruction = "Use 'get_context' to fetch project/task/workspace metadata for the active Vibe Kanban workspace session when available.";
+            let context_instruction = "When working on a task, VK_TASK_ID env var is set. Use 'get_context' to fetch your current task details including task_id. Use 'get_task_dependency_context' with your task_id to see what tasks must complete before yours (ancestors) and what tasks are waiting on you (descendants). This helps understand your position in the workflow.";
             instruction = format!("{} {}", context_instruction, instruction);
         }
 
