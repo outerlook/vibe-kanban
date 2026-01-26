@@ -1393,6 +1393,7 @@ impl ClaudeLogProcessor {
             },
             ActionType::PlanPresentation { plan } => plan.clone(),
             ActionType::TodoManagement { .. } => "TODO list updated".to_string(),
+            ActionType::UserQuestion { .. } => "User question".to_string(),
             ActionType::Other { description: _ } => match tool_data {
                 ClaudeToolData::LS { path } => {
                     let relative_path = make_path_relative(path, worktree_path);

@@ -693,7 +693,7 @@ unified_diff: string,
  */
 has_line_numbers: boolean, };
 
-export type ActionType = { "action": "file_read", path: string, } | { "action": "file_edit", path: string, changes: Array<FileChange>, } | { "action": "command_run", command: string, result: CommandRunResult | null, } | { "action": "search", query: string, } | { "action": "web_fetch", url: string, } | { "action": "tool", tool_name: string, arguments: JsonValue | null, result: ToolResult | null, } | { "action": "task_create", description: string, } | { "action": "plan_presentation", plan: string, } | { "action": "todo_management", todos: Array<TodoItem>, operation: string, } | { "action": "other", description: string, };
+export type ActionType = { "action": "file_read", path: string, } | { "action": "file_edit", path: string, changes: Array<FileChange>, } | { "action": "command_run", command: string, result: CommandRunResult | null, } | { "action": "search", query: string, } | { "action": "web_fetch", url: string, } | { "action": "tool", tool_name: string, arguments: JsonValue | null, result: ToolResult | null, } | { "action": "task_create", description: string, } | { "action": "plan_presentation", plan: string, } | { "action": "todo_management", todos: Array<TodoItem>, operation: string, } | { "action": "user_question", questions: Array<QuestionData>, answers: Array<QuestionAnswer> | null, } | { "action": "other", description: string, };
 
 export type TodoItem = { content: string, status: string, priority: string | null, };
 
@@ -707,7 +707,7 @@ value: JsonValue, };
 
 export type ToolResultValueType = { "type": "markdown" } | { "type": "json" };
 
-export type ToolStatus = { "status": "created" } | { "status": "success" } | { "status": "failed" } | { "status": "denied", reason: string | null, } | { "status": "pending_approval", approval_id: string, requested_at: string, timeout_at: string, } | { "status": "timed_out" };
+export type ToolStatus = { "status": "created" } | { "status": "success" } | { "status": "failed" } | { "status": "denied", reason: string | null, } | { "status": "pending_approval", approval_id: string, requested_at: string, timeout_at: string, } | { "status": "pending_user_input", approval_id: string, requested_at: string, timeout_at: string, questions: Array<QuestionData>, } | { "status": "timed_out" };
 
 export type GroupSummary = { commands: number, file_reads: number, file_edits: number, searches: number, web_fetches: number, tools: number, system_messages: number, errors: number, thinking: number, token_usage: number, };
 
