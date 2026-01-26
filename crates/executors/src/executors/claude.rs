@@ -358,9 +358,14 @@ impl ClaudeCode {
         let approvals_clone = self.approvals_service.clone();
         tokio::spawn(async move {
             let log_writer = LogWriter::new(new_stdout);
-            let client = ClaudeAgentClient::new(log_writer.clone(), approvals_clone);
+            let client = ClaudeAgentClient::new(log_writer.clone(), approvals_clone.clone());
             let protocol_peer =
                 ProtocolPeer::spawn(child_stdin, child_stdout, client.clone(), interrupt_rx);
+
+            // Register the protocol peer with approval service for sending tool results
+            if let Some(ref approvals) = approvals_clone {
+                approvals.register_protocol_peer(protocol_peer.clone()).await;
+            }
 
             // Initialize control protocol
             if let Err(e) = protocol_peer.initialize(hooks).await {

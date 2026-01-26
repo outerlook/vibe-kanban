@@ -6,6 +6,8 @@ use serde_json::Value;
 use thiserror::Error;
 use workspace_utils::approvals::{ApprovalStatus, QuestionData};
 
+use crate::executors::claude::protocol::ProtocolPeer;
+
 /// Errors emitted by executor approval services.
 #[derive(Debug, Error)]
 pub enum ExecutorApprovalError {
@@ -42,6 +44,15 @@ pub trait ExecutorApprovalService: Send + Sync {
         questions: Vec<QuestionData>,
         tool_call_id: &str,
     ) -> Result<ApprovalStatus, ExecutorApprovalError>;
+
+    /// Register a protocol peer for sending tool results.
+    /// This is called by Claude executor when the protocol peer is created.
+    /// The default implementation does nothing (for non-Claude executors).
+    async fn register_protocol_peer(&self, _peer: ProtocolPeer) {}
+
+    /// Unregister the protocol peer when execution completes.
+    /// The default implementation does nothing.
+    async fn unregister_protocol_peer(&self) {}
 }
 
 #[derive(Debug, Default)]

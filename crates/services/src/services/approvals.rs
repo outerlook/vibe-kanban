@@ -9,6 +9,7 @@ use db::models::{
 };
 use executors::{
     approvals::ToolCallMetadata,
+    executors::claude::protocol::ProtocolPeer,
     logs::{
         NormalizedEntry, NormalizedEntryType, ToolStatus,
         utils::patch::{ConversationPatch, extract_normalized_entry_from_patch},
@@ -31,6 +32,7 @@ struct PendingApproval {
     entry: NormalizedEntry,
     execution_process_id: Uuid,
     tool_name: String,
+    tool_call_id: String,
     response_tx: oneshot::Sender<ApprovalStatus>,
 }
 
@@ -39,6 +41,7 @@ type ApprovalWaiter = Shared<BoxFuture<'static, ApprovalStatus>>;
 #[derive(Debug)]
 pub struct ToolContext {
     pub tool_name: String,
+    pub tool_call_id: String,
     pub execution_process_id: Uuid,
 }
 
@@ -47,6 +50,7 @@ pub struct Approvals {
     pending: Arc<DashMap<String, PendingApproval>>,
     completed: Arc<DashMap<String, ApprovalStatus>>,
     msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
+    protocol_peers: Arc<RwLock<HashMap<Uuid, ProtocolPeer>>>,
 }
 
 #[derive(Debug, Error)]
@@ -66,12 +70,43 @@ pub enum ApprovalError {
 }
 
 impl Approvals {
-    pub fn new(msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>) -> Self {
+    pub fn new(
+        msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
+        protocol_peers: Arc<RwLock<HashMap<Uuid, ProtocolPeer>>>,
+    ) -> Self {
         Self {
             pending: Arc::new(DashMap::new()),
             completed: Arc::new(DashMap::new()),
             msg_stores,
+            protocol_peers,
         }
+    }
+
+    /// Register a protocol peer for an execution process
+    pub async fn register_protocol_peer(
+        &self,
+        execution_process_id: Uuid,
+        peer: ProtocolPeer,
+    ) {
+        let mut map = self.protocol_peers.write().await;
+        map.insert(execution_process_id, peer);
+    }
+
+    /// Unregister a protocol peer when execution completes
+    pub async fn unregister_protocol_peer(&self, execution_process_id: &Uuid) {
+        let mut map = self.protocol_peers.write().await;
+        map.remove(execution_process_id);
+    }
+
+    /// Get a protocol peer by execution process ID
+    async fn protocol_peer_by_id(&self, execution_process_id: &Uuid) -> Option<ProtocolPeer> {
+        let map = self.protocol_peers.read().await;
+        map.get(execution_process_id).cloned()
+    }
+
+    /// Get the protocol peers map for external access
+    pub fn protocol_peers(&self) -> &Arc<RwLock<HashMap<Uuid, ProtocolPeer>>> {
+        &self.protocol_peers
     }
 
     pub async fn create_with_waiter(
@@ -116,6 +151,7 @@ impl Approvals {
                         entry: matching_tool,
                         execution_process_id: request.execution_process_id,
                         tool_name: tool_name.clone(),
+                        tool_call_id: request.tool_call_id.clone(),
                         response_tx: tx,
                     },
                 );
@@ -183,8 +219,30 @@ impl Approvals {
 
             let tool_ctx = ToolContext {
                 tool_name: p.tool_name,
+                tool_call_id: p.tool_call_id.clone(),
                 execution_process_id: p.execution_process_id,
             };
+
+            // If this is an Answered status with answers, send tool_result to Claude
+            if let ApprovalStatus::Answered { ref answers } = final_status {
+                if let Some(peer) = self.protocol_peer_by_id(&p.execution_process_id).await {
+                    let answers_json = serde_json::to_value(answers).unwrap_or_default();
+                    if let Err(e) = peer
+                        .send_tool_result(p.tool_call_id, answers_json, false)
+                        .await
+                    {
+                        tracing::error!(
+                            "Failed to send tool_result for answered question: {}",
+                            e
+                        );
+                    }
+                } else {
+                    tracing::warn!(
+                        "No protocol_peer found for execution_process_id: {}, cannot send tool_result",
+                        p.execution_process_id
+                    );
+                }
+            }
 
             // If approved, answered, or denied, and task is still InReview, move back to InProgress
             if matches!(

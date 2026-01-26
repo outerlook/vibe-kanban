@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use db::{self, DBService, models::execution_process::ExecutionProcess};
-use executors::approvals::{ExecutorApprovalError, ExecutorApprovalService};
+use executors::{
+    approvals::{ExecutorApprovalError, ExecutorApprovalService},
+    executors::claude::protocol::ProtocolPeer,
+};
 use serde_json::Value;
 use utils::approvals::{ApprovalRequest, ApprovalStatus, CreateApprovalRequest, QuestionData};
 use uuid::Uuid;
@@ -29,6 +32,21 @@ impl ExecutorApprovalBridge {
             notification_service,
             execution_process_id,
         })
+    }
+
+    /// Register a protocol peer for this execution process.
+    /// This allows the approval service to send tool_result messages back to Claude.
+    pub async fn register_protocol_peer(&self, peer: ProtocolPeer) {
+        self.approvals
+            .register_protocol_peer(self.execution_process_id, peer)
+            .await;
+    }
+
+    /// Unregister the protocol peer when execution completes.
+    pub async fn unregister_protocol_peer(&self) {
+        self.approvals
+            .unregister_protocol_peer(&self.execution_process_id)
+            .await;
     }
 }
 
@@ -136,5 +154,17 @@ impl ExecutorApprovalService for ExecutorApprovalBridge {
         }
 
         Ok(status)
+    }
+
+    async fn register_protocol_peer(&self, peer: ProtocolPeer) {
+        self.approvals
+            .register_protocol_peer(self.execution_process_id, peer)
+            .await;
+    }
+
+    async fn unregister_protocol_peer(&self) {
+        self.approvals
+            .unregister_protocol_peer(&self.execution_process_id)
+            .await;
     }
 }
