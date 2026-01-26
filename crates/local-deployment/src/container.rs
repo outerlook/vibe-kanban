@@ -2310,11 +2310,8 @@ impl ContainerService for LocalContainerService {
         &self,
         execution_process: &ExecutionProcess,
         executor_action: &ExecutorAction,
+        working_dir: &Path,
     ) -> Result<(), ContainerError> {
-        // For conversation executions, use a temporary working directory
-        // This avoids needing git/workspace context
-        let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/tmp"));
-
         // Use noop approvals service for conversation executions
         let approvals_service: Arc<dyn ExecutorApprovalService> =
             Arc::new(NoopExecutorApprovalService {});
@@ -2322,10 +2319,10 @@ impl ContainerService for LocalContainerService {
         // Build ExecutionEnv with minimal context (no VK_* workspace variables)
         let env = ExecutionEnv::new();
 
-        // Spawn the executor
+        // Spawn the executor in the specified working directory
         let mut spawned = tokio::time::timeout(
             Duration::from_secs(30),
-            executor_action.spawn(&current_dir, approvals_service, &env),
+            executor_action.spawn(working_dir, approvals_service, &env),
         )
         .await
         .map_err(|_| {
