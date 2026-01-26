@@ -10,7 +10,7 @@ use utils::diff::{Diff, DiffChangeKind, compute_line_change_counts};
 mod cli;
 
 use cli::{ChangeType, StatusDiffEntry, StatusDiffOptions};
-pub use cli::{GitCli, GitCliError};
+pub use cli::{GitCli, GitCliError, WorktreeEntry};
 
 use super::gix_reader::{DiffChangeType, FileStat, GixReader, GixReaderError, TreeDiffEntry};
 use crate::services::github::GitHubRepoInfo;
@@ -1134,6 +1134,20 @@ impl GitService {
         git.worktree_prune(repo_path)
             .map_err(|e| GitServiceError::InvalidRepository(e.to_string()))?;
         Ok(())
+    }
+
+    /// Discover all worktrees from any path within a git repository.
+    ///
+    /// This is useful when you're inside a worktree (or the main repo) and want to
+    /// find all sibling worktrees. The function first resolves the main repository
+    /// path, then lists all worktrees.
+    pub fn discover_worktrees(
+        &self,
+        any_repo_path: &Path,
+    ) -> Result<Vec<WorktreeEntry>, GitServiceError> {
+        let git = GitCli::new();
+        git.discover_worktrees(any_repo_path)
+            .map_err(|e| GitServiceError::InvalidRepository(e.to_string()))
     }
 
     pub fn get_all_branches(&self, repo_path: &Path) -> Result<Vec<GitBranch>, git2::Error> {

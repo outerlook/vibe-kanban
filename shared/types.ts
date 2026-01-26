@@ -266,6 +266,12 @@ export type RepoPrs = { repo_id: string, repo_name: string, display_name: string
 
 export type ProjectPrsResponse = { repos: Array<RepoPrs>, };
 
+export type MatchingTaskGroup = { id: string, name: string, };
+
+export type WorktreeInfo = { path: string, branch: string | null, is_main: boolean, matching_groups: Array<MatchingTaskGroup>, };
+
+export type ProjectWorktreesResponse = { worktrees: Array<WorktreeInfo>, };
+
 export type RegisterRepoRequest = { path: string, display_name: string | null, };
 
 export type InitRepoRequest = { parent_path: string, folder_name: string, };
