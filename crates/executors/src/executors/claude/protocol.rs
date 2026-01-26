@@ -7,7 +7,9 @@ use tokio::{
     sync::{Mutex, oneshot},
 };
 
-use super::types::{CLIMessage, ControlRequestType, ControlResponseMessage, ControlResponseType};
+use super::types::{
+    CLIMessage, ControlRequestType, ControlResponseMessage, ControlResponseType, ToolResultMessage,
+};
 use crate::executors::{
     ExecutorError,
     claude::{
@@ -190,6 +192,17 @@ impl ProtocolPeer {
 
     pub async fn send_user_message(&self, content: String) -> Result<(), ExecutorError> {
         let message = Message::new_user(content);
+        self.send_json(&message).await
+    }
+
+    /// Send a tool result to Claude via stdin
+    pub async fn send_tool_result(
+        &self,
+        tool_use_id: String,
+        result: serde_json::Value,
+        is_error: bool,
+    ) -> Result<(), ExecutorError> {
+        let message = ToolResultMessage::new(tool_use_id, result, is_error);
         self.send_json(&message).await
     }
 
