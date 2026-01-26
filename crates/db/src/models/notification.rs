@@ -15,6 +15,7 @@ pub enum NotificationType {
     #[default]
     AgentComplete,
     AgentApprovalNeeded,
+    AgentQuestionNeeded,
     AgentError,
     ConversationResponse,
 }

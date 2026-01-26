@@ -109,6 +109,7 @@ impl Deployment for LocalDeployment {
         let project = ProjectService::new();
         let repo = RepoService::new();
         let msg_stores = Arc::new(RwLock::new(HashMap::new()));
+        let protocol_peers = Arc::new(RwLock::new(HashMap::new()));
         let filesystem = FilesystemService::new();
 
         // Create shared components for EventService
@@ -150,7 +151,7 @@ impl Deployment for LocalDeployment {
             });
         }
 
-        let approvals = Approvals::new(msg_stores.clone());
+        let approvals = Approvals::new(msg_stores.clone(), protocol_peers.clone());
         let queued_message_service = QueuedMessageService::new();
 
         let share_config = ShareConfig::from_env();

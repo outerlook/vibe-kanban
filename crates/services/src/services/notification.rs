@@ -380,6 +380,30 @@ impl NotificationService {
         .await
     }
 
+    /// Create an in-app notification when an agent is asking questions.
+    pub async fn notify_agent_question(
+        pool: &SqlitePool,
+        project_id: Uuid,
+        workspace_id: Uuid,
+    ) -> Result<Notification, sqlx::Error> {
+        Notification::create(
+            pool,
+            &CreateNotification {
+                project_id: Some(project_id),
+                notification_type: NotificationType::AgentQuestionNeeded,
+                title: "Input Needed".to_string(),
+                message: "Agent is asking for your input".to_string(),
+                metadata: Some(json!({
+                    "workspace_id": workspace_id.to_string()
+                })),
+                workspace_id: Some(workspace_id),
+                session_id: None,
+                conversation_session_id: None,
+            },
+        )
+        .await
+    }
+
     /// Create an in-app notification when an agent encounters an error.
     pub async fn notify_agent_error(
         pool: &SqlitePool,

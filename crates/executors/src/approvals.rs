@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
-use workspace_utils::approvals::ApprovalStatus;
+use workspace_utils::approvals::{ApprovalStatus, QuestionData};
+
+use crate::executors::claude::protocol::ProtocolPeer;
 
 /// Errors emitted by executor approval services.
 #[derive(Debug, Error)]
@@ -33,6 +35,24 @@ pub trait ExecutorApprovalService: Send + Sync {
         tool_input: Value,
         tool_call_id: &str,
     ) -> Result<ApprovalStatus, ExecutorApprovalError>;
+
+    /// Requests user input via questions and waits for answers.
+    /// Returns `ApprovalStatus::Answered { answers }` when the user responds,
+    /// or `ApprovalStatus::TimedOut` if no response is received in time.
+    async fn request_user_question(
+        &self,
+        questions: Vec<QuestionData>,
+        tool_call_id: &str,
+    ) -> Result<ApprovalStatus, ExecutorApprovalError>;
+
+    /// Register a protocol peer for sending tool results.
+    /// This is called by Claude executor when the protocol peer is created.
+    /// The default implementation does nothing (for non-Claude executors).
+    async fn register_protocol_peer(&self, _peer: ProtocolPeer) {}
+
+    /// Unregister the protocol peer when execution completes.
+    /// The default implementation does nothing.
+    async fn unregister_protocol_peer(&self) {}
 }
 
 #[derive(Debug, Default)]
@@ -47,6 +67,15 @@ impl ExecutorApprovalService for NoopExecutorApprovalService {
         _tool_call_id: &str,
     ) -> Result<ApprovalStatus, ExecutorApprovalError> {
         Ok(ApprovalStatus::Approved)
+    }
+
+    async fn request_user_question(
+        &self,
+        _questions: Vec<QuestionData>,
+        _tool_call_id: &str,
+    ) -> Result<ApprovalStatus, ExecutorApprovalError> {
+        // Noop returns empty answers
+        Ok(ApprovalStatus::Answered { answers: vec![] })
     }
 }
 

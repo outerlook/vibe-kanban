@@ -9,6 +9,7 @@ use db::models::{
 };
 use executors::{
     approvals::ToolCallMetadata,
+    executors::claude::protocol::ProtocolPeer,
     logs::{
         NormalizedEntry, NormalizedEntryType, ToolStatus,
         utils::patch::{ConversationPatch, extract_normalized_entry_from_patch},
@@ -19,7 +20,7 @@ use sqlx::{Error as SqlxError, SqlitePool};
 use thiserror::Error;
 use tokio::sync::{RwLock, oneshot};
 use utils::{
-    approvals::{ApprovalRequest, ApprovalResponse, ApprovalStatus},
+    approvals::{ApprovalRequest, ApprovalRequestType, ApprovalResponse, ApprovalStatus},
     log_msg::LogMsg,
     msg_store::MsgStore,
 };
@@ -31,6 +32,7 @@ struct PendingApproval {
     entry: NormalizedEntry,
     execution_process_id: Uuid,
     tool_name: String,
+    tool_call_id: String,
     response_tx: oneshot::Sender<ApprovalStatus>,
 }
 
@@ -39,6 +41,7 @@ type ApprovalWaiter = Shared<BoxFuture<'static, ApprovalStatus>>;
 #[derive(Debug)]
 pub struct ToolContext {
     pub tool_name: String,
+    pub tool_call_id: String,
     pub execution_process_id: Uuid,
 }
 
@@ -47,6 +50,7 @@ pub struct Approvals {
     pending: Arc<DashMap<String, PendingApproval>>,
     completed: Arc<DashMap<String, ApprovalStatus>>,
     msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
+    protocol_peers: Arc<RwLock<HashMap<Uuid, ProtocolPeer>>>,
 }
 
 #[derive(Debug, Error)]
@@ -66,12 +70,43 @@ pub enum ApprovalError {
 }
 
 impl Approvals {
-    pub fn new(msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>) -> Self {
+    pub fn new(
+        msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
+        protocol_peers: Arc<RwLock<HashMap<Uuid, ProtocolPeer>>>,
+    ) -> Self {
         Self {
             pending: Arc::new(DashMap::new()),
             completed: Arc::new(DashMap::new()),
             msg_stores,
+            protocol_peers,
         }
+    }
+
+    /// Register a protocol peer for an execution process
+    pub async fn register_protocol_peer(
+        &self,
+        execution_process_id: Uuid,
+        peer: ProtocolPeer,
+    ) {
+        let mut map = self.protocol_peers.write().await;
+        map.insert(execution_process_id, peer);
+    }
+
+    /// Unregister a protocol peer when execution completes
+    pub async fn unregister_protocol_peer(&self, execution_process_id: &Uuid) {
+        let mut map = self.protocol_peers.write().await;
+        map.remove(execution_process_id);
+    }
+
+    /// Get a protocol peer by execution process ID
+    async fn protocol_peer_by_id(&self, execution_process_id: &Uuid) -> Option<ProtocolPeer> {
+        let map = self.protocol_peers.read().await;
+        map.get(execution_process_id).cloned()
+    }
+
+    /// Get the protocol peers map for external access
+    pub fn protocol_peers(&self) -> &Arc<RwLock<HashMap<Uuid, ProtocolPeer>>> {
+        &self.protocol_peers
     }
 
     pub async fn create_with_waiter(
@@ -90,35 +125,46 @@ impl Approvals {
             let matching_tool = find_matching_tool_use(store.clone(), &request.tool_call_id);
 
             if let Some((idx, matching_tool)) = matching_tool {
-                let approval_entry = matching_tool
-                    .with_tool_status(ToolStatus::PendingApproval {
+                let pending_status = match &request.request_type {
+                    ApprovalRequestType::ToolApproval { .. } => ToolStatus::PendingApproval {
                         approval_id: req_id.clone(),
                         requested_at: request.created_at,
                         timeout_at: request.timeout_at,
-                    })
+                    },
+                    ApprovalRequestType::UserQuestion { questions } => ToolStatus::PendingUserInput {
+                        approval_id: req_id.clone(),
+                        requested_at: request.created_at,
+                        timeout_at: request.timeout_at,
+                        questions: questions.clone(),
+                    },
+                };
+                let approval_entry = matching_tool
+                    .with_tool_status(pending_status)
                     .ok_or(ApprovalError::NoToolUseEntry)?;
                 store.push_patch(ConversationPatch::replace(idx, approval_entry));
 
+                let tool_name = request.tool_name().unwrap_or("unknown").to_string();
                 self.pending.insert(
                     req_id.clone(),
                     PendingApproval {
                         entry_index: idx,
                         entry: matching_tool,
                         execution_process_id: request.execution_process_id,
-                        tool_name: request.tool_name.clone(),
+                        tool_name: tool_name.clone(),
+                        tool_call_id: request.tool_call_id.clone(),
                         response_tx: tx,
                     },
                 );
                 tracing::debug!(
                     "Created approval {} for tool '{}' at entry index {}",
                     req_id,
-                    request.tool_name,
+                    tool_name,
                     idx
                 );
             } else {
                 tracing::warn!(
                     "No matching tool use entry found for approval request: tool='{}', execution_process_id={}",
-                    request.tool_name,
+                    request.tool_name().unwrap_or("unknown"),
                     request.execution_process_id
                 );
             }
@@ -141,11 +187,21 @@ impl Approvals {
         req: ApprovalResponse,
     ) -> Result<(ApprovalStatus, ToolContext), ApprovalError> {
         if let Some((_, p)) = self.pending.remove(id) {
-            self.completed.insert(id.to_string(), req.status.clone());
-            let _ = p.response_tx.send(req.status.clone());
+            // If answers are provided and status is Approved, convert to Answered
+            let final_status = match (&req.status, &req.answers) {
+                (ApprovalStatus::Approved, Some(answers)) if !answers.is_empty() => {
+                    ApprovalStatus::Answered {
+                        answers: answers.clone(),
+                    }
+                }
+                _ => req.status.clone(),
+            };
+
+            self.completed.insert(id.to_string(), final_status.clone());
+            let _ = p.response_tx.send(final_status.clone());
 
             if let Some(store) = self.msg_store_by_id(&p.execution_process_id).await {
-                let status = ToolStatus::from_approval_status(&req.status).ok_or(
+                let status = ToolStatus::from_approval_status(&final_status).ok_or(
                     ApprovalError::Custom(anyhow::anyhow!("Invalid approval status")),
                 )?;
                 let updated_entry = p
@@ -163,13 +219,35 @@ impl Approvals {
 
             let tool_ctx = ToolContext {
                 tool_name: p.tool_name,
+                tool_call_id: p.tool_call_id.clone(),
                 execution_process_id: p.execution_process_id,
             };
 
-            // If approved or denied, and task is still InReview, move back to InProgress
+            // If this is an Answered status with answers, send tool_result to Claude
+            if let ApprovalStatus::Answered { ref answers } = final_status {
+                if let Some(peer) = self.protocol_peer_by_id(&p.execution_process_id).await {
+                    let answers_json = serde_json::to_value(answers).unwrap_or_default();
+                    if let Err(e) = peer
+                        .send_tool_result(p.tool_call_id, answers_json, false)
+                        .await
+                    {
+                        tracing::error!(
+                            "Failed to send tool_result for answered question: {}",
+                            e
+                        );
+                    }
+                } else {
+                    tracing::warn!(
+                        "No protocol_peer found for execution_process_id: {}, cannot send tool_result",
+                        p.execution_process_id
+                    );
+                }
+            }
+
+            // If approved, answered, or denied, and task is still InReview, move back to InProgress
             if matches!(
-                req.status,
-                ApprovalStatus::Approved | ApprovalStatus::Denied { .. }
+                final_status,
+                ApprovalStatus::Approved | ApprovalStatus::Answered { .. } | ApprovalStatus::Denied { .. }
             ) && let Ok(ctx) =
                 ExecutionProcess::load_context(pool, tool_ctx.execution_process_id).await
                 && ctx.task.status == TaskStatus::InReview
@@ -181,7 +259,7 @@ impl Approvals {
                 );
             }
 
-            Ok((req.status, tool_ctx))
+            Ok((final_status, tool_ctx))
         } else if self.completed.contains_key(id) {
             Err(ApprovalError::AlreadyCompleted)
         } else {
@@ -313,7 +391,10 @@ mod tests {
     use std::sync::Arc;
 
     use executors::logs::{ActionType, NormalizedEntry, NormalizedEntryType, ToolStatus};
-    use utils::msg_store::MsgStore;
+    use utils::{
+        approvals::{QuestionAnswer, QuestionData, QuestionOption},
+        msg_store::MsgStore,
+    };
 
     use super::*;
 
@@ -397,5 +478,92 @@ mod tests {
             find_matching_tool_use(store.clone(), "wrong-id").is_none(),
             "Should not match different tool ids"
         );
+    }
+
+    #[test]
+    fn test_user_question_approval_request_creation() {
+        let questions = vec![QuestionData {
+            question: "What is your preferred color?".to_string(),
+            header: Some("Color Selection".to_string()),
+            multi_select: false,
+            options: vec![
+                QuestionOption {
+                    label: "Red".to_string(),
+                    description: Some("A warm color".to_string()),
+                },
+                QuestionOption {
+                    label: "Blue".to_string(),
+                    description: None,
+                },
+            ],
+        }];
+
+        let request = ApprovalRequest::from_user_question(
+            questions.clone(),
+            "tool-call-123".to_string(),
+            Uuid::new_v4(),
+        );
+
+        // Verify request type is UserQuestion
+        match &request.request_type {
+            ApprovalRequestType::UserQuestion { questions: q } => {
+                assert_eq!(q.len(), 1);
+                assert_eq!(q[0].question, "What is your preferred color?");
+                assert_eq!(q[0].options.len(), 2);
+            }
+            ApprovalRequestType::ToolApproval { .. } => {
+                panic!("Expected UserQuestion, got ToolApproval");
+            }
+        }
+
+        // Verify tool_name() returns None for user questions
+        assert!(request.tool_name().is_none());
+    }
+
+    #[test]
+    fn test_approval_status_answered_variant() {
+        let answers = vec![QuestionAnswer {
+            question_index: 0,
+            selected_indices: vec![1],
+            other_text: None,
+        }];
+
+        let status = ApprovalStatus::Answered {
+            answers: answers.clone(),
+        };
+
+        // Verify it converts to Created tool status (like Approved)
+        let tool_status = ToolStatus::from_approval_status(&status);
+        assert!(matches!(tool_status, Some(ToolStatus::Created)));
+    }
+
+    #[test]
+    fn test_tool_status_from_approval_status_exhaustive() {
+        // Test Approved -> Created
+        assert!(matches!(
+            ToolStatus::from_approval_status(&ApprovalStatus::Approved),
+            Some(ToolStatus::Created)
+        ));
+
+        // Test Answered -> Created
+        assert!(matches!(
+            ToolStatus::from_approval_status(&ApprovalStatus::Answered { answers: vec![] }),
+            Some(ToolStatus::Created)
+        ));
+
+        // Test Denied -> Denied
+        let denied_status = ToolStatus::from_approval_status(&ApprovalStatus::Denied {
+            reason: Some("test".to_string()),
+        });
+        assert!(matches!(denied_status, Some(ToolStatus::Denied { .. })));
+
+        // Test TimedOut -> TimedOut
+        assert!(matches!(
+            ToolStatus::from_approval_status(&ApprovalStatus::TimedOut),
+            Some(ToolStatus::TimedOut)
+        ));
+
+        // Test Pending -> None
+        assert!(ToolStatus::from_approval_status(&ApprovalStatus::Pending).is_none());
     }
 }
