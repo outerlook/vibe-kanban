@@ -332,7 +332,7 @@ export type AccountInfo = { claude: ClaudeAccountInfo | null, codex: CodexAccoun
 
 export type ClaudeAccountInfo = { subscriptionType: string, rateLimitTier: string | null, usage: ClaudeUsage | null, };
 
-export type ClaudeUsage = { fiveHour: UsageLimit, sevenDay: UsageLimit, sevenDayOpus: UsageLimit, };
+export type ClaudeUsage = { fiveHour: UsageLimit, sevenDay: UsageLimit, sevenDayOpus: UsageLimit | null, sevenDaySonnet: UsageLimit | null, };
 
 export type UsageLimit = { 
 /**
