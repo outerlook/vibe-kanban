@@ -72,6 +72,23 @@ impl ApprovalRequest {
         }
     }
 
+    /// Creates a user question approval request
+    pub fn from_user_question(
+        questions: Vec<QuestionData>,
+        tool_call_id: String,
+        execution_process_id: Uuid,
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            id: Uuid::new_v4().to_string(),
+            request_type: ApprovalRequestType::UserQuestion { questions },
+            tool_call_id,
+            execution_process_id,
+            created_at: now,
+            timeout_at: now + Duration::seconds(APPROVAL_TIMEOUT_SECONDS),
+        }
+    }
+
     /// Returns the tool name if this is a tool approval request
     pub fn tool_name(&self) -> Option<&str> {
         match &self.request_type {
@@ -98,6 +115,9 @@ pub enum ApprovalStatus {
     Denied {
         #[ts(optional)]
         reason: Option<String>,
+    },
+    Answered {
+        answers: Vec<QuestionAnswer>,
     },
     TimedOut,
 }

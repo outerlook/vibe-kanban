@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use db::{self, DBService, models::execution_process::ExecutionProcess};
 use executors::approvals::{ExecutorApprovalError, ExecutorApprovalService};
 use serde_json::Value;
-use utils::approvals::{ApprovalRequest, ApprovalStatus, CreateApprovalRequest};
+use utils::approvals::{ApprovalRequest, ApprovalStatus, CreateApprovalRequest, QuestionData};
 use uuid::Uuid;
 
 use crate::services::{approvals::Approvals, notification::NotificationService};
@@ -84,6 +84,54 @@ impl ExecutorApprovalService for ExecutorApprovalBridge {
         if matches!(status, ApprovalStatus::Pending) {
             return Err(ExecutorApprovalError::request_failed(
                 "approval finished in pending state",
+            ));
+        }
+
+        Ok(status)
+    }
+
+    async fn request_user_question(
+        &self,
+        questions: Vec<QuestionData>,
+        tool_call_id: &str,
+    ) -> Result<ApprovalStatus, ExecutorApprovalError> {
+        super::ensure_task_in_review(&self.db.pool, self.execution_process_id).await;
+
+        let request = ApprovalRequest::from_user_question(
+            questions.clone(),
+            tool_call_id.to_string(),
+            self.execution_process_id,
+        );
+
+        let (_, waiter) = self
+            .approvals
+            .create_with_waiter(request)
+            .await
+            .map_err(ExecutorApprovalError::request_failed)?;
+
+        // OS notification sound when user input is needed
+        self.notification_service
+            .notify("User Input Needed", "Agent is asking for your input")
+            .await;
+
+        // In-app notification when user input is needed
+        if let Ok(ctx) =
+            ExecutionProcess::load_context(&self.db.pool, self.execution_process_id).await
+            && let Err(e) = NotificationService::notify_agent_question(
+                &self.db.pool,
+                ctx.project.id,
+                ctx.workspace.id,
+            )
+            .await
+        {
+            tracing::warn!("Failed to create in-app question notification: {}", e);
+        }
+
+        let status = waiter.clone().await;
+
+        if matches!(status, ApprovalStatus::Pending) {
+            return Err(ExecutorApprovalError::request_failed(
+                "user question finished in pending state",
             ));
         }
 

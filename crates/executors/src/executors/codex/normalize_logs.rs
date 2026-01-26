@@ -1201,7 +1201,7 @@ impl ToNormalizedEntryOpt for Approval {
 
         match approval_status {
             ApprovalStatus::Pending => None,
-            ApprovalStatus::Approved => None,
+            ApprovalStatus::Approved | ApprovalStatus::Answered { .. } => None,
             ApprovalStatus::Denied { reason } => Some(NormalizedEntry {
                 timestamp: None,
                 entry_type: NormalizedEntryType::UserFeedback {

@@ -67,7 +67,7 @@ impl ClaudeAgentClient {
                     })?)
                     .await?;
                 match status {
-                    ApprovalStatus::Approved => {
+                    ApprovalStatus::Approved | ApprovalStatus::Answered { .. } => {
                         if tool_name == EXIT_PLAN_MODE_NAME {
                             Ok(PermissionResult::Allow {
                                 updated_input: tool_input,
