@@ -1,0 +1,295 @@
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Label } from '@radix-ui/react-label';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import BranchSelector from '@/components/tasks/BranchSelector';
+import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Loader2 } from 'lucide-react';
+import NiceModal, { useModal } from '@ebay/nice-modal-react';
+import { useRepoBranches } from '@/hooks';
+import {
+  GhCliHelpInstructions,
+  mapGhCliErrorToUi,
+} from '@/components/dialogs/auth/GhCliSetupDialog';
+import type {
+  GhCliSupportContent,
+  GhCliSupportVariant,
+} from '@/components/dialogs/auth/GhCliSetupDialog';
+import { defineModal } from '@/lib/modals';
+import { repoApi } from '@/lib/api';
+
+const BASE_BRANCH_PREFERENCE_KEY = 'vk-pr-base-branch-preference';
+
+function getStoredBaseBranch(repoId: string): string | null {
+  try {
+    const stored = localStorage.getItem(
+      `${BASE_BRANCH_PREFERENCE_KEY}:${repoId}`
+    );
+    return stored;
+  } catch {
+    return null;
+  }
+}
+
+function setStoredBaseBranch(repoId: string, branch: string): void {
+  try {
+    localStorage.setItem(`${BASE_BRANCH_PREFERENCE_KEY}:${repoId}`, branch);
+  } catch {
+    // Ignore localStorage errors
+  }
+}
+
+export interface CreatePRFromGroupDialogProps {
+  groupName: string;
+  groupDescription: string | null;
+  branchName: string;
+  repoId: string;
+  projectId: string;
+}
+
+const CreatePRFromGroupDialogImpl =
+  NiceModal.create<CreatePRFromGroupDialogProps>(
+    ({ groupName, groupDescription, branchName, repoId }) => {
+      const modal = useModal();
+      const { t } = useTranslation('tasks');
+      const [prTitle, setPrTitle] = useState('');
+      const [prBody, setPrBody] = useState('');
+      const [prBaseBranch, setPrBaseBranch] = useState('');
+      const [creatingPR, setCreatingPR] = useState(false);
+      const [error, setError] = useState<string | null>(null);
+      const [ghCliHelp, setGhCliHelp] = useState<GhCliSupportContent | null>(
+        null
+      );
+      const [isDraft, setIsDraft] = useState(false);
+
+      const { data: branches = [], isLoading: branchesLoading } =
+        useRepoBranches(repoId, { enabled: modal.visible && !!repoId });
+
+      const getGhCliHelpTitle = (variant: GhCliSupportVariant) =>
+        variant === 'homebrew'
+          ? 'Homebrew is required for automatic setup'
+          : 'GitHub CLI needs manual setup';
+
+      // Reset and initialize form when dialog opens
+      useEffect(() => {
+        if (!modal.visible) {
+          return;
+        }
+
+        // Reset all form state when dialog opens
+        setPrBaseBranch('');
+        setIsDraft(false);
+        setCreatingPR(false);
+        setError(null);
+        setGhCliHelp(null);
+
+        // Initialize form values from group info
+        setPrTitle(groupName);
+        setPrBody(groupDescription ?? '');
+      }, [modal.visible, groupName, groupDescription]);
+
+      // Set default base branch when branches are loaded
+      useEffect(() => {
+        if (branches.length > 0 && !prBaseBranch) {
+          // First priority: use stored preference for this repo
+          const storedBranch = getStoredBaseBranch(repoId);
+          if (storedBranch && branches.some((b) => b.name === storedBranch)) {
+            setPrBaseBranch(storedBranch);
+            return;
+          }
+          // Fallback: use default branch or first available
+          const defaultBranch = branches.find(
+            (b) => b.name === 'main' || b.name === 'master'
+          );
+          if (defaultBranch) {
+            setPrBaseBranch(defaultBranch.name);
+          } else if (branches[0]) {
+            setPrBaseBranch(branches[0].name);
+          }
+        }
+      }, [branches, prBaseBranch, repoId]);
+
+      // Persist base branch preference when changed
+      const handleBaseBranchChange = useCallback(
+        (branch: string) => {
+          setPrBaseBranch(branch);
+          setStoredBaseBranch(repoId, branch);
+        },
+        [repoId]
+      );
+
+      const handleConfirmCreatePR = useCallback(async () => {
+        if (!repoId || !branchName || !prBaseBranch) return;
+
+        setError(null);
+        setGhCliHelp(null);
+        setCreatingPR(true);
+
+        try {
+          const result = await repoApi.createPR(repoId, {
+            head_branch: branchName,
+            base_branch: prBaseBranch,
+            title: prTitle,
+            body: prBody || null,
+            draft: isDraft,
+          });
+
+          if (result.success) {
+            modal.hide();
+            return;
+          }
+
+          setCreatingPR(false);
+
+          // Handle GitHub CLI errors
+          const errorType = result.error?.type;
+          if (
+            errorType === 'github_cli_not_installed' ||
+            errorType === 'github_cli_not_logged_in'
+          ) {
+            const ui = mapGhCliErrorToUi(
+              'SETUP_HELPER_NOT_SUPPORTED',
+              t('createPrFromGroupDialog.errors.failedToCreate'),
+              t
+            );
+            setGhCliHelp(ui.variant ? ui : null);
+            setError(ui.variant ? null : ui.message);
+          } else {
+            setError(
+              result.message || t('createPrFromGroupDialog.errors.failedToCreate')
+            );
+            setGhCliHelp(null);
+          }
+        } catch (err) {
+          setCreatingPR(false);
+          setError(
+            err instanceof Error
+              ? err.message
+              : t('createPrFromGroupDialog.errors.failedToCreate')
+          );
+        }
+      }, [repoId, branchName, prBaseBranch, prBody, prTitle, isDraft, modal, t]);
+
+      const handleCancelCreatePR = useCallback(() => {
+        modal.hide();
+      }, [modal]);
+
+      return (
+        <Dialog open={modal.visible} onOpenChange={() => handleCancelCreatePR()}>
+          <DialogContent className="sm:max-w-[525px]">
+            <DialogHeader>
+              <DialogTitle>
+                {t('createPrFromGroupDialog.title')}
+              </DialogTitle>
+              <DialogDescription>
+                {t('createPrFromGroupDialog.description', {
+                  branch: branchName,
+                })}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="pr-title">
+                  {t('createPrFromGroupDialog.titleLabel')}
+                </Label>
+                <Input
+                  id="pr-title"
+                  value={prTitle}
+                  onChange={(e) => setPrTitle(e.target.value)}
+                  placeholder={t('createPrFromGroupDialog.titlePlaceholder')}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="pr-body">
+                  {t('createPrFromGroupDialog.bodyLabel')}
+                </Label>
+                <Textarea
+                  id="pr-body"
+                  value={prBody}
+                  onChange={(e) => setPrBody(e.target.value)}
+                  placeholder={t('createPrFromGroupDialog.bodyPlaceholder')}
+                  rows={4}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="pr-base">
+                  {t('createPrFromGroupDialog.baseBranchLabel')}
+                </Label>
+                <BranchSelector
+                  branches={branches}
+                  selectedBranch={prBaseBranch}
+                  onBranchSelect={handleBaseBranchChange}
+                  placeholder={
+                    branchesLoading
+                      ? t('createPrFromGroupDialog.loadingBranches')
+                      : t('createPrFromGroupDialog.selectBaseBranch')
+                  }
+                  className={
+                    branchesLoading ? 'opacity-50 cursor-not-allowed' : ''
+                  }
+                />
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="pr-draft"
+                  checked={isDraft}
+                  onCheckedChange={setIsDraft}
+                  className="h-5 w-5"
+                />
+                <Label htmlFor="pr-draft" className="cursor-pointer text-sm">
+                  {t('createPrFromGroupDialog.draftLabel')}
+                </Label>
+              </div>
+              {ghCliHelp?.variant && (
+                <Alert variant="default">
+                  <AlertTitle>
+                    {getGhCliHelpTitle(ghCliHelp.variant)}
+                  </AlertTitle>
+                  <AlertDescription className="space-y-3">
+                    <p>{ghCliHelp.message}</p>
+                    <GhCliHelpInstructions variant={ghCliHelp.variant} t={t} />
+                  </AlertDescription>
+                </Alert>
+              )}
+              {error && <Alert variant="destructive">{error}</Alert>}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={handleCancelCreatePR}>
+                {t('common:buttons.cancel')}
+              </Button>
+              <Button
+                onClick={handleConfirmCreatePR}
+                disabled={creatingPR || !prTitle.trim()}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {creatingPR ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t('createPrFromGroupDialog.creating')}
+                  </>
+                ) : (
+                  t('createPrFromGroupDialog.createButton')
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      );
+    }
+  );
+
+export const CreatePRFromGroupDialog = defineModal<
+  CreatePRFromGroupDialogProps,
+  void
+>(CreatePRFromGroupDialogImpl);

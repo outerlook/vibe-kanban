@@ -90,6 +90,9 @@ import {
   OpenEditorResponse,
   OpenEditorRequest,
   CreatePrError,
+  CreateRepoPrRequest,
+  CreateRepoPrError,
+  PullRequestInfo,
   Scratch,
   ScratchType,
   CreateScratch,
@@ -1260,6 +1263,17 @@ export const repoApi = {
       body: JSON.stringify(data),
     });
     return handleApiResponse<Repo>(response);
+  },
+
+  createPR: async (
+    repoId: string,
+    data: CreateRepoPrRequest
+  ): Promise<Result<PullRequestInfo, CreateRepoPrError>> => {
+    const response = await makeRequest(`/api/repos/${repoId}/prs`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponseAsResult<PullRequestInfo, CreateRepoPrError>(response);
   },
 };
 
