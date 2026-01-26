@@ -1865,6 +1865,12 @@ export interface CreateConversationRequest {
   title: string;
   initial_message: string;
   executor_profile_id: ExecutorProfileId | null;
+  worktree_path?: string | null;
+  worktree_branch?: string | null;
+}
+
+export interface ListConversationsParams {
+  worktree_path?: string | '__main__' | '__all__';
 }
 
 export interface CreateConversationResponse {
@@ -1883,9 +1889,17 @@ export interface SendConversationMessageRequest {
 }
 
 export const conversationsApi = {
-  list: async (projectId: string): Promise<ConversationSession[]> => {
+  list: async (
+    projectId: string,
+    params?: ListConversationsParams
+  ): Promise<ConversationSession[]> => {
+    const searchParams = new URLSearchParams();
+    searchParams.set('project_id', projectId);
+    if (params?.worktree_path !== undefined) {
+      searchParams.set('worktree_path', params.worktree_path);
+    }
     const response = await makeRequest(
-      `/api/projects/${projectId}/conversations?project_id=${encodeURIComponent(projectId)}`
+      `/api/projects/${projectId}/conversations?${searchParams.toString()}`
     );
     return handleApiResponse<ConversationSession[]>(response);
   },
