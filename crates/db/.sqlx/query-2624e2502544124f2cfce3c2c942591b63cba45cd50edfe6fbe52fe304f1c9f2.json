@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT t.id as \"id!: Uuid\",\n                      t.project_id as \"project_id!: Uuid\",\n                      t.title,\n                      t.description,\n                      t.status as \"status!: TaskStatus\",\n                      t.parent_workspace_id as \"parent_workspace_id: Uuid\",\n                      t.shared_task_id as \"shared_task_id: Uuid\",\n                      t.task_group_id as \"task_group_id: Uuid\",\n                      t.created_at as \"created_at!: DateTime<Utc>\",\n                      t.updated_at as \"updated_at!: DateTime<Utc>\",\n                      t.is_blocked as \"is_blocked!: bool\",\n                      t.has_in_progress_attempt as \"has_in_progress_attempt!: bool\",\n                      t.last_attempt_failed as \"last_attempt_failed!: bool\",\n                      t.is_queued as \"is_queued!: bool\",\n                      t.last_executor as \"last_executor!: String\"\n               FROM task_dependencies td\n               JOIN tasks t ON t.id = td.depends_on_id\n               WHERE td.task_id = $1\n               ORDER BY td.created_at DESC",
+  "query": "SELECT t.id as \"id!: Uuid\",\n                      t.project_id as \"project_id!: Uuid\",\n                      t.title,\n                      t.description,\n                      t.status as \"status!: TaskStatus\",\n                      t.parent_workspace_id as \"parent_workspace_id: Uuid\",\n                      t.shared_task_id as \"shared_task_id: Uuid\",\n                      t.task_group_id as \"task_group_id: Uuid\",\n                      t.created_at as \"created_at!: DateTime<Utc>\",\n                      t.updated_at as \"updated_at!: DateTime<Utc>\",\n                      t.is_blocked as \"is_blocked!: bool\",\n                      t.has_in_progress_attempt as \"has_in_progress_attempt!: bool\",\n                      t.last_attempt_failed as \"last_attempt_failed!: bool\",\n                      t.is_queued as \"is_queued!: bool\",\n                      t.last_executor as \"last_executor!: String\",\n                      t.needs_attention as \"needs_attention: bool\"\n               FROM task_dependencies td\n               JOIN tasks t ON t.id = td.task_id\n               WHERE td.depends_on_id = $1\n               ORDER BY td.created_at DESC",
   "describe": {
     "columns": [
       {
@@ -77,6 +77,11 @@
         "name": "last_executor!: String",
         "ordinal": 14,
         "type_info": "Text"
+      },
+      {
+        "name": "needs_attention: bool",
+        "ordinal": 15,
+        "type_info": "Integer"
       }
     ],
     "parameters": {
@@ -97,8 +102,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "2a0942c1ef0a5072a3766d319a8405171f0df2f6892f74a9b84d9a4588287b18"
+  "hash": "2624e2502544124f2cfce3c2c942591b63cba45cd50edfe6fbe52fe304f1c9f2"
 }

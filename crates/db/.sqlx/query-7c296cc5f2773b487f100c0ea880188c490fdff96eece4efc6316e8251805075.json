@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO tasks (id, project_id, title, description, status, parent_workspace_id, shared_task_id, task_group_id)\n               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n               RETURNING id as \"id!: Uuid\", project_id as \"project_id!: Uuid\", title, description, status as \"status!: TaskStatus\", parent_workspace_id as \"parent_workspace_id: Uuid\", shared_task_id as \"shared_task_id: Uuid\", task_group_id as \"task_group_id: Uuid\", created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", is_blocked as \"is_blocked!: bool\", has_in_progress_attempt as \"has_in_progress_attempt!: bool\", last_attempt_failed as \"last_attempt_failed!: bool\", is_queued as \"is_queued!: bool\", last_executor as \"last_executor!: String\"",
+  "query": "SELECT id as \"id!: Uuid\", project_id as \"project_id!: Uuid\", title, description, status as \"status!: TaskStatus\", parent_workspace_id as \"parent_workspace_id: Uuid\", shared_task_id as \"shared_task_id: Uuid\", task_group_id as \"task_group_id: Uuid\", created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", is_blocked as \"is_blocked!: bool\", has_in_progress_attempt as \"has_in_progress_attempt!: bool\", last_attempt_failed as \"last_attempt_failed!: bool\", is_queued as \"is_queued!: bool\", last_executor as \"last_executor!: String\", needs_attention as \"needs_attention: bool\"\n               FROM tasks\n               WHERE rowid = $1",
   "describe": {
     "columns": [
       {
@@ -77,10 +77,15 @@
         "name": "last_executor!: String",
         "ordinal": 14,
         "type_info": "Text"
+      },
+      {
+        "name": "needs_attention: bool",
+        "ordinal": 15,
+        "type_info": "Integer"
       }
     ],
     "parameters": {
-      "Right": 8
+      "Right": 1
     },
     "nullable": [
       true,
@@ -97,8 +102,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "2542f95a0d55a877c1de5c15c4dbbe6b72c52a7a63a88d52fa3cacfc1777749c"
+  "hash": "7c296cc5f2773b487f100c0ea880188c490fdff96eece4efc6316e8251805075"
 }
