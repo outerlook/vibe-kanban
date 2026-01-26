@@ -606,6 +606,7 @@
     }
   },
   "groupCard": {
+    "newConversation": "New Conversation",
     "contextMenu": {
       "mergeInto": "Merge into...",
       "edit": "Edit group",

@@ -34,6 +34,7 @@ use crate::{DeploymentImpl, error::ApiError, middleware::load_conversation_middl
 #[derive(Debug, Deserialize)]
 pub struct ListConversationsQuery {
     pub project_id: Uuid,
+    pub worktree_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -41,6 +42,8 @@ pub struct CreateConversationRequest {
     pub title: String,
     pub initial_message: String,
     pub executor_profile_id: Option<ExecutorProfileId>,
+    pub worktree_path: Option<String>,
+    pub worktree_branch: Option<String>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -72,8 +75,12 @@ pub async fn list_conversations(
     State(deployment): State<DeploymentImpl>,
     axum::extract::Query(query): axum::extract::Query<ListConversationsQuery>,
 ) -> Result<ResponseJson<ApiResponse<Vec<ConversationSession>>>, ApiError> {
-    let sessions =
-        ConversationSession::find_by_project_id(&deployment.db().pool, query.project_id).await?;
+    let sessions = ConversationSession::find_by_project_id(
+        &deployment.db().pool,
+        query.project_id,
+        query.worktree_path.as_deref(),
+    )
+    .await?;
     Ok(ResponseJson(ApiResponse::success(sessions)))
 }
 
@@ -108,6 +115,8 @@ pub async fn create_conversation(
         payload.title,
         payload.initial_message.clone(),
         executor_name,
+        payload.worktree_path.clone(),
+        payload.worktree_branch.clone(),
     )
     .await?;
 
@@ -115,7 +124,7 @@ pub async fn create_conversation(
     let action_type = ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
         prompt: payload.initial_message,
         executor_profile_id,
-        working_dir: None,
+        working_dir: payload.worktree_path.clone(),
     });
     let executor_action = ExecutorAction::new(action_type, None);
 

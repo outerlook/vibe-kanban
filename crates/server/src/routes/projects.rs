@@ -76,6 +76,28 @@ pub struct ProjectPrsResponse {
     pub repos: Vec<RepoPrs>,
 }
 
+/// A task group summary for matching against worktrees
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct MatchingTaskGroup {
+    pub id: Uuid,
+    pub name: String,
+}
+
+/// Worktree info with matching task groups
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct WorktreeInfo {
+    pub path: String,
+    pub branch: Option<String>,
+    pub is_main: bool,
+    pub matching_groups: Vec<MatchingTaskGroup>,
+}
+
+/// Response for GET /api/projects/:id/worktrees
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct ProjectWorktreesResponse {
+    pub worktrees: Vec<WorktreeInfo>,
+}
+
 pub async fn get_projects(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<ProjectWithTaskCounts>>>, ApiError> {
@@ -753,6 +775,83 @@ pub async fn get_project_workspaces(
     Ok(ResponseJson(ApiResponse::success(workspaces)))
 }
 
+/// GET /api/projects/:id/worktrees - Discover all worktrees for a project's repositories
+///
+/// Returns a list of worktrees with their branches and matching task groups.
+/// Task groups match when their base_branch equals the worktree's branch.
+pub async fn get_project_worktrees(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<ProjectWorktreesResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    // Get project repositories
+    let repositories = deployment
+        .project()
+        .get_repositories(pool, project.id)
+        .await?;
+
+    if repositories.is_empty() {
+        return Ok(ResponseJson(ApiResponse::success(ProjectWorktreesResponse {
+            worktrees: vec![],
+        })));
+    }
+
+    // Get all task groups for this project
+    let task_groups = TaskGroup::find_by_project_id(pool, project.id).await?;
+
+    let git_service = deployment.git();
+    let mut all_worktrees = Vec::new();
+
+    // Use the first repository to discover worktrees (they share the same git structure)
+    if let Some(repo) = repositories.first() {
+        match git_service.discover_worktrees(&repo.path) {
+            Ok(entries) => {
+                for entry in entries {
+                    // Find task groups that match this worktree's branch
+                    let matching_groups: Vec<MatchingTaskGroup> = entry
+                        .branch
+                        .as_ref()
+                        .map(|branch| {
+                            task_groups
+                                .iter()
+                                .filter(|group| {
+                                    group
+                                        .base_branch
+                                        .as_ref()
+                                        .is_some_and(|base| base == branch)
+                                })
+                                .map(|group| MatchingTaskGroup {
+                                    id: group.id,
+                                    name: group.name.clone(),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+
+                    all_worktrees.push(WorktreeInfo {
+                        path: entry.path.to_string_lossy().to_string(),
+                        branch: entry.branch,
+                        is_main: entry.is_main,
+                        matching_groups,
+                    });
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to discover worktrees for project {}: {}",
+                    project.name,
+                    e
+                );
+            }
+        }
+    }
+
+    Ok(ResponseJson(ApiResponse::success(ProjectWorktreesResponse {
+        worktrees: all_worktrees,
+    })))
+}
+
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let project_id_router = Router::new()
         .route(
@@ -774,6 +873,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/prs", get(get_project_prs))
         .route("/merge-queue-count", get(get_merge_queue_count))
         .route("/workspaces", get(get_project_workspaces))
+        .route("/worktrees", get(get_project_worktrees))
         .layer(from_fn_with_state(
             deployment.clone(),
             load_project_middleware,

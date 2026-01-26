@@ -75,3 +75,9 @@ export {
 export { useFilteredTasks, type UseFilteredTasksResult } from './useFilteredTasks';
 export { useCanBulkCreateAttempts } from './useCanBulkCreateAttempts';
 export { workspaceKeys, useProjectWorkspaces } from './useProjectWorkspaces';
+export { worktreeKeys, useWorktrees } from './useWorktrees';
+export {
+  useWorktreeFilter,
+  WORKTREE_FILTER_VALUES,
+  type WorktreeFilterHook,
+} from './useWorktreeFilter';

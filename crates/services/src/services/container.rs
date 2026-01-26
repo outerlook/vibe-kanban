@@ -1708,12 +1708,29 @@ pub trait ContainerService {
 
     /// Start a conversation execution without git context.
     /// This creates an ExecutionProcess linked to a ConversationSession instead of a Session.
+    /// If the conversation session has a worktree_path, the agent will start in that directory.
     async fn start_conversation_execution(
         &self,
         conversation_session: &ConversationSession,
         executor_action: &ExecutorAction,
     ) -> Result<ExecutionProcess, ContainerError> {
         use db::models::execution_process::CreateConversationExecutionProcess;
+
+        // Determine working directory: use worktree_path if specified, otherwise fallback to current dir
+        let working_dir = if let Some(worktree_path) = &conversation_session.worktree_path {
+            let path = PathBuf::from(worktree_path);
+            // Validate the path exists
+            if !path.exists() {
+                return Err(ContainerError::Other(anyhow!(
+                    "Worktree path does not exist: {}. The worktree may have been deleted.",
+                    worktree_path
+                )));
+            }
+            path
+        } else {
+            // Fallback: current working directory or /tmp
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/tmp"))
+        };
 
         let process_id = Uuid::new_v4();
         let create_data = CreateConversationExecutionProcess {
@@ -1738,9 +1755,9 @@ pub trait ContainerService {
             CodingAgentTurn::create(&self.db().pool, &create_turn, Uuid::new_v4()).await?;
         }
 
-        // Start the execution using a temporary directory (no git context)
+        // Start the execution using the determined working directory
         if let Err(start_error) = self
-            .start_conversation_execution_inner(&execution_process, executor_action)
+            .start_conversation_execution_inner(&execution_process, executor_action, &working_dir)
             .await
         {
             // Mark process as failed
@@ -1785,8 +1802,6 @@ pub trait ContainerService {
                 _ => None,
             }
         {
-            // For conversation execution, use current working directory (temp or home)
-            let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/tmp"));
             if let Some(executor) =
                 ExecutorConfigs::get_cached().get_coding_agent(executor_profile_id)
             {
@@ -1803,7 +1818,7 @@ pub trait ContainerService {
                     } else {
                         None
                     };
-                executor.normalize_logs_with_skills_callback(msg_store, &current_dir, skills_callback);
+                executor.normalize_logs_with_skills_callback(msg_store, &working_dir, skills_callback);
             }
 
             self.spawn_stream_normalized_entries_to_db(&execution_process.id);
@@ -1814,11 +1829,12 @@ pub trait ContainerService {
         Ok(execution_process)
     }
 
-    /// Start conversation execution without workspace/git context.
+    /// Start conversation execution in the specified working directory.
     /// Used for disposable conversations that don't need git integration.
     async fn start_conversation_execution_inner(
         &self,
         execution_process: &ExecutionProcess,
         executor_action: &ExecutorAction,
+        working_dir: &Path,
     ) -> Result<(), ContainerError>;
 }

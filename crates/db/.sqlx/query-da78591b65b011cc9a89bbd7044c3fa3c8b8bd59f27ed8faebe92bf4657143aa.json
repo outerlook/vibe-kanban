@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: Uuid\",\n                      project_id AS \"project_id!: Uuid\",\n                      title,\n                      status AS \"status!: ConversationSessionStatus\",\n                      executor,\n                      worktree_path,\n                      worktree_branch,\n                      created_at AS \"created_at!: DateTime<Utc>\",\n                      updated_at AS \"updated_at!: DateTime<Utc>\"\n               FROM conversation_sessions\n               WHERE project_id = $1 AND status = $2\n                 AND (\n                     $3 = 1  -- filter_all: return everything\n                     OR ($4 = 1 AND worktree_path IS NULL)  -- filter_main: only null worktree_path\n                     OR worktree_path = $5  -- filter_path: match specific path\n                 )\n               ORDER BY updated_at DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "project_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "title",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "status!: ConversationSessionStatus",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "executor",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "worktree_path",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "worktree_branch",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 8,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "da78591b65b011cc9a89bbd7044c3fa3c8b8bd59f27ed8faebe92bf4657143aa"
+}

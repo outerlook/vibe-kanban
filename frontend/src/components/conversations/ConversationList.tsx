@@ -1,9 +1,18 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, MessageCircle, Archive, Trash2 } from 'lucide-react';
+import { Plus, MessageCircle, Archive, Trash2, GitBranch } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/loader';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useConversations, useDeleteConversation } from '@/hooks/useConversations';
+import { useWorktrees } from '@/hooks/useWorktrees';
+import { useWorktreeFilter, WORKTREE_FILTER_VALUES } from '@/hooks/useWorktreeFilter';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import type { ConversationSession } from 'shared/types';
 import { cn, formatRelativeTime } from '@/lib/utils';
@@ -22,8 +31,19 @@ export function ConversationList({
   onCreateConversation,
 }: ConversationListProps) {
   const { t } = useTranslation('common');
-  const { data: conversations, isLoading, error } = useConversations(projectId);
+  const { selectedWorktree, setSelectedWorktree, getWorktreePathForApi } =
+    useWorktreeFilter();
+
+  const worktreePath = getWorktreePathForApi();
+  const { data: conversations, isLoading, error } = useConversations(projectId, {
+    worktreePath,
+  });
+  const { data: worktreesData } = useWorktrees(projectId);
   const deleteConversation = useDeleteConversation();
+
+  const worktrees = worktreesData?.worktrees ?? [];
+  const mainWorktree = worktrees.find((w) => w.is_main);
+  const otherWorktrees = worktrees.filter((w) => !w.is_main);
 
   const sortedConversations = useMemo(() => {
     if (!conversations) return [];
@@ -57,6 +77,17 @@ export function ConversationList({
     }
   };
 
+  const getWorktreeLabel = (value: string) => {
+    if (value === WORKTREE_FILTER_VALUES.ALL) {
+      return t('conversations.filter.all', { defaultValue: 'All conversations' });
+    }
+    if (value === WORKTREE_FILTER_VALUES.MAIN) {
+      return mainWorktree?.branch ?? 'main';
+    }
+    const worktree = worktrees.find((w) => w.path === value);
+    return worktree?.branch ?? value;
+  };
+
   if (isLoading) {
     return <Loader message={t('common:states.loading')} size={24} />;
   }
@@ -79,6 +110,44 @@ export function ConversationList({
           <Plus className="h-4 w-4" />
         </Button>
       </div>
+
+      {/* Worktree filter */}
+      {worktrees.length > 0 && (
+        <div className="p-2 border-b">
+          <Select value={selectedWorktree} onValueChange={setSelectedWorktree}>
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue>{getWorktreeLabel(selectedWorktree)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={WORKTREE_FILTER_VALUES.ALL}>
+                {t('conversations.filter.all', { defaultValue: 'All conversations' })}
+              </SelectItem>
+              {mainWorktree && (
+                <SelectItem value={WORKTREE_FILTER_VALUES.MAIN}>
+                  <span className="flex items-center gap-1.5">
+                    <GitBranch className="h-3 w-3" />
+                    <span>{mainWorktree.branch ?? 'main'}</span>
+                    <span className="text-muted-foreground">(main repo)</span>
+                  </span>
+                </SelectItem>
+              )}
+              {otherWorktrees.map((worktree) => (
+                <SelectItem key={worktree.path} value={worktree.path}>
+                  <span className="flex items-center gap-1.5">
+                    <GitBranch className="h-3 w-3" />
+                    <span>{worktree.branch ?? worktree.path}</span>
+                    {worktree.matching_groups.length > 0 && (
+                      <span className="text-muted-foreground">
+                        ({worktree.matching_groups.map((g) => g.name).join(', ')})
+                      </span>
+                    )}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto">
         {sortedConversations.length === 0 ? (
@@ -127,6 +196,12 @@ export function ConversationList({
                       {conversation.executor && (
                         <span className="text-xs text-muted-foreground px-1.5 py-0.5 bg-muted rounded">
                           {conversation.executor}
+                        </span>
+                      )}
+                      {conversation.worktree_branch && (
+                        <span className="text-xs text-muted-foreground px-1.5 py-0.5 bg-muted rounded flex items-center gap-1">
+                          <GitBranch className="h-2.5 w-2.5" />
+                          {conversation.worktree_branch}
                         </span>
                       )}
                     </div>

@@ -51,6 +51,8 @@ impl ConversationService {
         title: String,
         initial_message: String,
         executor: Option<String>,
+        worktree_path: Option<String>,
+        worktree_branch: Option<String>,
     ) -> Result<(ConversationSession, ConversationMessage), ConversationServiceError> {
         let session = ConversationSession::create(
             pool,
@@ -58,6 +60,8 @@ impl ConversationService {
                 project_id,
                 title,
                 executor,
+                worktree_path,
+                worktree_branch,
             },
         )
         .await?;

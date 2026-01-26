@@ -6,6 +6,7 @@ import {
   GitBranch,
   Loader2,
   GitMerge,
+  MessageSquare,
   Pencil,
   Trash2,
 } from 'lucide-react';
@@ -25,7 +26,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { getTaskGroupColorClass } from '@/lib/ganttColors';
-import { useBranchMergeStatus, useGroupQueueCount } from '@/hooks';
+import { useBranchMergeStatus, useGroupQueueCount, useWorktrees } from '@/hooks';
 import { useDeleteTaskGroup } from '@/hooks/useTaskGroups';
 import { StatusCountBadge } from './StatusCountBadge';
 import {
@@ -33,6 +34,8 @@ import {
   MergeGroupDialog,
   ConfirmDialog,
 } from '@/components/dialogs';
+import { NewConversationDialog } from '@/components/dialogs/conversations/NewConversationDialog';
+import { Button } from '@/components/ui/button';
 import type { TaskGroupWithStats, TaskStatus } from 'shared/types';
 
 const BORDER_COLORS: Record<string, string> = {
@@ -73,8 +76,14 @@ export function GroupCard({
   const { data: branchStatus, isLoading: isBranchLoading } =
     useBranchMergeStatus(repoId, group.base_branch ?? undefined, projectId);
   const { data: queueCount } = useGroupQueueCount(group.id);
+  const { data: worktreesData } = useWorktrees(projectId);
 
   const deleteMutation = useDeleteTaskGroup();
+
+  // Find worktree matching the group's base_branch
+  const groupWorktree = worktreesData?.worktrees.find(
+    (w) => w.branch === group.base_branch
+  );
 
   const [contextMenu, setContextMenu] = useState<{
     open: boolean;
@@ -119,6 +128,19 @@ export function GroupCard({
       await deleteMutation.mutateAsync({ groupId: group.id, projectId });
     }
   }, [closeContextMenu, deleteMutation, group, projectId]);
+
+  const handleNewConversation = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (groupWorktree) {
+        NewConversationDialog.show({
+          projectId,
+          defaultWorktreePath: groupWorktree.path,
+        });
+      }
+    },
+    [groupWorktree, projectId]
+  );
 
   return (
     <>
@@ -207,6 +229,18 @@ export function GroupCard({
               </Badge>
             )}
           </div>
+
+          {groupWorktree && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-fit gap-1.5 text-muted-foreground hover:text-foreground"
+              onClick={handleNewConversation}
+            >
+              <MessageSquare className="h-4 w-4" />
+              {t('groupCard.newConversation')}
+            </Button>
+          )}
         </div>
       </Card>
 

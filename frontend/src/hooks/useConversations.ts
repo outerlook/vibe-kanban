@@ -6,14 +6,15 @@ import {
   type CreateConversationRequest,
   type UpdateConversationRequest,
   type SendConversationMessageRequest,
+  type ListConversationsParams,
 } from '@/lib/api';
 import type { ConversationMessage, ConversationWithMessages, SendMessageResponse } from 'shared/types';
 
 export const conversationKeys = {
   all: ['conversations'] as const,
   lists: () => [...conversationKeys.all, 'list'] as const,
-  list: (projectId: string) =>
-    [...conversationKeys.lists(), projectId] as const,
+  list: (projectId: string, params?: ListConversationsParams) =>
+    [...conversationKeys.lists(), projectId, params ?? {}] as const,
   details: () => [...conversationKeys.all, 'detail'] as const,
   detail: (id: string) => [...conversationKeys.details(), id] as const,
   messages: (id: string) => [...conversationKeys.all, 'messages', id] as const,
@@ -21,10 +22,21 @@ export const conversationKeys = {
     [...conversationKeys.all, 'executions', id] as const,
 };
 
-export function useConversations(projectId: string | undefined) {
+export interface UseConversationsOptions {
+  worktreePath?: string;
+}
+
+export function useConversations(
+  projectId: string | undefined,
+  options?: UseConversationsOptions
+) {
+  const params: ListConversationsParams | undefined = options?.worktreePath
+    ? { worktree_path: options.worktreePath }
+    : undefined;
+
   return useQuery({
-    queryKey: conversationKeys.list(projectId ?? ''),
-    queryFn: () => conversationsApi.list(projectId!),
+    queryKey: conversationKeys.list(projectId ?? '', params),
+    queryFn: () => conversationsApi.list(projectId!, params),
     enabled: !!projectId,
     staleTime: 30_000,
   });
