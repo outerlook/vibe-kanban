@@ -182,7 +182,17 @@ export type ApprovalStatus = { "status": "pending" } | { "status": "approved" } 
 
 export type CreateApprovalRequest = { tool_name: string, tool_input: JsonValue, tool_call_id: string, };
 
-export type ApprovalResponse = { execution_process_id: string, status: ApprovalStatus, };
+export type ApprovalResponse = { execution_process_id: string, status: ApprovalStatus, answers?: Array<QuestionAnswer>, };
+
+export type QuestionOption = { label: string, description?: string, };
+
+export type QuestionData = { question: string, header?: string, multi_select: boolean, options: Array<QuestionOption>, };
+
+export type QuestionAnswer = { question_index: number, selected_indices: Array<number>, other_text?: string, };
+
+export type ApprovalRequestType = { "type": "tool_approval", tool_name: string, tool_input: JsonValue, } | { "type": "user_question", questions: Array<QuestionData>, };
+
+export type ApprovalRequest = { id: string, request_type: ApprovalRequestType, tool_call_id: string, execution_process_id: string, created_at: string, timeout_at: string, };
 
 export type Diff = { change: DiffChangeKind, oldPath: string | null, newPath: string | null, oldContent: string | null, newContent: string | null, 
 /**
