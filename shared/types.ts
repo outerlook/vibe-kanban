@@ -88,11 +88,11 @@ export type CreateTaskGroup = { project_id: string, name: string, description: s
 
 export type UpdateTaskGroup = { name: string | null, description: string | null, base_branch: string | null, };
 
-export type ConversationSession = { id: string, project_id: string, title: string, status: ConversationSessionStatus, executor: string | null, created_at: string, updated_at: string, };
+export type ConversationSession = { id: string, project_id: string, title: string, status: ConversationSessionStatus, executor: string | null, worktree_path: string | null, created_at: string, updated_at: string, };
 
 export type ConversationSessionStatus = "active" | "archived";
 
-export type CreateConversationSession = { project_id: string, title: string, executor: string | null, };
+export type CreateConversationSession = { project_id: string, title: string, executor: string | null, worktree_path: string | null, };
 
 export type UpdateConversationSession = { title: string | null, status: ConversationSessionStatus | null, executor: string | null, };
 
@@ -104,7 +104,7 @@ export type MessageRole = "user" | "assistant";
 
 export type CreateConversationMessage = { conversation_session_id: string, execution_process_id: string | null, role: MessageRole, content: string, metadata: string | null, };
 
-export type ConversationWithMessages = { messages: Array<ConversationMessage>, id: string, project_id: string, title: string, status: ConversationSessionStatus, executor: string | null, created_at: string, updated_at: string, };
+export type ConversationWithMessages = { messages: Array<ConversationMessage>, id: string, project_id: string, title: string, status: ConversationSessionStatus, executor: string | null, worktree_path: string | null, created_at: string, updated_at: string, };
 
 export type SendMessageResponse = { user_message: ConversationMessage, execution_process_id: string, };
 

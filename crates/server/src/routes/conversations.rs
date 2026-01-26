@@ -34,6 +34,7 @@ use crate::{DeploymentImpl, error::ApiError, middleware::load_conversation_middl
 #[derive(Debug, Deserialize)]
 pub struct ListConversationsQuery {
     pub project_id: Uuid,
+    pub worktree_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -72,8 +73,12 @@ pub async fn list_conversations(
     State(deployment): State<DeploymentImpl>,
     axum::extract::Query(query): axum::extract::Query<ListConversationsQuery>,
 ) -> Result<ResponseJson<ApiResponse<Vec<ConversationSession>>>, ApiError> {
-    let sessions =
-        ConversationSession::find_by_project_id(&deployment.db().pool, query.project_id).await?;
+    let sessions = ConversationSession::find_by_project_id(
+        &deployment.db().pool,
+        query.project_id,
+        query.worktree_path.as_deref(),
+    )
+    .await?;
     Ok(ResponseJson(ApiResponse::success(sessions)))
 }
 
@@ -108,6 +113,7 @@ pub async fn create_conversation(
         payload.title,
         payload.initial_message.clone(),
         executor_name,
+        None, // worktree_path - can be added later when needed
     )
     .await?;
 

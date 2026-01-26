@@ -20,6 +20,7 @@ pub struct ConversationSession {
     pub title: String,
     pub status: ConversationSessionStatus,
     pub executor: Option<String>,
+    pub worktree_path: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -29,6 +30,7 @@ pub struct CreateConversationSession {
     pub project_id: Uuid,
     pub title: String,
     pub executor: Option<String>,
+    pub worktree_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -58,13 +60,14 @@ impl ConversationSession {
 
         sqlx::query_as!(
             Self,
-            r#"INSERT INTO conversation_sessions (id, project_id, title, status, executor)
-               VALUES ($1, $2, $3, $4, $5)
+            r#"INSERT INTO conversation_sessions (id, project_id, title, status, executor, worktree_path)
+               VALUES ($1, $2, $3, $4, $5, $6)
                RETURNING id AS "id!: Uuid",
                          project_id AS "project_id!: Uuid",
                          title,
                          status AS "status!: ConversationSessionStatus",
                          executor,
+                         worktree_path,
                          created_at AS "created_at!: DateTime<Utc>",
                          updated_at AS "updated_at!: DateTime<Utc>""#,
             id,
@@ -72,6 +75,7 @@ impl ConversationSession {
             data.title,
             status,
             data.executor,
+            data.worktree_path,
         )
         .fetch_one(pool)
         .await
@@ -89,6 +93,7 @@ impl ConversationSession {
                       title,
                       status AS "status!: ConversationSessionStatus",
                       executor,
+                      worktree_path,
                       created_at AS "created_at!: DateTime<Utc>",
                       updated_at AS "updated_at!: DateTime<Utc>"
                FROM conversation_sessions
@@ -104,6 +109,7 @@ impl ConversationSession {
     pub async fn find_by_project_id(
         pool: &SqlitePool,
         project_id: Uuid,
+        worktree_path: Option<&str>,
     ) -> Result<Vec<Self>, ConversationSessionError> {
         let sessions = sqlx::query_as!(
             Self,
@@ -112,12 +118,15 @@ impl ConversationSession {
                       title,
                       status AS "status!: ConversationSessionStatus",
                       executor,
+                      worktree_path,
                       created_at AS "created_at!: DateTime<Utc>",
                       updated_at AS "updated_at!: DateTime<Utc>"
                FROM conversation_sessions
                WHERE project_id = $1
+                 AND (($2 IS NULL AND worktree_path IS NULL) OR worktree_path = $2)
                ORDER BY updated_at DESC"#,
-            project_id
+            project_id,
+            worktree_path
         )
         .fetch_all(pool)
         .await?;
@@ -128,6 +137,7 @@ impl ConversationSession {
     pub async fn find_active_by_project_id(
         pool: &SqlitePool,
         project_id: Uuid,
+        worktree_path: Option<&str>,
     ) -> Result<Vec<Self>, ConversationSessionError> {
         let status = ConversationSessionStatus::Active;
         let sessions = sqlx::query_as!(
@@ -137,13 +147,16 @@ impl ConversationSession {
                       title,
                       status AS "status!: ConversationSessionStatus",
                       executor,
+                      worktree_path,
                       created_at AS "created_at!: DateTime<Utc>",
                       updated_at AS "updated_at!: DateTime<Utc>"
                FROM conversation_sessions
                WHERE project_id = $1 AND status = $2
+                 AND (($3 IS NULL AND worktree_path IS NULL) OR worktree_path = $3)
                ORDER BY updated_at DESC"#,
             project_id,
-            status
+            status,
+            worktree_path
         )
         .fetch_all(pool)
         .await?;
@@ -170,6 +183,7 @@ impl ConversationSession {
                          title,
                          status AS "status!: ConversationSessionStatus",
                          executor,
+                         worktree_path,
                          created_at AS "created_at!: DateTime<Utc>",
                          updated_at AS "updated_at!: DateTime<Utc>""#,
             id,
