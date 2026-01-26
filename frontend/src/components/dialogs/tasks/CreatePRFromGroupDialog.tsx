@@ -27,6 +27,7 @@ import type {
   GhCliSupportVariant,
 } from '@/components/dialogs/auth/GhCliSetupDialog';
 import { defineModal } from '@/lib/modals';
+import { repoApi } from '@/lib/api';
 
 const BASE_BRANCH_PREFERENCE_KEY = 'vk-pr-base-branch-preference';
 
@@ -59,7 +60,7 @@ export interface CreatePRFromGroupDialogProps {
 
 const CreatePRFromGroupDialogImpl =
   NiceModal.create<CreatePRFromGroupDialogProps>(
-    ({ groupName, groupDescription, branchName, repoId, projectId }) => {
+    ({ groupName, groupDescription, branchName, repoId }) => {
       const modal = useModal();
       const { t } = useTranslation('tasks');
       const [prTitle, setPrTitle] = useState('');
@@ -129,32 +130,20 @@ const CreatePRFromGroupDialogImpl =
       );
 
       const handleConfirmCreatePR = useCallback(async () => {
-        if (!repoId || !branchName) return;
+        if (!repoId || !branchName || !prBaseBranch) return;
 
         setError(null);
         setGhCliHelp(null);
         setCreatingPR(true);
 
         try {
-          // TODO: Call backend API endpoint (Task 3) when available
-          // For now, we'll simulate the structure that will be used
-          const response = await fetch(
-            `/api/projects/${projectId}/create-pr-from-branch`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                title: prTitle,
-                body: prBody || null,
-                head_branch: branchName,
-                base_branch: prBaseBranch || null,
-                draft: isDraft,
-                repo_id: repoId,
-              }),
-            }
-          );
-
-          const result = await response.json();
+          const result = await repoApi.createPR(repoId, {
+            head_branch: branchName,
+            base_branch: prBaseBranch,
+            title: prTitle,
+            body: prBody || null,
+            draft: isDraft,
+          });
 
           if (result.success) {
             modal.hide();
@@ -163,51 +152,23 @@ const CreatePRFromGroupDialogImpl =
 
           setCreatingPR(false);
 
-          // Handle GitHub CLI errors similar to CreatePRDialog
-          if (result.error) {
-            const defaultGhCliErrorMessage =
-              result.message || 'Failed to run GitHub CLI setup.';
-
-            if (
-              result.error.type === 'github_cli_not_installed' ||
-              result.error.type === 'github_cli_not_logged_in'
-            ) {
-              const ui = mapGhCliErrorToUi(
-                'SETUP_HELPER_NOT_SUPPORTED',
-                defaultGhCliErrorMessage,
-                t
-              );
-              setGhCliHelp(ui.variant ? ui : null);
-              setError(ui.variant ? null : ui.message);
-              return;
-            } else if (
-              result.error.type === 'git_cli_not_installed' ||
-              result.error.type === 'git_cli_not_logged_in'
-            ) {
-              const gitCliErrorKey =
-                result.error.type === 'git_cli_not_logged_in'
-                  ? 'createPrDialog.errors.gitCliNotLoggedIn'
-                  : 'createPrDialog.errors.gitCliNotInstalled';
-
-              setError(result.message || t(gitCliErrorKey));
-              setGhCliHelp(null);
-              return;
-            } else if (result.error.type === 'target_branch_not_found') {
-              setError(
-                t('createPrDialog.errors.targetBranchNotFound', {
-                  branch: result.error.branch,
-                })
-              );
-              setGhCliHelp(null);
-              return;
-            }
-          }
-
-          if (result.message) {
-            setError(result.message);
-            setGhCliHelp(null);
+          // Handle GitHub CLI errors
+          const errorType = result.error?.type;
+          if (
+            errorType === 'github_cli_not_installed' ||
+            errorType === 'github_cli_not_logged_in'
+          ) {
+            const ui = mapGhCliErrorToUi(
+              'SETUP_HELPER_NOT_SUPPORTED',
+              t('createPrFromGroupDialog.errors.failedToCreate'),
+              t
+            );
+            setGhCliHelp(ui.variant ? ui : null);
+            setError(ui.variant ? null : ui.message);
           } else {
-            setError(t('createPrFromGroupDialog.errors.failedToCreate'));
+            setError(
+              result.message || t('createPrFromGroupDialog.errors.failedToCreate')
+            );
             setGhCliHelp(null);
           }
         } catch (err) {
@@ -218,17 +179,7 @@ const CreatePRFromGroupDialogImpl =
               : t('createPrFromGroupDialog.errors.failedToCreate')
           );
         }
-      }, [
-        repoId,
-        projectId,
-        branchName,
-        prBaseBranch,
-        prBody,
-        prTitle,
-        isDraft,
-        modal,
-        t,
-      ]);
+      }, [repoId, branchName, prBaseBranch, prBody, prTitle, isDraft, modal, t]);
 
       const handleCancelCreatePR = useCallback(() => {
         modal.hide();
