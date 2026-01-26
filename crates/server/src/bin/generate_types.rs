@@ -139,6 +139,8 @@ fn generate_types_content() -> String {
         server::routes::repo::CreateBranchRequest::decl(),
         server::routes::repo::CheckBranchMergeStatusRequest::decl(),
         server::routes::repo::BranchMergeStatus::decl(),
+        server::routes::repo::CreateRepoPrRequest::decl(),
+        server::routes::repo::CreateRepoPrError::decl(),
         server::routes::tags::TagSearchParams::decl(),
         server::routes::oauth::TokenResponse::decl(),
         server::routes::config::UserSystemInfo::decl(),

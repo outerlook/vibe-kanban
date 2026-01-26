@@ -4,10 +4,13 @@ use axum::{
     response::Json as ResponseJson,
     routing::{get, post},
 };
-use db::models::{project_repo::ProjectRepo, repo::Repo};
+use db::models::{merge::PullRequestInfo, project_repo::ProjectRepo, repo::Repo};
 use deployment::Deployment;
 use serde::{Deserialize, Serialize};
-use services::services::git::GitBranch;
+use services::services::{
+    git::GitBranch,
+    github::{CreatePrRequest, GitHubService, GitHubServiceError},
+};
 use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
@@ -55,6 +58,24 @@ pub struct BranchMergeStatus {
     pub exists: bool,
     pub is_merged: bool,
     pub target_branch: Option<String>,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[ts(export)]
+pub struct CreateRepoPrRequest {
+    pub head_branch: String,
+    pub base_branch: String,
+    pub title: String,
+    pub body: Option<String>,
+    pub draft: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[ts(tag = "type", rename_all = "snake_case")]
+pub enum CreateRepoPrError {
+    GithubCliNotInstalled,
+    GithubCliNotLoggedIn,
 }
 
 pub async fn register_repo(
@@ -218,6 +239,51 @@ pub async fn check_branch_merge_status(
     Ok(ResponseJson(ApiResponse::success(status)))
 }
 
+pub async fn create_repo_pr(
+    State(deployment): State<DeploymentImpl>,
+    Path(repo_id): Path<Uuid>,
+    ResponseJson(payload): ResponseJson<CreateRepoPrRequest>,
+) -> Result<ResponseJson<ApiResponse<PullRequestInfo, CreateRepoPrError>>, ApiError> {
+    let repo = deployment
+        .repo()
+        .get_by_id(&deployment.db().pool, repo_id)
+        .await?;
+
+    // Get GitHub repo info from the repository path
+    let repo_info = deployment.git().get_github_repo_info(&repo.path)?;
+
+    // Build the PR request
+    let pr_request = CreatePrRequest {
+        title: payload.title,
+        body: payload.body,
+        head_branch: payload.head_branch,
+        base_branch: payload.base_branch,
+        draft: payload.draft,
+    };
+
+    // Create the PR using GitHub service
+    let github_service = GitHubService::new()?;
+    match github_service.create_pr(&repo_info, &pr_request).await {
+        Ok(pr_info) => Ok(ResponseJson(ApiResponse::success(pr_info))),
+        Err(e) => {
+            tracing::error!(
+                repo_id = %repo_id,
+                error = %e,
+                "Failed to create GitHub PR"
+            );
+            match &e {
+                GitHubServiceError::GhCliNotInstalled(_) => Ok(ResponseJson(
+                    ApiResponse::error_with_data(CreateRepoPrError::GithubCliNotInstalled),
+                )),
+                GitHubServiceError::AuthFailed(_) => Ok(ResponseJson(
+                    ApiResponse::error_with_data(CreateRepoPrError::GithubCliNotLoggedIn),
+                )),
+                _ => Err(ApiError::GitHubService(e)),
+            }
+        }
+    }
+}
+
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/repos", post(register_repo))
@@ -231,4 +297,5 @@ pub fn router() -> Router<DeploymentImpl> {
             "/repos/{repo_id}/branches/check-merge-status",
             post(check_branch_merge_status),
         )
+        .route("/repos/{repo_id}/prs", post(create_repo_pr))
 }
