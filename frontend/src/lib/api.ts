@@ -126,6 +126,7 @@ import {
   ConversationWithMessages,
   SendMessageResponse,
   ProjectPrsResponse,
+  ProjectWorktreesResponse,
   RepoPrs,
   PrWithComments,
   FeedbackResponse,
@@ -523,6 +524,11 @@ export const projectsApi = {
   getWorkspaces: async (projectId: string): Promise<Workspace[]> => {
     const response = await makeRequest(`/api/projects/${projectId}/workspaces`);
     return handleApiResponse<Workspace[]>(response);
+  },
+
+  getWorktrees: async (projectId: string): Promise<ProjectWorktreesResponse> => {
+    const response = await makeRequest(`/api/projects/${projectId}/worktrees`);
+    return handleApiResponse<ProjectWorktreesResponse>(response);
   },
 };
 
