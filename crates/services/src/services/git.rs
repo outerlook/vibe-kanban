@@ -726,7 +726,7 @@ impl GitService {
             if let Some(ref branch) = worktree.branch
                 && branch == branch_name
             {
-                return Ok(Some(std::path::PathBuf::from(worktree.path)));
+                return Ok(Some(worktree.path));
             }
         }
         Ok(None)

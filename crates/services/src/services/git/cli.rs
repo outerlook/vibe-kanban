@@ -18,7 +18,7 @@
 use std::{
     ffi::{OsStr, OsString},
     io::Write as _,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
@@ -70,8 +70,10 @@ pub struct StatusDiffEntry {
 /// Parsed worktree entry from `git worktree list --porcelain`
 #[derive(Debug, Clone)]
 pub struct WorktreeEntry {
-    pub path: String,
+    pub path: PathBuf,
     pub branch: Option<String>,
+    /// True if this is the main repository (not a linked worktree)
+    pub is_main: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -298,26 +300,41 @@ impl GitCli {
         Ok(())
     }
 
+    /// List all worktrees in the repository.
+    ///
+    /// The main worktree is identified as the first entry in the list that is not bare.
+    /// Secondary worktrees (linked worktrees) appear after it.
+    ///
+    /// Worktrees in detached HEAD state will have `branch: None`.
     pub fn list_worktrees(&self, repo_path: &Path) -> Result<Vec<WorktreeEntry>, GitCliError> {
         let out = self.git(repo_path, ["worktree", "list", "--porcelain"])?;
         let mut entries = Vec::new();
-        let mut current_path: Option<String> = None;
+        let mut current_path: Option<PathBuf> = None;
         let mut current_head: Option<String> = None;
         let mut current_branch: Option<String> = None;
+        let mut is_bare = false;
 
         for line in out.lines() {
             let line = line.trim();
 
             if line.is_empty() {
                 // End of current worktree entry, save it if we have required data
+                // Skip bare repositories (they have no working tree)
                 if let (Some(path), Some(_head)) = (current_path.take(), current_head.take()) {
-                    entries.push(WorktreeEntry {
-                        path,
-                        branch: current_branch.take(),
-                    });
+                    if !is_bare {
+                        // The first non-bare entry is the main worktree
+                        let is_main = entries.is_empty();
+                        entries.push(WorktreeEntry {
+                            path,
+                            branch: current_branch.take(),
+                            is_main,
+                        });
+                    }
                 }
+                current_branch = None;
+                is_bare = false;
             } else if let Some(path) = line.strip_prefix("worktree ") {
-                current_path = Some(path.to_string());
+                current_path = Some(PathBuf::from(path));
             } else if let Some(head) = line.strip_prefix("HEAD ") {
                 current_head = Some(head.to_string());
             } else if let Some(branch_ref) = line.strip_prefix("branch ") {
@@ -325,18 +342,56 @@ impl GitCli {
                 current_branch = branch_ref
                     .strip_prefix("refs/heads/")
                     .map(|name| name.to_string());
+            } else if line == "bare" {
+                is_bare = true;
             }
+            // Note: "detached" line is ignored; we simply have branch: None for detached HEAD
         }
 
         // Handle the last entry if no trailing empty line
         if let (Some(path), Some(_head)) = (current_path, current_head) {
-            entries.push(WorktreeEntry {
-                path,
-                branch: current_branch,
-            });
+            if !is_bare {
+                let is_main = entries.is_empty();
+                entries.push(WorktreeEntry {
+                    path,
+                    branch: current_branch,
+                    is_main,
+                });
+            }
         }
 
         Ok(entries)
+    }
+
+    /// Discover all worktrees from any path within a git repository.
+    ///
+    /// This is useful when you're inside a worktree (or the main repo) and want to
+    /// find all sibling worktrees. The function first resolves the main repository
+    /// path using `git rev-parse --git-common-dir`, then lists all worktrees.
+    ///
+    /// Returns a list of worktrees with their paths, branches, and whether they're
+    /// the main repository.
+    pub fn discover_worktrees(&self, any_repo_path: &Path) -> Result<Vec<WorktreeEntry>, GitCliError> {
+        // Get the common git directory (the main repo's .git directory)
+        // This works from any worktree or the main repo
+        let common_dir = self.git(any_repo_path, ["rev-parse", "--git-common-dir"])?;
+        let common_dir = common_dir.trim();
+
+        // The common dir is either:
+        // - An absolute path to .git
+        // - A relative path from any_repo_path to .git (usually just ".git")
+        let git_dir = if Path::new(common_dir).is_absolute() {
+            PathBuf::from(common_dir)
+        } else {
+            any_repo_path.join(common_dir)
+        };
+
+        // The main repo is the parent of the .git directory
+        let main_repo = git_dir
+            .parent()
+            .ok_or_else(|| GitCliError::CommandFailed("Could not determine main repo path".into()))?;
+
+        self.list_worktrees(main_repo)
     }
 
     /// Commit staged changes with the given message.
@@ -937,4 +992,196 @@ pub struct WorktreeStatus {
     pub uncommitted_tracked: usize,
     pub untracked: usize,
     pub entries: Vec<StatusEntry>,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, process::Command};
+
+    use tempfile::TempDir;
+
+    use super::*;
+
+    fn init_test_repo_via_cli(dir: &Path) {
+        Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(dir)
+            .output()
+            .expect("Failed to init repo");
+
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(dir)
+            .output()
+            .expect("Failed to set email");
+
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(dir)
+            .output()
+            .expect("Failed to set name");
+
+        // Create empty initial commit
+        Command::new("git")
+            .args(["commit", "--allow-empty", "-m", "Initial commit"])
+            .current_dir(dir)
+            .output()
+            .expect("Failed to create initial commit");
+    }
+
+    #[test]
+    fn test_list_worktrees_main_only() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        let git_cli = GitCli::new();
+        let worktrees = git_cli.list_worktrees(repo_path).unwrap();
+
+        assert_eq!(worktrees.len(), 1, "Should have exactly one worktree");
+
+        let main_wt = &worktrees[0];
+        assert!(main_wt.is_main, "First worktree should be the main one");
+        assert_eq!(main_wt.branch, Some("main".to_string()));
+        assert_eq!(main_wt.path, repo_path);
+    }
+
+    #[test]
+    fn test_list_worktrees_with_linked_worktree() {
+        let temp_dir = TempDir::new().unwrap();
+        let main_repo_path = temp_dir.path().join("main");
+        fs::create_dir_all(&main_repo_path).unwrap();
+        init_test_repo_via_cli(&main_repo_path);
+
+        // Create a linked worktree with a new branch
+        let worktree_path = temp_dir.path().join("feature-wt");
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "feature",
+                worktree_path.to_str().unwrap(),
+            ])
+            .current_dir(&main_repo_path)
+            .output()
+            .expect("Failed to create worktree");
+
+        let git_cli = GitCli::new();
+        let worktrees = git_cli.list_worktrees(&main_repo_path).unwrap();
+
+        assert_eq!(worktrees.len(), 2, "Should have main + 1 linked worktree");
+
+        // First should be main
+        let main_wt = &worktrees[0];
+        assert!(main_wt.is_main, "First worktree should be the main one");
+        assert_eq!(main_wt.branch, Some("main".to_string()));
+        assert_eq!(main_wt.path, main_repo_path);
+
+        // Second should be the linked worktree
+        let linked_wt = &worktrees[1];
+        assert!(!linked_wt.is_main, "Second worktree should not be main");
+        assert_eq!(linked_wt.branch, Some("feature".to_string()));
+        assert_eq!(linked_wt.path, worktree_path);
+    }
+
+    #[test]
+    fn test_list_worktrees_detached_head() {
+        let temp_dir = TempDir::new().unwrap();
+        let main_repo_path = temp_dir.path().join("main");
+        fs::create_dir_all(&main_repo_path).unwrap();
+        init_test_repo_via_cli(&main_repo_path);
+
+        // Create a linked worktree in detached HEAD state
+        let worktree_path = temp_dir.path().join("detached-wt");
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "--detach",
+                worktree_path.to_str().unwrap(),
+                "HEAD",
+            ])
+            .current_dir(&main_repo_path)
+            .output()
+            .expect("Failed to create detached worktree");
+
+        let git_cli = GitCli::new();
+        let worktrees = git_cli.list_worktrees(&main_repo_path).unwrap();
+
+        assert_eq!(worktrees.len(), 2, "Should have main + 1 detached worktree");
+
+        // The detached worktree should have branch: None
+        let detached_wt = &worktrees[1];
+        assert!(!detached_wt.is_main);
+        assert_eq!(
+            detached_wt.branch, None,
+            "Detached worktree should have no branch"
+        );
+        assert_eq!(detached_wt.path, worktree_path);
+    }
+
+    #[test]
+    fn test_discover_worktrees_from_main() {
+        let temp_dir = TempDir::new().unwrap();
+        let main_repo_path = temp_dir.path().join("main");
+        fs::create_dir_all(&main_repo_path).unwrap();
+        init_test_repo_via_cli(&main_repo_path);
+
+        // Create a linked worktree
+        let worktree_path = temp_dir.path().join("feature-wt");
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "feature",
+                worktree_path.to_str().unwrap(),
+            ])
+            .current_dir(&main_repo_path)
+            .output()
+            .expect("Failed to create worktree");
+
+        let git_cli = GitCli::new();
+
+        // Should discover both worktrees when called from main repo
+        let worktrees = git_cli.discover_worktrees(&main_repo_path).unwrap();
+        assert_eq!(worktrees.len(), 2);
+        assert!(worktrees[0].is_main);
+        assert!(!worktrees[1].is_main);
+    }
+
+    #[test]
+    fn test_discover_worktrees_from_linked() {
+        let temp_dir = TempDir::new().unwrap();
+        let main_repo_path = temp_dir.path().join("main");
+        fs::create_dir_all(&main_repo_path).unwrap();
+        init_test_repo_via_cli(&main_repo_path);
+
+        // Create a linked worktree
+        let worktree_path = temp_dir.path().join("feature-wt");
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "feature",
+                worktree_path.to_str().unwrap(),
+            ])
+            .current_dir(&main_repo_path)
+            .output()
+            .expect("Failed to create worktree");
+
+        let git_cli = GitCli::new();
+
+        // Should discover both worktrees when called FROM the linked worktree
+        let worktrees = git_cli.discover_worktrees(&worktree_path).unwrap();
+        assert_eq!(
+            worktrees.len(),
+            2,
+            "Should find all worktrees from linked worktree"
+        );
+        assert!(worktrees[0].is_main, "First should be main");
+        assert!(!worktrees[1].is_main, "Second should be linked");
+    }
 }
