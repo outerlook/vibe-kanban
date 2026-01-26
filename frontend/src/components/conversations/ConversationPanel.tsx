@@ -1,11 +1,17 @@
 import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MessageSquare, Pencil } from 'lucide-react';
+import { MessageSquare, Pencil, GitBranch, Home } from 'lucide-react';
 import { ConversationList } from './ConversationList';
 import { ConversationView } from './ConversationView';
 import { MessageInput } from './MessageInput';
 import { NewConversationDialog } from '@/components/dialogs/conversations/NewConversationDialog';
 import { RenameConversationDialog } from '@/components/dialogs/conversations/RenameConversationDialog';
+import { Badge } from '@/components/ui/badge';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {
   useSendMessage,
   useConversationExecutions,
@@ -107,6 +113,31 @@ export function ConversationPanel({ projectId }: ConversationPanelProps) {
               >
                 <Pencil className="h-3.5 w-3.5" />
               </button>
+
+              {selectedConversation.worktree_path ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="outline" className="text-xs gap-1">
+                      <GitBranch className="h-3 w-3" />
+                      {selectedConversation.worktree_branch}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {selectedConversation.worktree_path}
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="secondary" className="text-xs gap-1">
+                      <Home className="h-3 w-3" />
+                      main
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>Main repository</TooltipContent>
+                </Tooltip>
+              )}
+
               {selectedConversation.executor && (
                 <span className="text-xs text-muted-foreground px-2 py-0.5 bg-muted rounded ml-auto">
                   {selectedConversation.executor}
