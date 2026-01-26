@@ -78,6 +78,10 @@ export type AgentFeedback = { id: string, execution_process_id: string, task_id:
 
 export type CreateAgentFeedback = { execution_process_id: string, task_id: string, workspace_id: string, feedback_json: string | null, };
 
+export type ReviewAttention = { id: string, execution_process_id: string, task_id: string, workspace_id: string, needs_attention: boolean, reasoning: string | null, analyzed_at: string, created_at: string, updated_at: string, };
+
+export type CreateReviewAttention = { execution_process_id: string, task_id: string, workspace_id: string, needs_attention: boolean, reasoning: string | null, };
+
 export type FeedbackResponse = { id: string, task_id: string, workspace_id: string, execution_process_id: string, feedback: JsonValue | null, collected_at: string, };
 
 export type GanttTask = { id: string, name: string, start: string, end: string, progress: number, dependencies: Array<string>, task_status: TaskStatus, task_group_id: string | null, total_input_tokens: bigint | null, total_output_tokens: bigint | null, token_usage_metadata: JsonValue | null, };

@@ -50,6 +50,8 @@ fn generate_types_content() -> String {
         db::models::notification::NotificationStats::decl(),
         db::models::agent_feedback::AgentFeedback::decl(),
         db::models::agent_feedback::CreateAgentFeedback::decl(),
+        db::models::review_attention::ReviewAttention::decl(),
+        db::models::review_attention::CreateReviewAttention::decl(),
         server::routes::feedback::FeedbackResponse::decl(),
         db::models::gantt::GanttTask::decl(),
         server::routes::gantt::PaginatedGanttTasks::decl(),
