@@ -8,6 +8,7 @@ import {
   Loader2,
   GitBranch,
   Code2,
+  GitPullRequestCreateArrow,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,6 +27,9 @@ import { useBranchMergeStatus, useCustomEditors, useOpenInEditor } from '@/hooks
 import { cn } from '@/lib/utils';
 import { EditorType } from 'shared/types';
 import type { TaskStatusCounts, TaskStatus } from 'shared/types';
+import { CreatePRFromGroupDialog } from '@/components/dialogs/tasks/CreatePRFromGroupDialog';
+import { useQueryClient } from '@tanstack/react-query';
+import { prKeys } from '@/hooks/useProjectPrs';
 
 const CUSTOM_EDITOR_PREFIX = 'custom:';
 
@@ -46,6 +50,10 @@ export interface BranchSectionProps {
   workspaceId?: string;
   defaultOpen?: boolean;
   className?: string;
+  /** Group name for creating a PR (used as default PR title) */
+  groupName?: string;
+  /** Group description for creating a PR (used as default PR body) */
+  groupDescription?: string | null;
 }
 
 export function BranchSection({
@@ -57,8 +65,11 @@ export function BranchSection({
   workspaceId,
   defaultOpen = true,
   className,
+  groupName,
+  groupDescription,
 }: BranchSectionProps) {
   const { t } = useTranslation('prs');
+  const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const [contextMenu, setContextMenu] = useState<{
     open: boolean;
@@ -113,7 +124,34 @@ export function BranchSection({
     [closeContextMenu, workspaceId, openInEditor]
   );
 
-  if (prs.length === 0) {
+  const handleCreatePR = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!repoId || !projectId) return;
+
+      await CreatePRFromGroupDialog.show({
+        groupName: groupName ?? branchName,
+        groupDescription: groupDescription ?? null,
+        branchName,
+        repoId,
+        projectId,
+      });
+
+      queryClient.invalidateQueries({ queryKey: prKeys.byProject(projectId) });
+    },
+    [repoId, projectId, groupName, groupDescription, branchName, queryClient]
+  );
+
+  // Show Create PR button when: no PRs AND branch is not merged AND we have group info
+  const showCreatePrButton =
+    prs.length === 0 &&
+    groupName !== undefined &&
+    repoId !== undefined &&
+    projectId !== undefined &&
+    !branchStatus?.is_merged;
+
+  // Don't render if no PRs and no group info (nothing to show)
+  if (prs.length === 0 && !groupName) {
     return null;
   }
 
@@ -121,9 +159,8 @@ export function BranchSection({
     <>
       <div className={cn('border border-border rounded-md', className)}>
         {/* Collapsible header */}
-        <Button
-          variant="ghost"
-          className="w-full justify-start gap-2 px-3 py-2 h-auto font-medium"
+        <div
+          className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-accent/50 rounded-t-md"
           onClick={toggleOpen}
           onContextMenu={handleContextMenu}
         >
@@ -133,7 +170,7 @@ export function BranchSection({
             <ChevronRight className="w-4 h-4 flex-shrink-0" />
           )}
           <GitBranch className="w-4 h-4 flex-shrink-0 text-muted-foreground" />
-          <span className="truncate">{branchName}</span>
+          <span className="truncate font-medium">{branchName}</span>
 
           {/* Git merge status */}
           {repoId && projectId && (
@@ -165,7 +202,20 @@ export function BranchSection({
           <Badge variant="outline" className="text-xs ml-2">
             {prs.length} PR{prs.length !== 1 ? 's' : ''}
           </Badge>
-        </Button>
+
+          {/* Create PR button */}
+          {showCreatePrButton && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 ml-1"
+              onClick={handleCreatePR}
+              title={t('branchSection.createPr', 'Create PR')}
+            >
+              <GitPullRequestCreateArrow className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
 
         {/* Collapsible content */}
         {isOpen && (

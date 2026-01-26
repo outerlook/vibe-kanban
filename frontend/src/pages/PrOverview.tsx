@@ -105,74 +105,114 @@ export function PrOverview() {
     taskCounts: TaskStatusCounts;
     repoId?: string;
     workspaceId?: string;
+    /** First matching task group name (for Create PR dialog) */
+    groupName?: string;
+    /** First matching task group description (for Create PR dialog) */
+    groupDescription?: string | null;
   };
 
-  // Filter and group PRs by head branch
+  // Filter and group PRs by head branch, also include task groups without PRs
   const { groupedByBranch, branchMetadata, totalPrCount } = useMemo(() => {
-    if (!prsResponse?.repos) {
-      return {
-        groupedByBranch: new Map<string, PrData[]>(),
-        branchMetadata: new Map<string, BranchMetadata>(),
-        totalPrCount: 0,
-      };
-    }
-
-    let total = 0;
     const grouped = new Map<string, PrData[]>();
     const metadata = new Map<string, BranchMetadata>();
+    let total = 0;
 
-    for (const repo of prsResponse.repos) {
-      for (const pr of repo.pull_requests) {
-        total += 1;
+    // First, collect all branches from task groups that have base_branch
+    // This ensures we show branches without PRs
+    if (taskGroups) {
+      for (const group of taskGroups) {
+        if (!group.base_branch) continue;
 
-        // Filter by base branch
-        if (selectedBranch && pr.base_branch !== selectedBranch) {
-          continue;
-        }
-        // Filter by search query
-        if (
-          searchQuery &&
-          !pr.title.toLowerCase().includes(searchQuery.toLowerCase())
-        ) {
-          continue;
-        }
+        const branchName = group.base_branch;
 
-        const branchName = pr.head_branch;
-        const prData = toPrData(pr, repo.repo_id);
+        // Skip if already processed
+        if (metadata.has(branchName)) continue;
 
-        // Group PRs by head branch
-        const existing = grouped.get(branchName) ?? [];
-        existing.push(prData);
-        grouped.set(branchName, existing);
+        // Find workspace for this branch
+        const workspace = workspaces?.find((w) => w.branch === branchName);
 
-        // Initialize metadata for this branch if not present
-        if (!metadata.has(branchName)) {
-          // Aggregate task counts from TaskGroups where base_branch === head_branch
-          const matchingGroups =
-            taskGroups?.filter((g) => g.base_branch === branchName) ?? [];
-          const aggregatedCounts: TaskStatusCounts = {
-            todo: BigInt(0),
-            inprogress: BigInt(0),
-            inreview: BigInt(0),
-            done: BigInt(0),
-            cancelled: BigInt(0),
-          };
-          for (const group of matchingGroups) {
-            aggregatedCounts.todo += group.task_counts.todo;
-            aggregatedCounts.inprogress += group.task_counts.inprogress;
-            aggregatedCounts.inreview += group.task_counts.inreview;
-            aggregatedCounts.done += group.task_counts.done;
-            aggregatedCounts.cancelled += group.task_counts.cancelled;
+        // Get repoId from prsResponse if available
+        const repoId = prsResponse?.repos?.[0]?.repo_id;
+
+        metadata.set(branchName, {
+          taskCounts: { ...group.task_counts },
+          repoId,
+          workspaceId: workspace?.id,
+          groupName: group.name,
+          groupDescription: group.description,
+        });
+
+        // Initialize empty PR array for this branch
+        grouped.set(branchName, []);
+      }
+    }
+
+    // Then, process PRs and update/add to the maps
+    if (prsResponse?.repos) {
+      for (const repo of prsResponse.repos) {
+        for (const pr of repo.pull_requests) {
+          total += 1;
+
+          // Filter by base branch
+          if (selectedBranch && pr.base_branch !== selectedBranch) {
+            continue;
+          }
+          // Filter by search query
+          if (
+            searchQuery &&
+            !pr.title.toLowerCase().includes(searchQuery.toLowerCase())
+          ) {
+            continue;
           }
 
-          // Find most recent workspace for this branch (array sorted by created_at DESC)
-          const workspace = workspaces?.find((w) => w.branch === branchName);
+          const branchName = pr.head_branch;
+          const prData = toPrData(pr, repo.repo_id);
 
-          metadata.set(branchName, {
-            taskCounts: aggregatedCounts,
-            repoId: repo.repo_id,
-            workspaceId: workspace?.id,
-          });
+          // Group PRs by head branch
+          const existing = grouped.get(branchName) ?? [];
+          existing.push(prData);
+          grouped.set(branchName, existing);
+
+          // Update or initialize metadata for this branch
+          if (!metadata.has(branchName)) {
+            // Aggregate task counts from TaskGroups where base_branch === head_branch
+            const matchingGroups =
+              taskGroups?.filter((g) => g.base_branch === branchName) ?? [];
+            const aggregatedCounts: TaskStatusCounts = {
+              todo: BigInt(0),
+              inprogress: BigInt(0),
+              inreview: BigInt(0),
+              done: BigInt(0),
+              cancelled: BigInt(0),
+            };
+            for (const group of matchingGroups) {
+              aggregatedCounts.todo += group.task_counts.todo;
+              aggregatedCounts.inprogress += group.task_counts.inprogress;
+              aggregatedCounts.inreview += group.task_counts.inreview;
+              aggregatedCounts.done += group.task_counts.done;
+              aggregatedCounts.cancelled += group.task_counts.cancelled;
+            }
+
+            // Find most recent workspace for this branch (array sorted by created_at DESC)
+            const workspace = workspaces?.find((w) => w.branch === branchName);
+
+            // Get first matching group for name/description
+            const firstGroup = matchingGroups[0];
+
+            metadata.set(branchName, {
+              taskCounts: aggregatedCounts,
+              repoId: repo.repo_id,
+              workspaceId: workspace?.id,
+              groupName: firstGroup?.name,
+              groupDescription: firstGroup?.description,
+            });
+          } else {
+            // Update repoId if not set (from task group initialization)
+            const existingMeta = metadata.get(branchName)!;
+            if (!existingMeta.repoId) {
+              existingMeta.repoId = repo.repo_id;
+            }
+          }
         }
       }
     }
@@ -322,6 +362,8 @@ export function PrOverview() {
                 repoId={meta?.repoId}
                 projectId={projectId}
                 workspaceId={meta?.workspaceId}
+                groupName={meta?.groupName}
+                groupDescription={meta?.groupDescription}
               />
             );
           })}
