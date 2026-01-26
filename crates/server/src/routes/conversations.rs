@@ -42,6 +42,8 @@ pub struct CreateConversationRequest {
     pub title: String,
     pub initial_message: String,
     pub executor_profile_id: Option<ExecutorProfileId>,
+    pub worktree_path: Option<String>,
+    pub worktree_branch: Option<String>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -113,7 +115,8 @@ pub async fn create_conversation(
         payload.title,
         payload.initial_message.clone(),
         executor_name,
-        None, // worktree_path - can be added later when needed
+        payload.worktree_path.clone(),
+        payload.worktree_branch.clone(),
     )
     .await?;
 
@@ -121,7 +124,7 @@ pub async fn create_conversation(
     let action_type = ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
         prompt: payload.initial_message,
         executor_profile_id,
-        working_dir: None,
+        working_dir: payload.worktree_path.clone(),
     });
     let executor_action = ExecutorAction::new(action_type, None);
 

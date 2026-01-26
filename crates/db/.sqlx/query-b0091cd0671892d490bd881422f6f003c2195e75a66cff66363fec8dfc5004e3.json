@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO conversation_sessions (id, project_id, title, status, executor, worktree_path)\n               VALUES ($1, $2, $3, $4, $5, $6)\n               RETURNING id AS \"id!: Uuid\",\n                         project_id AS \"project_id!: Uuid\",\n                         title,\n                         status AS \"status!: ConversationSessionStatus\",\n                         executor,\n                         worktree_path,\n                         created_at AS \"created_at!: DateTime<Utc>\",\n                         updated_at AS \"updated_at!: DateTime<Utc>\"",
+  "query": "INSERT INTO conversation_sessions (id, project_id, title, status, executor, worktree_path, worktree_branch)\n               VALUES ($1, $2, $3, $4, $5, $6, $7)\n               RETURNING id AS \"id!: Uuid\",\n                         project_id AS \"project_id!: Uuid\",\n                         title,\n                         status AS \"status!: ConversationSessionStatus\",\n                         executor,\n                         worktree_path,\n                         worktree_branch,\n                         created_at AS \"created_at!: DateTime<Utc>\",\n                         updated_at AS \"updated_at!: DateTime<Utc>\"",
   "describe": {
     "columns": [
       {
@@ -34,18 +34,23 @@
         "type_info": "Text"
       },
       {
-        "name": "created_at!: DateTime<Utc>",
+        "name": "worktree_branch",
         "ordinal": 6,
         "type_info": "Text"
       },
       {
-        "name": "updated_at!: DateTime<Utc>",
+        "name": "created_at!: DateTime<Utc>",
         "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 8,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 6
+      "Right": 7
     },
     "nullable": [
       true,
@@ -54,9 +59,10 @@
       false,
       true,
       true,
+      true,
       false,
       false
     ]
   },
-  "hash": "b2b824914d5c3da722a1f70d0fd62b12bae884d5a0f6aece818d3a7d286971f0"
+  "hash": "b0091cd0671892d490bd881422f6f003c2195e75a66cff66363fec8dfc5004e3"
 }
