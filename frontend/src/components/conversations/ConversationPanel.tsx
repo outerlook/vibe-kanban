@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {
@@ -114,29 +115,31 @@ export function ConversationPanel({ projectId }: ConversationPanelProps) {
                 <Pencil className="h-3.5 w-3.5" />
               </button>
 
-              {selectedConversation.worktree_path ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Badge variant="outline" className="text-xs gap-1">
-                      <GitBranch className="h-3 w-3" />
-                      {selectedConversation.worktree_branch}
-                    </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {selectedConversation.worktree_path}
-                  </TooltipContent>
-                </Tooltip>
-              ) : (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Badge variant="secondary" className="text-xs gap-1">
-                      <Home className="h-3 w-3" />
-                      main
-                    </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent>Main repository</TooltipContent>
-                </Tooltip>
-              )}
+              <TooltipProvider>
+                {selectedConversation.worktree_path ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="outline" className="text-xs gap-1">
+                        <GitBranch className="h-3 w-3" />
+                        {selectedConversation.worktree_branch}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {selectedConversation.worktree_path}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="secondary" className="text-xs gap-1">
+                        <Home className="h-3 w-3" />
+                        main
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>Main repository</TooltipContent>
+                  </Tooltip>
+                )}
+              </TooltipProvider>
 
               {selectedConversation.executor && (
                 <span className="text-xs text-muted-foreground px-2 py-0.5 bg-muted rounded ml-auto">
