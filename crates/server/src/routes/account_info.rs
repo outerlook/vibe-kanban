@@ -29,7 +29,8 @@ pub struct ClaudeAccountInfo {
 pub struct ClaudeUsage {
     pub five_hour: UsageLimit,
     pub seven_day: UsageLimit,
-    pub seven_day_opus: UsageLimit,
+    pub seven_day_opus: Option<UsageLimit>,
+    pub seven_day_sonnet: Option<UsageLimit>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -92,12 +93,13 @@ struct OpenAiAuthClaims {
 struct AnthropicUsageResponse {
     five_hour: AnthropicUsageLimit,
     seven_day: AnthropicUsageLimit,
-    seven_day_opus: AnthropicUsageLimit,
+    seven_day_opus: Option<AnthropicUsageLimit>,
+    seven_day_sonnet: Option<AnthropicUsageLimit>,
 }
 
 #[derive(Debug, Deserialize)]
 struct AnthropicUsageLimit {
-    /// Utilization from 0.0 to 1.0
+    /// Utilization percentage from 0.0 to 100.0
     utilization: f64,
     resets_at: String,
 }
@@ -124,17 +126,21 @@ async fn fetch_claude_usage(access_token: &str) -> Option<ClaudeUsage> {
             match resp.json::<AnthropicUsageResponse>().await {
                 Ok(usage) => Some(ClaudeUsage {
                     five_hour: UsageLimit {
-                        used_percent: usage.five_hour.utilization * 100.0,
+                        used_percent: usage.five_hour.utilization,
                         resets_at: usage.five_hour.resets_at,
                     },
                     seven_day: UsageLimit {
-                        used_percent: usage.seven_day.utilization * 100.0,
+                        used_percent: usage.seven_day.utilization,
                         resets_at: usage.seven_day.resets_at,
                     },
-                    seven_day_opus: UsageLimit {
-                        used_percent: usage.seven_day_opus.utilization * 100.0,
-                        resets_at: usage.seven_day_opus.resets_at,
-                    },
+                    seven_day_opus: usage.seven_day_opus.map(|limit| UsageLimit {
+                        used_percent: limit.utilization,
+                        resets_at: limit.resets_at,
+                    }),
+                    seven_day_sonnet: usage.seven_day_sonnet.map(|limit| UsageLimit {
+                        used_percent: limit.utilization,
+                        resets_at: limit.resets_at,
+                    }),
                 }),
                 Err(e) => {
                     tracing::warn!("Failed to parse Claude usage response: {}", e);
