@@ -2,11 +2,17 @@ use std::{
     collections::{HashMap, HashSet},
     io,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, LazyLock, Mutex},
     time::Duration,
 };
 
 use dashmap::DashSet;
+
+/// Tracks which projects have an active merge queue processor.
+/// This prevents multiple processors from being spawned for the same project,
+/// which could cause race conditions when processing the queue.
+static ACTIVE_MERGE_PROCESSORS: LazyLock<Mutex<HashSet<Uuid>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -56,7 +62,10 @@ use services::services::{
     feedback::FeedbackService,
     git::{Commit, GitCli, GitService},
     image::ImageService,
+    merge_queue_processor::MergeQueueProcessor,
+    merge_queue_store::MergeQueueStore,
     notification::NotificationService,
+    operation_status::OperationStatusStore,
     queued_message::QueuedMessageService,
     review_attention::ReviewAttentionService,
     share::SharePublisher,
@@ -141,6 +150,10 @@ pub struct LocalContainerService {
     feedback_pending_cleanup: Arc<RwLock<HashSet<Uuid>>>,
     /// Workspace IDs that currently have a running agent - used to prevent duplicate spawns
     running_workspaces: Arc<DashSet<Uuid>>,
+    /// MergeQueueStore for autopilot merge functionality - set after construction
+    merge_queue_store: Arc<RwLock<Option<MergeQueueStore>>>,
+    /// OperationStatusStore for tracking merge operations - set after construction
+    operation_status: Arc<RwLock<Option<OperationStatusStore>>>,
 }
 
 impl LocalContainerService {
@@ -180,11 +193,25 @@ impl LocalContainerService {
             skills_cache,
             feedback_pending_cleanup,
             running_workspaces,
+            merge_queue_store: Arc::new(RwLock::new(None)),
+            operation_status: Arc::new(RwLock::new(None)),
         };
 
         container.spawn_workspace_cleanup().await;
 
         container
+    }
+
+    /// Set the MergeQueueStore and OperationStatusStore for autopilot merge functionality.
+    /// This must be called after the deployment is constructed, as these services are
+    /// created after the container.
+    pub async fn set_merge_services(
+        &self,
+        merge_queue_store: MergeQueueStore,
+        operation_status: OperationStatusStore,
+    ) {
+        *self.merge_queue_store.write().await = Some(merge_queue_store);
+        *self.operation_status.write().await = Some(operation_status);
     }
 
     pub async fn get_child_from_store(&self, id: &Uuid) -> Option<Arc<RwLock<AsyncGroupChild>>> {
@@ -1690,6 +1717,12 @@ impl LocalContainerService {
         let msg_stores = self.msg_stores.clone();
         let feedback_pending_cleanup = self.feedback_pending_cleanup.clone();
 
+        // Clone services needed for autopilot merge
+        let git = self.git.clone();
+        let config = self.config.clone();
+        let merge_queue_store = self.merge_queue_store.clone();
+        let operation_status = self.operation_status.clone();
+
         tokio::spawn(async move {
             // Helper to cleanup msg_store and remove from pending set
             let cleanup = |msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
@@ -1858,21 +1891,210 @@ impl LocalContainerService {
             }
 
             // Update Task.needs_attention field
-            if let Err(e) =
-                Task::update_needs_attention(&db.pool, task_id, Some(result.needs_attention)).await
-            {
-                tracing::warn!(
-                    "Failed to update task {} needs_attention to {}: {}",
-                    task_id,
-                    result.needs_attention,
-                    e
-                );
-            } else {
-                tracing::info!(
-                    "Updated task {} needs_attention to {}",
-                    task_id,
-                    result.needs_attention
-                );
+            let update_succeeded = match Task::update_needs_attention(&db.pool, task_id, Some(result.needs_attention)).await {
+                Ok(_) => {
+                    tracing::info!(
+                        "Updated task {} needs_attention to {}",
+                        task_id,
+                        result.needs_attention
+                    );
+                    true
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to update task {} needs_attention to {}: {}",
+                        task_id,
+                        result.needs_attention,
+                        e
+                    );
+                    false
+                }
+            };
+
+            // Trigger autopilot merge if update succeeded and task doesn't need attention
+            if update_succeeded && !result.needs_attention {
+                // Inline the autopilot merge logic to avoid borrowing issues
+                let autopilot_enabled = {
+                    let config = config.read().await;
+                    config.autopilot_enabled
+                };
+
+                if autopilot_enabled {
+                    tracing::info!(
+                        task_id = %task_id,
+                        workspace_id = %workspace_id,
+                        "Autopilot: task doesn't need attention, triggering merge"
+                    );
+
+                    // Spawn autopilot merge in a separate task
+                    let db_clone = db.clone();
+                    let git_clone = git.clone();
+                    let merge_queue_store_clone = merge_queue_store.clone();
+                    let operation_status_clone = operation_status.clone();
+
+                    tokio::spawn(async move {
+                        // Get the merge_queue_store
+                        let merge_queue_store = {
+                            let guard = merge_queue_store_clone.read().await;
+                            match guard.clone() {
+                                Some(store) => store,
+                                None => {
+                                    tracing::warn!(
+                                        task_id = %task_id,
+                                        "Autopilot merge skipped: merge_queue_store not set"
+                                    );
+                                    return;
+                                }
+                            }
+                        };
+
+                        // Get the operation_status
+                        let operation_status = {
+                            let guard = operation_status_clone.read().await;
+                            match guard.clone() {
+                                Some(status) => status,
+                                None => {
+                                    tracing::warn!(
+                                        task_id = %task_id,
+                                        "Autopilot merge skipped: operation_status not set"
+                                    );
+                                    return;
+                                }
+                            }
+                        };
+
+                        // Load task
+                        let task = match Task::find_by_id(&db_clone.pool, task_id).await {
+                            Ok(Some(t)) => t,
+                            Ok(None) => {
+                                tracing::warn!(
+                                    task_id = %task_id,
+                                    "Autopilot merge skipped: task not found"
+                                );
+                                return;
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    task_id = %task_id,
+                                    error = %e,
+                                    "Autopilot merge skipped: failed to load task"
+                                );
+                                return;
+                            }
+                        };
+
+                        // Find workspace repos
+                        let workspace_repos = match WorkspaceRepo::find_by_workspace_id(&db_clone.pool, workspace_id).await {
+                            Ok(repos) if !repos.is_empty() => repos,
+                            Ok(_) => {
+                                tracing::warn!(
+                                    task_id = %task_id,
+                                    workspace_id = %workspace_id,
+                                    "Autopilot merge skipped: no workspace repos found"
+                                );
+                                return;
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    task_id = %task_id,
+                                    error = %e,
+                                    "Autopilot merge skipped: failed to load workspace repos"
+                                );
+                                return;
+                            }
+                        };
+
+                        // Build fallback commit message from task title and description
+                        let commit_message = {
+                            let mut msg = task.title.clone();
+                            if let Some(description) = &task.description {
+                                let trimmed = description.trim();
+                                if !trimmed.is_empty() {
+                                    msg.push_str("\n\n");
+                                    msg.push_str(trimmed);
+                                }
+                            }
+                            msg
+                        };
+
+                        // Enqueue each repo for merge
+                        let project_id = task.project_id;
+                        for workspace_repo in workspace_repos {
+                            tracing::info!(
+                                task_id = %task_id,
+                                workspace_id = %workspace_id,
+                                repo_id = %workspace_repo.repo_id,
+                                "Autopilot: enqueueing task for merge"
+                            );
+
+                            merge_queue_store.enqueue(
+                                project_id,
+                                workspace_id,
+                                workspace_repo.repo_id,
+                                commit_message.clone(),
+                            );
+                        }
+
+                        // Spawn the merge queue processor if not already running
+                        let should_spawn = {
+                            let mut active = match ACTIVE_MERGE_PROCESSORS.lock() {
+                                Ok(guard) => guard,
+                                Err(poisoned) => {
+                                    tracing::error!("ACTIVE_MERGE_PROCESSORS mutex poisoned");
+                                    poisoned.into_inner()
+                                }
+                            };
+                            if active.contains(&project_id) {
+                                false
+                            } else {
+                                active.insert(project_id);
+                                true
+                            }
+                        };
+
+                        if should_spawn {
+                            tracing::info!(
+                                project_id = %project_id,
+                                "Autopilot: spawning merge queue processor"
+                            );
+
+                            let processor_pool = db_clone.pool.clone();
+                            let processor_git = git_clone.clone();
+                            let processor_store = merge_queue_store.clone();
+                            let processor_op_status = operation_status.clone();
+
+                            tokio::spawn(async move {
+                                let processor = MergeQueueProcessor::with_operation_status(
+                                    processor_pool,
+                                    processor_git,
+                                    processor_store,
+                                    processor_op_status,
+                                );
+                                if let Err(e) = processor.process_project_queue(project_id).await {
+                                    tracing::error!(
+                                        %project_id,
+                                        error = %e,
+                                        "Autopilot: failed to process merge queue"
+                                    );
+                                }
+                                // Always remove from active set when done
+                                if let Ok(mut active) = ACTIVE_MERGE_PROCESSORS.lock() {
+                                    active.remove(&project_id);
+                                }
+                            });
+                        } else {
+                            tracing::debug!(
+                                project_id = %project_id,
+                                "Autopilot: merge queue processor already running for project"
+                            );
+                        }
+                    });
+                } else {
+                    tracing::debug!(
+                        task_id = %task_id,
+                        "Autopilot merge skipped: autopilot is disabled"
+                    );
+                }
             }
 
             // Final cleanup after successful processing

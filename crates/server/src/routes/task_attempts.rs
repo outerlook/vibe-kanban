@@ -2209,13 +2209,17 @@ pub async fn queue_merge(
         let processor_git = deployment.git().clone();
         let processor_store = deployment.merge_queue_store().clone();
         let processor_op_status = deployment.operation_status().clone();
+        let processor_config = deployment.config().clone();
+
         tokio::spawn(async move {
             let processor = MergeQueueProcessor::with_operation_status(
                 processor_pool,
                 processor_git,
                 processor_store,
                 processor_op_status,
+                processor_config,
             );
+
             if let Err(e) = processor.process_project_queue(project_id).await {
                 tracing::error!(
                     %project_id,

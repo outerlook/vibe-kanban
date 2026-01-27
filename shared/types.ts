@@ -66,7 +66,7 @@ export type TaskGroupWithStats = { task_counts: TaskStatusCounts, id: string, pr
 
 export type Notification = { id: string, project_id: string | null, notification_type: NotificationType, title: string, message: string, is_read: boolean, metadata: JsonValue | null, workspace_id: string | null, session_id: string | null, conversation_session_id: string | null, created_at: string, updated_at: string, };
 
-export type NotificationType = "agent_complete" | "agent_approval_needed" | "agent_error" | "conversation_response";
+export type NotificationType = "agent_complete" | "agent_approval_needed" | "agent_question_needed" | "agent_error" | "conversation_response";
 
 export type CreateNotification = { project_id: string | null, notification_type: NotificationType, title: string, message: string, metadata: JsonValue | null, workspace_id: string | null, session_id: string | null, conversation_session_id: string | null, };
 
@@ -182,7 +182,7 @@ export type MergeStatus = "open" | "merged" | "closed" | "unknown";
 
 export type PullRequestInfo = { number: bigint, url: string, status: MergeStatus, merged_at: string | null, merge_commit_sha: string | null, };
 
-export type ApprovalStatus = { "status": "pending" } | { "status": "approved" } | { "status": "denied", reason?: string, } | { "status": "timed_out" };
+export type ApprovalStatus = { "status": "pending" } | { "status": "approved" } | { "status": "denied", reason?: string, } | { "status": "answered", answers: Array<QuestionAnswer>, } | { "status": "timed_out" };
 
 export type CreateApprovalRequest = { tool_name: string, tool_input: JsonValue, tool_call_id: string, };
 
@@ -516,7 +516,11 @@ max_concurrent_agents: number, langfuse_enabled: boolean, langfuse_public_key: s
  * When Some, review attention uses the specified executor.
  * When None, review attention is disabled.
  */
-review_attention_executor_profile: ExecutorProfileId | null, };
+review_attention_executor_profile: ExecutorProfileId | null, 
+/**
+ * When enabled, completed tasks are automatically merged and dependent tasks are queued.
+ */
+autopilot_enabled: boolean, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, error_sound_file: SoundFile, custom_sound_path: string | null, };
 

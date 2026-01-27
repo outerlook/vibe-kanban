@@ -252,6 +252,31 @@ impl Workspace {
         .await
     }
 
+    /// Find the latest (most recent) workspace for a task
+    pub async fn find_latest_by_task_id(
+        pool: &SqlitePool,
+        task_id: Uuid,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            Workspace,
+            r#"SELECT  id                AS "id!: Uuid",
+                       task_id           AS "task_id!: Uuid",
+                       container_ref,
+                       branch,
+                       agent_working_dir,
+                       setup_completed_at AS "setup_completed_at: DateTime<Utc>",
+                       created_at        AS "created_at!: DateTime<Utc>",
+                       updated_at        AS "updated_at!: DateTime<Utc>"
+               FROM    workspaces
+               WHERE   task_id = $1
+               ORDER BY created_at DESC
+               LIMIT 1"#,
+            task_id
+        )
+        .fetch_optional(pool)
+        .await
+    }
+
     pub async fn find_by_rowid(pool: &SqlitePool, rowid: i64) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
             Workspace,
