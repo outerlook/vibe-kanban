@@ -644,15 +644,16 @@ impl Task {
             task_group_id: Option<Uuid>,
             created_at: DateTime<Utc>,
             updated_at: DateTime<Utc>,
-            is_blocked: i64,
-            has_in_progress_attempt: i64,
-            last_attempt_failed: i64,
-            is_queued: i64,
-            executor: String,
+            is_blocked: bool,
+            has_in_progress_attempt: bool,
+            last_attempt_failed: bool,
+            is_queued: bool,
+            last_executor: String,
             needs_attention: Option<bool>,
             rank_score: f64,
         }
 
+        // Use materialized columns instead of subqueries
         let records: Vec<FtsSearchRow> = sqlx::query_as(
             r#"SELECT
   t.id,
@@ -665,56 +666,13 @@ impl Task {
   t.task_group_id,
   t.created_at,
   t.updated_at,
-
-  CASE WHEN EXISTS (
-    SELECT 1
-      FROM task_dependencies td
-      JOIN tasks dep ON dep.id = td.depends_on_id
-     WHERE td.task_id = t.id
-       AND dep.status != 'done'
-  ) THEN 1 ELSE 0 END AS is_blocked,
-
-  CASE WHEN EXISTS (
-    SELECT 1
-      FROM workspaces w
-      JOIN sessions s ON s.workspace_id = w.id
-      JOIN execution_processes ep ON ep.session_id = s.id
-     WHERE w.task_id       = t.id
-       AND ep.status        = 'running'
-       AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-     LIMIT 1
-  ) THEN 1 ELSE 0 END AS has_in_progress_attempt,
-
-  CASE WHEN (
-    SELECT ep.status
-      FROM workspaces w
-      JOIN sessions s ON s.workspace_id = w.id
-      JOIN execution_processes ep ON ep.session_id = s.id
-     WHERE w.task_id       = t.id
-     AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-     ORDER BY ep.created_at DESC
-     LIMIT 1
-  ) IN ('failed','killed') THEN 1 ELSE 0 END AS last_attempt_failed,
-
-  CASE WHEN EXISTS (
-    SELECT 1 FROM workspaces w
-    JOIN execution_queue eq ON eq.workspace_id = w.id
-    WHERE w.task_id = t.id
-    LIMIT 1
-  ) THEN 1 ELSE 0 END AS is_queued,
-
-  COALESCE(( SELECT s.executor
-      FROM workspaces w
-      JOIN sessions s ON s.workspace_id = w.id
-      WHERE w.task_id = t.id
-     ORDER BY s.created_at DESC
-      LIMIT 1
-    ), '') AS executor,
-
+  t.is_blocked,
+  t.has_in_progress_attempt,
+  t.last_attempt_failed,
+  t.is_queued,
+  t.last_executor,
   t.needs_attention,
-
   -bm25(tasks_fts) AS rank_score
-
 FROM tasks_fts
 JOIN tasks t ON t.rowid = tasks_fts.rowid
 WHERE tasks_fts MATCH ?1
@@ -746,11 +704,11 @@ LIMIT ?4"#,
                             task_group_id: rec.task_group_id,
                             created_at: rec.created_at,
                             updated_at: rec.updated_at,
-                            is_blocked: rec.is_blocked != 0,
-                            has_in_progress_attempt: rec.has_in_progress_attempt != 0,
-                            last_attempt_failed: rec.last_attempt_failed != 0,
-                            is_queued: rec.is_queued != 0,
-                            last_executor: rec.executor,
+                            is_blocked: rec.is_blocked,
+                            has_in_progress_attempt: rec.has_in_progress_attempt,
+                            last_attempt_failed: rec.last_attempt_failed,
+                            is_queued: rec.is_queued,
+                            last_executor: rec.last_executor,
                             needs_attention: rec.needs_attention,
                         },
                     },
