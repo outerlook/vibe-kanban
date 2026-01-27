@@ -249,6 +249,15 @@ impl Deployment for LocalDeployment {
             skills_cache,
         };
 
+        // Set merge services on container for autopilot functionality
+        deployment
+            .container
+            .set_merge_services(
+                deployment.merge_queue_store.clone(),
+                deployment.operation_status.clone(),
+            )
+            .await;
+
         Ok(deployment)
     }
 
