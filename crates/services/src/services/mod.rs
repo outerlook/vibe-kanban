@@ -1,5 +1,6 @@
 pub mod analytics;
 pub mod approvals;
+pub mod autopilot;
 pub mod auth;
 pub mod backup;
 pub mod backup_service;
