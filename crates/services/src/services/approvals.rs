@@ -44,6 +44,8 @@ pub struct ToolContext {
     pub tool_name: String,
     pub tool_call_id: String,
     pub execution_process_id: Uuid,
+    /// True if the executor was dead and a follow-up should be triggered
+    pub needs_follow_up: bool,
 }
 
 #[derive(Clone)]
@@ -242,6 +244,7 @@ impl Approvals {
                 tool_name: p.tool_name,
                 tool_call_id: p.tool_call_id.clone(),
                 execution_process_id: p.execution_process_id,
+                needs_follow_up: false, // Executor alive, tool_result sent directly
             };
 
             // If this is an Answered status with answers, send tool_result to Claude AND save to DB
@@ -313,6 +316,7 @@ impl Approvals {
                     tool_name: "AskUserQuestion".to_string(),
                     tool_call_id: id.to_string(),
                     execution_process_id: user_question.execution_process_id,
+                    needs_follow_up: true, // Executor was dead, needs follow-up
                 };
 
                 Ok((final_status, tool_ctx))
