@@ -123,7 +123,6 @@ impl Approvals {
             .boxed()
             .shared();
         let req_id = request.id.clone();
-        let is_user_question = matches!(request.request_type, ApprovalRequestType::UserQuestion { .. });
 
         // For user questions, insert into DB for persistence
         if let ApprovalRequestType::UserQuestion { ref questions } = request.request_type {
@@ -193,9 +192,9 @@ impl Approvals {
             );
         }
 
-        // Only spawn timeout watcher for tool approvals, not user questions
-        if !is_user_question {
-            self.spawn_timeout_watcher(req_id.clone(), request.timeout_at, waiter.clone());
+        // Only spawn timeout watcher if there's a timeout configured
+        if let Some(timeout_at) = request.timeout_at {
+            self.spawn_timeout_watcher(req_id.clone(), timeout_at, waiter.clone());
         }
         Ok((request, waiter))
     }
@@ -517,7 +516,7 @@ mod tests {
             ToolStatus::PendingApproval {
                 approval_id: "test-id".to_string(),
                 requested_at: chrono::Utc::now(),
-                timeout_at: chrono::Utc::now(),
+                timeout_at: Some(chrono::Utc::now()),
             },
         );
         store.push_patch(

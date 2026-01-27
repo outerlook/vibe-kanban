@@ -53,7 +53,8 @@ pub struct ApprovalRequest {
     pub tool_call_id: String,
     pub execution_process_id: Uuid,
     pub created_at: DateTime<Utc>,
-    pub timeout_at: DateTime<Utc>,
+    #[ts(optional)]
+    pub timeout_at: Option<DateTime<Utc>>,
 }
 
 impl ApprovalRequest {
@@ -68,11 +69,11 @@ impl ApprovalRequest {
             tool_call_id: request.tool_call_id,
             execution_process_id,
             created_at: now,
-            timeout_at: now + Duration::seconds(APPROVAL_TIMEOUT_SECONDS),
+            timeout_at: Some(now + Duration::seconds(APPROVAL_TIMEOUT_SECONDS)),
         }
     }
 
-    /// Creates a user question approval request
+    /// Creates a user question approval request (no timeout)
     pub fn from_user_question(
         questions: Vec<QuestionData>,
         tool_call_id: String,
@@ -85,7 +86,7 @@ impl ApprovalRequest {
             tool_call_id,
             execution_process_id,
             created_at: now,
-            timeout_at: now + Duration::seconds(APPROVAL_TIMEOUT_SECONDS),
+            timeout_at: None,
         }
     }
 
