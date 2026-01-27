@@ -8,6 +8,7 @@ use crate::DeploymentImpl;
 
 pub mod account_info;
 pub mod approvals;
+pub mod claude_accounts;
 pub mod config;
 pub mod containers;
 pub mod conversations;
@@ -41,6 +42,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
     let base_routes = Router::new()
         .route("/health", get(health::health_check))
         .merge(config::router())
+        .merge(claude_accounts::router())
         .merge(containers::router(&deployment))
         .merge(projects::router(&deployment))
         .merge(tasks::router(&deployment))
