@@ -36,7 +36,8 @@ const PendingUserQuestionEntry = ({
     hasResponded
   );
 
-  const disabled = isResponding || hasResponded || (hasTimeout && timeLeft <= 0);
+  const isTimedOut = hasTimeout && timeLeft <= 0;
+  const disabled = isResponding || hasResponded || isTimedOut;
   const { shouldEnableApprovalsScope } = useApprovalScopeManagement(disabled);
 
   // Validation: at least one selection per question
@@ -146,12 +147,12 @@ const PendingUserQuestionEntry = ({
               </div>
             )}
 
-            <div className="flex items-center justify-between gap-2 pt-2 border-t">
-              <div className="text-muted-foreground text-xs">
-                {timeLeft > 0
-                  ? `${timeLeft}s remaining`
-                  : 'Timed out'}
-              </div>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t">
+              {hasTimeout && (
+                <div className="text-muted-foreground text-xs mr-auto">
+                  {timeLeft > 0 ? `${timeLeft}s remaining` : 'Timed out'}
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <Button
                   variant="ghost"
