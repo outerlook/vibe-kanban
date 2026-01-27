@@ -142,13 +142,13 @@ const PendingApprovalEntry = ({
 
   const { projectId } = useProject();
 
-  const { timeLeft } = useApprovalCountdown(
+  const { timeLeft, hasTimeout } = useApprovalCountdown(
     pendingStatus.requested_at,
     pendingStatus.timeout_at,
     hasResponded
   );
 
-  const disabled = isResponding || hasResponded || timeLeft <= 0;
+  const disabled = isResponding || hasResponded || (hasTimeout && timeLeft <= 0);
   const { shouldEnableApprovalsScope } = useApprovalScopeManagement(disabled);
 
   const respond = useCallback(

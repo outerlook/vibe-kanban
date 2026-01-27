@@ -146,12 +146,14 @@ pub enum ToolStatus {
     PendingApproval {
         approval_id: String,
         requested_at: DateTime<Utc>,
-        timeout_at: DateTime<Utc>,
+        #[ts(optional)]
+        timeout_at: Option<DateTime<Utc>>,
     },
     PendingUserInput {
         approval_id: String,
         requested_at: DateTime<Utc>,
-        timeout_at: DateTime<Utc>,
+        #[ts(optional)]
+        timeout_at: Option<DateTime<Utc>>,
         questions: Vec<QuestionData>,
     },
     TimedOut,

@@ -6,6 +6,7 @@ use dashmap::DashMap;
 use db::models::{
     execution_process::ExecutionProcess,
     task::{Task, TaskStatus},
+    user_question::{CreateUserQuestion, UserQuestion},
 };
 use executors::{
     approvals::ToolCallMetadata,
@@ -43,10 +44,13 @@ pub struct ToolContext {
     pub tool_name: String,
     pub tool_call_id: String,
     pub execution_process_id: Uuid,
+    /// True if the executor was dead and a follow-up should be triggered
+    pub needs_follow_up: bool,
 }
 
 #[derive(Clone)]
 pub struct Approvals {
+    db: SqlitePool,
     pending: Arc<DashMap<String, PendingApproval>>,
     completed: Arc<DashMap<String, ApprovalStatus>>,
     msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
@@ -71,10 +75,12 @@ pub enum ApprovalError {
 
 impl Approvals {
     pub fn new(
+        db: SqlitePool,
         msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
         protocol_peers: Arc<RwLock<HashMap<Uuid, ProtocolPeer>>>,
     ) -> Self {
         Self {
+            db,
             pending: Arc::new(DashMap::new()),
             completed: Arc::new(DashMap::new()),
             msg_stores,
@@ -120,6 +126,19 @@ impl Approvals {
             .shared();
         let req_id = request.id.clone();
 
+        // For user questions, insert into DB for persistence
+        if let ApprovalRequestType::UserQuestion { ref questions } = request.request_type {
+            let questions_json = serde_json::to_string(questions).unwrap_or_default();
+            let create_data = CreateUserQuestion {
+                approval_id: req_id.clone(),
+                execution_process_id: request.execution_process_id,
+                questions: questions_json,
+            };
+            if let Err(e) = UserQuestion::create(&self.db, &create_data, Uuid::new_v4()).await {
+                tracing::error!("Failed to persist user question to DB: {}", e);
+            }
+        }
+
         if let Some(store) = self.msg_store_by_id(&request.execution_process_id).await {
             // Find the matching tool use entry by name and input
             let matching_tool = find_matching_tool_use(store.clone(), &request.tool_call_id);
@@ -134,7 +153,7 @@ impl Approvals {
                     ApprovalRequestType::UserQuestion { questions } => ToolStatus::PendingUserInput {
                         approval_id: req_id.clone(),
                         requested_at: request.created_at,
-                        timeout_at: request.timeout_at,
+                        timeout_at: None, // User questions don't timeout
                         questions: questions.clone(),
                     },
                 };
@@ -175,7 +194,10 @@ impl Approvals {
             );
         }
 
-        self.spawn_timeout_watcher(req_id.clone(), request.timeout_at, waiter.clone());
+        // Only spawn timeout watcher if there's a timeout configured
+        if let Some(timeout_at) = request.timeout_at {
+            self.spawn_timeout_watcher(req_id.clone(), timeout_at, waiter.clone());
+        }
         Ok((request, waiter))
     }
 
@@ -186,17 +208,18 @@ impl Approvals {
         id: &str,
         req: ApprovalResponse,
     ) -> Result<(ApprovalStatus, ToolContext), ApprovalError> {
-        if let Some((_, p)) = self.pending.remove(id) {
-            // If answers are provided and status is Approved, convert to Answered
-            let final_status = match (&req.status, &req.answers) {
-                (ApprovalStatus::Approved, Some(answers)) if !answers.is_empty() => {
-                    ApprovalStatus::Answered {
-                        answers: answers.clone(),
-                    }
+        // If answers are provided and status is Approved, convert to Answered
+        let final_status = match (&req.status, &req.answers) {
+            (ApprovalStatus::Approved, Some(answers)) if !answers.is_empty() => {
+                ApprovalStatus::Answered {
+                    answers: answers.clone(),
                 }
-                _ => req.status.clone(),
-            };
+            }
+            _ => req.status.clone(),
+        };
 
+        // Check if we have an active channel (executor alive)
+        if let Some((_, p)) = self.pending.remove(id) {
             self.completed.insert(id.to_string(), final_status.clone());
             let _ = p.response_tx.send(final_status.clone());
 
@@ -221,14 +244,22 @@ impl Approvals {
                 tool_name: p.tool_name,
                 tool_call_id: p.tool_call_id.clone(),
                 execution_process_id: p.execution_process_id,
+                needs_follow_up: false, // Executor alive, tool_result sent directly
             };
 
-            // If this is an Answered status with answers, send tool_result to Claude
+            // If this is an Answered status with answers, send tool_result to Claude AND save to DB
             if let ApprovalStatus::Answered { ref answers } = final_status {
+                // Save to DB
+                let answers_json = serde_json::to_string(answers).unwrap_or_default();
+                if let Err(e) = UserQuestion::update_answer(&self.db, id, &answers_json).await {
+                    tracing::error!("Failed to save user question answer to DB: {}", e);
+                }
+
+                // Send to Claude
                 if let Some(peer) = self.protocol_peer_by_id(&p.execution_process_id).await {
-                    let answers_json = serde_json::to_value(answers).unwrap_or_default();
+                    let answers_value = serde_json::to_value(answers).unwrap_or_default();
                     if let Err(e) = peer
-                        .send_tool_result(p.tool_call_id, answers_json, false)
+                        .send_tool_result(tool_ctx.tool_call_id.clone(), answers_value, false)
                         .await
                     {
                         tracing::error!(
@@ -263,7 +294,35 @@ impl Approvals {
         } else if self.completed.contains_key(id) {
             Err(ApprovalError::AlreadyCompleted)
         } else {
-            Err(ApprovalError::NotFound)
+            // No channel exists - check if this is a persisted user question
+            if let Ok(Some(user_question)) = UserQuestion::get_by_approval_id(&self.db, id).await {
+                // Save answer to DB
+                if let ApprovalStatus::Answered { ref answers } = final_status {
+                    let answers_json = serde_json::to_string(answers).unwrap_or_default();
+                    if let Err(e) = UserQuestion::update_answer(&self.db, id, &answers_json).await {
+                        tracing::error!("Failed to save user question answer to DB: {}", e);
+                        return Err(ApprovalError::Custom(anyhow::anyhow!(
+                            "Failed to save answer: {}",
+                            e
+                        )));
+                    }
+                }
+
+                self.completed.insert(id.to_string(), final_status.clone());
+
+                // Return a tool context with the stored execution_process_id
+                // The caller (follow-up trigger) will use this to start a new execution
+                let tool_ctx = ToolContext {
+                    tool_name: "AskUserQuestion".to_string(),
+                    tool_call_id: id.to_string(),
+                    execution_process_id: user_question.execution_process_id,
+                    needs_follow_up: true, // Executor was dead, needs follow-up
+                };
+
+                Ok((final_status, tool_ctx))
+            } else {
+                Err(ApprovalError::NotFound)
+            }
         }
     }
 
@@ -461,7 +520,7 @@ mod tests {
             ToolStatus::PendingApproval {
                 approval_id: "test-id".to_string(),
                 requested_at: chrono::Utc::now(),
-                timeout_at: chrono::Utc::now(),
+                timeout_at: Some(chrono::Utc::now()),
             },
         );
         store.push_patch(

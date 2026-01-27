@@ -30,13 +30,13 @@ const PendingUserQuestionEntry = ({
     new Map()
   );
 
-  const { timeLeft } = useApprovalCountdown(
+  const { timeLeft, hasTimeout } = useApprovalCountdown(
     pendingStatus.requested_at,
     pendingStatus.timeout_at,
     hasResponded
   );
 
-  const disabled = isResponding || hasResponded || timeLeft <= 0;
+  const disabled = isResponding || hasResponded || (hasTimeout && timeLeft <= 0);
   const { shouldEnableApprovalsScope } = useApprovalScopeManagement(disabled);
 
   // Validation: at least one selection per question

@@ -196,7 +196,7 @@ export type QuestionAnswer = { question_index: number, selected_indices: Array<n
 
 export type ApprovalRequestType = { "type": "tool_approval", tool_name: string, tool_input: JsonValue, } | { "type": "user_question", questions: Array<QuestionData>, };
 
-export type ApprovalRequest = { id: string, request_type: ApprovalRequestType, tool_call_id: string, execution_process_id: string, created_at: string, timeout_at: string, };
+export type ApprovalRequest = { id: string, request_type: ApprovalRequestType, tool_call_id: string, execution_process_id: string, created_at: string, timeout_at?: string, };
 
 export type Diff = { change: DiffChangeKind, oldPath: string | null, newPath: string | null, oldContent: string | null, newContent: string | null, 
 /**
@@ -731,7 +731,7 @@ value: JsonValue, };
 
 export type ToolResultValueType = { "type": "markdown" } | { "type": "json" };
 
-export type ToolStatus = { "status": "created" } | { "status": "success" } | { "status": "failed" } | { "status": "denied", reason: string | null, } | { "status": "pending_approval", approval_id: string, requested_at: string, timeout_at: string, } | { "status": "pending_user_input", approval_id: string, requested_at: string, timeout_at: string, questions: Array<QuestionData>, } | { "status": "timed_out" };
+export type ToolStatus = { "status": "created" } | { "status": "success" } | { "status": "failed" } | { "status": "denied", reason: string | null, } | { "status": "pending_approval", approval_id: string, requested_at: string, timeout_at?: string, } | { "status": "pending_user_input", approval_id: string, requested_at: string, timeout_at?: string, questions: Array<QuestionData>, } | { "status": "timed_out" };
 
 export type GroupSummary = { commands: number, file_reads: number, file_edits: number, searches: number, web_fetches: number, tools: number, system_messages: number, errors: number, thinking: number, token_usage: number, };
 
