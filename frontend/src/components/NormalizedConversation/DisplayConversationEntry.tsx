@@ -25,6 +25,7 @@ import {
   Edit,
   Eye,
   Globe,
+  MessageCircleQuestion,
   Plus,
   Search,
   Settings,
@@ -35,6 +36,7 @@ import RawLogText from '../common/RawLogText';
 import UserMessage from './UserMessage';
 import PendingApprovalEntry from './PendingApprovalEntry';
 import PendingUserQuestionEntry from './PendingUserQuestionEntry';
+import { AnsweredQuestionCard } from './AnsweredQuestionCard';
 import { NextActionCard } from './NextActionCard';
 import { cn, formatTokenCount } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
@@ -103,6 +105,8 @@ const getEntryIcon = (entryType: NormalizedEntryType) => {
       return <CheckSquare className={iconSize} />;
     } else if (action_type.action === 'tool') {
       return <Hammer className={iconSize} />;
+    } else if (action_type.action === 'user_question') {
+      return <MessageCircleQuestion className={iconSize} />;
     }
     return <Settings className={iconSize} />;
   }
@@ -763,6 +767,15 @@ function DisplayConversationEntry({
             defaultExpanded={defaultExpanded}
             statusAppearance={statusAppearance}
             taskAttemptId={taskAttempt?.id}
+          />
+        );
+      }
+
+      if (toolEntry.action_type.action === 'user_question') {
+        return (
+          <AnsweredQuestionCard
+            questions={toolEntry.action_type.questions}
+            answers={toolEntry.action_type.answers}
           />
         );
       }
