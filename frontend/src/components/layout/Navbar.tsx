@@ -21,6 +21,7 @@ import {
   LogIn,
   BarChart3,
   GitPullRequest,
+  Zap,
 } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { openTaskForm } from '@/lib/openTaskForm';
@@ -81,7 +82,7 @@ export function Navbar() {
   const { projectId, project } = useProject();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
   const { data: onlineCount } = useDiscordOnlineCount();
-  const { loginStatus, reloadSystem } = useUserSystem();
+  const { config, loginStatus, reloadSystem, updateAndSaveConfig } = useUserSystem();
 
   const { data: repos } = useProjectRepos(projectId);
   const isSingleRepoProject = repos?.length === 1;
@@ -136,6 +137,13 @@ export function Navbar() {
       console.error('Error logging out:', err);
     }
   };
+
+  const handleAutopilotToggle = useCallback(
+    (checked: boolean) => {
+      updateAndSaveConfig({ autopilot_enabled: checked });
+    },
+    [updateAndSaveConfig]
+  );
 
   const isOAuthLoggedIn = loginStatus?.status === 'loggedin';
 
@@ -345,6 +353,23 @@ export function Navbar() {
                       Sign in
                     </DropdownMenuItem>
                   )}
+
+                  <DropdownMenuSeparator />
+
+                  <DropdownMenuItem
+                    onSelect={(e) => e.preventDefault()}
+                    className="flex items-center justify-between"
+                  >
+                    <div className="flex items-center">
+                      <Zap className="mr-2 h-4 w-4" />
+                      Autopilot
+                    </div>
+                    <Switch
+                      checked={config?.autopilot_enabled ?? false}
+                      onCheckedChange={handleAutopilotToggle}
+                      aria-label="Toggle Autopilot"
+                    />
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
