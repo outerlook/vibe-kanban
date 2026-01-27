@@ -2062,6 +2062,7 @@ impl LocalContainerService {
                             let processor_git = git_clone.clone();
                             let processor_store = merge_queue_store.clone();
                             let processor_op_status = operation_status.clone();
+                            let processor_config = config.clone();
 
                             tokio::spawn(async move {
                                 let processor = MergeQueueProcessor::with_operation_status(
@@ -2069,6 +2070,7 @@ impl LocalContainerService {
                                     processor_git,
                                     processor_store,
                                     processor_op_status,
+                                    processor_config,
                                 );
                                 if let Err(e) = processor.process_project_queue(project_id).await {
                                     tracing::error!(
