@@ -1,4 +1,13 @@
 export { useAccountInfo } from './useAccountInfo';
+export {
+  claudeAccountsKeys,
+  useClaudeAccounts,
+  useCurrentClaudeAccount,
+  useSaveClaudeAccount,
+  useSwitchClaudeAccount,
+  useUpdateClaudeAccountName,
+  useDeleteClaudeAccount,
+} from './useClaudeAccounts';
 export { useBranchStatus } from './useBranchStatus';
 export { useGitStateSubscription } from './useGitStateSubscription';
 export { useAttemptExecution } from './useAttemptExecution';
