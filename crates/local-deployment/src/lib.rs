@@ -151,7 +151,7 @@ impl Deployment for LocalDeployment {
             });
         }
 
-        let approvals = Approvals::new(msg_stores.clone(), protocol_peers.clone());
+        let approvals = Approvals::new(db.pool.clone(), msg_stores.clone(), protocol_peers.clone());
         let queued_message_service = QueuedMessageService::new();
 
         let share_config = ShareConfig::from_env();
