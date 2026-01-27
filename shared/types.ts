@@ -66,7 +66,7 @@ export type TaskGroupWithStats = { task_counts: TaskStatusCounts, id: string, pr
 
 export type Notification = { id: string, project_id: string | null, notification_type: NotificationType, title: string, message: string, is_read: boolean, metadata: JsonValue | null, workspace_id: string | null, session_id: string | null, conversation_session_id: string | null, created_at: string, updated_at: string, };
 
-export type NotificationType = "agent_complete" | "agent_approval_needed" | "agent_error" | "conversation_response";
+export type NotificationType = "agent_complete" | "agent_approval_needed" | "agent_question_needed" | "agent_error" | "conversation_response";
 
 export type CreateNotification = { project_id: string | null, notification_type: NotificationType, title: string, message: string, metadata: JsonValue | null, workspace_id: string | null, session_id: string | null, conversation_session_id: string | null, };
 
@@ -182,7 +182,7 @@ export type MergeStatus = "open" | "merged" | "closed" | "unknown";
 
 export type PullRequestInfo = { number: bigint, url: string, status: MergeStatus, merged_at: string | null, merge_commit_sha: string | null, };
 
-export type ApprovalStatus = { "status": "pending" } | { "status": "approved" } | { "status": "denied", reason?: string, } | { "status": "timed_out" };
+export type ApprovalStatus = { "status": "pending" } | { "status": "approved" } | { "status": "denied", reason?: string, } | { "status": "answered", answers: Array<QuestionAnswer>, } | { "status": "timed_out" };
 
 export type CreateApprovalRequest = { tool_name: string, tool_input: JsonValue, tool_call_id: string, };
 
@@ -211,6 +211,40 @@ additions: number | null, deletions: number | null, };
 export type DiffChangeKind = "added" | "deleted" | "modified" | "renamed" | "copied" | "permissionChange";
 
 export type CustomSoundInfo = { filename: string, };
+
+export type SavedAccount = { 
+/**
+ * First 8 characters of SHA256 hash of the access token
+ */
+hashPrefix: string, 
+/**
+ * User-defined name for this account
+ */
+name: string | null, 
+/**
+ * Subscription type (e.g., "pro", "free")
+ */
+subscriptionType: string, 
+/**
+ * Rate limit tier if available
+ */
+rateLimitTier: string | null, 
+/**
+ * When this account was saved
+ */
+createdAt: string, };
+
+export type SaveAccountRequest = { 
+/**
+ * Optional name for this account
+ */
+name: string | null, };
+
+export type UpdateNameRequest = { 
+/**
+ * New name for this account
+ */
+name: string, };
 
 export type ApiResponse<T, E = T> = { success: boolean, data: T | null, error_data: E | null, message: string | null, };
 
