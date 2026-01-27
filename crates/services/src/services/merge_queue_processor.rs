@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use super::autopilot::AutopilotService;
+use super::autopilot;
 use super::config::Config;
 use super::git::{GitService, GitServiceError};
 use super::merge_queue_store::{MergeQueueEntry, MergeQueueStore};
@@ -298,11 +298,8 @@ impl MergeQueueProcessor {
         }
 
         // Find unblocked dependent tasks
-        let unblocked_tasks = match AutopilotService::find_unblocked_dependents(
-            &self.pool,
-            completed_task_id,
-        )
-        .await
+        let unblocked_tasks = match autopilot::find_unblocked_dependents(&self.pool, completed_task_id)
+            .await
         {
             Ok(tasks) => tasks,
             Err(e) => {
