@@ -858,51 +858,11 @@ LIMIT ?4"#,
                 t.created_at,
                 t.updated_at,
 
-                CASE WHEN EXISTS (
-                    SELECT 1
-                    FROM task_dependencies td
-                    JOIN tasks dep ON dep.id = td.depends_on_id
-                    WHERE td.task_id = t.id
-                    AND dep.status != 'done'
-                ) THEN 1 ELSE 0 END AS is_blocked,
-
-                CASE WHEN EXISTS (
-                    SELECT 1
-                    FROM workspaces w
-                    JOIN sessions s ON s.workspace_id = w.id
-                    JOIN execution_processes ep ON ep.session_id = s.id
-                    WHERE w.task_id = t.id
-                    AND ep.status = 'running'
-                    AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-                    LIMIT 1
-                ) THEN 1 ELSE 0 END AS has_in_progress_attempt,
-
-                CASE WHEN (
-                    SELECT ep.status
-                    FROM workspaces w
-                    JOIN sessions s ON s.workspace_id = w.id
-                    JOIN execution_processes ep ON ep.session_id = s.id
-                    WHERE w.task_id = t.id
-                    AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-                    ORDER BY ep.created_at DESC
-                    LIMIT 1
-                ) IN ('failed','killed') THEN 1 ELSE 0 END AS last_attempt_failed,
-
-                CASE WHEN EXISTS (
-                    SELECT 1 FROM workspaces w
-                    JOIN execution_queue eq ON eq.workspace_id = w.id
-                    WHERE w.task_id = t.id
-                    LIMIT 1
-                ) THEN 1 ELSE 0 END AS is_queued,
-
-                COALESCE((SELECT s.executor
-                    FROM workspaces w
-                    JOIN sessions s ON s.workspace_id = w.id
-                    WHERE w.task_id = t.id
-                    ORDER BY s.created_at DESC
-                    LIMIT 1
-                ), '') AS executor,
-
+                t.is_blocked,
+                t.has_in_progress_attempt,
+                t.last_attempt_failed,
+                t.is_queued,
+                t.last_executor AS executor,
                 t.needs_attention,
 
                 -- Hybrid score calculation:
@@ -949,51 +909,11 @@ LIMIT ?4"#,
                 t.created_at,
                 t.updated_at,
 
-                CASE WHEN EXISTS (
-                    SELECT 1
-                    FROM task_dependencies td
-                    JOIN tasks dep ON dep.id = td.depends_on_id
-                    WHERE td.task_id = t.id
-                    AND dep.status != 'done'
-                ) THEN 1 ELSE 0 END AS is_blocked,
-
-                CASE WHEN EXISTS (
-                    SELECT 1
-                    FROM workspaces w
-                    JOIN sessions s ON s.workspace_id = w.id
-                    JOIN execution_processes ep ON ep.session_id = s.id
-                    WHERE w.task_id = t.id
-                    AND ep.status = 'running'
-                    AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-                    LIMIT 1
-                ) THEN 1 ELSE 0 END AS has_in_progress_attempt,
-
-                CASE WHEN (
-                    SELECT ep.status
-                    FROM workspaces w
-                    JOIN sessions s ON s.workspace_id = w.id
-                    JOIN execution_processes ep ON ep.session_id = s.id
-                    WHERE w.task_id = t.id
-                    AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-                    ORDER BY ep.created_at DESC
-                    LIMIT 1
-                ) IN ('failed','killed') THEN 1 ELSE 0 END AS last_attempt_failed,
-
-                CASE WHEN EXISTS (
-                    SELECT 1 FROM workspaces w
-                    JOIN execution_queue eq ON eq.workspace_id = w.id
-                    WHERE w.task_id = t.id
-                    LIMIT 1
-                ) THEN 1 ELSE 0 END AS is_queued,
-
-                COALESCE((SELECT s.executor
-                    FROM workspaces w
-                    JOIN sessions s ON s.workspace_id = w.id
-                    WHERE w.task_id = t.id
-                    ORDER BY s.created_at DESC
-                    LIMIT 1
-                ), '') AS executor,
-
+                t.is_blocked,
+                t.has_in_progress_attempt,
+                t.last_attempt_failed,
+                t.is_queued,
+                t.last_executor AS executor,
                 t.needs_attention,
 
                 vs.score AS hybrid_score
