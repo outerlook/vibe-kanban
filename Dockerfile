@@ -1,20 +1,48 @@
-# Build stage
-FROM node:24-alpine AS builder
+# syntax=docker/dockerfile:1.6
 
-# Install build dependencies
-RUN apk add --no-cache \
-    curl \
-    build-base \
-    perl \
-    llvm-dev \
-    clang-dev
+# Rust build stage - generates types and builds server binary
+FROM rust:1.89-slim-bookworm AS builder
 
-# Allow linking libclang on musl
-ENV RUSTFLAGS="-C target-feature=-crt-static"
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
-# Install Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+     pkg-config libssl-dev ca-certificates perl make g++ clang libclang-dev \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates crates
+COPY shared shared
+COPY assets assets
+
+RUN mkdir -p /app/bin
+
+# Generate TypeScript types and build server binary
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo run --release --bin generate_types \
+ && cargo build --locked --release --bin server \
+ && cp target/release/server /app/bin/server
+
+# Frontend build stage
+FROM node:24-alpine AS fe-builder
+
+WORKDIR /app
+
+RUN corepack enable
+
+# Copy package files for dependency caching
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY frontend/package.json frontend/package.json
+
+# Create shared directory structure for pnpm workspace
+RUN mkdir -p shared
+
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile
 
 ARG POSTHOG_API_KEY
 ARG POSTHOG_API_ENDPOINT
@@ -22,23 +50,12 @@ ARG POSTHOG_API_ENDPOINT
 ENV VITE_PUBLIC_POSTHOG_KEY=$POSTHOG_API_KEY
 ENV VITE_PUBLIC_POSTHOG_HOST=$POSTHOG_API_ENDPOINT
 
-# Set working directory
-WORKDIR /app
+# Copy generated types from Rust builder
+COPY --from=builder /app/shared ./shared
 
-# Copy package files for dependency caching
-COPY package*.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY frontend/package*.json ./frontend/
+COPY frontend/ frontend/
 
-# Install pnpm and dependencies
-RUN npm install -g pnpm && pnpm install
-
-# Copy source code
-COPY . .
-
-# Build application
-RUN npm run generate-types
 RUN cd frontend && pnpm run build
-RUN cargo build --release --bin server
 
 # Runtime stage
 FROM alpine:latest AS runtime
@@ -55,7 +72,7 @@ RUN addgroup -g 1001 -S appgroup && \
     adduser -u 1001 -S appuser -G appgroup
 
 # Copy binary from builder
-COPY --from=builder /app/target/release/server /usr/local/bin/server
+COPY --from=builder /app/bin/server /usr/local/bin/server
 
 # Create repos directory and set permissions
 RUN mkdir -p /repos && \
