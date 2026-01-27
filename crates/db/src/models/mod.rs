@@ -23,5 +23,6 @@ pub mod tag;
 pub mod task;
 pub mod task_dependency;
 pub mod task_group;
+pub mod user_question;
 pub mod workspace;
 pub mod workspace_repo;

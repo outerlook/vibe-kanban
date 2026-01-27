@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO user_questions (\n                id, approval_id, execution_process_id, questions, status, created_at\n               )\n               VALUES ($1, $2, $3, $4, $5, $6)\n               RETURNING\n                id as \"id!: Uuid\",\n                approval_id as \"approval_id!: String\",\n                execution_process_id as \"execution_process_id!: Uuid\",\n                questions as \"questions!: String\",\n                answers,\n                status as \"status!: String\",\n                created_at as \"created_at!: DateTime<Utc>\",\n                answered_at as \"answered_at: DateTime<Utc>\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "approval_id!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "execution_process_id!: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob"
+      },
+      {
+        "name": "questions!: String",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "answers",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "status!: String",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "answered_at: DateTime<Utc>",
+        "ordinal": 7,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "c015524299d70385418dc77339db3567009e28a081cf5e3ce37805ad40eb66ab"
+}

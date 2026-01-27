@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE user_questions\n               SET answers = $1, status = $2, answered_at = $3\n               WHERE approval_id = $4\n               RETURNING\n                id as \"id!: Uuid\",\n                approval_id as \"approval_id!: String\",\n                execution_process_id as \"execution_process_id!: Uuid\",\n                questions as \"questions!: String\",\n                answers,\n                status as \"status!: String\",\n                created_at as \"created_at!: DateTime<Utc>\",\n                answered_at as \"answered_at: DateTime<Utc>\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "approval_id!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "execution_process_id!: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob"
+      },
+      {
+        "name": "questions!: String",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "answers",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "status!: String",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "answered_at: DateTime<Utc>",
+        "ordinal": 7,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "4cd2732f2b44f8b9982ee0b5f7272ac910a78150fc8ce16df179481c67b22d2a"
+}
