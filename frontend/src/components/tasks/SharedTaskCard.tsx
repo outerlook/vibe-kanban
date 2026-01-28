@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { memo, useCallback, useEffect, useRef } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { TaskCardHeader } from './TaskCardHeader';
@@ -12,7 +12,7 @@ interface SharedTaskCardProps {
   isSelected?: boolean;
 }
 
-export function SharedTaskCard({
+function SharedTaskCardComponent({
   task,
   index,
   status,
@@ -70,3 +70,5 @@ export function SharedTaskCard({
     </KanbanCard>
   );
 }
+
+export const SharedTaskCard = memo(SharedTaskCardComponent);

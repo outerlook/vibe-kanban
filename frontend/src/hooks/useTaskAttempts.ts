@@ -14,12 +14,19 @@ type Options = {
 
 export function useTaskAttempts(taskId?: string, opts?: Options) {
   const enabled = (opts?.enabled ?? true) && !!taskId;
-  const refetchInterval = opts?.refetchInterval ?? 5000;
 
   return useQuery<Workspace[]>({
     queryKey: taskAttemptKeys.byTask(taskId),
     queryFn: () => attemptsApi.getAll(taskId!),
     enabled,
-    refetchInterval,
+    refetchInterval: (query) => {
+      if (opts?.refetchInterval !== undefined) return opts.refetchInterval;
+      const data = query.state.data;
+      // Poll while any workspace is still setting up (setup_completed_at is null)
+      if (data?.some((workspace) => workspace.setup_completed_at === null)) {
+        return 5000;
+      }
+      return false;
+    },
   });
 }
