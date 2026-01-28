@@ -9,12 +9,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -23,9 +17,10 @@ import { Text } from '@/components/ui/text';
 import { SettingsSection } from '@/components/settings/SettingsSection';
 import { SettingsField } from '@/components/settings/SettingsField';
 import { SkeletonForm } from '@/components/ui/loading-states';
-import { ChevronDown, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 import { ExecutorConfigForm } from '@/components/ExecutorConfigForm';
+import ExecutorProfileSelector from '@/components/settings/ExecutorProfileSelector';
 import { useProfiles } from '@/hooks/useProfiles';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { CreateConfigurationDialog } from '@/components/dialogs/settings/CreateConfigurationDialog';
@@ -146,11 +141,6 @@ export function AgentSettings() {
       return currentDraft;
     });
   }, [config?.review_attention_executor_profile]);
-
-  // Update executor draft
-  const updateExecutorDraft = (newProfile: ExecutorProfileId) => {
-    setExecutorDraft(newProfile);
-  };
 
   // Save executor profile
   const handleSaveExecutorProfile = async () => {
@@ -555,108 +545,12 @@ export function AgentSettings() {
           htmlFor="executor"
           description={t('settings.general.taskExecution.executor.helper')}
         >
-          <div className="grid grid-cols-2 gap-2">
-            <Select
-              value={executorDraft?.executor ?? ''}
-              onValueChange={(value: string) => {
-                const variants = profiles?.[value];
-                const keepCurrentVariant =
-                  variants &&
-                  executorDraft?.variant &&
-                  variants[executorDraft.variant];
-
-                const newProfile: ExecutorProfileId = {
-                  executor: value as BaseCodingAgent,
-                  variant: keepCurrentVariant ? executorDraft!.variant : null,
-                };
-                updateExecutorDraft(newProfile);
-              }}
-              disabled={!profiles}
-            >
-              <SelectTrigger id="executor">
-                <SelectValue
-                  placeholder={t(
-                    'settings.general.taskExecution.executor.placeholder'
-                  )}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {profiles &&
-                  Object.entries(profiles)
-                    .sort((a, b) => a[0].localeCompare(b[0]))
-                    .map(([profileKey]) => (
-                      <SelectItem key={profileKey} value={profileKey}>
-                        {profileKey}
-                      </SelectItem>
-                    ))}
-              </SelectContent>
-            </Select>
-
-            {/* Show variant selector if selected profile has variants */}
-            {(() => {
-              const currentProfileVariant = executorDraft;
-              const selectedProfile =
-                profiles?.[currentProfileVariant?.executor || ''];
-              const hasVariants =
-                selectedProfile && Object.keys(selectedProfile).length > 0;
-
-              if (hasVariants) {
-                return (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="w-full h-10 px-2 flex items-center justify-between"
-                      >
-                        <span className="text-sm truncate flex-1 text-left">
-                          {currentProfileVariant?.variant ||
-                            t('settings.general.taskExecution.defaultLabel')}
-                        </span>
-                        <ChevronDown className="h-4 w-4 ml-1 flex-shrink-0" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                      {Object.entries(selectedProfile).map(
-                        ([variantLabel]) => (
-                          <DropdownMenuItem
-                            key={variantLabel}
-                            onClick={() => {
-                              const newProfile: ExecutorProfileId = {
-                                executor: currentProfileVariant!.executor,
-                                variant: variantLabel,
-                              };
-                              updateExecutorDraft(newProfile);
-                            }}
-                            className={
-                              currentProfileVariant?.variant === variantLabel
-                                ? 'bg-accent'
-                                : ''
-                            }
-                          >
-                            {variantLabel}
-                          </DropdownMenuItem>
-                        )
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                );
-              } else if (selectedProfile) {
-                // Show disabled button when profile exists but has no variants
-                return (
-                  <Button
-                    variant="outline"
-                    className="w-full h-10 px-2 flex items-center justify-between"
-                    disabled
-                  >
-                    <span className="text-sm truncate flex-1 text-left">
-                      {t('settings.general.taskExecution.defaultLabel')}
-                    </span>
-                  </Button>
-                );
-              }
-              return null;
-            })()}
-          </div>
+          <ExecutorProfileSelector
+            profiles={profiles}
+            selectedProfile={executorDraft}
+            onProfileSelect={setExecutorDraft}
+            showLabel={false}
+          />
           <AgentAvailabilityIndicator availability={agentAvailability} />
         </SettingsField>
 
@@ -705,105 +599,12 @@ export function AgentSettings() {
             htmlFor="review-attention-executor"
             description={t('settings.general.reviewAttention.executor.helper')}
           >
-            <div className="grid grid-cols-2 gap-2">
-              <Select
-                value={reviewAttentionDraft.executor}
-                onValueChange={(value: string) => {
-                  const variants = profiles?.[value];
-                  const keepCurrentVariant =
-                    variants &&
-                    reviewAttentionDraft.variant &&
-                    variants[reviewAttentionDraft.variant];
-
-                  setReviewAttentionDraft({
-                    executor: value as BaseCodingAgent,
-                    variant: keepCurrentVariant
-                      ? reviewAttentionDraft.variant
-                      : null,
-                  });
-                }}
-                disabled={!profiles}
-              >
-                <SelectTrigger id="review-attention-executor">
-                  <SelectValue
-                    placeholder={t(
-                      'settings.general.taskExecution.executor.placeholder'
-                    )}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {profiles &&
-                    Object.entries(profiles)
-                      .sort((a, b) => a[0].localeCompare(b[0]))
-                      .map(([profileKey]) => (
-                        <SelectItem key={profileKey} value={profileKey}>
-                          {profileKey}
-                        </SelectItem>
-                      ))}
-                </SelectContent>
-              </Select>
-
-              {(() => {
-                const selectedProfile =
-                  profiles?.[reviewAttentionDraft.executor];
-                const hasVariants =
-                  selectedProfile && Object.keys(selectedProfile).length > 0;
-
-                if (hasVariants) {
-                  return (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className="w-full h-10 px-2 flex items-center justify-between"
-                        >
-                          <span className="text-sm truncate flex-1 text-left">
-                            {reviewAttentionDraft.variant ||
-                              t('settings.general.taskExecution.defaultLabel')}
-                          </span>
-                          <ChevronDown className="h-4 w-4 ml-1 flex-shrink-0" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        {Object.entries(selectedProfile).map(
-                          ([variantLabel]) => (
-                            <DropdownMenuItem
-                              key={variantLabel}
-                              onClick={() => {
-                                setReviewAttentionDraft({
-                                  executor: reviewAttentionDraft.executor,
-                                  variant: variantLabel,
-                                });
-                              }}
-                              className={
-                                reviewAttentionDraft.variant === variantLabel
-                                  ? 'bg-accent'
-                                  : ''
-                              }
-                            >
-                              {variantLabel}
-                            </DropdownMenuItem>
-                          )
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  );
-                } else if (selectedProfile) {
-                  return (
-                    <Button
-                      variant="outline"
-                      className="w-full h-10 px-2 flex items-center justify-between"
-                      disabled
-                    >
-                      <span className="text-sm truncate flex-1 text-left">
-                        {t('settings.general.taskExecution.defaultLabel')}
-                      </span>
-                    </Button>
-                  );
-                }
-                return null;
-              })()}
-            </div>
+            <ExecutorProfileSelector
+              profiles={profiles}
+              selectedProfile={reviewAttentionDraft}
+              onProfileSelect={setReviewAttentionDraft}
+              showLabel={false}
+            />
           </SettingsField>
         )}
 
