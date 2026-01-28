@@ -39,11 +39,7 @@ export function ClaudeAccountSwitcher() {
   const getAccountDisplayName = (account: {
     name: string | null;
     hashPrefix: string;
-    subscriptionType: string;
-  }) => {
-    if (account.name) return account.name;
-    return account.hashPrefix;
-  };
+  }) => account.name ?? account.hashPrefix;
 
   const getTriggerLabel = () => {
     if (isLoading) return 'Loading...';

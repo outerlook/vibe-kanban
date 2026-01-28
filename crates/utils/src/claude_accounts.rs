@@ -91,12 +91,29 @@ pub fn accounts_dir() -> PathBuf {
     asset_dir().join("claude-accounts")
 }
 
+/// Returns the path to an account file given its hash prefix
+fn account_file_path(hash_prefix: &str) -> PathBuf {
+    accounts_dir().join(format!("{}.json", hash_prefix))
+}
+
+/// Read a stored account from disk
+async fn read_stored_account(hash_prefix: &str) -> Result<StoredAccount, ClaudeAccountError> {
+    let file_path = account_file_path(hash_prefix);
+
+    if !file_path.exists() {
+        return Err(ClaudeAccountError::NotFound(hash_prefix.to_string()));
+    }
+
+    let contents = tokio::fs::read_to_string(&file_path).await?;
+    let stored: StoredAccount = serde_json::from_str(&contents)?;
+    Ok(stored)
+}
+
 /// Hash a token using SHA256 and return the first 8 hex characters
 pub fn hash_token(token: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(token.as_bytes());
     let result = hasher.finalize();
-    // Take first 4 bytes (8 hex chars)
     hex::encode(&result[..4])
 }
 
@@ -117,17 +134,23 @@ async fn ensure_accounts_dir() -> Result<(), ClaudeAccountError> {
     Ok(())
 }
 
-/// Set file permissions to 0600 on Unix
-#[cfg(unix)]
-async fn set_file_permissions(path: &PathBuf) -> Result<(), ClaudeAccountError> {
-    use std::os::unix::fs::PermissionsExt;
-    let permissions = std::fs::Permissions::from_mode(0o600);
-    tokio::fs::set_permissions(path, permissions).await?;
+/// Set file permissions to 0600 on Unix (no-op on other platforms)
+pub async fn set_secure_file_permissions(path: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::Permissions::from_mode(0o600);
+        tokio::fs::set_permissions(path, permissions).await?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
     Ok(())
 }
 
-#[cfg(not(unix))]
-async fn set_file_permissions(_path: &PathBuf) -> Result<(), ClaudeAccountError> {
+async fn set_file_permissions(path: &PathBuf) -> Result<(), ClaudeAccountError> {
+    set_secure_file_permissions(path).await?;
     Ok(())
 }
 
@@ -222,7 +245,7 @@ pub async fn save_account(name: Option<String>) -> Result<SavedAccount, ClaudeAc
 
     ensure_accounts_dir().await?;
 
-    let file_path = accounts_dir().join(format!("{}.json", hash_prefix));
+    let file_path = account_file_path(&hash_prefix);
     let contents = serde_json::to_string_pretty(&stored)?;
     tokio::fs::write(&file_path, contents).await?;
     set_file_permissions(&file_path).await?;
@@ -232,21 +255,13 @@ pub async fn save_account(name: Option<String>) -> Result<SavedAccount, ClaudeAc
 
 /// Load full credentials for an account
 pub async fn load_account(hash_prefix: &str) -> Result<serde_json::Value, ClaudeAccountError> {
-    let file_path = accounts_dir().join(format!("{}.json", hash_prefix));
-
-    if !file_path.exists() {
-        return Err(ClaudeAccountError::NotFound(hash_prefix.to_string()));
-    }
-
-    let contents = tokio::fs::read_to_string(&file_path).await?;
-    let stored: StoredAccount = serde_json::from_str(&contents)?;
-
+    let stored = read_stored_account(hash_prefix).await?;
     Ok(stored.credentials)
 }
 
 /// Delete a saved account
 pub async fn delete_account(hash_prefix: &str) -> Result<(), ClaudeAccountError> {
-    let file_path = accounts_dir().join(format!("{}.json", hash_prefix));
+    let file_path = account_file_path(hash_prefix);
 
     if !file_path.exists() {
         return Err(ClaudeAccountError::NotFound(hash_prefix.to_string()));
@@ -261,14 +276,8 @@ pub async fn update_account_name(
     hash_prefix: &str,
     name: String,
 ) -> Result<SavedAccount, ClaudeAccountError> {
-    let file_path = accounts_dir().join(format!("{}.json", hash_prefix));
-
-    if !file_path.exists() {
-        return Err(ClaudeAccountError::NotFound(hash_prefix.to_string()));
-    }
-
-    let contents = tokio::fs::read_to_string(&file_path).await?;
-    let mut stored: StoredAccount = serde_json::from_str(&contents)?;
+    let file_path = account_file_path(hash_prefix);
+    let mut stored = read_stored_account(hash_prefix).await?;
 
     stored.metadata.name = Some(name);
 
@@ -286,17 +295,12 @@ pub async fn get_current_hash() -> Result<Option<String>, ClaudeAccountError> {
         Err(e) => return Err(e),
     };
 
-    let oauth = match parsed.claude_ai_oauth {
-        Some(oauth) => oauth,
-        None => return Ok(None),
-    };
+    let hash = parsed
+        .claude_ai_oauth
+        .and_then(|oauth| oauth.access_token)
+        .map(|token| hash_token(&token));
 
-    let access_token = match oauth.access_token {
-        Some(token) => token,
-        None => return Ok(None),
-    };
-
-    Ok(Some(hash_token(&access_token)))
+    Ok(hash)
 }
 
 #[cfg(test)]

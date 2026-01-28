@@ -8,7 +8,8 @@ use axum::{
 use utils::{
     claude_accounts::{
         ClaudeAccountError, SaveAccountRequest, SavedAccount, UpdateNameRequest, delete_account,
-        get_current_hash, list_accounts, load_account, save_account, update_account_name,
+        get_current_hash, list_accounts, load_account, save_account,
+        set_secure_file_permissions, update_account_name,
     },
     response::ApiResponse,
 };
@@ -95,18 +96,12 @@ async fn switch_account_handler(
         ApiError::Internal(format!("Failed to write credentials: {}", e))
     })?;
 
-    // Set file permissions to 0600 on Unix
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let permissions = std::fs::Permissions::from_mode(0o600);
-        tokio::fs::set_permissions(&credentials_path, permissions)
-            .await
-            .map_err(|e| {
-                tracing::warn!(error = %e, "Failed to set credentials file permissions");
-                ApiError::Internal(format!("Failed to set file permissions: {}", e))
-            })?;
-    }
+    set_secure_file_permissions(&credentials_path)
+        .await
+        .map_err(|e| {
+            tracing::warn!(error = %e, "Failed to set credentials file permissions");
+            ApiError::Internal(format!("Failed to set file permissions: {}", e))
+        })?;
 
     tracing::info!(hash_prefix = %hash, "Switched Claude account");
     Ok(ResponseJson(ApiResponse::success(())))
