@@ -696,29 +696,7 @@ pub async fn get_project_prs(
                 .await
             {
                 Ok(prs) => {
-                    for pr in prs {
-                        // Enrich with unresolved count
-                        let unresolved_count = github_client
-                            .get_unresolved_thread_count(
-                                &repo_info.owner,
-                                &repo_info.repo_name,
-                                pr.number,
-                            )
-                            .await
-                            .unwrap_or_else(|e| {
-                                tracing::warn!(
-                                    "Failed to get unresolved threads for PR #{}: {}",
-                                    pr.number,
-                                    e
-                                );
-                                0
-                            });
-
-                        all_prs.push(PrWithComments {
-                            pr,
-                            unresolved_count,
-                        });
-                    }
+                    all_prs.extend(prs);
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -732,15 +710,45 @@ pub async fn get_project_prs(
             }
         }
 
-        // Only add repo if it has PRs
-        if !all_prs.is_empty() {
-            repo_prs_list.push(RepoPrs {
-                repo_id: repo.id,
-                repo_name: repo.name.clone(),
-                display_name: repo.display_name.clone(),
-                pull_requests: all_prs,
-            });
+        // Skip repos with no PRs
+        if all_prs.is_empty() {
+            continue;
         }
+
+        // Batch fetch unresolved counts for all PRs in this repo
+        let pr_numbers: Vec<u64> = all_prs.iter().map(|pr| pr.number).collect();
+        let unresolved_counts = github_client
+            .get_unresolved_thread_counts_batch(&repo_info.owner, &repo_info.repo_name, &pr_numbers)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    "Failed to batch fetch unresolved threads for {}/{}: {}",
+                    repo_info.owner,
+                    repo_info.repo_name,
+                    e
+                );
+                // Return 0 for all PRs on failure
+                pr_numbers.iter().map(|&num| (num, 0)).collect()
+            });
+
+        // Enrich PRs with unresolved counts
+        let prs_with_comments: Vec<PrWithComments> = all_prs
+            .into_iter()
+            .map(|pr| {
+                let unresolved_count = unresolved_counts.get(&pr.number).copied().unwrap_or(0);
+                PrWithComments {
+                    pr,
+                    unresolved_count,
+                }
+            })
+            .collect();
+
+        repo_prs_list.push(RepoPrs {
+            repo_id: repo.id,
+            repo_name: repo.name.clone(),
+            display_name: repo.display_name.clone(),
+            pull_requests: prs_with_comments,
+        });
     }
 
     Ok(ResponseJson(ApiResponse::success(ProjectPrsResponse {
