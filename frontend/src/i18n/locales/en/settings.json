@@ -52,6 +52,18 @@
         "variant": "DEFAULT",
         "defaultLabel": "Default"
       },
+      "reviewAttention": {
+        "title": "Review Attention",
+        "description": "Configure an AI agent to analyze completed tasks and flag those that may need human review.",
+        "enable": {
+          "label": "Enable review attention",
+          "helper": "When enabled, an AI agent will analyze completed work and flag tasks that may need attention."
+        },
+        "executor": {
+          "label": "Review agent",
+          "helper": "Which agent to use for analyzing completed tasks."
+        }
+      },
       "editor": {
         "title": "Editor",
         "description": "Configure your code editing experience.",

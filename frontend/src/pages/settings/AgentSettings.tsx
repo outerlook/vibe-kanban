@@ -81,6 +81,19 @@ export function AgentSettings() {
   // Check agent availability when draft executor changes
   const agentAvailability = useAgentAvailability(executorDraft?.executor);
 
+  // Review attention executor profile state
+  const [reviewAttentionDraft, setReviewAttentionDraft] =
+    useState<ExecutorProfileId | null>(() =>
+      config?.review_attention_executor_profile
+        ? cloneDeep(config.review_attention_executor_profile)
+        : null
+    );
+  const [reviewAttentionSaving, setReviewAttentionSaving] = useState(false);
+  const [reviewAttentionSuccess, setReviewAttentionSuccess] = useState(false);
+  const [reviewAttentionError, setReviewAttentionError] = useState<
+    string | null
+  >(null);
+
   // Sync server state to local state when not dirty
   useEffect(() => {
     if (!isDirty && serverProfilesContent) {
@@ -115,6 +128,25 @@ export function AgentSettings() {
     }
   }, [config?.executor_profile]);
 
+  // Check if review attention draft differs from saved config
+  const reviewAttentionDirty =
+    reviewAttentionDraft !== null ||
+    config?.review_attention_executor_profile !== null
+      ? !isEqual(reviewAttentionDraft, config?.review_attention_executor_profile)
+      : false;
+
+  // Sync review attention draft when config changes (only if not dirty)
+  useEffect(() => {
+    setReviewAttentionDraft((currentDraft) => {
+      const configValue = config?.review_attention_executor_profile ?? null;
+      // Only update if draft matches the old config (not dirty)
+      if (isEqual(currentDraft, configValue)) {
+        return configValue ? cloneDeep(configValue) : null;
+      }
+      return currentDraft;
+    });
+  }, [config?.review_attention_executor_profile]);
+
   // Update executor draft
   const updateExecutorDraft = (newProfile: ExecutorProfileId) => {
     setExecutorDraft(newProfile);
@@ -137,6 +169,28 @@ export function AgentSettings() {
       console.error('Error saving executor profile:', err);
     } finally {
       setExecutorSaving(false);
+    }
+  };
+
+  // Save review attention profile
+  const handleSaveReviewAttentionProfile = async () => {
+    if (!config) return;
+
+    setReviewAttentionSaving(true);
+    setReviewAttentionError(null);
+
+    try {
+      await updateAndSaveConfig({
+        review_attention_executor_profile: reviewAttentionDraft,
+      });
+      setReviewAttentionSuccess(true);
+      setTimeout(() => setReviewAttentionSuccess(false), 3000);
+      reloadSystem();
+    } catch (err) {
+      setReviewAttentionError(t('settings.general.save.error'));
+      console.error('Error saving review attention profile:', err);
+    } finally {
+      setReviewAttentionSaving(false);
     }
   };
 
@@ -476,6 +530,20 @@ export function AgentSettings() {
         </Alert>
       )}
 
+      {reviewAttentionError && (
+        <Alert variant="destructive">
+          <AlertDescription>{reviewAttentionError}</AlertDescription>
+        </Alert>
+      )}
+
+      {reviewAttentionSuccess && (
+        <Alert variant="success">
+          <AlertDescription className="font-medium">
+            {t('settings.general.save.success')}
+          </AlertDescription>
+        </Alert>
+      )}
+
       <SettingsSection
         id="agent-executor"
         title={t('settings.general.taskExecution.title')}
@@ -598,6 +666,153 @@ export function AgentSettings() {
             disabled={!executorDirty || executorSaving}
           >
             {executorSaving && (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            )}
+            {t('common:buttons.save')}
+          </Button>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        id="review-attention"
+        title={t('settings.general.reviewAttention.title')}
+        description={t('settings.general.reviewAttention.description')}
+      >
+        <SettingsField
+          label={t('settings.general.reviewAttention.enable.label')}
+          htmlFor="review-attention-enabled"
+          description={t('settings.general.reviewAttention.enable.helper')}
+        >
+          <Checkbox
+            id="review-attention-enabled"
+            checked={reviewAttentionDraft !== null}
+            onCheckedChange={(checked) => {
+              if (checked) {
+                setReviewAttentionDraft({
+                  executor: 'CLAUDE_CODE' as BaseCodingAgent,
+                  variant: null,
+                });
+              } else {
+                setReviewAttentionDraft(null);
+              }
+            }}
+          />
+        </SettingsField>
+
+        {reviewAttentionDraft && (
+          <SettingsField
+            label={t('settings.general.reviewAttention.executor.label')}
+            htmlFor="review-attention-executor"
+            description={t('settings.general.reviewAttention.executor.helper')}
+          >
+            <div className="grid grid-cols-2 gap-2">
+              <Select
+                value={reviewAttentionDraft.executor}
+                onValueChange={(value: string) => {
+                  const variants = profiles?.[value];
+                  const keepCurrentVariant =
+                    variants &&
+                    reviewAttentionDraft.variant &&
+                    variants[reviewAttentionDraft.variant];
+
+                  setReviewAttentionDraft({
+                    executor: value as BaseCodingAgent,
+                    variant: keepCurrentVariant
+                      ? reviewAttentionDraft.variant
+                      : null,
+                  });
+                }}
+                disabled={!profiles}
+              >
+                <SelectTrigger id="review-attention-executor">
+                  <SelectValue
+                    placeholder={t(
+                      'settings.general.taskExecution.executor.placeholder'
+                    )}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {profiles &&
+                    Object.entries(profiles)
+                      .sort((a, b) => a[0].localeCompare(b[0]))
+                      .map(([profileKey]) => (
+                        <SelectItem key={profileKey} value={profileKey}>
+                          {profileKey}
+                        </SelectItem>
+                      ))}
+                </SelectContent>
+              </Select>
+
+              {(() => {
+                const selectedProfile =
+                  profiles?.[reviewAttentionDraft.executor];
+                const hasVariants =
+                  selectedProfile && Object.keys(selectedProfile).length > 0;
+
+                if (hasVariants) {
+                  return (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className="w-full h-10 px-2 flex items-center justify-between"
+                        >
+                          <span className="text-sm truncate flex-1 text-left">
+                            {reviewAttentionDraft.variant ||
+                              t('settings.general.taskExecution.defaultLabel')}
+                          </span>
+                          <ChevronDown className="h-4 w-4 ml-1 flex-shrink-0" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        {Object.entries(selectedProfile).map(
+                          ([variantLabel]) => (
+                            <DropdownMenuItem
+                              key={variantLabel}
+                              onClick={() => {
+                                setReviewAttentionDraft({
+                                  executor: reviewAttentionDraft.executor,
+                                  variant: variantLabel,
+                                });
+                              }}
+                              className={
+                                reviewAttentionDraft.variant === variantLabel
+                                  ? 'bg-accent'
+                                  : ''
+                              }
+                            >
+                              {variantLabel}
+                            </DropdownMenuItem>
+                          )
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  );
+                } else if (selectedProfile) {
+                  return (
+                    <Button
+                      variant="outline"
+                      className="w-full h-10 px-2 flex items-center justify-between"
+                      disabled
+                    >
+                      <span className="text-sm truncate flex-1 text-left">
+                        {t('settings.general.taskExecution.defaultLabel')}
+                      </span>
+                    </Button>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+          </SettingsField>
+        )}
+
+        <div className="flex justify-end">
+          <Button
+            onClick={handleSaveReviewAttentionProfile}
+            disabled={!reviewAttentionDirty || reviewAttentionSaving}
+          >
+            {reviewAttentionSaving && (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             )}
             {t('common:buttons.save')}
