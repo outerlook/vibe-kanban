@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   XCircle,
   MessageSquare,
+  HelpCircle,
   Trash2,
 } from 'lucide-react';
 import { cn, formatRelativeTime } from '@/lib/utils';
@@ -21,6 +22,7 @@ interface NotificationItemProps {
 const NOTIFICATION_ICONS: Record<NotificationType, React.ElementType> = {
   agent_complete: CheckCircle2,
   agent_approval_needed: AlertTriangle,
+  agent_question_needed: HelpCircle,
   agent_error: XCircle,
   conversation_response: MessageSquare,
 };
@@ -28,6 +30,7 @@ const NOTIFICATION_ICONS: Record<NotificationType, React.ElementType> = {
 const NOTIFICATION_ICON_COLORS: Record<NotificationType, string> = {
   agent_complete: 'text-green-500',
   agent_approval_needed: 'text-amber-500',
+  agent_question_needed: 'text-purple-500',
   agent_error: 'text-red-500',
   conversation_response: 'text-blue-500',
 };
