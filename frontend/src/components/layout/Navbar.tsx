@@ -42,7 +42,7 @@ import { OAuthDialog } from '@/components/dialogs/global/OAuthDialog';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { oauthApi } from '@/lib/api';
 import { ProjectSwitcher } from '@/components/layout/ProjectSwitcher';
-import { AccountInfoIndicator } from '@/components/layout/AccountInfoIndicator';
+import { ClaudeAccountSwitcher } from '@/components/layout/ClaudeAccountSwitcher';
 import { NotificationBell, ProjectNotificationBadge } from '@/components/notifications';
 
 const INTERNAL_NAV = [{ label: 'Projects', icon: FolderOpen, to: '/projects' }];
@@ -264,7 +264,7 @@ export function Navbar() {
             ) : null}
 
             <div className="flex items-center gap-1">
-              <AccountInfoIndicator />
+              <ClaudeAccountSwitcher />
               <NotificationBell />
               <Button
                 variant="ghost"
