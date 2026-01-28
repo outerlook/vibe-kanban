@@ -5,6 +5,7 @@ import {
   HelpCircle,
   XCircle,
   MessageSquare,
+  HelpCircle,
   Trash2,
 } from 'lucide-react';
 import { cn, formatRelativeTime } from '@/lib/utils';

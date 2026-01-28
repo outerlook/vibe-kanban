@@ -134,6 +134,9 @@ import {
   PrWithComments,
   FeedbackResponse,
   SkillsData,
+  SavedAccount,
+  SaveAccountRequest,
+  UpdateNameRequest,
 } from 'shared/types';
 import type { WorkspaceWithSession } from 'shared/types';
 
@@ -2076,5 +2079,65 @@ export const skillsApi = {
       // Return empty arrays on failure - don't break autocomplete
       return { slash_commands: [], skills: [] };
     }
+  },
+};
+
+// Claude Accounts API
+export const claudeAccountsApi = {
+  /** List all saved Claude accounts */
+  list: async (): Promise<SavedAccount[]> => {
+    const response = await makeRequest('/api/claude-accounts');
+    return handleApiResponse<SavedAccount[]>(response);
+  },
+
+  /** Save the current Claude account */
+  saveCurrent: async (name?: string): Promise<SavedAccount> => {
+    const body: SaveAccountRequest = { name: name ?? null };
+    const response = await makeRequest('/api/claude-accounts/save', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    return handleApiResponse<SavedAccount>(response);
+  },
+
+  /** Switch to a different Claude account */
+  switch: async (hashPrefix: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/claude-accounts/switch/${encodeURIComponent(hashPrefix)}`,
+      {
+        method: 'POST',
+      }
+    );
+    return handleApiResponse<void>(response);
+  },
+
+  /** Update the name of a saved account */
+  updateName: async (hashPrefix: string, name: string): Promise<SavedAccount> => {
+    const body: UpdateNameRequest = { name };
+    const response = await makeRequest(
+      `/api/claude-accounts/${encodeURIComponent(hashPrefix)}/name`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      }
+    );
+    return handleApiResponse<SavedAccount>(response);
+  },
+
+  /** Delete a saved Claude account */
+  delete: async (hashPrefix: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/claude-accounts/${encodeURIComponent(hashPrefix)}`,
+      {
+        method: 'DELETE',
+      }
+    );
+    return handleApiResponse<void>(response);
+  },
+
+  /** Get the hash prefix of the currently active account */
+  getCurrent: async (): Promise<string | null> => {
+    const response = await makeRequest('/api/claude-accounts/current');
+    return handleApiResponse<string | null>(response);
   },
 };

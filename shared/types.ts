@@ -212,6 +212,40 @@ export type DiffChangeKind = "added" | "deleted" | "modified" | "renamed" | "cop
 
 export type CustomSoundInfo = { filename: string, };
 
+export type SavedAccount = { 
+/**
+ * First 8 characters of SHA256 hash of the access token
+ */
+hashPrefix: string, 
+/**
+ * User-defined name for this account
+ */
+name: string | null, 
+/**
+ * Subscription type (e.g., "pro", "free")
+ */
+subscriptionType: string, 
+/**
+ * Rate limit tier if available
+ */
+rateLimitTier: string | null, 
+/**
+ * When this account was saved
+ */
+createdAt: string, };
+
+export type SaveAccountRequest = { 
+/**
+ * Optional name for this account
+ */
+name: string | null, };
+
+export type UpdateNameRequest = { 
+/**
+ * New name for this account
+ */
+name: string, };
+
 export type ApiResponse<T, E = T> = { success: boolean, data: T | null, error_data: E | null, message: string | null, };
 
 export type LoginStatus = { "status": "loggedout" } | { "status": "loggedin", profile: ProfileResponse, };
