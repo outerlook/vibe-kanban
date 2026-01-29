@@ -14,6 +14,7 @@ import { useProject } from '@/contexts/ProjectContext';
 import { useProjectPrs, prKeys } from '@/hooks/useProjectPrs';
 import { useProjectWorkspaces } from '@/hooks/useProjectWorkspaces';
 import { useTaskGroupStats } from '@/hooks/useTaskGroupStats';
+import { useBatchBranchMergeStatus } from '@/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiError, type PrWithComments } from '@/lib/api';
 import type { TaskStatusCounts } from 'shared/types';
@@ -85,6 +86,9 @@ export function PrOverview() {
 
   const { data: workspaces, isLoading: workspacesLoading } =
     useProjectWorkspaces(projectId);
+
+  // Get repoId from first repo in response (for batch merge status)
+  const repoId = prsResponse?.repos?.[0]?.repo_id;
 
   const isLoading =
     projectLoading || prsLoading || taskGroupsLoading || workspacesLoading;
@@ -220,6 +224,20 @@ export function PrOverview() {
     return { groupedByBranch: grouped, branchMetadata: metadata, totalPrCount: total };
   }, [prsResponse, taskGroups, workspaces, selectedBranch, searchQuery]);
 
+  // Get all branch names for batch merge status
+  const allBranchNames = useMemo(
+    () => Array.from(groupedByBranch.keys()),
+    [groupedByBranch]
+  );
+
+  // Batch fetch merge status for all branches
+  const { data: batchMergeStatus, isLoading: isMergeStatusLoading } = useBatchBranchMergeStatus(
+    repoId,
+    projectId,
+    allBranchNames,
+    { enabled: !!repoId && !!projectId && allBranchNames.length > 0 }
+  );
+
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: prKeys.byProject(projectId) });
     refetch();
@@ -347,6 +365,7 @@ export function PrOverview() {
         <div className="space-y-4">
           {Array.from(groupedByBranch.entries()).map(([branchName, prs]) => {
             const meta = branchMetadata.get(branchName);
+            const mergeStatus = batchMergeStatus?.statuses[branchName];
             return (
               <BranchSection
                 key={branchName}
@@ -364,6 +383,8 @@ export function PrOverview() {
                 workspaceId={meta?.workspaceId}
                 groupName={meta?.groupName}
                 groupDescription={meta?.groupDescription}
+                mergeStatus={mergeStatus}
+                isMergeStatusLoading={isMergeStatusLoading}
               />
             );
           })}

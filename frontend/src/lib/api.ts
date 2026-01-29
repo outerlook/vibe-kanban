@@ -5,6 +5,7 @@ import {
   AccountInfo,
   ApprovalStatus,
   ApiResponse,
+  BatchBranchMergeStatus,
   BranchMergeStatus,
   Config,
   CreateFollowUpAttempt,
@@ -1250,6 +1251,21 @@ export const repoApi = {
       }
     );
     return handleApiResponse<BranchMergeStatus>(response);
+  },
+
+  batchCheckBranchMergeStatus: async (
+    repoId: string,
+    branches: string[],
+    projectId: string
+  ): Promise<BatchBranchMergeStatus> => {
+    const response = await makeRequest(
+      `/api/repos/${repoId}/branches/batch-check-merge-status`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ branches, project_id: projectId }),
+      }
+    );
+    return handleApiResponse<BatchBranchMergeStatus>(response);
   },
 
   init: async (data: {

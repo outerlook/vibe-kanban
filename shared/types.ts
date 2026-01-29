@@ -332,6 +332,10 @@ export type CheckBranchMergeStatusRequest = { branch_name: string, project_id: s
 
 export type BranchMergeStatus = { exists: boolean, is_merged: boolean, target_branch: string | null, };
 
+export type BatchCheckBranchMergeStatusRequest = { branches: Array<string>, project_id: string, };
+
+export type BatchBranchMergeStatus = { statuses: { [key in string]?: BranchMergeStatus }, };
+
 export type CreateRepoPrRequest = { head_branch: string, base_branch: string, title: string, body: string | null, draft: boolean | null, };
 
 export type CreateRepoPrError = { "type": "github_cli_not_installed" } | { "type": "github_cli_not_logged_in" };
