@@ -77,6 +77,11 @@ use services::services::{
     container::{ContainerError, ContainerRef, ContainerService},
     conversation::ConversationService,
     diff_stream::{self, DiffStreamHandle},
+    domain_events::{
+        AutopilotHandler, DispatcherBuilder, DomainEvent, DomainEventDispatcher,
+        FeedbackCollectionHandler, HandlerContext, NotificationHandler, RemoteSyncHandler,
+        WebSocketBroadcastHandler,
+    },
     feedback::FeedbackService,
     git::{Commit, DiffTarget, GitCli, GitService},
     image::ImageService,
@@ -173,6 +178,8 @@ pub struct LocalContainerService {
     merge_queue_store: Arc<RwLock<Option<MergeQueueStore>>>,
     /// OperationStatusStore for tracking merge operations - set after construction
     operation_status: Arc<RwLock<Option<OperationStatusStore>>>,
+    /// Domain event dispatcher for routing events to handlers
+    event_dispatcher: Arc<DomainEventDispatcher>,
 }
 
 impl LocalContainerService {
@@ -195,6 +202,30 @@ impl LocalContainerService {
         let feedback_pending_cleanup = Arc::new(RwLock::new(HashSet::new()));
         let running_workspaces = Arc::new(DashSet::new());
 
+        // Create a global MsgStore for WebSocket broadcasts (shared across all handlers)
+        let global_msg_store = Arc::new(MsgStore::default());
+
+        // Build the domain event dispatcher with all handlers
+        let event_dispatcher = Arc::new(
+            DispatcherBuilder::new()
+                .with_handler(WebSocketBroadcastHandler::new())
+                .with_handler(NotificationHandler::new(notification_service.clone()))
+                .with_handler(AutopilotHandler::new())
+                .with_handler(RemoteSyncHandler::new(publisher.clone().ok()))
+                .with_handler(FeedbackCollectionHandler::new(
+                    db.clone(),
+                    config.clone(),
+                    msg_stores.clone(),
+                    feedback_pending_cleanup.clone(),
+                ))
+                .with_context(HandlerContext::new(
+                    db.clone(),
+                    config.clone(),
+                    global_msg_store,
+                ))
+                .build(),
+        );
+
         let container = LocalContainerService {
             db,
             child_store,
@@ -214,6 +245,7 @@ impl LocalContainerService {
             running_workspaces,
             merge_queue_store: Arc::new(RwLock::new(None)),
             operation_status: Arc::new(RwLock::new(None)),
+            event_dispatcher,
         };
 
         container.spawn_workspace_cleanup().await;
@@ -561,6 +593,14 @@ impl LocalContainerService {
             }
 
             if let Ok(ctx) = ExecutionProcess::load_context(&db.pool, exec_id).await {
+                // Emit ExecutionCompleted event for handlers
+                container
+                    .event_dispatcher
+                    .dispatch(DomainEvent::ExecutionCompleted {
+                        process: ctx.execution_process.clone(),
+                    })
+                    .await;
+
                 // Update executor session summary if available
                 if let Err(e) = container.update_executor_session_summary(&exec_id).await {
                     tracing::warn!("Failed to update executor session summary: {}", e);
@@ -2750,6 +2790,40 @@ impl ContainerService for LocalContainerService {
         });
 
         Ok(())
+    }
+
+    /// Finalize task execution by updating status to InReview and emitting events.
+    ///
+    /// Notifications and remote sync are handled by domain event handlers:
+    /// - `NotificationHandler` sends OS and in-app notifications via `ExecutionCompleted` event
+    /// - `RemoteSyncHandler` syncs to remote via `TaskStatusChanged` event
+    async fn finalize_task(
+        &self,
+        _share_publisher: Option<&SharePublisher>,
+        ctx: &ExecutionContext,
+    ) {
+        let previous_status = ctx.task.status.clone();
+
+        match Task::update_status(&self.db.pool, ctx.task.id, TaskStatus::InReview).await {
+            Ok(_) => {
+                // Emit TaskStatusChanged event for handlers (remote sync, websocket broadcast)
+                let mut updated_task = ctx.task.clone();
+                updated_task.status = TaskStatus::InReview;
+
+                self.event_dispatcher
+                    .dispatch(DomainEvent::TaskStatusChanged {
+                        task: updated_task,
+                        previous_status,
+                    })
+                    .await;
+            }
+            Err(e) => {
+                tracing::error!("Failed to update task status to InReview: {e}");
+            }
+        }
+
+        // Note: Notifications are now handled by NotificationHandler via ExecutionCompleted event
+        // (emitted earlier in spawn_exit_monitor). No duplicate notification logic needed here.
     }
 
     async fn create(&self, workspace: &Workspace) -> Result<ContainerRef, ContainerError> {
