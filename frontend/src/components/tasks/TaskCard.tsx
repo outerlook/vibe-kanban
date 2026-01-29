@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
 import {
   AlertTriangle,
+  Check,
   Circle,
   Clock,
   Filter,
@@ -203,6 +204,9 @@ function TaskCardComponent({
                 <span title="Review attention needed">
                   <AlertTriangle className="h-4 w-4 text-amber-500" />
                 </span>
+              )}
+              {task.needs_attention === false && (
+                <Check className="h-3.5 w-3.5 text-green-500" />
               )}
               {task.parent_workspace_id && (
                 <Button
