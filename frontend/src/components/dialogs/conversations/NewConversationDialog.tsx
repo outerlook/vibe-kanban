@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -53,8 +53,14 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
     );
 
     const { data: worktreesData } = useWorktrees(projectId);
-    const worktrees = worktreesData?.worktrees ?? [];
-    const nonMainWorktrees = worktrees.filter((w) => !w.is_main);
+    const worktrees = useMemo(
+      () => worktreesData?.worktrees ?? [],
+      [worktreesData?.worktrees]
+    );
+    const nonMainWorktrees = useMemo(
+      () => worktrees.filter((w) => !w.is_main),
+      [worktrees]
+    );
     const hasWorktrees = nonMainWorktrees.length > 0;
 
     const createMutation = useCreateConversation();
@@ -76,7 +82,7 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
 
     const canSubmit = !!title.trim() && !!initialMessage.trim() && !isLoading;
 
-    const handleSubmit = async () => {
+    const handleSubmit = useCallback(async () => {
       const trimmedTitle = title.trim();
       const trimmedMessage = initialMessage.trim();
 
@@ -126,7 +132,17 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
           })
         );
       }
-    };
+    }, [
+      title,
+      initialMessage,
+      t,
+      selectedWorktree,
+      worktrees,
+      createMutation,
+      projectId,
+      effectiveProfile,
+      modal,
+    ]);
 
     const handleOpenChange = (open: boolean) => {
       if (!open) {
