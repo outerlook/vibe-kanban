@@ -1557,6 +1557,38 @@ export const imagesApi = {
     return handleApiResponse<ImageResponse>(response);
   },
 
+  /**
+   * Upload an image for a conversation.
+   */
+  uploadForConversation: async (
+    conversationId: string,
+    file: File
+  ): Promise<ImageResponse> => {
+    const baseUrl = await getApiBaseUrl();
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const response = await fetch(
+      `${baseUrl}/api/conversations/${conversationId}/images/upload`,
+      {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new ApiError(
+        `Failed to upload image: ${errorText}`,
+        response.status,
+        response
+      );
+    }
+
+    return handleApiResponse<ImageResponse>(response);
+  },
+
   delete: async (imageId: string): Promise<void> => {
     const response = await makeRequest(`/api/images/${imageId}`, {
       method: 'DELETE',
