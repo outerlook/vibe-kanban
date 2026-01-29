@@ -1716,7 +1716,7 @@ pub trait ContainerService {
     ) -> Result<ExecutionProcess, ContainerError> {
         use db::models::execution_process::CreateConversationExecutionProcess;
 
-        // Determine working directory: use worktree_path if specified, otherwise fallback to current dir
+        // Determine working directory: use worktree_path if specified, otherwise use project's main repository
         let working_dir = if let Some(worktree_path) = &conversation_session.worktree_path {
             let path = PathBuf::from(worktree_path);
             // Validate the path exists
@@ -1728,8 +1728,25 @@ pub trait ContainerService {
             }
             path
         } else {
-            // Fallback: current working directory or /tmp
-            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/tmp"))
+            // No worktree specified - use the project's main repository path
+            let repos =
+                ProjectRepo::find_repos_for_project(&self.db().pool, conversation_session.project_id)
+                    .await
+                    .map_err(|e| ContainerError::Other(anyhow!("Failed to get project repositories: {}", e)))?;
+
+            let repo = repos.first().ok_or_else(|| {
+                ContainerError::Other(anyhow!(
+                    "Project has no repositories configured. Please add a repository to the project."
+                ))
+            })?;
+
+            if !repo.path.exists() {
+                return Err(ContainerError::Other(anyhow!(
+                    "Repository path does not exist: {}. Please verify the repository configuration.",
+                    repo.path.display()
+                )));
+            }
+            repo.path.clone()
         };
 
         let process_id = Uuid::new_v4();
