@@ -268,18 +268,41 @@ export function BranchSection({
   );
 }
 
-export function BranchSectionSkeleton({ prCount = 2 }: { prCount?: number }) {
+interface BranchSectionSkeletonProps {
+  /** Optional branch name to display instead of placeholder */
+  branchName?: string;
+  /** Number of PR card skeletons to show */
+  prCount?: number;
+  /** Staggered animation delay in ms */
+  animationDelay?: number;
+}
+
+export function BranchSectionSkeleton({
+  branchName,
+  prCount = 2,
+  animationDelay = 0,
+}: BranchSectionSkeletonProps) {
   return (
-    <div className="border border-border rounded-md animate-pulse">
-      {/* Header skeleton */}
+    <div
+      className="border border-border rounded-md animate-pulse"
+      style={{ animationDelay: `${animationDelay}ms` }}
+    >
+      {/* Header - show real branch name if available */}
       <div className="px-3 py-2 flex items-center gap-2">
-        <div className="w-4 h-4 bg-muted rounded" />
-        <div className="w-4 h-4 bg-muted rounded" />
-        <div className="h-4 bg-muted rounded w-32" />
+        <ChevronDown className="w-4 h-4 flex-shrink-0 text-muted-foreground/50" />
+        <GitBranch className="w-4 h-4 flex-shrink-0 text-muted-foreground/50" />
+        {branchName ? (
+          <span className="truncate font-medium text-muted-foreground">
+            {branchName}
+          </span>
+        ) : (
+          <div className="h-4 bg-muted rounded w-32" />
+        )}
         <div className="w-4 h-4 bg-muted rounded" />
         <div className="flex gap-1 ml-auto">
-          <div className="h-5 bg-muted rounded w-12" />
-          <div className="h-5 bg-muted rounded w-10" />
+          <div className="h-5 bg-muted rounded w-8" />
+          <div className="h-5 bg-muted rounded w-8" />
+          <div className="h-5 bg-muted rounded w-8" />
         </div>
         <div className="h-5 bg-muted rounded w-12" />
       </div>
