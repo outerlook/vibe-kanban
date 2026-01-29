@@ -685,16 +685,25 @@ pub async fn get_project_prs(
             }
         };
 
-        let mut all_prs = Vec::new();
-
-        // Fetch PRs for each head branch (task group base_branch represents the feature branch)
-        for head_branch in &base_branches {
-            // Format head ref as "owner:branch" for GitHub API
+        // Fetch PRs for all head branches in parallel
+        let pr_futures = base_branches.iter().map(|head_branch| {
             let head_ref = format!("{}:{}", repo_info.owner, head_branch);
-            match github_client
-                .list_open_prs_by_head(&repo_info.owner, &repo_info.repo_name, &head_ref)
-                .await
-            {
+            let owner = repo_info.owner.clone();
+            let repo_name = repo_info.repo_name.clone();
+            let client = &github_client;
+            async move {
+                let result = client
+                    .list_open_prs_by_head(&owner, &repo_name, &head_ref)
+                    .await;
+                (head_branch.clone(), result)
+            }
+        });
+
+        let pr_results = futures_util::future::join_all(pr_futures).await;
+
+        let mut all_prs = Vec::new();
+        for (head_branch, result) in pr_results {
+            match result {
                 Ok(prs) => {
                     all_prs.extend(prs);
                 }
