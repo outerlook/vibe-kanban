@@ -1,6 +1,8 @@
 mod handler;
+pub mod handlers;
 
 pub use handler::{EventHandler, ExecutionMode, HandlerContext, HandlerError};
+pub use handlers::FeedbackCollectionHandler;
 
 use db::models::{
     execution_process::ExecutionProcess, project::Project, task::Task, workspace::Workspace,
