@@ -16,7 +16,7 @@ pub enum GitHubClientError {
 }
 
 /// Summary of a pull request for display purposes.
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct PullRequestSummary {
     pub number: u64,
     pub title: String,

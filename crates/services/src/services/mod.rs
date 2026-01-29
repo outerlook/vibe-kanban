@@ -28,6 +28,7 @@ pub mod merge_queue_store;
 pub mod notification;
 pub mod oauth_credentials;
 pub mod operation_status;
+pub mod pr_cache;
 pub mod pr_monitor;
 pub mod project;
 pub mod queued_message;

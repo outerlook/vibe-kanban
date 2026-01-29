@@ -20,6 +20,7 @@ use services::services::{
     merge_queue_store::MergeQueueStore,
     oauth_credentials::OAuthCredentials,
     operation_status::OperationStatusStore,
+    pr_cache::PrCache,
     project::ProjectService,
     queued_message::QueuedMessageService,
     remote_client::{RemoteClient, RemoteClientError},
@@ -67,6 +68,7 @@ pub struct LocalDeployment {
     operation_status: OperationStatusStore,
     merge_queue_store: MergeQueueStore,
     skills_cache: GlobalSkillsCache,
+    pr_cache: Arc<PrCache>,
 }
 
 #[derive(Debug, Clone)]
@@ -220,6 +222,7 @@ impl Deployment for LocalDeployment {
         let events = EventService::new(db.clone(), events_msg_store, events_entry_count);
 
         let file_search_cache = Arc::new(FileSearchCache::new());
+        let pr_cache = Arc::new(PrCache::new());
 
         let deployment = Self {
             config,
@@ -247,6 +250,7 @@ impl Deployment for LocalDeployment {
             operation_status,
             merge_queue_store,
             skills_cache,
+            pr_cache,
         };
 
         // Set merge services on container for autopilot functionality
@@ -343,6 +347,10 @@ impl Deployment for LocalDeployment {
 
     fn skills_cache(&self) -> &GlobalSkillsCache {
         &self.skills_cache
+    }
+
+    fn pr_cache(&self) -> &Arc<PrCache> {
+        &self.pr_cache
     }
 }
 

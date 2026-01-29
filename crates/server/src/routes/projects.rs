@@ -26,7 +26,8 @@ use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use services::services::{
     file_search_cache::SearchQuery,
-    github_client::{GitHubClient, PullRequestSummary},
+    github_client::GitHubClient,
+    pr_cache::{PrWithComments, ProjectPrsResponse, RepoPrs},
     project::ProjectServiceError,
     remote_client::CreateRemoteProjectPayload,
 };
@@ -51,30 +52,6 @@ pub struct LinkToExistingRequest {
 pub struct CreateRemoteProjectRequest {
     pub organization_id: Uuid,
     pub name: String,
-}
-
-/// A pull request with its optional unresolved review thread count.
-/// The count may be null if it's being loaded progressively.
-#[derive(Debug, Clone, Serialize, TS)]
-pub struct PrWithComments {
-    #[serde(flatten)]
-    pub pr: PullRequestSummary,
-    pub unresolved_count: Option<usize>,
-}
-
-/// PRs grouped by repository.
-#[derive(Debug, Clone, Serialize, TS)]
-pub struct RepoPrs {
-    pub repo_id: Uuid,
-    pub repo_name: String,
-    pub display_name: String,
-    pub pull_requests: Vec<PrWithComments>,
-}
-
-/// Response for GET /api/projects/:id/prs
-#[derive(Debug, Clone, Serialize, TS)]
-pub struct ProjectPrsResponse {
-    pub repos: Vec<RepoPrs>,
 }
 
 /// A task group summary for matching against worktrees
@@ -638,10 +615,34 @@ pub async fn update_project_repository(
 }
 
 /// GET /api/projects/:id/prs - Get open PRs across all repos, filtered by task group base branches.
+///
+/// Uses server-side caching with 2-minute TTL to reduce GitHub API calls.
 pub async fn get_project_prs(
     Extension(project): Extension<Project>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<ProjectPrsResponse>>, ApiError> {
+    // Check cache first
+    if let Some(cached) = deployment.pr_cache().get(project.id).await {
+        tracing::debug!("Cache hit for project {} PRs", project.id);
+        return Ok(ResponseJson(ApiResponse::success(cached)));
+    }
+
+    tracing::debug!("Cache miss for project {} PRs, fetching from GitHub", project.id);
+
+    // Fetch fresh data from GitHub
+    let response = fetch_project_prs_from_github(&project, &deployment).await?;
+
+    // Store in cache
+    deployment.pr_cache().insert(project.id, response.clone()).await;
+
+    Ok(ResponseJson(ApiResponse::success(response)))
+}
+
+/// Fetch PR data from GitHub API (internal helper for cache miss)
+async fn fetch_project_prs_from_github(
+    project: &Project,
+    deployment: &DeploymentImpl,
+) -> Result<ProjectPrsResponse, ApiError> {
     let pool = &deployment.db().pool;
 
     // Load GitHub token from settings
@@ -657,9 +658,7 @@ pub async fn get_project_prs(
 
     // If no base branches, return empty response
     if base_branches.is_empty() {
-        return Ok(ResponseJson(ApiResponse::success(ProjectPrsResponse {
-            repos: vec![],
-        })));
+        return Ok(ProjectPrsResponse { repos: vec![] });
     }
 
     // Get project repositories
@@ -743,9 +742,19 @@ pub async fn get_project_prs(
         });
     }
 
-    Ok(ResponseJson(ApiResponse::success(ProjectPrsResponse {
+    Ok(ProjectPrsResponse {
         repos: repo_prs_list,
-    })))
+    })
+}
+
+/// POST /api/projects/:id/prs/invalidate - Invalidate the PR cache for this project.
+pub async fn invalidate_project_prs_cache(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    deployment.pr_cache().invalidate(project.id).await;
+    tracing::info!("Invalidated PR cache for project {}", project.id);
+    Ok(ResponseJson(ApiResponse::success(())))
 }
 
 /// Unresolved count for a single PR, keyed by repo and PR number.
@@ -991,6 +1000,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             get(get_project_repositories).post(add_project_repository),
         )
         .route("/prs", get(get_project_prs))
+        .route("/prs/invalidate", post(invalidate_project_prs_cache))
         .route(
             "/prs/unresolved-counts",
             get(get_project_prs_unresolved_counts),
