@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -11,7 +11,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import WYSIWYGEditor from '@/components/ui/wysiwyg';
+import { imagesApi } from '@/lib/api';
 import {
   Select,
   SelectContent,
@@ -141,6 +142,28 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
       }
     };
 
+    // Handle Cmd+Enter from the WYSIWYG editor
+    const handleEditorCmdEnter = useCallback(() => {
+      if (canSubmit) {
+        handleSubmit();
+      }
+    }, [canSubmit, handleSubmit]);
+
+    // Handle image paste - upload globally (no conversation ID yet)
+    const handlePasteFiles = useCallback(async (files: File[]) => {
+      for (const file of files) {
+        try {
+          const response = await imagesApi.upload(file);
+          const imageMarkdown = `![${response.original_name}](${response.file_path})`;
+          setInitialMessage((prev) =>
+            prev ? `${prev}\n\n${imageMarkdown}` : imageMarkdown
+          );
+        } catch (error) {
+          console.error('Failed to upload image:', error);
+        }
+      }
+    }, []);
+
     return (
       <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-[500px]" onKeyDown={handleKeyDown}>
@@ -234,16 +257,20 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
                   defaultValue: 'Initial Message',
                 })}
               </Label>
-              <Textarea
-                id="initial-message"
-                value={initialMessage}
-                onChange={(e) => setInitialMessage(e.target.value)}
-                placeholder={t('conversations.initialMessagePlaceholder', {
-                  defaultValue: 'What would you like help with?',
-                })}
-                rows={4}
-                className="resize-none"
-              />
+              <div className="border rounded-md p-2">
+                <WYSIWYGEditor
+                  value={initialMessage}
+                  onChange={setInitialMessage}
+                  placeholder={t('conversations.initialMessagePlaceholder', {
+                    defaultValue: 'What would you like help with?',
+                  })}
+                  onPasteFiles={handlePasteFiles}
+                  onCmdEnter={handleEditorCmdEnter}
+                  projectId={projectId}
+                  className="min-h-[100px]"
+                  autoFocus={false}
+                />
+              </div>
               <p className="text-xs text-muted-foreground">
                 {t('conversations.initialMessageHint', {
                   defaultValue: 'Press Cmd+Enter to create',
