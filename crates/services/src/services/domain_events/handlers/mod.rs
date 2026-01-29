@@ -3,8 +3,10 @@
 //! This module contains handlers that react to domain events like task status
 //! changes, execution completions, and workspace lifecycle events.
 
+mod autopilot;
 mod feedback_collection;
 mod remote_sync;
 
+pub use autopilot::AutopilotHandler;
 pub use feedback_collection::FeedbackCollectionHandler;
 pub use remote_sync::RemoteSyncHandler;
