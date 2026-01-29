@@ -1,4 +1,9 @@
-import { GitPullRequest, MessageSquare, ExternalLink } from 'lucide-react';
+import {
+  GitPullRequest,
+  MessageSquare,
+  ExternalLink,
+  Loader2,
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -9,7 +14,7 @@ export interface PrData {
   author: string;
   baseBranch: string;
   headBranch: string;
-  unresolvedComments: number;
+  unresolvedComments: number | null;
   createdAt: string;
 }
 
@@ -31,7 +36,9 @@ function formatDate(dateStr: string): string {
 }
 
 export function PrCard({ pr, className }: PrCardProps) {
-  const hasUnresolved = pr.unresolvedComments > 0;
+  const isCountLoading = pr.unresolvedComments === null;
+  const hasUnresolved =
+    pr.unresolvedComments !== null && pr.unresolvedComments > 0;
 
   return (
     <div
@@ -88,7 +95,11 @@ export function PrCard({ pr, className }: PrCardProps) {
           className="text-xs flex items-center gap-1"
         >
           <MessageSquare className="w-3 h-3" />
-          {pr.unresolvedComments} unresolved
+          {isCountLoading ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <>{pr.unresolvedComments} unresolved</>
+          )}
         </Badge>
       </div>
     </div>

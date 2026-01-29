@@ -143,6 +143,8 @@ fn generate_types_content() -> String {
         server::routes::projects::PrWithComments::decl(),
         server::routes::projects::RepoPrs::decl(),
         server::routes::projects::ProjectPrsResponse::decl(),
+        server::routes::projects::PrUnresolvedCount::decl(),
+        server::routes::projects::PrUnresolvedCountsResponse::decl(),
         server::routes::projects::MatchingTaskGroup::decl(),
         server::routes::projects::WorktreeInfo::decl(),
         server::routes::projects::ProjectWorktreesResponse::decl(),
