@@ -1,12 +1,14 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Send, StopCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+import WYSIWYGEditor from '@/components/ui/wysiwyg';
+import { imagesApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 interface MessageInputProps {
   onSend: (content: string) => void;
+  conversationId: string;
   disabled?: boolean;
   placeholder?: string;
   onStop?: () => void;
@@ -16,6 +18,7 @@ interface MessageInputProps {
 
 export function MessageInput({
   onSend,
+  conversationId,
   disabled = false,
   placeholder,
   onStop,
@@ -24,7 +27,6 @@ export function MessageInput({
 }: MessageInputProps) {
   const { t } = useTranslation('common');
   const [content, setContent] = useState('');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const defaultPlaceholder = t('conversations.messagePlaceholder', {
     defaultValue: 'Type a message...',
@@ -36,49 +38,51 @@ export function MessageInput({
 
     onSend(trimmed);
     setContent('');
-
-    // Reset textarea height
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
   }, [content, disabled, onSend]);
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        handleSubmit();
+  const handlePasteFiles = useCallback(
+    async (files: File[]) => {
+      if (!conversationId) return;
+
+      for (const file of files) {
+        try {
+          const response = await imagesApi.uploadForConversation(
+            conversationId,
+            file
+          );
+          const imageMarkdown = `![${response.original_name}](${response.file_path})`;
+
+          setContent((prev) =>
+            prev ? `${prev}\n\n${imageMarkdown}` : imageMarkdown
+          );
+        } catch (error) {
+          console.error('Failed to upload image:', error);
+        }
       }
     },
-    [handleSubmit]
+    [conversationId]
   );
-
-  // Auto-resize textarea
-  useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-
-    textarea.style.height = 'auto';
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
-  }, [content]);
 
   return (
     <div className="border-t bg-background p-4">
       <div className="max-w-3xl mx-auto">
         <div className="flex items-end gap-2">
-          <Textarea
-            ref={textareaRef}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder ?? defaultPlaceholder}
-            disabled={disabled}
+          <div
             className={cn(
-              'min-h-[44px] max-h-[200px] resize-none',
+              'flex-1 border rounded-md px-3 py-2 bg-background',
               disabled && 'opacity-50'
             )}
-            rows={1}
-          />
+          >
+            <WYSIWYGEditor
+              placeholder={placeholder ?? defaultPlaceholder}
+              value={content}
+              onChange={setContent}
+              disabled={disabled}
+              onPasteFiles={handlePasteFiles}
+              onCmdEnter={handleSubmit}
+              className="min-h-[28px]"
+            />
+          </div>
           {showStopButton ? (
             <Button
               onClick={onStop}

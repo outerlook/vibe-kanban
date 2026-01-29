@@ -1,8 +1,12 @@
 use std::str::FromStr;
 
 use axum::{
-    Extension, Json, Router, extract::State, http::StatusCode, middleware::from_fn_with_state,
-    response::Json as ResponseJson, routing::get,
+    Extension, Json, Router,
+    extract::{DefaultBodyLimit, Multipart, Path, State},
+    http::StatusCode,
+    middleware::from_fn_with_state,
+    response::Json as ResponseJson,
+    routing::{get, post},
 };
 use db::models::{
     conversation_message::{ConversationMessage, ConversationMessagesPage},
@@ -29,7 +33,10 @@ use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::load_conversation_middleware};
+use crate::{
+    DeploymentImpl, error::ApiError, middleware::load_conversation_middleware,
+    routes::images::{ImageResponse, process_image_upload},
+};
 
 #[derive(Debug, Deserialize)]
 pub struct ListConversationsQuery {
@@ -294,6 +301,23 @@ pub async fn get_executions(
     Ok(ResponseJson(ApiResponse::success(executions)))
 }
 
+/// Upload an image for a conversation session.
+/// Images are stored in `.vibe-images/` and can be embedded in markdown messages.
+pub async fn upload_conversation_image(
+    Path(conversation_id): Path<Uuid>,
+    State(deployment): State<DeploymentImpl>,
+    multipart: Multipart,
+) -> Result<ResponseJson<ApiResponse<ImageResponse>>, ApiError> {
+    // Validate the conversation exists
+    ConversationSession::find_by_id(&deployment.db().pool, conversation_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Conversation not found".to_string()))?;
+
+    // Reuse the existing image upload processing (no task association needed)
+    let image_response = process_image_upload(&deployment, multipart, None).await?;
+    Ok(ResponseJson(ApiResponse::success(image_response)))
+}
+
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let conversation_actions = Router::new()
         .route(
@@ -309,6 +333,12 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             load_conversation_middleware,
         ));
 
+    // Image upload route - outside middleware layer since we validate conversation manually
+    let conversation_images = Router::new().route(
+        "/images/upload",
+        post(upload_conversation_image).layer(DefaultBodyLimit::max(20 * 1024 * 1024)), // 20MB limit
+    );
+
     let project_conversations =
         Router::new().route("/", get(list_conversations).post(create_conversation));
 
@@ -318,4 +348,5 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             project_conversations,
         )
         .nest("/conversations/{conversation_id}", conversation_actions)
+        .nest("/conversations/{conversation_id}", conversation_images)
 }
