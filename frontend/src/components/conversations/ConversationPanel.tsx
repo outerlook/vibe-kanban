@@ -154,6 +154,7 @@ export function ConversationPanel({ projectId }: ConversationPanelProps) {
             {/* Message input */}
             <MessageInput
               onSend={handleSendMessage}
+              conversationId={selectedConversation.id}
               disabled={!!runningExecutionId || sendMessage.isPending}
               onStop={() => runningExecutionId && stopExecution(runningExecutionId)}
               isStopping={isStopping}
