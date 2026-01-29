@@ -1,13 +1,5 @@
-import {
-  DataWithScrollModifier,
-  VirtuosoMessageList,
-  VirtuosoMessageListLicense,
-  VirtuosoMessageListMethods,
-  VirtuosoMessageListProps,
-  useVirtuosoLocation,
-  useVirtuosoMethods,
-} from '@virtuoso.dev/message-list';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import DisplayConversationEntry from '../NormalizedConversation/DisplayConversationEntry';
 import { useEntries } from '@/contexts/EntriesContext';
@@ -31,72 +23,34 @@ interface VirtualizedListProps {
   mode: VirtualizedListMode;
 }
 
-interface MessageListContext {
-  mode: VirtualizedListMode;
-}
-
-const INITIAL_TOP_ITEM = { index: 'LAST' as const, align: 'end' as const };
-
-const TOP_LOAD_THRESHOLD = 8;
 const AUTO_SCROLL_THRESHOLD = 100;
 const BUTTON_VISIBILITY_THRESHOLD = 500;
-
-const ItemContent: VirtuosoMessageListProps<
-  PatchTypeWithKey,
-  MessageListContext
->['ItemContent'] = ({ data, context }) => {
-  const mode = context?.mode;
-
-  if (data.type === 'STDOUT') {
-    return <p>{data.content}</p>;
-  }
-  if (data.type === 'STDERR') {
-    return <p>{data.content}</p>;
-  }
-  if (data.type === 'NORMALIZED_ENTRY' || data.type === 'ENTRY_GROUP') {
-    return (
-      <DisplayConversationEntry
-        expansionKey={data.patchKey}
-        entry={data.content}
-        executionProcessId={data.executionProcessId}
-        taskAttempt={mode?.type === 'workspace' ? mode.attempt : undefined}
-        task={mode?.type === 'workspace' ? mode.task : undefined}
-      />
-    );
-  }
-
-  return null;
-};
-
-const computeItemKey: VirtuosoMessageListProps<
-  PatchTypeWithKey,
-  MessageListContext
->['computeItemKey'] = ({ data }) => `l-${data.patchKey}`;
+const FIRST_ITEM_INDEX = 100000;
 
 const VirtualizedListInner = ({ mode }: VirtualizedListProps) => {
-  const [channelData, setChannelData] =
-    useState<DataWithScrollModifier<PatchTypeWithKey> | null>(null);
+  const [entries, setEntriesState] = useState<PatchTypeWithKey[]>([]);
+  const [firstItemIndex, setFirstItemIndex] = useState(FIRST_ITEM_INDEX);
   const [loading, setLoading] = useState(true);
   const [atBottom, setAtBottom] = useState(true);
   const [unseenMessages, setUnseenMessages] = useState(0);
+  const [bottomOffset, setBottomOffset] = useState(0);
   const didInitScrollRef = useRef(false);
   const previousEntryCountRef = useRef(0);
-  const bottomOffsetRef = useRef(0);
-  const messageListRef = useRef<VirtuosoMessageListMethods | null>(null);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
   const { setEntries, reset } = useEntries();
 
-  // Derive modeId for dependency tracking
   const modeId =
     mode.type === 'workspace' ? mode.attempt.id : mode.conversationSessionId;
 
   useEffect(() => {
     setLoading(true);
-    setChannelData(null);
+    setEntriesState([]);
+    setFirstItemIndex(FIRST_ITEM_INDEX);
     previousEntryCountRef.current = 0;
-    bottomOffsetRef.current = 0;
     didInitScrollRef.current = false;
     setAtBottom(true);
     setUnseenMessages(0);
+    setBottomOffset(0);
     reset();
   }, [modeId, reset]);
 
@@ -106,135 +60,70 @@ const VirtualizedListInner = ({ mode }: VirtualizedListProps) => {
     }
   }, [atBottom]);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
-    messageListRef.current?.scrollToItem({
+  const scrollToBottom = useCallback((behavior: 'auto' | 'smooth' = 'auto') => {
+    virtuosoRef.current?.scrollToIndex({
       index: 'LAST',
       align: 'end',
       behavior,
     });
   }, []);
 
-  const onEntriesUpdated = (
-    newEntries: PatchTypeWithKey[],
-    addType: AddEntryType,
-    newLoading: boolean
-  ) => {
-    const previousCount = previousEntryCountRef.current;
-    const nextCount = newEntries.length;
-    const addedCount = nextCount - previousCount;
-    previousEntryCountRef.current = nextCount;
-    const wasLoading = loading;
+  const onEntriesUpdated = useCallback(
+    (newEntries: PatchTypeWithKey[], addType: AddEntryType, newLoading: boolean) => {
+      const previousCount = previousEntryCountRef.current;
+      const nextCount = newEntries.length;
+      const addedCount = nextCount - previousCount;
+      previousEntryCountRef.current = nextCount;
+      const wasLoading = loading;
 
-    setChannelData({ data: newEntries });
-    setEntries(newEntries);
-
-    if (loading) {
-      setLoading(newLoading);
-    }
-
-    if (wasLoading || addedCount <= 0) {
-      return;
-    }
-
-    if (addType === 'running') {
-      const isNearBottom = bottomOffsetRef.current < AUTO_SCROLL_THRESHOLD;
-      if (atBottom || isNearBottom) {
-        requestAnimationFrame(() => {
-          scrollToBottom('smooth');
-        });
-      } else {
-        setUnseenMessages((prev) => prev + addedCount);
+      if (addType === 'historic' && addedCount > 0) {
+        setFirstItemIndex((prev) => prev - addedCount);
       }
-      return;
-    }
 
-    if (addType === 'historic') {
-      requestAnimationFrame(() => {
-        messageListRef.current?.scrollToItem({
-          index: addedCount,
-          align: 'start',
-        });
-      });
-    }
-  };
+      setEntriesState(newEntries);
+      setEntries(newEntries);
 
-  // Convert VirtualizedListMode to HistoryMode
+      if (loading) {
+        setLoading(newLoading);
+      }
+
+      if (wasLoading || addedCount <= 0) {
+        return;
+      }
+
+      if (addType === 'running') {
+        if (!atBottom) {
+          setUnseenMessages((prev) => prev + addedCount);
+        }
+      }
+    },
+    [loading, atBottom, setEntries]
+  );
+
   const historyMode: HistoryMode =
     mode.type === 'workspace'
       ? { type: 'workspace', attempt: mode.attempt }
       : { type: 'conversation', conversationSessionId: mode.conversationSessionId };
 
-  const { loadMoreHistory, hasMoreHistory, isLoadingMore } =
-    useConversationHistory({ mode: historyMode, onEntriesUpdated });
+  const { loadMoreHistory, hasMoreHistory, isLoadingMore } = useConversationHistory({
+    mode: historyMode,
+    onEntriesUpdated,
+  });
 
-  const handleScroll = useCallback(
-    ({
-      listOffset,
-      bottomOffset,
-    }: {
-      listOffset: number;
-      bottomOffset?: number;
-    }) => {
-      if (bottomOffset !== undefined) {
-        bottomOffsetRef.current = bottomOffset;
-        const isAtBottom = bottomOffset < AUTO_SCROLL_THRESHOLD;
-        setAtBottom(isAtBottom);
-        if (isAtBottom) {
-          setUnseenMessages(0);
-        }
-      }
-      if (!hasMoreHistory || isLoadingMore || loading) return;
-      if (listOffset >= -TOP_LOAD_THRESHOLD) {
-        loadMoreHistory();
-      }
-    },
-    [hasMoreHistory, isLoadingMore, loadMoreHistory, loading]
-  );
+  const handleStartReached = useCallback(() => {
+    if (!hasMoreHistory || isLoadingMore || loading) return;
+    loadMoreHistory();
+  }, [hasMoreHistory, isLoadingMore, loadMoreHistory, loading]);
 
-  const messageListContext = useMemo(() => ({ mode }), [mode]);
-
-  const StickyFooter: VirtuosoMessageListProps<
-    PatchTypeWithKey,
-    MessageListContext
-  >['StickyFooter'] = () => {
-    const location = useVirtuosoLocation();
-    const methods = useVirtuosoMethods();
-
-    const shouldShowButton =
-      unseenMessages > 0 || location.bottomOffset > BUTTON_VISIBILITY_THRESHOLD;
-
-    if (!shouldShowButton) {
-      return null;
+  const handleAtBottomStateChange = useCallback((bottom: boolean) => {
+    setAtBottom(bottom);
+    if (bottom) {
+      setUnseenMessages(0);
     }
-
-    const label =
-      unseenMessages > 0
-        ? `${unseenMessages} new message${unseenMessages === 1 ? '' : 's'}`
-        : 'Jump to bottom';
-
-    return (
-      <div className="absolute bottom-4 right-4 z-10">
-        <button
-          onClick={() => {
-            methods.scrollToItem({
-              index: 'LAST',
-              align: 'end',
-              behavior: 'smooth',
-            });
-            setUnseenMessages(0);
-          }}
-          className="bg-primary text-primary-foreground px-3 py-2 rounded-full shadow-lg flex items-center gap-2 text-sm"
-        >
-          <ArrowDown className="h-4 w-4" />
-          <span>{label}</span>
-        </button>
-      </div>
-    );
-  };
+  }, []);
 
   useEffect(() => {
-    const dataLength = channelData?.data?.length ?? 0;
-    if (loading || didInitScrollRef.current || dataLength === 0) {
+    if (loading || didInitScrollRef.current || entries.length === 0) {
       return;
     }
 
@@ -242,35 +131,85 @@ const VirtualizedListInner = ({ mode }: VirtualizedListProps) => {
     requestAnimationFrame(() => {
       scrollToBottom();
     });
-  }, [loading, channelData, scrollToBottom]);
+  }, [loading, entries.length, scrollToBottom]);
+
+  const renderItem = useCallback(
+    (_index: number, data: PatchTypeWithKey) => {
+      if (data.type === 'STDOUT') {
+        return <p>{data.content}</p>;
+      }
+      if (data.type === 'STDERR') {
+        return <p>{data.content}</p>;
+      }
+      if (data.type === 'NORMALIZED_ENTRY' || data.type === 'ENTRY_GROUP') {
+        return (
+          <DisplayConversationEntry
+            expansionKey={data.patchKey}
+            entry={data.content}
+            executionProcessId={data.executionProcessId}
+            taskAttempt={mode.type === 'workspace' ? mode.attempt : undefined}
+            task={mode.type === 'workspace' ? mode.task : undefined}
+          />
+        );
+      }
+      return null;
+    },
+    [mode]
+  );
+
+  const shouldShowButton = unseenMessages > 0 || bottomOffset > BUTTON_VISIBILITY_THRESHOLD;
 
   return (
     <ApprovalFormProvider>
-      <VirtuosoMessageListLicense
-        licenseKey={import.meta.env.VITE_PUBLIC_REACT_VIRTUOSO_LICENSE_KEY}
-      >
-        <VirtuosoMessageList<PatchTypeWithKey, MessageListContext>
-          ref={messageListRef}
-          className="flex-1 relative"
-          data={channelData}
-          initialLocation={INITIAL_TOP_ITEM}
-          context={messageListContext}
-          computeItemKey={computeItemKey}
-          ItemContent={ItemContent}
-          Header={() =>
-            isLoadingMore ? (
-              <div className="flex items-center justify-center py-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-              </div>
-            ) : (
-              <div className="h-2"></div>
-            )
-          }
-          Footer={() => <div className="h-2"></div>}
-          onScroll={handleScroll}
-          StickyFooter={StickyFooter}
+      <div className="flex-1 relative">
+        <Virtuoso
+          ref={virtuosoRef}
+          className="h-full"
+          data={entries}
+          firstItemIndex={firstItemIndex}
+          initialTopMostItemIndex={entries.length > 0 ? entries.length - 1 : 0}
+          computeItemKey={(_index, data) => `l-${data.patchKey}`}
+          itemContent={renderItem}
+          startReached={handleStartReached}
+          atBottomStateChange={handleAtBottomStateChange}
+          atBottomThreshold={AUTO_SCROLL_THRESHOLD}
+          followOutput="auto"
+          onScroll={(e) => {
+            const target = e.target as HTMLElement;
+            const offset = target.scrollHeight - target.scrollTop - target.clientHeight;
+            setBottomOffset(offset);
+          }}
+          components={{
+            Header: () =>
+              isLoadingMore ? (
+                <div className="flex items-center justify-center py-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                </div>
+              ) : (
+                <div className="h-2" />
+              ),
+            Footer: () => <div className="h-2" />,
+          }}
         />
-      </VirtuosoMessageListLicense>
+        {shouldShowButton && (
+          <div className="absolute bottom-4 right-4 z-10">
+            <button
+              onClick={() => {
+                scrollToBottom('smooth');
+                setUnseenMessages(0);
+              }}
+              className="bg-primary text-primary-foreground px-3 py-2 rounded-full shadow-lg flex items-center gap-2 text-sm"
+            >
+              <ArrowDown className="h-4 w-4" />
+              <span>
+                {unseenMessages > 0
+                  ? `${unseenMessages} new message${unseenMessages === 1 ? '' : 's'}`
+                  : 'Jump to bottom'}
+              </span>
+            </button>
+          </div>
+        )}
+      </div>
       {loading && (
         <div className="float-left top-0 left-0 w-full h-full bg-primary flex flex-col gap-2 justify-center items-center">
           <Loader2 className="h-8 w-8 animate-spin" />
