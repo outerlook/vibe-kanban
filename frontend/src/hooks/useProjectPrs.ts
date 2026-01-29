@@ -90,7 +90,5 @@ export function useProjectPrs(projectId?: string, opts?: Options) {
   return {
     ...prsQuery,
     data,
-    // Expose whether counts are still loading separately
-    isCountsLoading: countsQuery.isLoading,
   };
 }

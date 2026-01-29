@@ -1,4 +1,4 @@
-import { useCallback, useId } from 'react';
+import { useCallback, useId, useMemo } from 'react';
 import type { QuestionAnswer, QuestionData } from 'shared/types';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -51,7 +51,10 @@ export function QuestionRenderer({
   onAnswerChange,
 }: QuestionRendererProps) {
   const baseId = useId();
-  const selectedIndices = answer?.selected_indices ?? [];
+  const selectedIndices = useMemo(
+    () => answer?.selected_indices ?? [],
+    [answer?.selected_indices]
+  );
   const otherText = answer?.other_text ?? '';
   const isOtherSelected = otherText.length > 0 || selectedIndices.includes(-1);
 
