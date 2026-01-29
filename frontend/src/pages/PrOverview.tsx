@@ -14,6 +14,7 @@ import { useProject } from '@/contexts/ProjectContext';
 import { useProjectPrs, prKeys } from '@/hooks/useProjectPrs';
 import { useProjectWorkspaces } from '@/hooks/useProjectWorkspaces';
 import { useTaskGroupStats } from '@/hooks/useTaskGroupStats';
+import { useBatchBranchMergeStatus } from '@/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiError, type PrWithComments } from '@/lib/api';
 import type { TaskStatusCounts } from 'shared/types';
@@ -86,8 +87,13 @@ export function PrOverview() {
   const { data: workspaces, isLoading: workspacesLoading } =
     useProjectWorkspaces(projectId);
 
-  const isLoading =
-    projectLoading || prsLoading || taskGroupsLoading || workspacesLoading;
+  // Get repoId from first repo in response (for batch merge status)
+  const repoId = prsResponse?.repos?.[0]?.repo_id;
+
+  // Progressive loading states - show structure early
+  const hasTaskGroups = !taskGroupsLoading && taskGroups !== undefined;
+  const hasPrData = !prsLoading && prsResponse !== undefined;
+  const hasAllData = hasPrData && !workspacesLoading;
 
   // Get unique base branches from task groups that have base_branch set
   const baseBranches = useMemo(() => {
@@ -220,6 +226,20 @@ export function PrOverview() {
     return { groupedByBranch: grouped, branchMetadata: metadata, totalPrCount: total };
   }, [prsResponse, taskGroups, workspaces, selectedBranch, searchQuery]);
 
+  // Get all branch names for batch merge status
+  const allBranchNames = useMemo(
+    () => Array.from(groupedByBranch.keys()),
+    [groupedByBranch]
+  );
+
+  // Batch fetch merge status for all branches
+  const { data: batchMergeStatus, isLoading: isMergeStatusLoading } = useBatchBranchMergeStatus(
+    repoId,
+    projectId,
+    allBranchNames,
+    { enabled: !!repoId && !!projectId && allBranchNames.length > 0 }
+  );
+
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: prKeys.byProject(projectId) });
     refetch();
@@ -238,8 +258,8 @@ export function PrOverview() {
     0
   );
 
-  // Loading state
-  if (isLoading) {
+  // Initial loading state - only show when project context is loading
+  if (projectLoading) {
     return (
       <div className="p-6 space-y-6">
         <PageHeader onRefresh={handleRefresh} disabled />
@@ -293,8 +313,8 @@ export function PrOverview() {
     );
   }
 
-  // No task groups with base branches
-  if (hasNoBaseBranches) {
+  // No task groups with base branches (only show after task groups load)
+  if (hasTaskGroups && hasNoBaseBranches) {
     return (
       <div className="p-6 space-y-6">
         <PageHeader onRefresh={handleRefresh} />
@@ -312,28 +332,71 @@ export function PrOverview() {
     );
   }
 
+  // Render branch section skeletons with actual branch names from task groups
+  const renderBranchSkeletons = () => {
+    if (!taskGroups) return null;
+
+    // Get unique branches from task groups
+    const branches = [
+      ...new Set(
+        taskGroups
+          .map((g) => g.base_branch)
+          .filter((b): b is string => b !== null)
+      ),
+    ].sort();
+
+    return (
+      <div className="space-y-4">
+        {branches.map((branchName, index) => (
+          <BranchSectionSkeleton
+            key={branchName}
+            branchName={branchName}
+            animationDelay={index * 100}
+          />
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="p-6 space-y-6">
       <PageHeader
         onRefresh={handleRefresh}
         subtitle={
-          <span className="text-sm text-muted-foreground">
-            ({filteredCount} of {totalPrCount})
-          </span>
+          hasAllData ? (
+            <span className="text-sm text-muted-foreground">
+              ({filteredCount} of {totalPrCount})
+            </span>
+          ) : undefined
         }
       />
 
-      {/* Filters */}
-      <PrFilters
-        branches={baseBranches}
-        selectedBranch={selectedBranch}
-        searchQuery={searchQuery}
-        onBranchChange={setSelectedBranch}
-        onSearchChange={setSearchQuery}
-      />
+      {/* Filters - show immediately with available branch data */}
+      {taskGroupsLoading ? (
+        <PrFiltersSkeleton />
+      ) : (
+        <PrFilters
+          branches={baseBranches}
+          selectedBranch={selectedBranch}
+          searchQuery={searchQuery}
+          onBranchChange={setSelectedBranch}
+          onSearchChange={setSearchQuery}
+        />
+      )}
 
-      {/* PR List grouped by branch */}
-      {groupedByBranch.size === 0 ? (
+      {/* PR List grouped by branch - progressive loading */}
+      {!hasPrData ? (
+        // Show branch skeletons with names from task groups while PRs load
+        hasTaskGroups && baseBranches.length > 0 ? (
+          renderBranchSkeletons()
+        ) : (
+          <div className="space-y-4">
+            <BranchSectionSkeleton animationDelay={0} />
+            <BranchSectionSkeleton animationDelay={100} />
+          </div>
+        )
+      ) : groupedByBranch.size === 0 ? (
+        // Empty state - only show after data is loaded
         <div className="text-center py-12 text-muted-foreground">
           <GitPullRequest className="h-12 w-12 mx-auto mb-4 opacity-50" />
           <p className="text-lg font-medium">No pull requests found</p>
@@ -347,6 +410,7 @@ export function PrOverview() {
         <div className="space-y-4">
           {Array.from(groupedByBranch.entries()).map(([branchName, prs]) => {
             const meta = branchMetadata.get(branchName);
+            const mergeStatus = batchMergeStatus?.statuses[branchName];
             return (
               <BranchSection
                 key={branchName}
@@ -364,6 +428,8 @@ export function PrOverview() {
                 workspaceId={meta?.workspaceId}
                 groupName={meta?.groupName}
                 groupDescription={meta?.groupDescription}
+                mergeStatus={mergeStatus}
+                isMergeStatusLoading={isMergeStatusLoading}
               />
             );
           })}

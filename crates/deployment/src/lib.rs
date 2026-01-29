@@ -33,6 +33,7 @@ use services::services::{
     image::{ImageError, ImageService},
     merge_queue_store::MergeQueueStore,
     operation_status::OperationStatusStore,
+    pr_cache::PrCache,
     pr_monitor::PrMonitorService,
     project::ProjectService,
     queued_message::QueuedMessageService,
@@ -131,6 +132,8 @@ pub trait Deployment: Clone + Send + Sync + 'static {
     fn merge_queue_store(&self) -> &MergeQueueStore;
 
     fn skills_cache(&self) -> &GlobalSkillsCache;
+
+    fn pr_cache(&self) -> &Arc<PrCache>;
 
     async fn update_sentry_scope(&self) -> Result<(), DeploymentError> {
         let user_id = self.user_id();

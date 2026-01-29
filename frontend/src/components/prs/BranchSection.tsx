@@ -23,10 +23,10 @@ import { Badge } from '@/components/ui/badge';
 import { PrCard, PrCardSkeleton, type PrData } from './PrCard';
 import { StatusCountBadge } from '@/components/tasks/StatusCountBadge';
 import { IdeIcon, getIdeName } from '@/components/ide/IdeIcon';
-import { useBranchMergeStatus, useCustomEditors, useOpenInEditor } from '@/hooks';
+import { useCustomEditors, useOpenInEditor } from '@/hooks';
 import { cn } from '@/lib/utils';
 import { EditorType } from 'shared/types';
-import type { TaskStatusCounts, TaskStatus } from 'shared/types';
+import type { BranchMergeStatus, TaskStatusCounts, TaskStatus } from 'shared/types';
 import { CreatePRFromGroupDialog } from '@/components/dialogs/tasks/CreatePRFromGroupDialog';
 import { useQueryClient } from '@tanstack/react-query';
 import { prKeys } from '@/hooks/useProjectPrs';
@@ -54,6 +54,10 @@ export interface BranchSectionProps {
   groupName?: string;
   /** Group description for creating a PR (used as default PR body) */
   groupDescription?: string | null;
+  /** Pre-fetched merge status (from batch API) */
+  mergeStatus?: BranchMergeStatus;
+  /** Whether merge status is being loaded */
+  isMergeStatusLoading?: boolean;
 }
 
 export function BranchSection({
@@ -67,6 +71,8 @@ export function BranchSection({
   className,
   groupName,
   groupDescription,
+  mergeStatus,
+  isMergeStatusLoading = false,
 }: BranchSectionProps) {
   const { t } = useTranslation('prs');
   const queryClient = useQueryClient();
@@ -76,9 +82,6 @@ export function BranchSection({
     x: number;
     y: number;
   }>({ open: false, x: 0, y: 0 });
-
-  const { data: branchStatus, isLoading: isBranchLoading } =
-    useBranchMergeStatus(repoId, branchName, projectId);
 
   const { data: customEditors = [] } = useCustomEditors();
   const openInEditor = useOpenInEditor(workspaceId);
@@ -148,7 +151,7 @@ export function BranchSection({
     groupName !== undefined &&
     repoId !== undefined &&
     projectId !== undefined &&
-    !branchStatus?.is_merged;
+    !mergeStatus?.is_merged;
 
   // Don't render if no PRs and no group info (nothing to show)
   if (prs.length === 0 && !groupName) {
@@ -175,10 +178,10 @@ export function BranchSection({
           {/* Git merge status */}
           {repoId && projectId && (
             <span className="flex items-center ml-1">
-              {isBranchLoading ? (
+              {isMergeStatusLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              ) : branchStatus?.exists ? (
-                branchStatus.is_merged ? (
+              ) : mergeStatus?.exists ? (
+                mergeStatus.is_merged ? (
                   <Check className="h-4 w-4 text-emerald-500" />
                 ) : (
                   <AlertTriangle className="h-4 w-4 text-amber-500" />
@@ -265,18 +268,41 @@ export function BranchSection({
   );
 }
 
-export function BranchSectionSkeleton({ prCount = 2 }: { prCount?: number }) {
+interface BranchSectionSkeletonProps {
+  /** Optional branch name to display instead of placeholder */
+  branchName?: string;
+  /** Number of PR card skeletons to show */
+  prCount?: number;
+  /** Staggered animation delay in ms */
+  animationDelay?: number;
+}
+
+export function BranchSectionSkeleton({
+  branchName,
+  prCount = 2,
+  animationDelay = 0,
+}: BranchSectionSkeletonProps) {
   return (
-    <div className="border border-border rounded-md animate-pulse">
-      {/* Header skeleton */}
+    <div
+      className="border border-border rounded-md animate-pulse"
+      style={{ animationDelay: `${animationDelay}ms` }}
+    >
+      {/* Header - show real branch name if available */}
       <div className="px-3 py-2 flex items-center gap-2">
-        <div className="w-4 h-4 bg-muted rounded" />
-        <div className="w-4 h-4 bg-muted rounded" />
-        <div className="h-4 bg-muted rounded w-32" />
+        <ChevronDown className="w-4 h-4 flex-shrink-0 text-muted-foreground/50" />
+        <GitBranch className="w-4 h-4 flex-shrink-0 text-muted-foreground/50" />
+        {branchName ? (
+          <span className="truncate font-medium text-muted-foreground">
+            {branchName}
+          </span>
+        ) : (
+          <div className="h-4 bg-muted rounded w-32" />
+        )}
         <div className="w-4 h-4 bg-muted rounded" />
         <div className="flex gap-1 ml-auto">
-          <div className="h-5 bg-muted rounded w-12" />
-          <div className="h-5 bg-muted rounded w-10" />
+          <div className="h-5 bg-muted rounded w-8" />
+          <div className="h-5 bg-muted rounded w-8" />
+          <div className="h-5 bg-muted rounded w-8" />
         </div>
         <div className="h-5 bg-muted rounded w-12" />
       </div>

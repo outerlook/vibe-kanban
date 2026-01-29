@@ -26,7 +26,8 @@ use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use services::services::{
     file_search_cache::SearchQuery,
-    github_client::{GitHubClient, PullRequestSummary},
+    github_client::GitHubClient,
+    pr_cache::{PrWithComments, ProjectPrsResponse, RepoPrs},
     project::ProjectServiceError,
     remote_client::CreateRemoteProjectPayload,
 };
@@ -51,29 +52,6 @@ pub struct LinkToExistingRequest {
 pub struct CreateRemoteProjectRequest {
     pub organization_id: Uuid,
     pub name: String,
-}
-
-/// A pull request with its unresolved review thread count.
-#[derive(Debug, Clone, Serialize, TS)]
-pub struct PrWithComments {
-    #[serde(flatten)]
-    pub pr: PullRequestSummary,
-    pub unresolved_count: usize,
-}
-
-/// PRs grouped by repository.
-#[derive(Debug, Clone, Serialize, TS)]
-pub struct RepoPrs {
-    pub repo_id: Uuid,
-    pub repo_name: String,
-    pub display_name: String,
-    pub pull_requests: Vec<PrWithComments>,
-}
-
-/// Response for GET /api/projects/:id/prs
-#[derive(Debug, Clone, Serialize, TS)]
-pub struct ProjectPrsResponse {
-    pub repos: Vec<RepoPrs>,
 }
 
 /// A task group summary for matching against worktrees
@@ -637,10 +615,34 @@ pub async fn update_project_repository(
 }
 
 /// GET /api/projects/:id/prs - Get open PRs across all repos, filtered by task group base branches.
+///
+/// Uses server-side caching with 2-minute TTL to reduce GitHub API calls.
 pub async fn get_project_prs(
     Extension(project): Extension<Project>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<ProjectPrsResponse>>, ApiError> {
+    // Check cache first
+    if let Some(cached) = deployment.pr_cache().get(project.id).await {
+        tracing::debug!("Cache hit for project {} PRs", project.id);
+        return Ok(ResponseJson(ApiResponse::success(cached)));
+    }
+
+    tracing::debug!("Cache miss for project {} PRs, fetching from GitHub", project.id);
+
+    // Fetch fresh data from GitHub
+    let response = fetch_project_prs_from_github(&project, &deployment).await?;
+
+    // Store in cache
+    deployment.pr_cache().insert(project.id, response.clone()).await;
+
+    Ok(ResponseJson(ApiResponse::success(response)))
+}
+
+/// Fetch PR data from GitHub API (internal helper for cache miss)
+async fn fetch_project_prs_from_github(
+    project: &Project,
+    deployment: &DeploymentImpl,
+) -> Result<ProjectPrsResponse, ApiError> {
     let pool = &deployment.db().pool;
 
     // Load GitHub token from settings
@@ -656,9 +658,7 @@ pub async fn get_project_prs(
 
     // If no base branches, return empty response
     if base_branches.is_empty() {
-        return Ok(ResponseJson(ApiResponse::success(ProjectPrsResponse {
-            repos: vec![],
-        })));
+        return Ok(ProjectPrsResponse { repos: vec![] });
     }
 
     // Get project repositories
@@ -685,40 +685,27 @@ pub async fn get_project_prs(
             }
         };
 
-        let mut all_prs = Vec::new();
-
-        // Fetch PRs for each head branch (task group base_branch represents the feature branch)
-        for head_branch in &base_branches {
-            // Format head ref as "owner:branch" for GitHub API
+        // Fetch PRs for all head branches in parallel
+        let pr_futures = base_branches.iter().map(|head_branch| {
             let head_ref = format!("{}:{}", repo_info.owner, head_branch);
-            match github_client
-                .list_open_prs_by_head(&repo_info.owner, &repo_info.repo_name, &head_ref)
-                .await
-            {
-                Ok(prs) => {
-                    for pr in prs {
-                        // Enrich with unresolved count
-                        let unresolved_count = github_client
-                            .get_unresolved_thread_count(
-                                &repo_info.owner,
-                                &repo_info.repo_name,
-                                pr.number,
-                            )
-                            .await
-                            .unwrap_or_else(|e| {
-                                tracing::warn!(
-                                    "Failed to get unresolved threads for PR #{}: {}",
-                                    pr.number,
-                                    e
-                                );
-                                0
-                            });
+            let owner = repo_info.owner.clone();
+            let repo_name = repo_info.repo_name.clone();
+            let client = &github_client;
+            async move {
+                let result = client
+                    .list_open_prs_by_head(&owner, &repo_name, &head_ref)
+                    .await;
+                (head_branch.clone(), result)
+            }
+        });
 
-                        all_prs.push(PrWithComments {
-                            pr,
-                            unresolved_count,
-                        });
-                    }
+        let pr_results = futures_util::future::join_all(pr_futures).await;
+
+        let mut all_prs = Vec::new();
+        for (head_branch, result) in pr_results {
+            match result {
+                Ok(prs) => {
+                    all_prs.extend(prs);
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -732,20 +719,162 @@ pub async fn get_project_prs(
             }
         }
 
-        // Only add repo if it has PRs
-        if !all_prs.is_empty() {
-            repo_prs_list.push(RepoPrs {
+        // Skip repos with no PRs
+        if all_prs.is_empty() {
+            continue;
+        }
+
+        // Return PRs with null unresolved_count for progressive loading
+        // (counts are fetched separately via /prs/unresolved-counts)
+        let prs_with_comments: Vec<PrWithComments> = all_prs
+            .into_iter()
+            .map(|pr| PrWithComments {
+                pr,
+                unresolved_count: None,
+            })
+            .collect();
+
+        repo_prs_list.push(RepoPrs {
+            repo_id: repo.id,
+            repo_name: repo.name.clone(),
+            display_name: repo.display_name.clone(),
+            pull_requests: prs_with_comments,
+        });
+    }
+
+    Ok(ProjectPrsResponse {
+        repos: repo_prs_list,
+    })
+}
+
+/// POST /api/projects/:id/prs/invalidate - Invalidate the PR cache for this project.
+pub async fn invalidate_project_prs_cache(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    deployment.pr_cache().invalidate(project.id).await;
+    tracing::info!("Invalidated PR cache for project {}", project.id);
+    Ok(ResponseJson(ApiResponse::success(())))
+}
+
+/// Unresolved count for a single PR, keyed by repo and PR number.
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct PrUnresolvedCount {
+    pub repo_id: Uuid,
+    pub pr_number: u64,
+    pub unresolved_count: usize,
+}
+
+/// Response for GET /api/projects/:id/prs/unresolved-counts
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct PrUnresolvedCountsResponse {
+    pub counts: Vec<PrUnresolvedCount>,
+}
+
+/// GET /api/projects/:id/prs/unresolved-counts - Fetch unresolved comment counts for all PRs.
+/// This endpoint is designed to be called after /prs to progressively load the counts.
+pub async fn get_project_prs_unresolved_counts(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<PrUnresolvedCountsResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    // Load GitHub token from settings
+    let token = get_github_token(pool)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("GitHub token not configured".to_string()))?;
+
+    let github_client = GitHubClient::new(token)
+        .map_err(|e| ApiError::Internal(format!("Failed to create GitHub client: {}", e)))?;
+
+    // Get unique base branches from task groups
+    let base_branches = TaskGroup::get_unique_base_branches(pool, project.id).await?;
+
+    // If no base branches, return empty response
+    if base_branches.is_empty() {
+        return Ok(ResponseJson(ApiResponse::success(
+            PrUnresolvedCountsResponse { counts: vec![] },
+        )));
+    }
+
+    // Get project repositories
+    let repositories = deployment
+        .project()
+        .get_repositories(pool, project.id)
+        .await?;
+
+    let git_service = deployment.git();
+    let mut all_counts = Vec::new();
+
+    for repo in repositories {
+        // Get GitHub repo info from remote URL
+        let repo_info = match git_service.get_github_repo_info(&repo.path) {
+            Ok(info) => info,
+            Err(e) => {
+                tracing::warn!(
+                    "Skipping repo {} ({}): failed to get GitHub info: {}",
+                    repo.name,
+                    repo.path.display(),
+                    e
+                );
+                continue;
+            }
+        };
+
+        // Fetch PRs for all head branches in parallel to get PR numbers
+        let pr_futures = base_branches.iter().map(|head_branch| {
+            let head_ref = format!("{}:{}", repo_info.owner, head_branch);
+            let owner = repo_info.owner.clone();
+            let repo_name = repo_info.repo_name.clone();
+            let client = &github_client;
+            async move {
+                client
+                    .list_open_prs_by_head(&owner, &repo_name, &head_ref)
+                    .await
+            }
+        });
+
+        let pr_results = futures_util::future::join_all(pr_futures).await;
+
+        let mut pr_numbers: Vec<u64> = Vec::new();
+        for result in pr_results {
+            if let Ok(prs) = result {
+                pr_numbers.extend(prs.iter().map(|pr| pr.number));
+            }
+        }
+
+        if pr_numbers.is_empty() {
+            continue;
+        }
+
+        // Batch fetch unresolved counts for all PRs in this repo
+        let unresolved_counts = github_client
+            .get_unresolved_thread_counts_batch(&repo_info.owner, &repo_info.repo_name, &pr_numbers)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    "Failed to batch fetch unresolved threads for {}/{}: {}",
+                    repo_info.owner,
+                    repo_info.repo_name,
+                    e
+                );
+                // Return 0 for all PRs on failure
+                pr_numbers.iter().map(|&num| (num, 0)).collect()
+            });
+
+        // Add counts for this repo
+        for (pr_number, count) in unresolved_counts {
+            all_counts.push(PrUnresolvedCount {
                 repo_id: repo.id,
-                repo_name: repo.name.clone(),
-                display_name: repo.display_name.clone(),
-                pull_requests: all_prs,
+                pr_number,
+                unresolved_count: count,
             });
         }
     }
 
-    Ok(ResponseJson(ApiResponse::success(ProjectPrsResponse {
-        repos: repo_prs_list,
-    })))
+    Ok(ResponseJson(ApiResponse::success(
+        PrUnresolvedCountsResponse { counts: all_counts },
+    )))
 }
 
 /// Response for GET /api/projects/:id/merge-queue-count
@@ -871,6 +1000,11 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             get(get_project_repositories).post(add_project_repository),
         )
         .route("/prs", get(get_project_prs))
+        .route("/prs/invalidate", post(invalidate_project_prs_cache))
+        .route(
+            "/prs/unresolved-counts",
+            get(get_project_prs_unresolved_counts),
+        )
         .route("/merge-queue-count", get(get_merge_queue_count))
         .route("/workspaces", get(get_project_workspaces))
         .route("/worktrees", get(get_project_worktrees))

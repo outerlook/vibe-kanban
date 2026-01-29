@@ -62,6 +62,19 @@ pub struct BranchMergeStatus {
 
 #[derive(Debug, Deserialize, TS)]
 #[ts(export)]
+pub struct BatchCheckBranchMergeStatusRequest {
+    pub branches: Vec<String>,
+    pub project_id: Uuid,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct BatchBranchMergeStatus {
+    pub statuses: std::collections::HashMap<String, BranchMergeStatus>,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[ts(export)]
 pub struct CreateRepoPrRequest {
     pub head_branch: String,
     pub base_branch: String,
@@ -239,6 +252,66 @@ pub async fn check_branch_merge_status(
     Ok(ResponseJson(ApiResponse::success(status)))
 }
 
+pub async fn batch_check_branch_merge_status(
+    State(deployment): State<DeploymentImpl>,
+    Path(repo_id): Path<Uuid>,
+    ResponseJson(payload): ResponseJson<BatchCheckBranchMergeStatusRequest>,
+) -> Result<ResponseJson<ApiResponse<BatchBranchMergeStatus>>, ApiError> {
+    let repo = deployment
+        .repo()
+        .get_by_id(&deployment.db().pool, repo_id)
+        .await?;
+
+    let project_repo =
+        ProjectRepo::find_by_project_and_repo(&deployment.db().pool, payload.project_id, repo_id)
+            .await?;
+
+    let target_branch = project_repo
+        .as_ref()
+        .and_then(|pr| pr.merge_target_branch.clone())
+        .unwrap_or_else(|| "main".to_string());
+
+    let mut statuses = std::collections::HashMap::new();
+
+    for branch_name in payload.branches {
+        let result = deployment
+            .git()
+            .is_branch_merged_into(&repo.path, &branch_name, &target_branch);
+
+        let status = match result {
+            Ok(None) => BranchMergeStatus {
+                exists: false,
+                is_merged: false,
+                target_branch: Some(target_branch.clone()),
+            },
+            Ok(Some(is_merged)) => BranchMergeStatus {
+                exists: true,
+                is_merged,
+                target_branch: Some(target_branch.clone()),
+            },
+            Err(e) => {
+                tracing::warn!(
+                    branch = %branch_name,
+                    target = %target_branch,
+                    error = %e,
+                    "Failed to check branch merge status"
+                );
+                BranchMergeStatus {
+                    exists: false,
+                    is_merged: false,
+                    target_branch: Some(target_branch.clone()),
+                }
+            }
+        };
+
+        statuses.insert(branch_name, status);
+    }
+
+    Ok(ResponseJson(ApiResponse::success(BatchBranchMergeStatus {
+        statuses,
+    })))
+}
+
 pub async fn create_repo_pr(
     State(deployment): State<DeploymentImpl>,
     Path(repo_id): Path<Uuid>,
@@ -296,6 +369,10 @@ pub fn router() -> Router<DeploymentImpl> {
         .route(
             "/repos/{repo_id}/branches/check-merge-status",
             post(check_branch_merge_status),
+        )
+        .route(
+            "/repos/{repo_id}/branches/batch-check-merge-status",
+            post(batch_check_branch_merge_status),
         )
         .route("/repos/{repo_id}/prs", post(create_repo_pr))
 }

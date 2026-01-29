@@ -5,6 +5,7 @@ import {
   AccountInfo,
   ApprovalStatus,
   ApiResponse,
+  BatchBranchMergeStatus,
   BranchMergeStatus,
   Config,
   CreateFollowUpAttempt,
@@ -132,6 +133,7 @@ import {
   ProjectWorktreesResponse,
   RepoPrs,
   PrWithComments,
+  PrUnresolvedCountsResponse,
   FeedbackResponse,
   SkillsData,
   SavedAccount,
@@ -231,7 +233,7 @@ export async function refreshApiBaseUrl(): Promise<string> {
 }
 
 // Re-export PR types from shared for convenience
-export type { ProjectPrsResponse, RepoPrs, PrWithComments };
+export type { ProjectPrsResponse, RepoPrs, PrWithComments, PrUnresolvedCountsResponse };
 
 const makeRequest = async (url: string, options: RequestInit = {}) => {
   const baseUrl = await getApiBaseUrl();
@@ -516,6 +518,15 @@ export const projectsApi = {
   getPullRequests: async (projectId: string): Promise<ProjectPrsResponse> => {
     const response = await makeRequest(`/api/projects/${projectId}/prs`);
     return handleApiResponse<ProjectPrsResponse>(response);
+  },
+
+  getPullRequestUnresolvedCounts: async (
+    projectId: string
+  ): Promise<PrUnresolvedCountsResponse> => {
+    const response = await makeRequest(
+      `/api/projects/${projectId}/prs/unresolved-counts`
+    );
+    return handleApiResponse<PrUnresolvedCountsResponse>(response);
   },
 
   getMergeQueueCount: async (
@@ -1250,6 +1261,21 @@ export const repoApi = {
       }
     );
     return handleApiResponse<BranchMergeStatus>(response);
+  },
+
+  batchCheckBranchMergeStatus: async (
+    repoId: string,
+    branches: string[],
+    projectId: string
+  ): Promise<BatchBranchMergeStatus> => {
+    const response = await makeRequest(
+      `/api/repos/${repoId}/branches/batch-check-merge-status`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ branches, project_id: projectId }),
+      }
+    );
+    return handleApiResponse<BatchBranchMergeStatus>(response);
   },
 
   init: async (data: {

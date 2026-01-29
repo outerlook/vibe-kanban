@@ -1,8 +1,9 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use octocrab::{params, Octocrab};
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use thiserror::Error;
 use ts_rs::TS;
 
@@ -15,7 +16,7 @@ pub enum GitHubClientError {
 }
 
 /// Summary of a pull request for display purposes.
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct PullRequestSummary {
     pub number: u64,
     pub title: String,
@@ -283,6 +284,126 @@ impl GitHubClient {
 
         Ok(count)
     }
+
+    /// Get the count of unresolved review threads for multiple pull requests in a single query.
+    ///
+    /// Uses GitHub's GraphQL API with aliases to fetch review threads for multiple PRs at once.
+    /// Returns a HashMap mapping PR number to unresolved count.
+    /// PRs that fail to fetch will have a count of 0.
+    pub async fn get_unresolved_thread_counts_batch(
+        &self,
+        owner: &str,
+        repo: &str,
+        pr_numbers: &[u64],
+    ) -> Result<HashMap<u64, usize>, GitHubClientError> {
+        if pr_numbers.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // Build dynamic GraphQL query with aliases for each PR
+        let pr_fragments: Vec<String> = pr_numbers
+            .iter()
+            .map(|num| {
+                format!(
+                    r#"pr{num}: pullRequest(number: {num}) {{
+                        reviewThreads(first: 100) {{
+                            nodes {{
+                                isResolved
+                            }}
+                        }}
+                    }}"#,
+                    num = num
+                )
+            })
+            .collect();
+
+        let query = format!(
+            r#"query($owner: String!, $repo: String!) {{
+                repository(owner: $owner, name: $repo) {{
+                    {fragments}
+                }}
+            }}"#,
+            fragments = pr_fragments.join("\n")
+        );
+
+        #[derive(Debug, Serialize)]
+        struct BatchQuery {
+            query: String,
+            variables: BatchVariables,
+        }
+
+        #[derive(Debug, Serialize)]
+        struct BatchVariables {
+            owner: String,
+            repo: String,
+        }
+
+        let request = BatchQuery {
+            query,
+            variables: BatchVariables {
+                owner: owner.to_string(),
+                repo: repo.to_string(),
+            },
+        };
+
+        let response: JsonValue = self
+            .inner
+            .graphql(&request)
+            .await
+            .map_err(|e| GitHubClientError::ApiError(e.to_string()))?;
+
+        // Check for top-level errors
+        if let Some(errors) = response.get("errors") {
+            if let Some(arr) = errors.as_array() {
+                if !arr.is_empty() {
+                    let error_messages: Vec<&str> = arr
+                        .iter()
+                        .filter_map(|e| e.get("message").and_then(|m| m.as_str()))
+                        .collect();
+                    return Err(GitHubClientError::ApiError(error_messages.join(", ")));
+                }
+            }
+        }
+
+        let mut counts = HashMap::new();
+
+        // Parse each PR's response from the repository data
+        if let Some(repo_data) = response
+            .get("data")
+            .and_then(|d| d.get("repository"))
+            .and_then(|r| r.as_object())
+        {
+            for pr_number in pr_numbers {
+                let alias = format!("pr{}", pr_number);
+                let count = repo_data
+                    .get(&alias)
+                    .and_then(|pr| pr.get("reviewThreads"))
+                    .and_then(|rt| rt.get("nodes"))
+                    .and_then(|nodes| nodes.as_array())
+                    .map(|threads| {
+                        threads
+                            .iter()
+                            .filter(|t| {
+                                t.get("isResolved")
+                                    .and_then(|v| v.as_bool())
+                                    .map(|resolved| !resolved)
+                                    .unwrap_or(false)
+                            })
+                            .count()
+                    })
+                    .unwrap_or(0);
+
+                counts.insert(*pr_number, count);
+            }
+        } else {
+            // If repository data is missing, return 0 for all PRs
+            for pr_number in pr_numbers {
+                counts.insert(*pr_number, 0);
+            }
+        }
+
+        Ok(counts)
+    }
 }
 
 #[cfg(test)]
@@ -480,5 +601,220 @@ mod tests {
             Ok(count) => println!("Unresolved threads: {}", count),
             Err(e) => println!("API error (expected for old/invalid PRs): {}", e),
         }
+    }
+
+    #[test]
+    fn test_batch_graphql_response_parsing_multiple_prs() {
+        // Simulates the batch response format with multiple PRs using aliases
+        let json = r#"{
+            "data": {
+                "repository": {
+                    "pr1": {
+                        "reviewThreads": {
+                            "nodes": [
+                                {"isResolved": false},
+                                {"isResolved": true}
+                            ]
+                        }
+                    },
+                    "pr2": {
+                        "reviewThreads": {
+                            "nodes": [
+                                {"isResolved": false},
+                                {"isResolved": false},
+                                {"isResolved": false}
+                            ]
+                        }
+                    },
+                    "pr3": {
+                        "reviewThreads": {
+                            "nodes": []
+                        }
+                    }
+                }
+            }
+        }"#;
+
+        let response: JsonValue = serde_json::from_str(json).unwrap();
+        let pr_numbers = vec![1u64, 2u64, 3u64];
+        let mut counts = HashMap::new();
+
+        if let Some(repo_data) = response
+            .get("data")
+            .and_then(|d| d.get("repository"))
+            .and_then(|r| r.as_object())
+        {
+            for pr_number in &pr_numbers {
+                let alias = format!("pr{}", pr_number);
+                let count = repo_data
+                    .get(&alias)
+                    .and_then(|pr| pr.get("reviewThreads"))
+                    .and_then(|rt| rt.get("nodes"))
+                    .and_then(|nodes| nodes.as_array())
+                    .map(|threads| {
+                        threads
+                            .iter()
+                            .filter(|t| {
+                                t.get("isResolved")
+                                    .and_then(|v| v.as_bool())
+                                    .map(|resolved| !resolved)
+                                    .unwrap_or(false)
+                            })
+                            .count()
+                    })
+                    .unwrap_or(0);
+
+                counts.insert(*pr_number, count);
+            }
+        }
+
+        assert_eq!(counts.get(&1), Some(&1)); // PR 1: 1 unresolved, 1 resolved
+        assert_eq!(counts.get(&2), Some(&3)); // PR 2: 3 unresolved
+        assert_eq!(counts.get(&3), Some(&0)); // PR 3: no threads
+    }
+
+    #[test]
+    fn test_batch_graphql_response_parsing_partial_failure() {
+        // Simulates a response where some PRs are null (e.g., PR not found)
+        let json = r#"{
+            "data": {
+                "repository": {
+                    "pr1": {
+                        "reviewThreads": {
+                            "nodes": [{"isResolved": false}]
+                        }
+                    },
+                    "pr2": null,
+                    "pr3": {
+                        "reviewThreads": {
+                            "nodes": [{"isResolved": true}]
+                        }
+                    }
+                }
+            }
+        }"#;
+
+        let response: JsonValue = serde_json::from_str(json).unwrap();
+        let pr_numbers = vec![1u64, 2u64, 3u64];
+        let mut counts = HashMap::new();
+
+        if let Some(repo_data) = response
+            .get("data")
+            .and_then(|d| d.get("repository"))
+            .and_then(|r| r.as_object())
+        {
+            for pr_number in &pr_numbers {
+                let alias = format!("pr{}", pr_number);
+                let count = repo_data
+                    .get(&alias)
+                    .and_then(|pr| pr.get("reviewThreads"))
+                    .and_then(|rt| rt.get("nodes"))
+                    .and_then(|nodes| nodes.as_array())
+                    .map(|threads| {
+                        threads
+                            .iter()
+                            .filter(|t| {
+                                t.get("isResolved")
+                                    .and_then(|v| v.as_bool())
+                                    .map(|resolved| !resolved)
+                                    .unwrap_or(false)
+                            })
+                            .count()
+                    })
+                    .unwrap_or(0);
+
+                counts.insert(*pr_number, count);
+            }
+        }
+
+        assert_eq!(counts.get(&1), Some(&1)); // PR 1: 1 unresolved
+        assert_eq!(counts.get(&2), Some(&0)); // PR 2: null returns 0
+        assert_eq!(counts.get(&3), Some(&0)); // PR 3: 0 unresolved (1 resolved)
+    }
+
+    #[test]
+    fn test_batch_graphql_response_parsing_null_repository() {
+        // Simulates a response where the repository is null
+        let json = r#"{
+            "data": {
+                "repository": null
+            }
+        }"#;
+
+        let response: JsonValue = serde_json::from_str(json).unwrap();
+        let pr_numbers = vec![1u64, 2u64];
+        let mut counts = HashMap::new();
+
+        if let Some(repo_data) = response
+            .get("data")
+            .and_then(|d| d.get("repository"))
+            .and_then(|r| r.as_object())
+        {
+            for pr_number in &pr_numbers {
+                let alias = format!("pr{}", pr_number);
+                let count = repo_data
+                    .get(&alias)
+                    .and_then(|pr| pr.get("reviewThreads"))
+                    .and_then(|rt| rt.get("nodes"))
+                    .and_then(|nodes| nodes.as_array())
+                    .map(|threads| {
+                        threads
+                            .iter()
+                            .filter(|t| {
+                                t.get("isResolved")
+                                    .and_then(|v| v.as_bool())
+                                    .map(|resolved| !resolved)
+                                    .unwrap_or(false)
+                            })
+                            .count()
+                    })
+                    .unwrap_or(0);
+
+                counts.insert(*pr_number, count);
+            }
+        } else {
+            // Repository is null, return 0 for all PRs
+            for pr_number in &pr_numbers {
+                counts.insert(*pr_number, 0);
+            }
+        }
+
+        assert_eq!(counts.get(&1), Some(&0));
+        assert_eq!(counts.get(&2), Some(&0));
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires valid GitHub token - run with GITHUB_TOKEN env var"]
+    async fn test_get_unresolved_thread_counts_batch_real_api() {
+        let token = std::env::var("GITHUB_TOKEN").expect("GITHUB_TOKEN must be set");
+        let client = GitHubClient::new(token).unwrap();
+
+        // Test with known public repo PRs
+        let result = client
+            .get_unresolved_thread_counts_batch("rust-lang", "rust", &[1, 2, 3])
+            .await;
+
+        match result {
+            Ok(counts) => {
+                println!("Batch unresolved thread counts: {:?}", counts);
+                assert_eq!(counts.len(), 3);
+            }
+            Err(e) => println!("API error (expected for some PRs): {}", e),
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires valid GitHub token - run with GITHUB_TOKEN env var"]
+    async fn test_get_unresolved_thread_counts_batch_empty_input() {
+        let token = std::env::var("GITHUB_TOKEN").expect("GITHUB_TOKEN must be set");
+        let client = GitHubClient::new(token).unwrap();
+
+        // Test with empty PR list
+        let result = client
+            .get_unresolved_thread_counts_batch("rust-lang", "rust", &[])
+            .await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
     }
 }
