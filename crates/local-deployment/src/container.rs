@@ -14,6 +14,23 @@ use dashmap::DashSet;
 static ACTIVE_MERGE_PROCESSORS: LazyLock<Mutex<HashSet<Uuid>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 
+/// Default prompt template for generating commit messages via AI.
+/// Mirrors the constant in `crates/server/src/routes/task_attempts/pr.rs`.
+const DEFAULT_COMMIT_MESSAGE_PROMPT: &str = r#"Generate a concise git commit message for the following changes.
+
+Task: {task_title}
+Description: {task_description}
+
+Diff:
+{diff}
+
+Write a commit message following these guidelines:
+- First line: imperative mood summary (50 chars max)
+- Blank line
+- Body: explain what and why (wrap at 72 chars)
+
+Respond with ONLY the commit message, no other text."#;
+
 use anyhow::anyhow;
 use async_trait::async_trait;
 use command_group::AsyncGroupChild;
@@ -26,12 +43,13 @@ use db::{
         execution_process::{
             ExecutionContext, ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus,
         },
+        execution_process_normalized_entry::ExecutionProcessNormalizedEntry,
         execution_process_repo_state::ExecutionProcessRepoState,
         project_repo::ProjectRepo,
         repo::Repo,
         review_attention::{CreateReviewAttention, ReviewAttention},
         scratch::{DraftFollowUpData, Scratch, ScratchType},
-        session::Session,
+        session::{CreateSession, Session},
         task::{Task, TaskStatus},
         workspace::Workspace,
         workspace_repo::WorkspaceRepo,
@@ -60,12 +78,12 @@ use services::services::{
     conversation::ConversationService,
     diff_stream::{self, DiffStreamHandle},
     feedback::FeedbackService,
-    git::{Commit, GitCli, GitService},
+    git::{Commit, DiffTarget, GitCli, GitService},
     image::ImageService,
     merge_queue_processor::MergeQueueProcessor,
     merge_queue_store::MergeQueueStore,
     notification::NotificationService,
-    operation_status::OperationStatusStore,
+    operation_status::{OperationStatus, OperationStatusStore, OperationStatusType},
     queued_message::QueuedMessageService,
     review_attention::ReviewAttentionService,
     share::SharePublisher,
@@ -76,6 +94,7 @@ use services::services::{
 use tokio::{sync::RwLock, task::JoinHandle};
 use tokio_util::io::ReaderStream;
 use utils::{
+    diff::create_unified_diff,
     log_msg::LogMsg,
     msg_store::MsgStore,
     text::{git_branch_id, short_uuid, truncate_to_char_boundary},
@@ -1722,6 +1741,8 @@ impl LocalContainerService {
         let config = self.config.clone();
         let merge_queue_store = self.merge_queue_store.clone();
         let operation_status = self.operation_status.clone();
+        // Clone the container for AI commit message generation
+        let container = self.clone();
 
         tokio::spawn(async move {
             // Helper to cleanup msg_store and remove from pending set
@@ -1932,6 +1953,7 @@ impl LocalContainerService {
                     let merge_queue_store_clone = merge_queue_store.clone();
                     let operation_status_clone = operation_status.clone();
                     let config_clone = config.clone();
+                    let container_clone = container.clone();
 
                     tokio::spawn(async move {
                         // Get the merge_queue_store
@@ -1984,6 +2006,28 @@ impl LocalContainerService {
                             }
                         };
 
+                        // Load workspace
+                        let workspace = match Workspace::find_by_id(&db_clone.pool, workspace_id).await {
+                            Ok(Some(w)) => w,
+                            Ok(None) => {
+                                tracing::warn!(
+                                    task_id = %task_id,
+                                    workspace_id = %workspace_id,
+                                    "Autopilot merge skipped: workspace not found"
+                                );
+                                return;
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    task_id = %task_id,
+                                    workspace_id = %workspace_id,
+                                    error = %e,
+                                    "Autopilot merge skipped: failed to load workspace"
+                                );
+                                return;
+                            }
+                        };
+
                         // Find workspace repos
                         let workspace_repos = match WorkspaceRepo::find_by_workspace_id(&db_clone.pool, workspace_id).await {
                             Ok(repos) if !repos.is_empty() => repos,
@@ -2006,7 +2050,7 @@ impl LocalContainerService {
                         };
 
                         // Build fallback commit message from task title and description
-                        let commit_message = {
+                        let fallback_commit_message = {
                             let mut msg = task.title.clone();
                             if let Some(description) = &task.description {
                                 let trimmed = description.trim();
@@ -2020,7 +2064,68 @@ impl LocalContainerService {
 
                         // Enqueue each repo for merge
                         let project_id = task.project_id;
-                        for workspace_repo in workspace_repos {
+                        for workspace_repo in &workspace_repos {
+                            // Load the repo for AI commit message generation
+                            let repo = match Repo::find_by_id(&db_clone.pool, workspace_repo.repo_id).await {
+                                Ok(Some(r)) => r,
+                                Ok(None) => {
+                                    tracing::warn!(
+                                        task_id = %task_id,
+                                        repo_id = %workspace_repo.repo_id,
+                                        "Autopilot: repo not found, using fallback commit message"
+                                    );
+                                    merge_queue_store.enqueue(
+                                        project_id,
+                                        workspace_id,
+                                        workspace_repo.repo_id,
+                                        fallback_commit_message.clone(),
+                                    );
+                                    continue;
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        task_id = %task_id,
+                                        repo_id = %workspace_repo.repo_id,
+                                        error = %e,
+                                        "Autopilot: failed to load repo, using fallback commit message"
+                                    );
+                                    merge_queue_store.enqueue(
+                                        project_id,
+                                        workspace_id,
+                                        workspace_repo.repo_id,
+                                        fallback_commit_message.clone(),
+                                    );
+                                    continue;
+                                }
+                            };
+
+                            // Try AI commit message generation, fall back if it fails or is disabled
+                            let commit_message = match container_clone
+                                .generate_autopilot_commit_message(
+                                    &task,
+                                    &workspace,
+                                    &repo,
+                                    workspace_repo,
+                                    &operation_status,
+                                )
+                                .await
+                            {
+                                Ok(Some(ai_message)) => ai_message,
+                                Ok(None) => {
+                                    // AI generation disabled or returned no result, use fallback
+                                    fallback_commit_message.clone()
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        task_id = %task_id,
+                                        repo_id = %workspace_repo.repo_id,
+                                        error = %e,
+                                        "Autopilot: commit message generation failed, using fallback"
+                                    );
+                                    fallback_commit_message.clone()
+                                }
+                            };
+
                             tracing::info!(
                                 task_id = %task_id,
                                 workspace_id = %workspace_id,
@@ -2032,7 +2137,7 @@ impl LocalContainerService {
                                 project_id,
                                 workspace_id,
                                 workspace_repo.repo_id,
-                                commit_message.clone(),
+                                commit_message,
                             );
                         }
 
@@ -2183,6 +2288,294 @@ impl LocalContainerService {
                 );
             }
         });
+    }
+
+    /// Generate a commit message using AI for autopilot merge.
+    ///
+    /// This method:
+    /// 1. Sets OperationStatus to GeneratingCommit
+    /// 2. Gets the diff between task branch and target branch
+    /// 3. Starts an AI execution to generate the commit message
+    /// 4. Waits for completion and extracts the message
+    /// 5. Clears OperationStatus
+    ///
+    /// Returns Ok(Some(message)) if AI generation succeeds,
+    /// Ok(None) if generation is disabled or fails (caller should use fallback),
+    /// Err only for critical errors that should abort the autopilot flow.
+    pub async fn generate_autopilot_commit_message(
+        &self,
+        task: &Task,
+        workspace: &Workspace,
+        repo: &Repo,
+        workspace_repo: &WorkspaceRepo,
+        operation_status: &OperationStatusStore,
+    ) -> Result<Option<String>, ContainerError> {
+        // Check if commit message auto-generation is enabled
+        let (auto_generate_enabled, prompt_template, executor_profile_from_config) = {
+            let config = self.config.read().await;
+            (
+                config.commit_message_auto_generate_enabled,
+                config
+                    .commit_message_prompt
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_COMMIT_MESSAGE_PROMPT.to_string()),
+                config.commit_message_executor_profile.clone(),
+            )
+        };
+
+        if !auto_generate_enabled {
+            tracing::debug!(
+                task_id = %task.id,
+                "Commit message auto-generation disabled, will use fallback"
+            );
+            return Ok(None);
+        }
+
+        // Set operation status to GeneratingCommit
+        operation_status.set(OperationStatus::new(
+            workspace.id,
+            task.id,
+            OperationStatusType::GeneratingCommit,
+        ));
+
+        let result = self
+            .generate_autopilot_commit_message_inner(
+                task,
+                workspace,
+                repo,
+                workspace_repo,
+                &prompt_template,
+                executor_profile_from_config,
+            )
+            .await;
+
+        // Clear operation status after completion (success or failure)
+        operation_status.clear(workspace.id);
+
+        result
+    }
+
+    /// Inner implementation of commit message generation.
+    /// Separated to ensure operation_status is always cleared via the wrapper.
+    async fn generate_autopilot_commit_message_inner(
+        &self,
+        task: &Task,
+        workspace: &Workspace,
+        repo: &Repo,
+        workspace_repo: &WorkspaceRepo,
+        prompt_template: &str,
+        executor_profile_from_config: Option<executors::profile::ExecutorProfileId>,
+    ) -> Result<Option<String>, ContainerError> {
+        let repo_path = PathBuf::from(&repo.path);
+
+        // Get diff between task branch and base branch
+        let diffs = match self.git.get_diffs(
+            DiffTarget::Branch {
+                repo_path: &repo_path,
+                branch_name: &workspace.branch,
+                base_branch: &workspace_repo.target_branch,
+            },
+            None,
+        ) {
+            Ok(diffs) => diffs,
+            Err(e) => {
+                tracing::warn!(
+                    task_id = %task.id,
+                    error = %e,
+                    "Failed to get diffs for commit message generation, using fallback"
+                );
+                return Ok(None);
+            }
+        };
+
+        // Convert diffs to a unified diff string
+        let diff_string = diffs
+            .iter()
+            .filter_map(|diff| {
+                let file_path = diff.new_path.as_ref().or(diff.old_path.as_ref())?.as_str();
+                let old_content = diff.old_content.as_deref().unwrap_or("");
+                let new_content = diff.new_content.as_deref().unwrap_or("");
+
+                // Skip if content was omitted (too large)
+                if diff.content_omitted {
+                    return Some(format!(
+                        "--- a/{file_path}\n+++ b/{file_path}\n[Content too large, omitted]\n"
+                    ));
+                }
+
+                Some(create_unified_diff(file_path, old_content, new_content))
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        // Build the prompt with task context
+        let task_description = task
+            .description
+            .as_deref()
+            .unwrap_or("No description provided");
+        let prompt = prompt_template
+            .replace("{task_title}", &task.title)
+            .replace("{task_description}", task_description)
+            .replace("{diff}", &diff_string);
+
+        // Get or create a session for this operation
+        let session = match Session::find_latest_by_workspace_id(&self.db.pool, workspace.id).await
+        {
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                Session::create(
+                    &self.db.pool,
+                    &CreateSession { executor: None },
+                    Uuid::new_v4(),
+                    workspace.id,
+                )
+                .await?
+            }
+            Err(e) => {
+                tracing::warn!(
+                    task_id = %task.id,
+                    error = %e,
+                    "Failed to find/create session for commit message generation"
+                );
+                return Ok(None);
+            }
+        };
+
+        // Determine executor profile: config override > latest from session > fallback to default
+        let executor_profile_id = if let Some(profile) = executor_profile_from_config {
+            profile
+        } else {
+            match ExecutionProcess::latest_executor_profile_for_session(&self.db.pool, session.id)
+                .await
+            {
+                Ok(profile) => profile,
+                Err(e) => {
+                    tracing::warn!(
+                        task_id = %task.id,
+                        error = %e,
+                        "Failed to get executor profile for commit message generation, using fallback"
+                    );
+                    return Ok(None);
+                }
+            }
+        };
+
+        // Get latest agent session ID for the SAME executor type
+        let latest_agent_session_id =
+            ExecutionProcess::find_latest_coding_agent_turn_session_id_by_executor(
+                &self.db.pool,
+                session.id,
+                &executor_profile_id,
+            )
+            .await
+            .ok()
+            .flatten();
+
+        let working_dir = workspace
+            .agent_working_dir
+            .as_ref()
+            .filter(|dir| !dir.is_empty())
+            .cloned();
+
+        // Build the action type (follow-up if session exists with same executor, otherwise initial)
+        let action_type = if let Some(agent_session_id) = latest_agent_session_id {
+            ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
+                prompt,
+                session_id: agent_session_id,
+                executor_profile_id: executor_profile_id.clone(),
+                working_dir,
+            })
+        } else {
+            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+                prompt,
+                executor_profile_id: executor_profile_id.clone(),
+                working_dir,
+            })
+        };
+
+        let action = ExecutorAction::new(action_type, None);
+
+        // Start the execution
+        let execution_process = match self
+            .start_execution(
+                workspace,
+                &session,
+                &action,
+                &ExecutionProcessRunReason::InternalAgent,
+                Some("merge_message"),
+            )
+            .await
+        {
+            Ok(ep) => ep,
+            Err(e) => {
+                tracing::warn!(
+                    task_id = %task.id,
+                    error = %e,
+                    "Failed to start commit message generation execution, using fallback"
+                );
+                return Ok(None);
+            }
+        };
+
+        // Wait for the agent to complete (60s timeout)
+        if let Err(e) = self
+            .wait_for_execution_completion(execution_process.id, Duration::from_secs(60))
+            .await
+        {
+            tracing::warn!(
+                task_id = %task.id,
+                execution_id = %execution_process.id,
+                error = %e,
+                "Commit message generation execution failed/timed out, using fallback"
+            );
+            return Ok(None);
+        }
+
+        // Fetch all normalized entries for this execution
+        let entries =
+            match ExecutionProcessNormalizedEntry::fetch_all_for_execution(
+                &self.db.pool,
+                execution_process.id,
+            )
+            .await
+            {
+                Ok(entries) => entries,
+                Err(e) => {
+                    tracing::warn!(
+                        task_id = %task.id,
+                        execution_id = %execution_process.id,
+                        error = %e,
+                        "Failed to fetch commit message generation output, using fallback"
+                    );
+                    return Ok(None);
+                }
+            };
+
+        // Find the last AssistantMessage entry and extract its content
+        let commit_message = entries
+            .iter()
+            .rev()
+            .find(|e| matches!(e.entry.entry_type, NormalizedEntryType::AssistantMessage))
+            .map(|e| e.entry.content.trim().to_string())
+            .filter(|s: &String| !s.is_empty());
+
+        match commit_message {
+            Some(msg) => {
+                tracing::info!(
+                    task_id = %task.id,
+                    "Generated AI commit message for autopilot merge"
+                );
+                Ok(Some(msg))
+            }
+            None => {
+                tracing::warn!(
+                    task_id = %task.id,
+                    execution_id = %execution_process.id,
+                    "Agent did not produce a commit message, using fallback"
+                );
+                Ok(None)
+            }
+        }
     }
 }
 
