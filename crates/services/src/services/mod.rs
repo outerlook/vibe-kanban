@@ -8,6 +8,7 @@ pub mod config;
 pub mod container;
 pub mod conversation;
 pub mod diff_stream;
+pub mod domain_events;
 pub mod embedding;
 pub mod embedding_worker;
 pub mod events;
