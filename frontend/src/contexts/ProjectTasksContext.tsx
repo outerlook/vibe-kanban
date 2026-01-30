@@ -11,8 +11,12 @@ import {
 import { useQueries } from '@tanstack/react-query';
 import { useProject } from '@/contexts/ProjectContext';
 import { tasksApi, getApiBaseUrlSync } from '@/lib/api';
+import { projectTasksKeys } from '@/lib/taskCacheHelpers';
 import type { Operation } from 'rfc6902';
 import type { OperationStatus, TaskStatus, TaskWithAttemptStatus } from 'shared/types';
+
+// Re-export for backwards compatibility
+export { projectTasksKeys };
 
 const PAGE_SIZE = 25;
 const ALL_STATUSES: TaskStatus[] = ['todo', 'inprogress', 'inreview', 'done', 'cancelled'];
@@ -31,16 +35,6 @@ type StatusPaginationState = {
 };
 
 type PerStatusPagination = Record<TaskStatus, StatusPaginationState>;
-
-export const projectTasksKeys = {
-  all: ['projectTasks'] as const,
-  byProject: (projectId: string | undefined) =>
-    ['projectTasks', projectId] as const,
-  byProjectInfinite: (projectId: string | undefined) =>
-    ['projectTasks', 'infinite', projectId] as const,
-  byProjectAndStatus: (projectId: string | undefined, status: TaskStatus) =>
-    ['projectTasks', projectId, 'status', status] as const,
-};
 
 const getOrderByForStatus = (status: TaskStatus): 'created_at_asc' | 'updated_at_desc' => {
   return status === 'done' || status === 'cancelled' ? 'updated_at_desc' : 'created_at_asc';

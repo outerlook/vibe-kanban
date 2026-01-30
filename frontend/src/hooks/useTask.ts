@@ -1,11 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { tasksApi } from '@/lib/api';
+import { taskKeys } from '@/lib/taskCacheHelpers';
 import type { Task } from 'shared/types';
 
-export const taskKeys = {
-  all: ['tasks'] as const,
-  byId: (taskId: string | undefined) => ['tasks', taskId] as const,
-};
+// Re-export for backwards compatibility
+export { taskKeys };
 
 type Options = {
   enabled?: boolean;

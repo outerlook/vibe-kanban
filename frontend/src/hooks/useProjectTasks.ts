@@ -5,7 +5,8 @@ import { useLiveQuery, eq, isNull } from '@tanstack/react-db';
 import { sharedTasksCollection } from '@/lib/electric/sharedTasksCollection';
 import { useAssigneeUserNames } from './useAssigneeUserName';
 import { useAutoLinkSharedTasks } from './useAutoLinkSharedTasks';
-import { useProjectTasksContext, projectTasksKeys } from '@/contexts/ProjectTasksContext';
+import { useProjectTasksContext } from '@/contexts/ProjectTasksContext';
+import { projectTasksKeys } from '@/lib/taskCacheHelpers';
 import type {
   SharedTask,
   TaskStatus,

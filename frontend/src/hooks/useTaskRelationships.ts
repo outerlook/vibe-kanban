@@ -1,12 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { attemptsApi } from '@/lib/api';
+import { taskRelationshipsKeys } from '@/lib/taskCacheHelpers';
 import type { TaskRelationships } from 'shared/types';
 
-export const taskRelationshipsKeys = {
-  all: ['taskRelationships'] as const,
-  byAttempt: (attemptId: string | undefined) =>
-    ['taskRelationships', attemptId] as const,
-};
+// Re-export for backwards compatibility
+export { taskRelationshipsKeys };
 
 type Options = {
   enabled?: boolean;

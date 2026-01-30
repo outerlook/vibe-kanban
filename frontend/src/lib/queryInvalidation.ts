@@ -1,12 +1,12 @@
 import type { QueryClient } from '@tanstack/react-query';
-import { taskKeys } from '@/hooks/useTask';
-import { projectTasksKeys } from '@/hooks/useProjectTasks';
 import {
+  taskKeys,
+  projectTasksKeys,
   taskDependenciesKeys,
   taskDependencyTreeKeys,
-} from '@/hooks/useTaskDependencies';
-import { taskAttemptKeys } from '@/hooks/useTaskAttempts';
-import { taskRelationshipsKeys } from '@/hooks/useTaskRelationships';
+  taskAttemptKeys,
+  taskRelationshipsKeys,
+} from '@/lib/taskCacheHelpers';
 
 export type InvalidateTaskQueriesOptions = {
   /** Project ID to invalidate project-scoped task lists */

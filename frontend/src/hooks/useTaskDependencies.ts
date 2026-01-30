@@ -3,20 +3,13 @@ import { taskDependenciesApi } from '@/lib/api';
 import type { DependencyDirection, TaskDependencyTreeNode } from '@/lib/api';
 import type { Task, TaskDependency } from 'shared/types';
 import { invalidateTaskQueries } from '@/lib/queryInvalidation';
+import {
+  taskDependenciesKeys,
+  taskDependencyTreeKeys,
+} from '@/lib/taskCacheHelpers';
 
-export const taskDependenciesKeys = {
-  all: ['taskDependencies'] as const,
-  byTask: (taskId: string | undefined) =>
-    ['taskDependencies', taskId] as const,
-};
-
-export const taskDependencyTreeKeys = {
-  all: ['taskDependencyTree'] as const,
-  byTask: (taskId: string | undefined) =>
-    ['taskDependencyTree', taskId] as const,
-  detail: (taskId: string | undefined, maxDepth?: number) =>
-    ['taskDependencyTree', taskId, maxDepth] as const,
-};
+// Re-export for backwards compatibility
+export { taskDependenciesKeys, taskDependencyTreeKeys };
 
 type QueryOptions = {
   enabled?: boolean;

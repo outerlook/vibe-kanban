@@ -1,11 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { attemptsApi } from '@/lib/api';
+import { taskAttemptKeys } from '@/lib/taskCacheHelpers';
 import type { Workspace } from 'shared/types';
 
-export const taskAttemptKeys = {
-  all: ['taskAttempts'] as const,
-  byTask: (taskId: string | undefined) => ['taskAttempts', taskId] as const,
-};
+// Re-export for backwards compatibility
+export { taskAttemptKeys };
 
 type Options = {
   enabled?: boolean;
