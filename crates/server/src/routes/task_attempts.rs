@@ -636,19 +636,6 @@ pub async fn merge_task_attempt(
     .await?;
     Task::update_status(pool, task.id, TaskStatus::Done).await?;
 
-    // Try to collect agent feedback if not already collected
-    if let Err(e) = deployment
-        .container()
-        .try_collect_feedback_for_workspace(workspace.id)
-        .await
-    {
-        tracing::warn!(
-            "Failed to collect feedback for workspace {}: {}",
-            workspace.id,
-            e
-        );
-    }
-
     // Stop any running dev servers for this workspace
     let dev_servers =
         ExecutionProcess::find_running_dev_servers_by_workspace(pool, workspace.id).await?;

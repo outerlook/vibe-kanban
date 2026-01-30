@@ -580,19 +580,6 @@ pub async fn attach_existing_pr(
         if matches!(pr_info.status, MergeStatus::Merged) {
             Task::update_status(pool, task.id, TaskStatus::Done).await?;
 
-            // Try to collect agent feedback if not already collected
-            if let Err(e) = deployment
-                .container()
-                .try_collect_feedback_for_workspace(workspace.id)
-                .await
-            {
-                tracing::warn!(
-                    "Failed to collect feedback for workspace {}: {}",
-                    workspace.id,
-                    e
-                );
-            }
-
             // Try broadcast update to other users in organization
             if let Ok(publisher) = deployment.share_publisher() {
                 if let Err(err) = publisher.update_shared_task_by_id(task.id).await {
