@@ -6,6 +6,7 @@ use db::models::{
 use json_patch::{AddOperation, Patch, PatchOperation, RemoveOperation, ReplaceOperation};
 use uuid::Uuid;
 
+use crate::services::domain_events::HookExecution;
 use crate::services::merge_queue_store::MergeQueueEntry;
 use crate::services::operation_status::OperationStatus;
 
@@ -376,6 +377,52 @@ pub mod merge_queue_patch {
             path: path(workspace_id)
                 .try_into()
                 .expect("Merge queue path should be valid"),
+        })])
+    }
+}
+
+/// Helper functions for creating hook execution patches.
+/// Keyed by task_id and execution_id for nested tracking.
+pub mod hook_execution_patch {
+    use super::*;
+
+    /// Get the JSON Pointer path for a hook execution
+    pub fn path(task_id: Uuid, execution_id: Uuid) -> String {
+        format!(
+            "/hook_executions/{}/{}",
+            escape_pointer_segment(&task_id.to_string()),
+            escape_pointer_segment(&execution_id.to_string())
+        )
+    }
+
+    /// Create patch for adding a new hook execution
+    pub fn add(execution: &HookExecution) -> Patch {
+        Patch(vec![PatchOperation::Add(AddOperation {
+            path: path(execution.task_id, execution.id)
+                .try_into()
+                .expect("Hook execution path should be valid"),
+            value: serde_json::to_value(execution)
+                .expect("HookExecution serialization should not fail"),
+        })])
+    }
+
+    /// Create patch for updating an existing hook execution
+    pub fn replace(execution: &HookExecution) -> Patch {
+        Patch(vec![PatchOperation::Replace(ReplaceOperation {
+            path: path(execution.task_id, execution.id)
+                .try_into()
+                .expect("Hook execution path should be valid"),
+            value: serde_json::to_value(execution)
+                .expect("HookExecution serialization should not fail"),
+        })])
+    }
+
+    /// Create patch for removing a hook execution
+    pub fn remove(task_id: Uuid, execution_id: Uuid) -> Patch {
+        Patch(vec![PatchOperation::Remove(RemoveOperation {
+            path: path(task_id, execution_id)
+                .try_into()
+                .expect("Hook execution path should be valid"),
         })])
     }
 }
