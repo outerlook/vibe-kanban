@@ -8,10 +8,16 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useQueries } from '@tanstack/react-query';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { useProject } from '@/contexts/ProjectContext';
 import { tasksApi, getApiBaseUrlSync } from '@/lib/api';
-import { projectTasksKeys } from '@/lib/taskCacheHelpers';
+import {
+  projectTasksKeys,
+  setTaskInCache,
+  removeTaskFromCache,
+  moveTaskBetweenStatuses,
+  type StatusQueryData,
+} from '@/lib/taskCacheHelpers';
 import type { Operation } from 'rfc6902';
 import type { OperationStatus, TaskStatus, TaskWithAttemptStatus } from 'shared/types';
 
@@ -71,6 +77,7 @@ interface ProjectTasksProviderProps {
 
 export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
   const { projectId } = useProject();
+  const queryClient = useQueryClient();
   const [tasksById, setTasksById] = useState<Record<string, TaskWithAttemptStatus>>({});
   const [operationStatuses, setOperationStatuses] = useState<Record<string, OperationStatus>>({});
   const [paginationByStatus, setPaginationByStatus] = useState<PerStatusPagination>(createInitialPaginationState);
@@ -216,61 +223,94 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
       });
   }, [projectId, isQueriesLoading, paginationByStatus, mergeTasks]);
 
-  // Apply patches from WebSocket
+  // Helper to find task's current status from React Query cache
+  const findTaskStatusInCache = useCallback(
+    (taskId: string): TaskStatus | null => {
+      if (!projectId) return null;
+      for (const status of ALL_STATUSES) {
+        const queryKey = projectTasksKeys.byProjectAndStatus(projectId, status);
+        const data = queryClient.getQueryData<StatusQueryData>(queryKey);
+        if (data?.page.tasks.some((t) => t.id === taskId)) {
+          return status;
+        }
+      }
+      return null;
+    },
+    [projectId, queryClient]
+  );
+
+  // Apply patches from WebSocket - updates React Query cache directly
   const applyTaskPatches = useCallback(
     (patches: Operation[]) => {
-      if (!patches.length) return;
+      if (!patches.length || !projectId) return;
 
       const statusDeltas: Partial<Record<TaskStatus, { added: number; removed: number }>> = {};
 
-      setTasksById((prev) => {
-        let next = prev;
+      for (const op of patches) {
+        if (!op.path.startsWith(TASK_PATH_PREFIX)) continue;
 
-        for (const op of patches) {
-          if (!op.path.startsWith(TASK_PATH_PREFIX)) continue;
+        const rawId = op.path.slice(TASK_PATH_PREFIX.length);
+        const taskId = decodePointerSegment(rawId);
+        if (!taskId) continue;
 
-          const rawId = op.path.slice(TASK_PATH_PREFIX.length);
-          const taskId = decodePointerSegment(rawId);
-          if (!taskId) continue;
+        if (op.op === 'remove') {
+          // Find the task's current status in cache to remove it
+          const existingStatus = findTaskStatusInCache(taskId);
+          if (!existingStatus) continue;
 
-          if (op.op === 'remove') {
-            const existingTask = next[taskId];
-            if (!existingTask) continue;
-            if (next === prev) next = { ...prev };
-            const status = existingTask.status;
-            if (!statusDeltas[status]) statusDeltas[status] = { added: 0, removed: 0 };
-            statusDeltas[status]!.removed += 1;
+          removeTaskFromCache(queryClient, taskId, projectId, existingStatus);
+
+          // Track delta for pagination state
+          if (!statusDeltas[existingStatus]) statusDeltas[existingStatus] = { added: 0, removed: 0 };
+          statusDeltas[existingStatus]!.removed += 1;
+
+          // Also update local state (will be removed in Task 4)
+          setTasksById((prev) => {
+            if (!prev[taskId]) return prev;
+            const next = { ...prev };
             delete next[taskId];
-            continue;
-          }
-
-          if (op.op !== 'add' && op.op !== 'replace') continue;
-
-          const task = op.value as TaskWithAttemptStatus;
-          if (!task || typeof task !== 'object' || !task.id) continue;
-          if (task.project_id !== projectId) continue;
-
-          const existingTask = next[task.id];
-          if (op.op === 'replace' && !existingTask) continue;
-
-          if (next === prev) next = { ...prev };
-
-          if (!existingTask) {
-            if (!statusDeltas[task.status]) statusDeltas[task.status] = { added: 0, removed: 0 };
-            statusDeltas[task.status]!.added += 1;
-          } else if (existingTask.status !== task.status) {
-            if (!statusDeltas[existingTask.status]) statusDeltas[existingTask.status] = { added: 0, removed: 0 };
-            statusDeltas[existingTask.status]!.removed += 1;
-            if (!statusDeltas[task.status]) statusDeltas[task.status] = { added: 0, removed: 0 };
-            statusDeltas[task.status]!.added += 1;
-          }
-
-          next[task.id] = task;
+            return next;
+          });
+          continue;
         }
 
-        return next;
-      });
+        if (op.op !== 'add' && op.op !== 'replace') continue;
 
+        const task = op.value as TaskWithAttemptStatus;
+        if (!task || typeof task !== 'object' || !task.id) continue;
+        if (task.project_id !== projectId) continue;
+
+        // Find existing task's status to detect status changes
+        const existingStatus = findTaskStatusInCache(task.id);
+
+        if (op.op === 'replace' && !existingStatus) continue;
+
+        if (!existingStatus) {
+          // New task - add to cache
+          setTaskInCache(queryClient, task, projectId);
+
+          // Track delta for pagination state
+          if (!statusDeltas[task.status]) statusDeltas[task.status] = { added: 0, removed: 0 };
+          statusDeltas[task.status]!.added += 1;
+        } else if (existingStatus !== task.status) {
+          // Status changed - move between status lists
+          moveTaskBetweenStatuses(queryClient, task, existingStatus, task.status, projectId);
+
+          // Track deltas for pagination state
+          if (!statusDeltas[existingStatus]) statusDeltas[existingStatus] = { added: 0, removed: 0 };
+          statusDeltas[existingStatus]!.removed += 1;
+          if (!statusDeltas[task.status]) statusDeltas[task.status] = { added: 0, removed: 0 };
+          statusDeltas[task.status]!.added += 1;
+        } else {
+          // Same status - just update in place
+          setTaskInCache(queryClient, task, projectId);
+        }
+
+        // Also update local state (will be removed in Task 4)
+        setTasksById((prev) => ({ ...prev, [task.id]: task }));
+      }
+
+      // Update pagination state for affected statuses
       const affectedStatuses = Object.keys(statusDeltas) as TaskStatus[];
       if (affectedStatuses.length > 0) {
         setPaginationByStatus((prev) => {
@@ -288,7 +328,7 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
         });
       }
     },
-    [projectId]
+    [projectId, queryClient, findTaskStatusInCache]
   );
 
   // Apply operation status patches from WebSocket
