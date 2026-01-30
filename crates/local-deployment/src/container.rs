@@ -2390,80 +2390,6 @@ impl LocalContainerService {
         });
     }
 
-    /// Try to collect review attention for a task that just moved to InReview.
-    ///
-    /// This is a fire-and-forget helper that checks if review attention is enabled,
-    /// finds the required context, and spawns the collection in the background.
-    /// Errors are logged but don't propagate - review attention is non-blocking.
-    async fn try_collect_review_attention(&self, task_id: Uuid, execution_process_id: Uuid) {
-        // Check if review attention is enabled
-        let is_enabled = {
-            let config = self.config.read().await;
-            config.review_attention_executor_profile.is_some()
-        };
-
-        if !is_enabled {
-            tracing::debug!(
-                "Review attention is disabled, skipping for task {}",
-                task_id
-            );
-            return;
-        }
-
-        // Load execution context
-        let ctx = match ExecutionProcess::load_context(&self.db.pool, execution_process_id).await {
-            Ok(ctx) => ctx,
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to load execution context for review attention: {}",
-                    e
-                );
-                return;
-            }
-        };
-
-        // Find the agent session ID
-        let agent_session_id = match ExecutionProcess::find_latest_coding_agent_turn_session_id(
-            &self.db.pool,
-            ctx.session.id,
-        )
-        .await
-        {
-            Ok(Some(id)) => id,
-            Ok(None) => {
-                tracing::debug!(
-                    "No agent session ID found for session {}, skipping review attention",
-                    ctx.session.id
-                );
-                return;
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to query agent session ID for session {}: {}",
-                    ctx.session.id,
-                    e
-                );
-                return;
-            }
-        };
-
-        // Spawn review attention collection as background task
-        let container = self.clone();
-        tokio::spawn(async move {
-            if let Err(e) = container
-                .collect_review_attention(&ctx, &agent_session_id)
-                .await
-            {
-                // Log at debug level since "no summary" is expected for some executions
-                tracing::debug!(
-                    "Failed to start review attention for task {}: {}",
-                    task_id,
-                    e
-                );
-            }
-        });
-    }
-
     /// Generate a commit message using AI for autopilot merge.
     ///
     /// This method:
@@ -3274,20 +3200,14 @@ impl ContainerService for LocalContainerService {
                     Task::update_status(&self.db.pool, ctx.task.id, TaskStatus::InReview).await
                 {
                     tracing::error!("Failed to update task status to InReview: {e}");
-                } else {
-                    if let Some(publisher) = self.share_publisher()
-                        && let Err(err) = publisher.update_shared_task_by_id(ctx.task.id).await
-                    {
-                        tracing::warn!(
-                            ?err,
-                            "Failed to propagate shared task update for {}",
-                            ctx.task.id
-                        );
-                    }
-
-                    // Trigger review attention collection (non-blocking)
-                    self.try_collect_review_attention(ctx.task.id, execution_process.id)
-                        .await;
+                } else if let Some(publisher) = self.share_publisher()
+                    && let Err(err) = publisher.update_shared_task_by_id(ctx.task.id).await
+                {
+                    tracing::warn!(
+                        ?err,
+                        "Failed to propagate shared task update for {}",
+                        ctx.task.id
+                    );
                 }
             }
 
@@ -3363,25 +3283,18 @@ impl ContainerService for LocalContainerService {
                 ExecutionProcessRunReason::DevServer
             )
         {
-            match Task::update_status(&self.db.pool, ctx.task.id, TaskStatus::InReview).await {
-                Ok(_) => {
-                    if let Some(publisher) = self.share_publisher()
-                        && let Err(err) = publisher.update_shared_task_by_id(ctx.task.id).await
-                    {
-                        tracing::warn!(
-                            ?err,
-                            "Failed to propagate shared task update for {}",
-                            ctx.task.id
-                        );
-                    }
-
-                    // Trigger review attention collection (non-blocking)
-                    self.try_collect_review_attention(ctx.task.id, execution_process.id)
-                        .await;
-                }
-                Err(e) => {
-                    tracing::error!("Failed to update task status to InReview: {e}");
-                }
+            if let Err(e) =
+                Task::update_status(&self.db.pool, ctx.task.id, TaskStatus::InReview).await
+            {
+                tracing::error!("Failed to update task status to InReview: {e}");
+            } else if let Some(publisher) = self.share_publisher()
+                && let Err(err) = publisher.update_shared_task_by_id(ctx.task.id).await
+            {
+                tracing::warn!(
+                    ?err,
+                    "Failed to propagate shared task update for {}",
+                    ctx.task.id
+                );
             }
         }
 
