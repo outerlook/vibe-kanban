@@ -7,6 +7,7 @@
 mod dispatcher;
 mod handler;
 pub mod handlers;
+mod hook_execution;
 mod hook_points;
 mod types;
 
@@ -16,5 +17,6 @@ pub use handlers::{
     AutopilotHandler, FeedbackCollectionHandler, NotificationHandler, RemoteSyncHandler,
     ReviewAttentionHandler, WebSocketBroadcastHandler,
 };
+pub use hook_execution::HookExecutionStatus;
 pub use hook_points::HookPoint;
 pub use types::{DomainEvent, ExecutionTrigger, ExecutionTriggerCallback};
