@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use tracing::{debug, warn};
 
-use super::{DomainEvent, EventHandler, ExecutionMode, HandlerContext};
+use super::{DomainEvent, EventHandler, ExecutionMode, ExecutionTriggerCallback, HandlerContext};
 
 /// Dispatches domain events to registered handlers.
 ///
@@ -78,6 +78,7 @@ impl DomainEventDispatcher {
 pub struct DispatcherBuilder {
     handlers: Vec<Arc<dyn EventHandler>>,
     ctx: Option<HandlerContext>,
+    execution_trigger: Option<ExecutionTriggerCallback>,
 }
 
 impl DispatcherBuilder {
@@ -86,6 +87,7 @@ impl DispatcherBuilder {
         Self {
             handlers: Vec::new(),
             ctx: None,
+            execution_trigger: None,
         }
     }
 
@@ -101,14 +103,31 @@ impl DispatcherBuilder {
         self
     }
 
+    /// Sets the execution trigger callback.
+    ///
+    /// The callback will be passed to the `HandlerContext`, allowing handlers
+    /// to trigger new executions.
+    pub fn with_execution_trigger(mut self, callback: ExecutionTriggerCallback) -> Self {
+        self.execution_trigger = Some(callback);
+        self
+    }
+
     /// Builds the dispatcher.
+    ///
+    /// If `with_execution_trigger` was called, the callback will be set on the
+    /// context, overriding any existing execution_trigger in the provided context.
     ///
     /// # Panics
     /// Panics if no context was provided.
     pub fn build(mut self) -> DomainEventDispatcher {
-        let ctx = self
+        let mut ctx = self
             .ctx
             .expect("HandlerContext is required to build DomainEventDispatcher");
+
+        // Apply execution_trigger if set via with_execution_trigger
+        if let Some(callback) = self.execution_trigger {
+            ctx.execution_trigger = Some(callback);
+        }
 
         // Sort handlers by name for deterministic ordering
         self.handlers.sort_by_key(|h| h.name());
@@ -519,6 +538,38 @@ mod tests {
         let builder = DispatcherBuilder::default();
         // Just verify it compiles and creates
         assert!(builder.handlers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_builder_with_execution_trigger() {
+        use futures::FutureExt;
+
+        let callback_called = Arc::new(AtomicBool::new(false));
+        let called_clone = Arc::clone(&callback_called);
+
+        let callback: ExecutionTriggerCallback = Arc::new(move |_trigger| {
+            called_clone.store(true, Ordering::SeqCst);
+            async { Ok(()) }.boxed()
+        });
+
+        let dispatcher = DispatcherBuilder::new()
+            .with_context(test_context())
+            .with_execution_trigger(callback)
+            .build();
+
+        // Verify the callback is set in the context
+        assert!(dispatcher.ctx.execution_trigger.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_builder_without_execution_trigger_has_none() {
+        let dispatcher = DispatcherBuilder::new()
+            .with_context(test_context())
+            .build();
+
+        // Without with_execution_trigger, the callback should be None
+        // (since test_context() creates context with None)
+        assert!(dispatcher.ctx.execution_trigger.is_none());
     }
 
     #[test]
