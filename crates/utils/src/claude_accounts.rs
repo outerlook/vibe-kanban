@@ -363,6 +363,22 @@ pub async fn get_current_hash() -> Result<Option<String>, ClaudeAccountError> {
     Ok(hash)
 }
 
+/// Get the UUID of the currently active account
+pub async fn get_current_uuid() -> Result<Option<String>, ClaudeAccountError> {
+    let (parsed, _) = match read_credentials().await {
+        Ok(creds) => creds,
+        Err(ClaudeAccountError::NoCredentials) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+
+    let uuid = match parsed.claude_ai_oauth.and_then(|oauth| oauth.access_token) {
+        Some(token) => fetch_account_uuid(&token).await,
+        None => None,
+    };
+
+    Ok(uuid)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
