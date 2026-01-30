@@ -27,7 +27,10 @@ use super::{
     patches::execution_process_patch,
     types::{EventError, EventPatch, RecordTypes},
 };
-use crate::services::operation_status::{OperationStatus, OperationStatusStore};
+use crate::services::{
+    domain_events::HookExecution,
+    operation_status::{OperationStatus, OperationStatusStore},
+};
 
 static TASK_PROJECT_CACHE: Lazy<Cache<Uuid, Uuid>> = Lazy::new(|| {
     Cache::builder()
@@ -79,6 +82,12 @@ fn task_id_from_path(path: &str) -> Option<Uuid> {
 
 fn workspace_id_from_operation_status_path(path: &str) -> Option<Uuid> {
     let suffix = path.strip_prefix("/operation_status/")?;
+    let id_str = suffix.split('/').next()?;
+    Uuid::parse_str(id_str).ok()
+}
+
+fn task_id_from_hook_execution_path(path: &str) -> Option<Uuid> {
+    let suffix = path.strip_prefix("/hook_executions/")?;
     let id_str = suffix.split('/').next()?;
     Uuid::parse_str(id_str).ok()
 }
@@ -332,6 +341,65 @@ impl EventService {
                                                     )
                                                     .await
                                                     && ws_project_id == project_id
+                                                {
+                                                    return Some(Ok(LogMsg::JsonPatch(patch)));
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                                // Handle hook_executions patches
+                                else if patch_op.path().starts_with("/hook_executions/") {
+                                    // Extract task_id from path and check if it belongs to this project
+                                    if let Some(task_id) =
+                                        task_id_from_hook_execution_path(patch_op.path())
+                                    {
+                                        // Helper to check if execution belongs to project via task_id in value
+                                        async fn check_execution_belongs_to_project(
+                                            db_pool: &SqlitePool,
+                                            value: &serde_json::Value,
+                                            project_id: Uuid,
+                                        ) -> bool {
+                                            if let Ok(execution) =
+                                                serde_json::from_value::<HookExecution>(
+                                                    value.clone(),
+                                                )
+                                            {
+                                                if let Some(task_project_id) =
+                                                    get_project_for_task(db_pool, execution.task_id)
+                                                        .await
+                                                {
+                                                    return task_project_id == project_id;
+                                                }
+                                            }
+                                            false
+                                        }
+
+                                        match patch_op {
+                                            json_patch::PatchOperation::Add(op) => {
+                                                if check_execution_belongs_to_project(
+                                                    &db_pool, &op.value, project_id,
+                                                )
+                                                .await
+                                                {
+                                                    return Some(Ok(LogMsg::JsonPatch(patch)));
+                                                }
+                                            }
+                                            json_patch::PatchOperation::Replace(op) => {
+                                                if check_execution_belongs_to_project(
+                                                    &db_pool, &op.value, project_id,
+                                                )
+                                                .await
+                                                {
+                                                    return Some(Ok(LogMsg::JsonPatch(patch)));
+                                                }
+                                            }
+                                            json_patch::PatchOperation::Remove(_) => {
+                                                // For remove, check if task belongs to project
+                                                if let Some(task_project_id) =
+                                                    get_project_for_task(&db_pool, task_id).await
+                                                    && task_project_id == project_id
                                                 {
                                                     return Some(Ok(LogMsg::JsonPatch(patch)));
                                                 }
