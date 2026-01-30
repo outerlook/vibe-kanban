@@ -11,6 +11,8 @@ use db::models::{
 use futures::future::BoxFuture;
 use uuid::Uuid;
 
+use super::HookPoint;
+
 /// Domain events that can trigger handler execution.
 ///
 /// These events represent significant state changes in the system
@@ -34,6 +36,39 @@ pub enum DomainEvent {
 
     /// A project was updated.
     ProjectUpdated { project: Project },
+}
+
+impl DomainEvent {
+    /// Returns the task ID associated with this event, if any.
+    ///
+    /// Some events don't have an associated task directly available:
+    /// - `ExecutionCompleted`: Task ID requires async DB lookup via `load_context()`
+    /// - `ProjectUpdated`: No task context
+    ///
+    /// These return `None` and hook tracking will be skipped for them.
+    pub fn task_id(&self) -> Option<Uuid> {
+        match self {
+            DomainEvent::TaskStatusChanged { task, .. } => Some(task.id),
+            // ExecutionCompleted doesn't have task_id directly; requires load_context() async call
+            DomainEvent::ExecutionCompleted { .. } => None,
+            DomainEvent::WorkspaceCreated { workspace } => Some(workspace.task_id),
+            DomainEvent::WorkspaceDeleted { task_id, .. } => Some(*task_id),
+            DomainEvent::ProjectUpdated { .. } => None,
+        }
+    }
+
+    /// Returns the hook point associated with this event.
+    ///
+    /// Maps each event variant to its corresponding post-action hook point.
+    pub fn hook_point(&self) -> HookPoint {
+        match self {
+            DomainEvent::TaskStatusChanged { .. } => HookPoint::PostTaskStatusChange,
+            DomainEvent::ExecutionCompleted { .. } => HookPoint::PostAgentComplete,
+            DomainEvent::WorkspaceCreated { .. } => HookPoint::PostTaskCreate,
+            DomainEvent::WorkspaceDeleted { .. } => HookPoint::PostTaskStatusChange,
+            DomainEvent::ProjectUpdated { .. } => HookPoint::PostTaskStatusChange, // Best approximation
+        }
+    }
 }
 
 /// Triggers that handlers can return to request execution starts.
