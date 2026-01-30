@@ -79,8 +79,8 @@ use services::services::{
     diff_stream::{self, DiffStreamHandle},
     domain_events::{
         AutopilotHandler, DispatcherBuilder, DomainEvent, DomainEventDispatcher,
-        FeedbackCollectionHandler, HandlerContext, NotificationHandler, RemoteSyncHandler,
-        ReviewAttentionHandler, WebSocketBroadcastHandler,
+        ExecutionTrigger, ExecutionTriggerCallback, FeedbackCollectionHandler, HandlerContext,
+        NotificationHandler, RemoteSyncHandler, ReviewAttentionHandler, WebSocketBroadcastHandler,
     },
     feedback::FeedbackService,
     git::{Commit, DiffTarget, GitCli, GitService},
@@ -205,6 +205,134 @@ impl LocalContainerService {
         // Create a global MsgStore for WebSocket broadcasts (shared across all handlers)
         let global_msg_store = Arc::new(MsgStore::default());
 
+        // Create late-bound container reference for the execution trigger callback.
+        // This allows handlers to trigger executions via the callback without circular
+        // dependencies during construction.
+        let container_ref: Arc<RwLock<Option<LocalContainerService>>> =
+            Arc::new(RwLock::new(None));
+
+        // Create execution trigger callback that routes triggers to container methods
+        let callback_container_ref = Arc::clone(&container_ref);
+        let execution_trigger_callback: ExecutionTriggerCallback =
+            Arc::new(move |trigger: ExecutionTrigger| {
+                let container_ref = Arc::clone(&callback_container_ref);
+                async move {
+                    let container = {
+                        let guard = container_ref.read().await;
+                        guard.clone().ok_or_else(|| {
+                            anyhow!("Container not initialized for execution trigger")
+                        })?
+                    };
+
+                    match trigger {
+                        ExecutionTrigger::FeedbackCollection {
+                            workspace_id: _,
+                            task_id,
+                            execution_process_id,
+                        } => {
+                            // Load context from execution process ID
+                            let ctx = ExecutionProcess::load_context(
+                                &container.db.pool,
+                                execution_process_id,
+                            )
+                            .await
+                            .map_err(|e| anyhow!("Failed to load execution context: {e}"))?;
+
+                            // Find the agent session ID
+                            let agent_session_id =
+                                ExecutionProcess::find_latest_coding_agent_turn_session_id(
+                                    &container.db.pool,
+                                    ctx.session.id,
+                                )
+                                .await
+                                .map_err(|e| anyhow!("Failed to query agent session ID: {e}"))?
+                                .ok_or_else(|| {
+                                    anyhow!(
+                                        "No agent session ID found for session {}, cannot collect feedback",
+                                        ctx.session.id
+                                    )
+                                })?;
+
+                            // Spawn feedback collection as background task (non-blocking)
+                            let feedback_container = container.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = feedback_container
+                                    .collect_agent_feedback(&ctx, &agent_session_id)
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to start feedback collection for task {}: {}",
+                                        task_id,
+                                        e
+                                    );
+                                }
+                            });
+
+                            Ok(())
+                        }
+                        ExecutionTrigger::ReviewAttention {
+                            task_id,
+                            execution_process_id,
+                        } => {
+                            // Check if review attention is enabled
+                            let is_enabled = {
+                                let config = container.config.read().await;
+                                config.review_attention_executor_profile.is_some()
+                            };
+
+                            if !is_enabled {
+                                tracing::debug!(
+                                    "Review attention is disabled, skipping for task {}",
+                                    task_id
+                                );
+                                return Ok(());
+                            }
+
+                            // Load context from execution process ID
+                            let ctx = ExecutionProcess::load_context(
+                                &container.db.pool,
+                                execution_process_id,
+                            )
+                            .await
+                            .map_err(|e| anyhow!("Failed to load execution context: {e}"))?;
+
+                            // Find the agent session ID
+                            let agent_session_id =
+                                ExecutionProcess::find_latest_coding_agent_turn_session_id(
+                                    &container.db.pool,
+                                    ctx.session.id,
+                                )
+                                .await
+                                .map_err(|e| anyhow!("Failed to query agent session ID: {e}"))?
+                                .ok_or_else(|| {
+                                    anyhow!(
+                                        "No agent session ID found for session {}, cannot collect review attention",
+                                        ctx.session.id
+                                    )
+                                })?;
+
+                            // Spawn review attention collection as background task (non-blocking)
+                            let review_container = container.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = review_container
+                                    .collect_review_attention(&ctx, &agent_session_id)
+                                    .await
+                                {
+                                    tracing::debug!(
+                                        "Failed to start review attention for task {}: {}",
+                                        task_id,
+                                        e
+                                    );
+                                }
+                            });
+
+                            Ok(())
+                        }
+                    }
+                }
+                .boxed()
+            });
+
         // Build the domain event dispatcher with all handlers
         let event_dispatcher = Arc::new(
             DispatcherBuilder::new()
@@ -223,8 +351,9 @@ impl LocalContainerService {
                     db.clone(),
                     config.clone(),
                     global_msg_store,
-                    None, // execution_trigger will be set in DispatcherBuilder later
+                    None, // Will be overridden by with_execution_trigger
                 ))
+                .with_execution_trigger(execution_trigger_callback)
                 .build(),
         );
 
@@ -249,6 +378,9 @@ impl LocalContainerService {
             operation_status: Arc::new(RwLock::new(None)),
             event_dispatcher,
         };
+
+        // Initialize the late-bound container reference so the callback can use it
+        *container_ref.write().await = Some(container.clone());
 
         container.spawn_workspace_cleanup().await;
 
