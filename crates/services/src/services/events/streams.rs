@@ -28,7 +28,7 @@ use super::{
     types::{EventError, EventPatch, RecordTypes},
 };
 use crate::services::{
-    domain_events::HookExecution,
+    domain_events::{HookExecution, HookExecutionStore},
     operation_status::{OperationStatus, OperationStatusStore},
 };
 
@@ -158,20 +158,30 @@ async fn get_task_id_for_execution_process(
 impl EventService {
     /// Stream raw task messages for a specific project with optional snapshot.
     /// Also includes operation_status updates for workspaces belonging to tasks in this project.
+    /// Also includes hook_executions for tasks in this project.
     pub async fn stream_tasks_raw(
         &self,
         project_id: Uuid,
         include_snapshot: bool,
         operation_status_store: OperationStatusStore,
+        hook_execution_store: HookExecutionStore,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, EventError>
     {
+        /// Result of building a tasks snapshot, containing the snapshot message,
+        /// workspace IDs (for operation_status filtering), and task IDs (for hook_executions filtering).
+        struct TasksSnapshotResult {
+            msg: LogMsg,
+            workspace_ids: Vec<Uuid>,
+            task_ids: Vec<Uuid>,
+        }
+
         async fn build_tasks_snapshot(
             db_pool: &SqlitePool,
             project_id: Uuid,
-        ) -> Result<(LogMsg, Vec<Uuid>), sqlx::Error> {
+        ) -> Result<TasksSnapshotResult, sqlx::Error> {
             let tasks = Task::find_by_project_id_with_attempt_status(db_pool, project_id).await?;
 
-            // Collect workspace IDs for operation_status filtering
+            // Collect task IDs and workspace IDs for filtering
             let task_ids: Vec<Uuid> = tasks.iter().map(|t| t.id).collect();
             let mut workspace_ids = Vec::new();
             for task_id in &task_ids {
@@ -199,10 +209,11 @@ impl EventService {
                 "value": tasks_map
             }]);
 
-            Ok((
-                LogMsg::JsonPatch(serde_json::from_value(patch).unwrap()),
+            Ok(TasksSnapshotResult {
+                msg: LogMsg::JsonPatch(serde_json::from_value(patch).unwrap()),
                 workspace_ids,
-            ))
+                task_ids,
+            })
         }
 
         fn build_operation_status_snapshot(statuses: Vec<OperationStatus>) -> LogMsg {
@@ -220,6 +231,44 @@ impl EventService {
                 "op": "replace",
                 "path": "/operation_status",
                 "value": status_map
+            }]);
+
+            LogMsg::JsonPatch(serde_json::from_value(patch).unwrap())
+        }
+
+        fn build_hook_executions_snapshot(
+            executions: Vec<HookExecution>,
+            task_ids: &[Uuid],
+        ) -> LogMsg {
+            // Filter executions to only those belonging to tasks in this project
+            let task_id_set: std::collections::HashSet<Uuid> = task_ids.iter().copied().collect();
+            let filtered_executions: Vec<HookExecution> = executions
+                .into_iter()
+                .filter(|exec| task_id_set.contains(&exec.task_id))
+                .collect();
+
+            // Group executions by task_id
+            let mut executions_by_task: serde_json::Map<String, serde_json::Value> =
+                serde_json::Map::new();
+
+            for exec in filtered_executions {
+                let task_id_str = exec.task_id.to_string();
+                let exec_id_str = exec.id.to_string();
+
+                // Get or create the task's execution map
+                let task_executions = executions_by_task
+                    .entry(task_id_str)
+                    .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+
+                if let serde_json::Value::Object(map) = task_executions {
+                    map.insert(exec_id_str, serde_json::to_value(exec).unwrap());
+                }
+            }
+
+            let patch = json!([{
+                "op": "replace",
+                "path": "/hook_executions",
+                "value": executions_by_task
             }]);
 
             LogMsg::JsonPatch(serde_json::from_value(patch).unwrap())
@@ -471,10 +520,10 @@ impl EventService {
                             );
 
                             // Note: For lag resync, we only resync tasks.
-                            // Operation status is ephemeral and clients should
-                            // handle missing updates gracefully.
+                            // Operation status and hook executions are ephemeral
+                            // and clients should handle missing updates gracefully.
                             match build_tasks_snapshot(&db_pool, project_id).await {
-                                Ok((snapshot, _workspace_ids)) => Some(Ok(snapshot)),
+                                Ok(snapshot_result) => Some(Ok(snapshot_result.msg)),
                                 Err(err) => {
                                     tracing::error!(
                                         error = %err,
@@ -494,15 +543,25 @@ impl EventService {
             return Ok(filtered_stream.boxed());
         }
 
-        // Get initial snapshot of tasks and workspace IDs
-        let (tasks_msg, workspace_ids) = build_tasks_snapshot(&self.db.pool, project_id).await?;
+        // Get initial snapshot of tasks, workspace IDs, and task IDs
+        let snapshot_result = build_tasks_snapshot(&self.db.pool, project_id).await?;
 
         // Get operation statuses for workspaces in this project
-        let operation_statuses = operation_status_store.get_by_workspace_ids(&workspace_ids);
+        let operation_statuses =
+            operation_status_store.get_by_workspace_ids(&snapshot_result.workspace_ids);
         let operation_status_msg = build_operation_status_snapshot(operation_statuses);
 
-        // Start with initial snapshots (tasks first, then operation_status), then live updates
-        let initial_stream = futures::stream::iter(vec![Ok(tasks_msg), Ok(operation_status_msg)]);
+        // Get hook executions for tasks in this project
+        let all_hook_executions = hook_execution_store.get_all();
+        let hook_executions_msg =
+            build_hook_executions_snapshot(all_hook_executions, &snapshot_result.task_ids);
+
+        // Start with initial snapshots (tasks, operation_status, hook_executions), then live updates
+        let initial_stream = futures::stream::iter(vec![
+            Ok(snapshot_result.msg),
+            Ok(operation_status_msg),
+            Ok(hook_executions_msg),
+        ]);
         let combined_stream = initial_stream.chain(filtered_stream).boxed();
 
         Ok(combined_stream)

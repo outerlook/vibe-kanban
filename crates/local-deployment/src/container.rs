@@ -197,6 +197,7 @@ impl LocalContainerService {
         queued_message_service: QueuedMessageService,
         publisher: Result<SharePublisher, RemoteClientNotConfigured>,
         skills_cache: GlobalSkillsCache,
+        hook_execution_store: HookExecutionStore,
     ) -> Self {
         let child_store = Arc::new(RwLock::new(HashMap::new()));
         let interrupt_senders = Arc::new(RwLock::new(HashMap::new()));
@@ -334,9 +335,6 @@ impl LocalContainerService {
                 .boxed()
             },
         );
-
-        // Create hook execution store for tracking spawned handler executions
-        let hook_execution_store = HookExecutionStore::new(global_msg_store.clone());
 
         // Build the domain event dispatcher with all handlers
         let event_dispatcher = Arc::new(

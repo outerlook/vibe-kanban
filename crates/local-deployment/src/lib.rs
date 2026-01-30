@@ -10,6 +10,7 @@ use services::services::{
     auth::AuthContext,
     config::{Config, load_config_from_file, save_config_to_file},
     container::ContainerService,
+    domain_events::HookExecutionStore,
     embedding::EmbeddingService,
     events::{EventService, EventWorkerHandle},
     file_search_cache::FileSearchCache,
@@ -68,6 +69,7 @@ pub struct LocalDeployment {
     git_watcher: GitWatcherManager,
     operation_status: OperationStatusStore,
     merge_queue_store: MergeQueueStore,
+    hook_execution_store: HookExecutionStore,
     skills_cache: GlobalSkillsCache,
     pr_cache: Arc<PrCache>,
     server_log_store: Arc<ServerLogStore>,
@@ -203,6 +205,11 @@ impl LocalDeployment {
         let oauth_handoffs = Arc::new(RwLock::new(HashMap::new()));
         let git_watcher = GitWatcherManager::new();
 
+        // Create stores that use the events_msg_store for broadcasting
+        let operation_status = OperationStatusStore::new(events_msg_store.clone());
+        let merge_queue_store = MergeQueueStore::new(events_msg_store.clone());
+        let hook_execution_store = HookExecutionStore::new(events_msg_store.clone());
+
         // We need to make analytics accessible to the ContainerService
         // TODO: Handle this more gracefully
         let analytics_ctx = analytics.as_ref().map(|s| AnalyticsContext {
@@ -221,11 +228,9 @@ impl LocalDeployment {
             queued_message_service.clone(),
             share_publisher.clone(),
             skills_cache.clone(),
+            hook_execution_store.clone(),
         )
         .await;
-
-        let operation_status = OperationStatusStore::new(events_msg_store.clone());
-        let merge_queue_store = MergeQueueStore::new(events_msg_store.clone());
 
         let events = EventService::new(db.clone(), events_msg_store, events_entry_count);
 
@@ -257,6 +262,7 @@ impl LocalDeployment {
             git_watcher,
             operation_status,
             merge_queue_store,
+            hook_execution_store,
             skills_cache,
             pr_cache,
             server_log_store,
@@ -429,6 +435,10 @@ impl Deployment for LocalDeployment {
 
     fn merge_queue_store(&self) -> &MergeQueueStore {
         &self.merge_queue_store
+    }
+
+    fn hook_execution_store(&self) -> &HookExecutionStore {
+        &self.hook_execution_store
     }
 
     fn skills_cache(&self) -> &GlobalSkillsCache {

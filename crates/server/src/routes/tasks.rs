@@ -255,6 +255,7 @@ async fn handle_tasks_ws(
             project_id,
             include_snapshot,
             deployment.operation_status().clone(),
+            deployment.hook_execution_store().clone(),
         )
         .await?
         .map_ok(|msg| msg.to_ws_message_unchecked());
