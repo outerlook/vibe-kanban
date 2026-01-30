@@ -33,6 +33,7 @@ use utils::{
     api::oauth::LoginStatus,
     assets::{config_path, credentials_path},
     msg_store::MsgStore,
+    server_log_store::ServerLogStore,
 };
 use uuid::Uuid;
 
@@ -69,6 +70,7 @@ pub struct LocalDeployment {
     merge_queue_store: MergeQueueStore,
     skills_cache: GlobalSkillsCache,
     pr_cache: Arc<PrCache>,
+    server_log_store: Arc<ServerLogStore>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,9 +79,17 @@ struct PendingHandoff {
     app_verifier: String,
 }
 
-#[async_trait]
-impl Deployment for LocalDeployment {
-    async fn new() -> Result<Self, DeploymentError> {
+impl LocalDeployment {
+    /// Creates a new LocalDeployment with a provided server log store.
+    pub async fn new_with_log_store(
+        server_log_store: Arc<ServerLogStore>,
+    ) -> Result<Self, DeploymentError> {
+        Self::new_internal(server_log_store).await
+    }
+
+    async fn new_internal(
+        server_log_store: Arc<ServerLogStore>,
+    ) -> Result<Self, DeploymentError> {
         let mut raw_config = load_config_from_file(&config_path()).await;
 
         let profiles = ExecutorConfigs::get_cached();
@@ -251,6 +261,7 @@ impl Deployment for LocalDeployment {
             merge_queue_store,
             skills_cache,
             pr_cache,
+            server_log_store,
         };
 
         // Set merge services on container for autopilot functionality
@@ -263,6 +274,83 @@ impl Deployment for LocalDeployment {
             .await;
 
         Ok(deployment)
+    }
+
+    pub fn remote_client(&self) -> Result<RemoteClient, RemoteClientNotConfigured> {
+        self.remote_client.clone()
+    }
+
+    pub async fn get_login_status(&self) -> LoginStatus {
+        if self.auth_context.get_credentials().await.is_none() {
+            self.auth_context.clear_profile().await;
+            return LoginStatus::LoggedOut;
+        };
+
+        if let Some(cached_profile) = self.auth_context.cached_profile().await {
+            return LoginStatus::LoggedIn {
+                profile: cached_profile,
+            };
+        }
+
+        let Ok(client) = self.remote_client() else {
+            return LoginStatus::LoggedOut;
+        };
+
+        match client.profile().await {
+            Ok(profile) => {
+                self.auth_context.set_profile(profile.clone()).await;
+                LoginStatus::LoggedIn { profile }
+            }
+            Err(RemoteClientError::Auth) => {
+                let _ = self.auth_context.clear_credentials().await;
+                self.auth_context.clear_profile().await;
+                LoginStatus::LoggedOut
+            }
+            Err(_) => LoginStatus::LoggedOut,
+        }
+    }
+
+    pub async fn store_oauth_handoff(
+        &self,
+        handoff_id: Uuid,
+        provider: String,
+        app_verifier: String,
+    ) {
+        self.oauth_handoffs.write().await.insert(
+            handoff_id,
+            PendingHandoff {
+                provider,
+                app_verifier,
+            },
+        );
+    }
+
+    pub async fn take_oauth_handoff(&self, handoff_id: &Uuid) -> Option<(String, String)> {
+        self.oauth_handoffs
+            .write()
+            .await
+            .remove(handoff_id)
+            .map(|state| (state.provider, state.app_verifier))
+    }
+
+    pub fn share_config(&self) -> Option<&ShareConfig> {
+        self.share_config.as_ref()
+    }
+
+    /// Shuts down the event worker, waiting for pending events to be processed.
+    /// This should be called during graceful shutdown.
+    pub async fn shutdown_event_worker(&self) {
+        if let Some(handle) = self.event_worker_handle.lock().await.take() {
+            handle.shutdown().await;
+        }
+    }
+}
+
+#[async_trait]
+impl Deployment for LocalDeployment {
+    async fn new() -> Result<Self, DeploymentError> {
+        // Default implementation creates its own log store
+        Self::new_internal(Arc::new(ServerLogStore::new())).await
     }
 
     fn user_id(&self) -> &str {
@@ -352,75 +440,8 @@ impl Deployment for LocalDeployment {
     fn pr_cache(&self) -> &Arc<PrCache> {
         &self.pr_cache
     }
-}
 
-impl LocalDeployment {
-    pub fn remote_client(&self) -> Result<RemoteClient, RemoteClientNotConfigured> {
-        self.remote_client.clone()
-    }
-
-    pub async fn get_login_status(&self) -> LoginStatus {
-        if self.auth_context.get_credentials().await.is_none() {
-            self.auth_context.clear_profile().await;
-            return LoginStatus::LoggedOut;
-        };
-
-        if let Some(cached_profile) = self.auth_context.cached_profile().await {
-            return LoginStatus::LoggedIn {
-                profile: cached_profile,
-            };
-        }
-
-        let Ok(client) = self.remote_client() else {
-            return LoginStatus::LoggedOut;
-        };
-
-        match client.profile().await {
-            Ok(profile) => {
-                self.auth_context.set_profile(profile.clone()).await;
-                LoginStatus::LoggedIn { profile }
-            }
-            Err(RemoteClientError::Auth) => {
-                let _ = self.auth_context.clear_credentials().await;
-                self.auth_context.clear_profile().await;
-                LoginStatus::LoggedOut
-            }
-            Err(_) => LoginStatus::LoggedOut,
-        }
-    }
-
-    pub async fn store_oauth_handoff(
-        &self,
-        handoff_id: Uuid,
-        provider: String,
-        app_verifier: String,
-    ) {
-        self.oauth_handoffs.write().await.insert(
-            handoff_id,
-            PendingHandoff {
-                provider,
-                app_verifier,
-            },
-        );
-    }
-
-    pub async fn take_oauth_handoff(&self, handoff_id: &Uuid) -> Option<(String, String)> {
-        self.oauth_handoffs
-            .write()
-            .await
-            .remove(handoff_id)
-            .map(|state| (state.provider, state.app_verifier))
-    }
-
-    pub fn share_config(&self) -> Option<&ShareConfig> {
-        self.share_config.as_ref()
-    }
-
-    /// Shuts down the event worker, waiting for pending events to be processed.
-    /// This should be called during graceful shutdown.
-    pub async fn shutdown_event_worker(&self) {
-        if let Some(handle) = self.event_worker_handle.lock().await.take() {
-            handle.shutdown().await;
-        }
+    fn server_log_store(&self) -> &Arc<ServerLogStore> {
+        &self.server_log_store
     }
 }

@@ -68,7 +68,7 @@ async fn main() -> Result<(), VibeKanbanError> {
         );
     }
 
-    let deployment = DeploymentImpl::new().await?;
+    let deployment = DeploymentImpl::new_with_log_store(server_log_store).await?;
     deployment.update_sentry_scope().await?;
     let deployment_for_orphan_cleanup = deployment.clone();
     tokio::spawn(async move {
