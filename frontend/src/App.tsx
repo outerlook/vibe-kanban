@@ -79,6 +79,11 @@ const McpSettings = lazy(() =>
     default: module.McpSettings,
   }))
 );
+const ServerLogs = lazy(() =>
+  import('@/pages/settings/ServerLogs').then((m) => ({
+    default: m.ServerLogs,
+  }))
+);
 const GanttView = lazy(() =>
   import('@/pages/GanttView').then((module) => ({
     default: module.GanttView,
@@ -234,6 +239,7 @@ function AppContent() {
                     <Route path="github" element={<GitHubSettings />} />
                     <Route path="agents" element={<AgentSettings />} />
                     <Route path="mcp" element={<McpSettings />} />
+                    <Route path="server-logs" element={<ServerLogs />} />
                   </Route>
                   <Route
                     path="/mcp-servers"
