@@ -11,6 +11,7 @@ import {
   Eye,
   Sparkles,
   Loader2,
+  Pencil,
 } from 'lucide-react';
 import { QueueStatusBadge } from '../QueueStatusBadge';
 import { Button } from '@/components/ui/button.tsx';
@@ -46,7 +47,7 @@ import { useBranchStatusContext } from '@/contexts/BranchStatusContext';
 const MERGE_ACTION_STORAGE_KEY = 'vk-merge-action-preference';
 const QUEUE_MERGE_ENABLED_KEY = 'vk-queue-merge-enabled';
 
-type MergeAction = 'merge' | 'generate-preview' | 'generate-merge';
+type MergeAction = 'merge' | 'generate-preview' | 'generate-merge' | 'edit-merge';
 
 const mergeActionOptions: SplitButtonOption<MergeAction>[] = [
   {
@@ -63,6 +64,11 @@ const mergeActionOptions: SplitButtonOption<MergeAction>[] = [
     value: 'generate-merge',
     label: 'Generate & Merge',
     icon: <Sparkles className="h-3.5 w-3.5" />,
+  },
+  {
+    value: 'edit-merge',
+    label: 'Edit & Merge',
+    icon: <Pencil className="h-3.5 w-3.5" />,
   },
 ];
 
@@ -117,7 +123,7 @@ function GitOperations({
   // Load merge action preference from localStorage on mount
   useEffect(() => {
     const stored = localStorage.getItem(MERGE_ACTION_STORAGE_KEY);
-    if (stored && ['merge', 'generate-preview', 'generate-merge'].includes(stored)) {
+    if (stored && ['merge', 'generate-preview', 'generate-merge', 'edit-merge'].includes(stored)) {
       setSelectedMergeAction(stored as MergeAction);
     }
     const queueStored = localStorage.getItem(QUEUE_MERGE_ENABLED_KEY);
@@ -278,12 +284,18 @@ function GitOperations({
     if (!repoId) return;
 
     // If queue is enabled, route through queue logic
-    if (queueEnabled && action !== 'generate-preview') {
+    if (queueEnabled && action !== 'generate-preview' && action !== 'edit-merge') {
       if (action === 'merge') {
         await performQueueMerge(repoId);
       } else if (action === 'generate-merge') {
         await performGenerateAndQueueMerge(repoId);
       }
+      return;
+    }
+
+    // edit-merge with queue enabled uses its own queue function
+    if (queueEnabled && action === 'edit-merge') {
+      await performEditAndQueueMerge(repoId);
       return;
     }
 
@@ -298,7 +310,29 @@ function GitOperations({
       case 'generate-merge':
         await performGenerateAndMerge(repoId);
         break;
+      case 'edit-merge':
+        await performEditAndMerge(repoId);
+        break;
     }
+  };
+
+  const buildFallbackCommitMessage = () => {
+    const parts = [task.title];
+    if (task.description) {
+      parts.push('', task.description);
+    }
+    return parts.join('\n');
+  };
+
+  const performEditAndMerge = async (repoId: string) => {
+    const initialMessage = buildFallbackCommitMessage();
+
+    await CommitMessagePreviewDialog.show({
+      initialMessage,
+      onConfirm: async (message: string) => {
+        await performMergeWithMessage(repoId, message);
+      },
+    });
   };
 
   const performGenerateAndPreview = async (repoId: string) => {
@@ -398,6 +432,24 @@ function GitOperations({
     } finally {
       setQueuing(false);
     }
+  };
+
+  const performEditAndQueueMerge = async (repoId: string) => {
+    const initialMessage = buildFallbackCommitMessage();
+
+    await CommitMessagePreviewDialog.show({
+      initialMessage,
+      onConfirm: async (message: string) => {
+        try {
+          setQueuing(true);
+          await queueMerge.mutateAsync({ repoId, commitMessage: message });
+          setQueueSuccess(true);
+          setTimeout(() => setQueueSuccess(false), 2000);
+        } finally {
+          setQueuing(false);
+        }
+      },
+    });
   };
 
   const handleRebaseWithNewBranchAndUpstream = async (
