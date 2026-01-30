@@ -32,3 +32,24 @@ pub enum DomainEvent {
     /// A project was updated.
     ProjectUpdated { project: Project },
 }
+
+/// Triggers that handlers can return to request execution starts.
+///
+/// This allows handlers to request new executions without direct
+/// access to ContainerService, enabling loose coupling in the
+/// callback-based execution system.
+#[derive(Debug, Clone)]
+pub enum ExecutionTrigger {
+    /// Trigger execution for feedback collection from a workspace.
+    FeedbackCollection {
+        workspace_id: Uuid,
+        task_id: Uuid,
+        execution_process_id: Uuid,
+    },
+
+    /// Trigger execution when a task needs review attention.
+    ReviewAttention {
+        task_id: Uuid,
+        execution_process_id: Uuid,
+    },
+}
