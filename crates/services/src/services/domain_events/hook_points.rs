@@ -4,14 +4,16 @@
 //! handlers can be triggered to perform additional actions.
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Points in the application lifecycle where hooks can be triggered.
 ///
 /// Hook points are divided into "Pre" and "Post" variants:
 /// - "Pre" hooks fire before the action occurs and can potentially modify or cancel it.
 /// - "Post" hooks fire after the action has completed and are informational.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum HookPoint {
     /// Before a new task is created.
     PreTaskCreate,
