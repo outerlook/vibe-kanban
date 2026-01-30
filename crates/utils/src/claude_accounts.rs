@@ -237,6 +237,9 @@ async fn read_credentials() -> Result<(ClaudeCredentialsFile, serde_json::Value)
 }
 
 /// List all saved accounts
+///
+/// This function also spawns background tasks to migrate legacy accounts
+/// that are missing `account_uuid`. Migration is best-effort and non-blocking.
 pub async fn list_accounts() -> Result<Vec<SavedAccount>, ClaudeAccountError> {
     let dir = accounts_dir();
 
@@ -257,7 +260,22 @@ pub async fn list_accounts() -> Result<Vec<SavedAccount>, ClaudeAccountError> {
 
         match tokio::fs::read_to_string(&path).await {
             Ok(contents) => match serde_json::from_str::<StoredAccount>(&contents) {
-                Ok(stored) => accounts.push(stored.metadata),
+                Ok(stored) => {
+                    // Spawn background migration for accounts missing UUID
+                    if stored.metadata.account_uuid.is_none() {
+                        let hash = stored.metadata.hash_prefix.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = migrate_account_uuid(&hash).await {
+                                tracing::warn!(
+                                    hash_prefix = %hash,
+                                    error = %e,
+                                    "Failed to migrate account UUID"
+                                );
+                            }
+                        });
+                    }
+                    accounts.push(stored.metadata)
+                }
                 Err(e) => {
                     tracing::warn!("Failed to parse account file {:?}: {}", path, e);
                 }
@@ -385,6 +403,39 @@ pub async fn get_current_uuid() -> Result<Option<String>, ClaudeAccountError> {
     };
 
     Ok(uuid)
+}
+
+/// Migrate a legacy account to include account_uuid.
+///
+/// This is a best-effort operation that fetches the UUID from the Anthropic
+/// profile API using the stored credentials and updates the account file.
+async fn migrate_account_uuid(hash_prefix: &str) -> Result<(), ClaudeAccountError> {
+    let mut stored = read_stored_account(hash_prefix).await?;
+
+    // Skip if already has UUID
+    if stored.metadata.account_uuid.is_some() {
+        return Ok(());
+    }
+
+    // Extract access token from stored credentials
+    let access_token = stored
+        .credentials
+        .get("claudeAiOauth")
+        .and_then(|v| v.get("accessToken"))
+        .and_then(|v| v.as_str())
+        .ok_or(ClaudeAccountError::InvalidCredentials)?;
+
+    // Fetch and save UUID
+    if let Some(uuid) = fetch_account_uuid(access_token).await {
+        stored.metadata.account_uuid = Some(uuid);
+        let file_path = account_file_path(hash_prefix);
+        let contents = serde_json::to_string_pretty(&stored)?;
+        tokio::fs::write(&file_path, contents).await?;
+        set_file_permissions(&file_path).await?;
+        tracing::info!(hash_prefix = %hash_prefix, "Migrated account to include UUID");
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
