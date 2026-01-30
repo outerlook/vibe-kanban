@@ -1858,6 +1858,49 @@ export const queueApi = {
   },
 };
 
+// Queue API for conversation follow-up messages
+export const conversationQueueApi = {
+  /**
+   * Queue a follow-up message to be executed when current execution finishes
+   */
+  queue: async (
+    conversationId: string,
+    data: { message: string; variant: string | null }
+  ): Promise<QueueStatus> => {
+    const response = await makeRequest(
+      `/api/conversations/${conversationId}/queue`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<QueueStatus>(response);
+  },
+
+  /**
+   * Cancel a queued follow-up message
+   */
+  cancel: async (conversationId: string): Promise<QueueStatus> => {
+    const response = await makeRequest(
+      `/api/conversations/${conversationId}/queue`,
+      {
+        method: 'DELETE',
+      }
+    );
+    return handleApiResponse<QueueStatus>(response);
+  },
+
+  /**
+   * Get the current queue status for a conversation
+   */
+  getStatus: async (conversationId: string): Promise<QueueStatus> => {
+    const response = await makeRequest(
+      `/api/conversations/${conversationId}/queue`
+    );
+    return handleApiResponse<QueueStatus>(response);
+  },
+};
+
 // Sounds API for listing available notification sounds
 export const soundsApi = {
   list: async (): Promise<AvailableSoundsResponse> => {
