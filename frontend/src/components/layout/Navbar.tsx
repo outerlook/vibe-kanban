@@ -22,6 +22,7 @@ import {
   BarChart3,
   GitPullRequest,
   Zap,
+  KanbanSquare,
 } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { openTaskForm } from '@/lib/openTaskForm';
@@ -218,6 +219,17 @@ export function Navbar() {
             {projectId ? (
               <>
                 <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={`h-9 w-9 ${isTasksRoute ? 'bg-accent' : ''}`}
+                    asChild
+                    aria-label="Tasks"
+                  >
+                    <Link to={paths.projectTasks(projectId)}>
+                      <KanbanSquare className="h-4 w-4" />
+                    </Link>
+                  </Button>
                   <Button
                     variant="ghost"
                     size="icon"
