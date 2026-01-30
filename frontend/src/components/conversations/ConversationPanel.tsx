@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MessageSquare, Pencil, GitBranch, Home } from 'lucide-react';
 import { ConversationList } from './ConversationList';
@@ -52,7 +52,36 @@ export function ConversationPanel({ projectId }: ConversationPanelProps) {
     isLoading: isQueueLoading,
     queueMessage,
     cancelQueue,
+    refresh: refreshQueueStatus,
   } = useConversationQueueStatus(selectedConversation?.id);
+
+  // Track previous execution count to detect new executions
+  const prevExecutionCountRef = useRef(executions?.length ?? 0);
+
+  // Refresh queue status when execution stops OR when a new execution starts
+  useEffect(() => {
+    const currentCount = executions?.length ?? 0;
+    const prevCount = prevExecutionCountRef.current;
+    prevExecutionCountRef.current = currentCount;
+
+    if (!selectedConversation?.id) return;
+
+    // Refresh when execution stops
+    if (!isExecutionRunning) {
+      refreshQueueStatus();
+      return;
+    }
+
+    // Refresh when a new execution starts (could be queued message consumption)
+    if (currentCount > prevCount) {
+      refreshQueueStatus();
+    }
+  }, [
+    isExecutionRunning,
+    selectedConversation?.id,
+    executions?.length,
+    refreshQueueStatus,
+  ]);
 
   const handleSelectConversation = useCallback(
     (conversation: ConversationSession) => {
