@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { tasksApi } from '@/lib/api';
 import type { Task } from 'shared/types';
-import { taskKeys } from './useTask';
+import { taskKeys } from '@/lib/taskCacheHelpers';
 
 type UseCanBulkCreateAttemptsResult = {
   canCreate: boolean;

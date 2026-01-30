@@ -25,8 +25,6 @@ type OperationStatusesData = Record<string, OperationStatus>;
 
 const operationStatusesKey = ['operationStatuses'] as const;
 
-// Re-export for backwards compatibility
-export { projectTasksKeys };
 
 const PAGE_SIZE = 25;
 const ALL_STATUSES: TaskStatus[] = ['todo', 'inprogress', 'inreview', 'done', 'cancelled'];

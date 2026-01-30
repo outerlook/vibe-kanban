@@ -3,9 +3,6 @@ import { attemptsApi } from '@/lib/api';
 import { taskRelationshipsKeys } from '@/lib/taskCacheHelpers';
 import type { TaskRelationships } from 'shared/types';
 
-// Re-export for backwards compatibility
-export { taskRelationshipsKeys };
-
 type Options = {
   enabled?: boolean;
   refetchInterval?: number | false;

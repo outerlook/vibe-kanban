@@ -6,15 +6,11 @@ import { sharedTasksCollection } from '@/lib/electric/sharedTasksCollection';
 import { useAssigneeUserNames } from './useAssigneeUserName';
 import { useAutoLinkSharedTasks } from './useAutoLinkSharedTasks';
 import { useProjectTasksContext } from '@/contexts/ProjectTasksContext';
-import { projectTasksKeys } from '@/lib/taskCacheHelpers';
 import type {
   SharedTask,
   TaskStatus,
   TaskWithAttemptStatus,
 } from 'shared/types';
-
-// Re-export for consumers that import from here
-export { projectTasksKeys };
 
 const ALL_STATUSES: TaskStatus[] = ['todo', 'inprogress', 'inreview', 'done', 'cancelled'];
 

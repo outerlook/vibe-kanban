@@ -8,9 +8,6 @@ import {
   taskDependencyTreeKeys,
 } from '@/lib/taskCacheHelpers';
 
-// Re-export for backwards compatibility
-export { taskDependenciesKeys, taskDependencyTreeKeys };
-
 type QueryOptions = {
   enabled?: boolean;
   refetchInterval?: number | false;

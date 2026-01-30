@@ -3,9 +3,6 @@ import { attemptsApi } from '@/lib/api';
 import { taskAttemptKeys } from '@/lib/taskCacheHelpers';
 import type { Workspace } from 'shared/types';
 
-// Re-export for backwards compatibility
-export { taskAttemptKeys };
-
 type Options = {
   enabled?: boolean;
   refetchInterval?: number | false;

@@ -6,14 +6,6 @@ import {
   taskRelationshipsKeys,
 } from '@/lib/taskCacheHelpers';
 
-// Re-export for backwards compatibility with existing imports
-export {
-  taskDependenciesKeys,
-  taskDependencyTreeKeys,
-  taskAttemptKeys,
-  taskRelationshipsKeys,
-};
-
 export type InvalidateTaskQueriesOptions = {
   /** Invalidate dependency queries (blocked_by/blocking) */
   includeDependencies?: boolean;
@@ -48,7 +40,12 @@ export function invalidateTaskQueries(
 
   // Invalidate dependency queries
   if (includeDependencies && taskId) {
-    invalidateDependencyQueries(queryClient, taskId);
+    queryClient.invalidateQueries({
+      queryKey: taskDependenciesKeys.byTask(taskId),
+    });
+    queryClient.invalidateQueries({
+      queryKey: taskDependencyTreeKeys.byTask(taskId),
+    });
   }
 
   // Invalidate task attempts
@@ -71,34 +68,5 @@ export function invalidateTaskQueries(
       });
     }
   }
-}
-
-/**
- * Invalidate dependency-specific queries for a task.
- * Useful when adding/removing dependencies between tasks.
- */
-export function invalidateDependencyQueries(
-  queryClient: QueryClient,
-  taskId: string
-): void {
-  queryClient.invalidateQueries({
-    queryKey: taskDependenciesKeys.byTask(taskId),
-  });
-  queryClient.invalidateQueries({
-    queryKey: taskDependencyTreeKeys.byTask(taskId),
-  });
-}
-
-/**
- * Invalidate dependency queries for multiple tasks.
- * Useful when a dependency mutation affects both tasks.
- */
-export function invalidateDependencyQueriesForTasks(
-  queryClient: QueryClient,
-  taskIds: string[]
-): void {
-  taskIds.forEach((taskId) => {
-    invalidateDependencyQueries(queryClient, taskId);
-  });
 }
 

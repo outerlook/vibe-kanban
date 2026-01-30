@@ -3,9 +3,6 @@ import { tasksApi } from '@/lib/api';
 import { taskKeys } from '@/lib/taskCacheHelpers';
 import type { Task } from 'shared/types';
 
-// Re-export for backwards compatibility
-export { taskKeys };
-
 type Options = {
   enabled?: boolean;
 };
