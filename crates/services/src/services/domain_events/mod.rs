@@ -17,4 +17,4 @@ pub use handlers::{
     WebSocketBroadcastHandler,
 };
 pub use hook_points::HookPoint;
-pub use types::{DomainEvent, ExecutionTrigger};
+pub use types::{DomainEvent, ExecutionTrigger, ExecutionTriggerCallback};

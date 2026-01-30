@@ -3,9 +3,12 @@
 //! These events represent significant state changes in the application
 //! that handlers can respond to.
 
+use std::sync::Arc;
+
 use db::models::{
     execution_process::ExecutionProcess, project::Project, task::Task, workspace::Workspace,
 };
+use futures::future::BoxFuture;
 use uuid::Uuid;
 
 /// Domain events that can trigger handler execution.
@@ -53,3 +56,12 @@ pub enum ExecutionTrigger {
         execution_process_id: Uuid,
     },
 }
+
+/// Callback type for triggering executions from handlers.
+///
+/// This callback is injected into `HandlerContext` to allow handlers
+/// to request new executions without direct access to `ContainerService`.
+/// The callback accepts an `ExecutionTrigger` and returns a future that
+/// resolves when the execution has been triggered (not completed).
+pub type ExecutionTriggerCallback =
+    Arc<dyn Fn(ExecutionTrigger) -> BoxFuture<'static, Result<(), anyhow::Error>> + Send + Sync>;
