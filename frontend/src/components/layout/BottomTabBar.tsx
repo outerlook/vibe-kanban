@@ -41,7 +41,11 @@ export function BottomTabBar() {
 
   const navigatePreservingParams = useCallback(
     (path: string) => {
-      const search = searchParams.toString();
+      const params = new URLSearchParams(searchParams);
+      // These are task-page specific, don't carry to other routes
+      params.delete('view');
+      params.delete('view_mode');
+      const search = params.toString();
       navigate({ pathname: path, search: search ? `?${search}` : '' });
     },
     [navigate, searchParams]
