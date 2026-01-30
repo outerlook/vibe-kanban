@@ -4,11 +4,10 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react';
-import { useQueries, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useProject } from '@/contexts/ProjectContext';
 import { tasksApi, getApiBaseUrlSync } from '@/lib/api';
 import {
@@ -20,6 +19,11 @@ import {
 } from '@/lib/taskCacheHelpers';
 import type { Operation } from 'rfc6902';
 import type { OperationStatus, TaskStatus, TaskWithAttemptStatus } from 'shared/types';
+
+// Type for operation statuses stored in React Query cache
+type OperationStatusesData = Record<string, OperationStatus>;
+
+const operationStatusesKey = ['operationStatuses'] as const;
 
 // Re-export for backwards compatibility
 export { projectTasksKeys };
@@ -66,7 +70,6 @@ interface ProjectTasksContextValue {
   isInitialSyncComplete: boolean;
   error: string | null;
   loadMoreForStatus: (status: TaskStatus) => void;
-  mergeTasks: (tasks: TaskWithAttemptStatus[], replace: boolean) => void;
 }
 
 const ProjectTasksContext = createContext<ProjectTasksContextValue | null>(null);
@@ -78,28 +81,8 @@ interface ProjectTasksProviderProps {
 export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
   const { projectId } = useProject();
   const queryClient = useQueryClient();
-  const [tasksById, setTasksById] = useState<Record<string, TaskWithAttemptStatus>>({});
-  const [operationStatuses, setOperationStatuses] = useState<Record<string, OperationStatus>>({});
   const [paginationByStatus, setPaginationByStatus] = useState<PerStatusPagination>(createInitialPaginationState);
   const [error, setError] = useState<string | null>(null);
-  const [syncedDataIds, setSyncedDataIds] = useState<string | null>(null);
-
-  const mergeTasks = useCallback((newTasks: TaskWithAttemptStatus[], replace: boolean) => {
-    setTasksById((prev) => {
-      if (replace) {
-        const map: Record<string, TaskWithAttemptStatus> = {};
-        for (const task of newTasks) {
-          map[task.id] = task;
-        }
-        return map;
-      }
-      const next = { ...prev };
-      for (const task of newTasks) {
-        next[task.id] = task;
-      }
-      return next;
-    });
-  }, []);
 
   // Memoize query configurations
   const queryConfigs = useMemo(
@@ -122,8 +105,6 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
   );
 
   const statusQueries = useQueries({ queries: queryConfigs });
-  const statusQueriesRef = useRef(statusQueries);
-  statusQueriesRef.current = statusQueries;
 
   const allQueriesSuccess = statusQueries.every((q) => q.isSuccess);
   const anyQueryError = statusQueries.some((q) => q.isError);
@@ -134,54 +115,69 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
     return errorObj instanceof Error ? errorObj.message : 'Failed to load tasks';
   }, [anyQueryError, statusQueries]);
 
-  const queryDataId = useMemo(() => {
-    if (!projectId || !allQueriesSuccess) return null;
-    return statusQueries
-      .map((q) => q.data?.page.tasks.map((t) => t.id).join(',') ?? '')
-      .join('|');
-  }, [projectId, allQueriesSuccess, statusQueries]);
-
-  // Sync query results to local state
-  useEffect(() => {
-    if (!projectId) {
-      setTasksById((prev) => (Object.keys(prev).length === 0 ? prev : {}));
-      setOperationStatuses((prev) => (Object.keys(prev).length === 0 ? prev : {}));
-      setPaginationByStatus(createInitialPaginationState);
-      setSyncedDataIds(null);
-      return;
+  // Derive tasksById from React Query cache - single source of truth
+  const tasksById = useMemo(() => {
+    const result: Record<string, TaskWithAttemptStatus> = {};
+    for (const query of statusQueries) {
+      if (!query.data) continue;
+      for (const task of query.data.page.tasks) {
+        result[task.id] = task;
+      }
     }
+    return result;
+  }, [statusQueries]);
 
-    if (anyQueryError && firstErrorMessage) {
-      setError(firstErrorMessage);
-      return;
-    }
-
-    if (queryDataId === null || queryDataId === syncedDataIds) return;
-
-    const queries = statusQueriesRef.current;
-    const allTasks: TaskWithAttemptStatus[] = [];
-    const newPagination = createInitialPaginationState();
-
-    for (const query of queries) {
+  // Derive pagination state from query results
+  const derivedPaginationByStatus = useMemo((): PerStatusPagination => {
+    const result = createInitialPaginationState();
+    for (const query of statusQueries) {
       if (!query.data) continue;
       const { status, page } = query.data;
-      allTasks.push(...page.tasks);
-      newPagination[status] = {
+      result[status] = {
         offset: page.tasks.length,
         total: page.total,
         hasMore: page.hasMore,
         isLoading: false,
       };
     }
+    return result;
+  }, [statusQueries]);
 
-    mergeTasks(allTasks, true);
-    setPaginationByStatus(newPagination);
-    setError(null);
-    setSyncedDataIds(queryDataId);
-  }, [projectId, queryDataId, syncedDataIds, anyQueryError, firstErrorMessage, mergeTasks]);
+  // Sync derived pagination to state (needed for load-more tracking)
+  useEffect(() => {
+    if (!projectId) {
+      setPaginationByStatus(createInitialPaginationState);
+      return;
+    }
+    if (allQueriesSuccess) {
+      setPaginationByStatus((prev) => {
+        // Only update if there's a meaningful difference
+        const hasChanges = ALL_STATUSES.some((status) => {
+          const derived = derivedPaginationByStatus[status];
+          const current = prev[status];
+          return (
+            derived.total !== current.total ||
+            derived.hasMore !== current.hasMore ||
+            // Only sync offset if not currently loading more
+            (!current.isLoading && derived.offset !== current.offset)
+          );
+        });
+        return hasChanges ? derivedPaginationByStatus : prev;
+      });
+    }
+  }, [projectId, allQueriesSuccess, derivedPaginationByStatus]);
+
+  // Set error from query failures
+  useEffect(() => {
+    if (anyQueryError && firstErrorMessage) {
+      setError(firstErrorMessage);
+    } else if (allQueriesSuccess) {
+      setError(null);
+    }
+  }, [anyQueryError, firstErrorMessage, allQueriesSuccess]);
 
   const isQueriesLoading = !!projectId && !statusQueries.every((q) => q.isSuccess || q.isError);
-  const isInitialSyncComplete = !isQueriesLoading && syncedDataIds !== null;
+  const isInitialSyncComplete = allQueriesSuccess;
 
   const loadMoreForStatus = useCallback((status: TaskStatus) => {
     const statusPagination = paginationByStatus[status];
@@ -203,7 +199,22 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
         order_by: getOrderByForStatus(status),
       })
       .then((page) => {
-        mergeTasks(page.tasks, false);
+        // Add new tasks to React Query cache
+        const queryKey = projectTasksKeys.byProjectAndStatus(projectId, status);
+        queryClient.setQueryData<StatusQueryData>(queryKey, (oldData) => {
+          if (!oldData) return oldData;
+          // Merge new tasks, avoiding duplicates
+          const existingIds = new Set(oldData.page.tasks.map((t) => t.id));
+          const newTasks = page.tasks.filter((t) => !existingIds.has(t.id));
+          return {
+            ...oldData,
+            page: {
+              tasks: [...oldData.page.tasks, ...newTasks],
+              total: page.total,
+              hasMore: page.hasMore,
+            },
+          };
+        });
         setPaginationByStatus((prev) => ({
           ...prev,
           [status]: {
@@ -221,7 +232,7 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
           [status]: { ...prev[status], isLoading: false },
         }));
       });
-  }, [projectId, isQueriesLoading, paginationByStatus, mergeTasks]);
+  }, [projectId, isQueriesLoading, paginationByStatus, queryClient]);
 
   // Helper to find task's current status from React Query cache
   const findTaskStatusInCache = useCallback(
@@ -263,14 +274,6 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
           // Track delta for pagination state
           if (!statusDeltas[existingStatus]) statusDeltas[existingStatus] = { added: 0, removed: 0 };
           statusDeltas[existingStatus]!.removed += 1;
-
-          // Also update local state (will be removed in Task 4)
-          setTasksById((prev) => {
-            if (!prev[taskId]) return prev;
-            const next = { ...prev };
-            delete next[taskId];
-            return next;
-          });
           continue;
         }
 
@@ -305,9 +308,6 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
           // Same status - just update in place
           setTaskInCache(queryClient, task, projectId);
         }
-
-        // Also update local state (will be removed in Task 4)
-        setTasksById((prev) => ({ ...prev, [task.id]: task }));
       }
 
       // Update pagination state for affected statuses
@@ -331,12 +331,12 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
     [projectId, queryClient, findTaskStatusInCache]
   );
 
-  // Apply operation status patches from WebSocket
+  // Apply operation status patches from WebSocket - updates React Query cache directly
   const applyOperationStatusPatches = useCallback((patches: Operation[]) => {
     if (!patches.length) return;
 
-    setOperationStatuses((prev) => {
-      let next = prev;
+    queryClient.setQueryData<OperationStatusesData>(operationStatusesKey, (prev) => {
+      let next = prev ?? {};
 
       for (const op of patches) {
         if (!op.path.startsWith(OPERATION_STATUS_PATH_PREFIX)) continue;
@@ -365,7 +365,7 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
 
       return next;
     });
-  }, []);
+  }, [queryClient]);
 
   // Single WebSocket connection for the entire app
   useEffect(() => {
@@ -448,6 +448,16 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
     };
   }, [projectId, applyTaskPatches, applyOperationStatusPatches]);
 
+  // Subscribe to operationStatuses from React Query cache
+  // This query has no queryFn - it's only updated via setQueryData from WebSocket patches
+  const { data: operationStatuses = {} } = useQuery<OperationStatusesData>({
+    queryKey: operationStatusesKey,
+    queryFn: () => ({}),
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+  });
+
   // Compute a mapping from task_id to OperationStatus for quick lookup
   const operationStatusesByTaskId = useMemo(() => {
     const byTaskId: Record<string, OperationStatus> = {};
@@ -467,9 +477,8 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
       isInitialSyncComplete,
       error,
       loadMoreForStatus,
-      mergeTasks,
     }),
-    [tasksById, operationStatuses, operationStatusesByTaskId, paginationByStatus, isQueriesLoading, isInitialSyncComplete, error, loadMoreForStatus, mergeTasks]
+    [tasksById, operationStatuses, operationStatusesByTaskId, paginationByStatus, isQueriesLoading, isInitialSyncComplete, error, loadMoreForStatus]
   );
 
   return (
