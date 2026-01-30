@@ -2241,4 +2241,10 @@ export const claudeAccountsApi = {
     const response = await makeRequest('/api/claude-accounts/current');
     return handleApiResponse<string | null>(response);
   },
+
+  /** Get the UUID of the currently active account */
+  getCurrentUuid: async (): Promise<string | null> => {
+    const response = await makeRequest('/api/claude-accounts/current-uuid');
+    return handleApiResponse<string | null>(response);
+  },
 };

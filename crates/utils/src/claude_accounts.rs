@@ -32,6 +32,8 @@ pub enum ClaudeAccountError {
 pub struct SavedAccount {
     /// First 8 characters of SHA256 hash of the access token
     pub hash_prefix: String,
+    /// Stable account UUID from Anthropic OAuth profile
+    pub account_uuid: Option<String>,
     /// User-defined name for this account
     pub name: Option<String>,
     /// Subscription type (e.g., "pro", "free")
@@ -149,9 +151,65 @@ pub async fn set_secure_file_permissions(path: &std::path::Path) -> std::io::Res
     Ok(())
 }
 
-async fn set_file_permissions(path: &PathBuf) -> Result<(), ClaudeAccountError> {
-    set_secure_file_permissions(path).await?;
-    Ok(())
+
+/// Response from Anthropic OAuth profile API
+#[derive(Debug, Deserialize)]
+struct AnthropicProfileResponse {
+    account: AnthropicAccountProfile,
+}
+
+/// Account profile from Anthropic OAuth API
+#[derive(Debug, Deserialize)]
+struct AnthropicAccountProfile {
+    uuid: String,
+    #[allow(dead_code)]
+    email: Option<String>,
+    #[allow(dead_code)]
+    display_name: Option<String>,
+}
+
+/// Fetch the stable account UUID from the Anthropic OAuth profile API.
+///
+/// This UUID remains constant even when OAuth tokens are refreshed,
+/// unlike the token hash which changes with each token refresh.
+///
+/// Returns `None` on any error (network, invalid token, parse failure)
+/// for graceful degradation.
+pub async fn fetch_account_uuid(access_token: &str) -> Option<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .ok()?;
+
+    let response = client
+        .get("https://api.anthropic.com/api/oauth/profile")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("anthropic-beta", "oauth-2025-04-20")
+        .send()
+        .await;
+
+    match response {
+        Ok(resp) => {
+            if !resp.status().is_success() {
+                tracing::warn!(
+                    "Anthropic profile API returned status: {}",
+                    resp.status()
+                );
+                return None;
+            }
+            match resp.json::<AnthropicProfileResponse>().await {
+                Ok(profile) => Some(profile.account.uuid),
+                Err(e) => {
+                    tracing::warn!("Failed to parse Anthropic profile response: {}", e);
+                    None
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to fetch Anthropic profile: {}", e);
+            None
+        }
+    }
 }
 
 /// Get the path to Claude credentials file
@@ -175,6 +233,9 @@ async fn read_credentials() -> Result<(ClaudeCredentialsFile, serde_json::Value)
 }
 
 /// List all saved accounts
+///
+/// This function also spawns background tasks to migrate legacy accounts
+/// that are missing `account_uuid`. Migration is best-effort and non-blocking.
 pub async fn list_accounts() -> Result<Vec<SavedAccount>, ClaudeAccountError> {
     let dir = accounts_dir();
 
@@ -195,7 +256,22 @@ pub async fn list_accounts() -> Result<Vec<SavedAccount>, ClaudeAccountError> {
 
         match tokio::fs::read_to_string(&path).await {
             Ok(contents) => match serde_json::from_str::<StoredAccount>(&contents) {
-                Ok(stored) => accounts.push(stored.metadata),
+                Ok(stored) => {
+                    // Spawn background migration for accounts missing UUID
+                    if stored.metadata.account_uuid.is_none() {
+                        let hash = stored.metadata.hash_prefix.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = migrate_account_uuid(&hash).await {
+                                tracing::warn!(
+                                    hash_prefix = %hash,
+                                    error = %e,
+                                    "Failed to migrate account UUID"
+                                );
+                            }
+                        });
+                    }
+                    accounts.push(stored.metadata)
+                }
                 Err(e) => {
                     tracing::warn!("Failed to parse account file {:?}: {}", path, e);
                 }
@@ -230,8 +306,14 @@ pub async fn save_account(name: Option<String>) -> Result<SavedAccount, ClaudeAc
 
     let hash_prefix = hash_token(&access_token);
 
+    let account_uuid = fetch_account_uuid(&access_token).await;
+    if account_uuid.is_none() {
+        tracing::warn!("Failed to fetch account UUID, saving without UUID");
+    }
+
     let metadata = SavedAccount {
         hash_prefix: hash_prefix.clone(),
+        account_uuid,
         name,
         subscription_type,
         rate_limit_tier: oauth.rate_limit_tier,
@@ -248,7 +330,7 @@ pub async fn save_account(name: Option<String>) -> Result<SavedAccount, ClaudeAc
     let file_path = account_file_path(&hash_prefix);
     let contents = serde_json::to_string_pretty(&stored)?;
     tokio::fs::write(&file_path, contents).await?;
-    set_file_permissions(&file_path).await?;
+    set_secure_file_permissions(&file_path).await?;
 
     Ok(metadata)
 }
@@ -303,6 +385,55 @@ pub async fn get_current_hash() -> Result<Option<String>, ClaudeAccountError> {
     Ok(hash)
 }
 
+/// Get the UUID of the currently active account
+pub async fn get_current_uuid() -> Result<Option<String>, ClaudeAccountError> {
+    let (parsed, _) = match read_credentials().await {
+        Ok(creds) => creds,
+        Err(ClaudeAccountError::NoCredentials) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+
+    let uuid = match parsed.claude_ai_oauth.and_then(|oauth| oauth.access_token) {
+        Some(token) => fetch_account_uuid(&token).await,
+        None => None,
+    };
+
+    Ok(uuid)
+}
+
+/// Migrate a legacy account to include account_uuid.
+///
+/// This is a best-effort operation that fetches the UUID from the Anthropic
+/// profile API using the stored credentials and updates the account file.
+async fn migrate_account_uuid(hash_prefix: &str) -> Result<(), ClaudeAccountError> {
+    let mut stored = read_stored_account(hash_prefix).await?;
+
+    // Skip if already has UUID
+    if stored.metadata.account_uuid.is_some() {
+        return Ok(());
+    }
+
+    // Extract access token from stored credentials
+    let access_token = stored
+        .credentials
+        .get("claudeAiOauth")
+        .and_then(|v| v.get("accessToken"))
+        .and_then(|v| v.as_str())
+        .ok_or(ClaudeAccountError::InvalidCredentials)?;
+
+    // Fetch and save UUID
+    if let Some(uuid) = fetch_account_uuid(access_token).await {
+        stored.metadata.account_uuid = Some(uuid);
+        let file_path = account_file_path(hash_prefix);
+        let contents = serde_json::to_string_pretty(&stored)?;
+        tokio::fs::write(&file_path, contents).await?;
+        set_secure_file_permissions(&file_path).await?;
+        tracing::info!(hash_prefix = %hash_prefix, "Migrated account to include UUID");
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,6 +478,7 @@ mod tests {
     fn test_saved_account_serialization() {
         let account = SavedAccount {
             hash_prefix: "abcd1234".to_string(),
+            account_uuid: Some("be75afdf-b8bf-49f6-ad6c-01e8c13c2210".to_string()),
             name: Some("Work Account".to_string()),
             subscription_type: "pro".to_string(),
             rate_limit_tier: Some("tier-1".to_string()),
@@ -355,13 +487,33 @@ mod tests {
 
         let json = serde_json::to_string(&account).unwrap();
         assert!(json.contains("\"hashPrefix\":\"abcd1234\""));
+        assert!(json.contains("\"accountUuid\":\"be75afdf-b8bf-49f6-ad6c-01e8c13c2210\""));
         assert!(json.contains("\"name\":\"Work Account\""));
         assert!(json.contains("\"subscriptionType\":\"pro\""));
 
         // Verify deserialization
         let deserialized: SavedAccount = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.hash_prefix, account.hash_prefix);
+        assert_eq!(deserialized.account_uuid, account.account_uuid);
         assert_eq!(deserialized.name, account.name);
+    }
+
+    #[test]
+    fn test_saved_account_backward_compatibility() {
+        // Test deserialization of old format without account_uuid field
+        let old_json = r#"{
+            "hashPrefix": "abcd1234",
+            "name": "Old Account",
+            "subscriptionType": "pro",
+            "rateLimitTier": null,
+            "createdAt": "2024-01-15T10:30:00Z"
+        }"#;
+
+        let account: SavedAccount = serde_json::from_str(old_json).unwrap();
+        assert_eq!(account.hash_prefix, "abcd1234");
+        assert_eq!(account.account_uuid, None);
+        assert_eq!(account.name, Some("Old Account".to_string()));
+        assert_eq!(account.subscription_type, "pro");
     }
 
     #[tokio::test]
@@ -370,5 +522,188 @@ mod tests {
         // Note: In test environment, the actual accounts_dir may or may not exist
         let result = list_accounts().await;
         assert!(result.is_ok(), "list_accounts should not fail");
+    }
+
+    #[test]
+    fn test_anthropic_profile_response_deserialization() {
+        let json = r#"{
+            "account": {
+                "uuid": "be75afdf-b8bf-49f6-ad6c-01e8c13c2210",
+                "email": "user@example.com",
+                "display_name": "User Name"
+            }
+        }"#;
+
+        let response: AnthropicProfileResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            response.account.uuid,
+            "be75afdf-b8bf-49f6-ad6c-01e8c13c2210"
+        );
+        assert_eq!(response.account.email, Some("user@example.com".to_string()));
+        assert_eq!(
+            response.account.display_name,
+            Some("User Name".to_string())
+        );
+    }
+
+    #[test]
+    fn test_anthropic_profile_response_minimal() {
+        // Test with only required fields
+        let json = r#"{
+            "account": {
+                "uuid": "test-uuid-1234"
+            }
+        }"#;
+
+        let response: AnthropicProfileResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.account.uuid, "test-uuid-1234");
+        assert_eq!(response.account.email, None);
+        assert_eq!(response.account.display_name, None);
+    }
+
+    /// Test that demonstrates the token refresh scenario fix.
+    ///
+    /// The original bug: when OAuth tokens are refreshed, the access token changes,
+    /// causing the hash_prefix to change. This made the UI show "account not saved"
+    /// even though the account was saved (just with a different hash).
+    ///
+    /// The fix: use account_uuid (stable across token refreshes) for matching,
+    /// with hash_prefix as a fallback for legacy accounts.
+    #[test]
+    fn test_uuid_matching_survives_token_refresh() {
+        let stable_uuid = "be75afdf-b8bf-49f6-ad6c-01e8c13c2210";
+
+        // Simulate a saved account with original token
+        let saved_account = SavedAccount {
+            hash_prefix: hash_token("original-access-token"),
+            account_uuid: Some(stable_uuid.to_string()),
+            name: Some("My Account".to_string()),
+            subscription_type: "pro".to_string(),
+            rate_limit_tier: None,
+            created_at: chrono::Utc::now(),
+        };
+
+        // Simulate token refresh: new token, different hash, but same UUID
+        let refreshed_hash = hash_token("refreshed-access-token");
+        let current_uuid = stable_uuid;
+
+        // Hashes are different (this is the original bug scenario)
+        assert_ne!(
+            saved_account.hash_prefix, refreshed_hash,
+            "Token refresh should change the hash"
+        );
+
+        // UUID-based matching should still work
+        let is_current_by_uuid =
+            saved_account.account_uuid.as_deref() == Some(current_uuid);
+        assert!(
+            is_current_by_uuid,
+            "UUID matching should identify the account as current despite hash change"
+        );
+
+        // Hash-based matching would fail (the original bug)
+        let is_current_by_hash = saved_account.hash_prefix == refreshed_hash;
+        assert!(
+            !is_current_by_hash,
+            "Hash matching fails after token refresh (this is the bug we fixed)"
+        );
+    }
+
+    /// Test that legacy accounts (without UUID) still work via hash fallback.
+    #[test]
+    fn test_legacy_account_hash_fallback() {
+        let token = "legacy-access-token";
+
+        // Legacy account saved without UUID
+        let legacy_account = SavedAccount {
+            hash_prefix: hash_token(token),
+            account_uuid: None, // Legacy: no UUID
+            name: Some("Legacy Account".to_string()),
+            subscription_type: "free".to_string(),
+            rate_limit_tier: None,
+            created_at: chrono::Utc::now(),
+        };
+
+        let current_hash = hash_token(token);
+        let current_uuid: Option<&str> = None; // API might fail to fetch UUID
+
+        // UUID matching not possible (both None)
+        let uuid_match = match (legacy_account.account_uuid.as_deref(), current_uuid) {
+            (Some(saved), Some(current)) => saved == current,
+            _ => false,
+        };
+
+        // Hash fallback should work
+        let hash_match = legacy_account.hash_prefix == current_hash;
+
+        // The combined logic: UUID-first, then hash fallback
+        let is_current = uuid_match || hash_match;
+
+        assert!(
+            !uuid_match,
+            "UUID matching not possible for legacy accounts"
+        );
+        assert!(hash_match, "Hash fallback should identify legacy account");
+        assert!(is_current, "Combined logic should identify legacy account as current");
+    }
+
+    /// Test the frontend `isAccountCurrent` logic simulation.
+    #[test]
+    fn test_is_account_current_logic() {
+        fn is_account_current(
+            account: &SavedAccount,
+            current_uuid: Option<&str>,
+            current_hash: &str,
+        ) -> bool {
+            // UUID-first matching with hash fallback
+            // This mirrors the frontend ClaudeAccountSwitcher logic
+            if let (Some(account_uuid), Some(uuid)) = (&account.account_uuid, current_uuid) {
+                return account_uuid == uuid;
+            }
+            account.hash_prefix == current_hash
+        }
+
+        let uuid = "test-uuid-1234";
+        let old_token = "old-token";
+        let new_token = "new-token";
+
+        let account = SavedAccount {
+            hash_prefix: hash_token(old_token),
+            account_uuid: Some(uuid.to_string()),
+            name: None,
+            subscription_type: "pro".to_string(),
+            rate_limit_tier: None,
+            created_at: chrono::Utc::now(),
+        };
+
+        // Scenario 1: Same UUID, different hash (token refreshed) -> CURRENT
+        assert!(
+            is_account_current(&account, Some(uuid), &hash_token(new_token)),
+            "UUID match should override hash mismatch"
+        );
+
+        // Scenario 2: Same UUID, same hash -> CURRENT
+        assert!(
+            is_account_current(&account, Some(uuid), &hash_token(old_token)),
+            "Both match -> current"
+        );
+
+        // Scenario 3: Different UUID, same hash -> NOT CURRENT
+        assert!(
+            !is_account_current(&account, Some("different-uuid"), &hash_token(old_token)),
+            "UUID mismatch should take precedence"
+        );
+
+        // Scenario 4: No UUID available, hash match -> CURRENT (fallback)
+        assert!(
+            is_account_current(&account, None, &hash_token(old_token)),
+            "Hash fallback when no current UUID"
+        );
+
+        // Scenario 5: No UUID available, hash mismatch -> NOT CURRENT
+        assert!(
+            !is_account_current(&account, None, &hash_token(new_token)),
+            "Hash fallback fails on mismatch"
+        );
     }
 }

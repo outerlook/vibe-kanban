@@ -218,6 +218,10 @@ export type SavedAccount = {
  */
 hashPrefix: string, 
 /**
+ * Stable account UUID from Anthropic OAuth profile
+ */
+accountUuid: string | null, 
+/**
  * User-defined name for this account
  */
 name: string | null, 

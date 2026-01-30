@@ -5,6 +5,7 @@ import type { SavedAccount } from 'shared/types';
 export const claudeAccountsKeys = {
   all: ['claude-accounts'] as const,
   current: ['claude-account-current'] as const,
+  currentUuid: ['claude-account-current-uuid'] as const,
 };
 
 export function useClaudeAccounts() {
@@ -19,6 +20,14 @@ export function useCurrentClaudeAccount() {
   return useQuery<string | null>({
     queryKey: claudeAccountsKeys.current,
     queryFn: claudeAccountsApi.getCurrent,
+    staleTime: 30 * 1000, // 30 seconds
+  });
+}
+
+export function useCurrentClaudeAccountUuid() {
+  return useQuery<string | null>({
+    queryKey: claudeAccountsKeys.currentUuid,
+    queryFn: claudeAccountsApi.getCurrentUuid,
     staleTime: 30 * 1000, // 30 seconds
   });
 }

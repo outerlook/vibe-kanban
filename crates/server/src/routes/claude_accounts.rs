@@ -8,8 +8,8 @@ use axum::{
 use utils::{
     claude_accounts::{
         ClaudeAccountError, SaveAccountRequest, SavedAccount, UpdateNameRequest, delete_account,
-        get_current_hash, list_accounts, load_account, save_account, set_secure_file_permissions,
-        update_account_name,
+        get_current_hash, get_current_uuid, list_accounts, load_account, save_account,
+        set_secure_file_permissions, update_account_name,
     },
     response::ApiResponse,
 };
@@ -21,6 +21,10 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/claude-accounts", get(list_accounts_handler))
         .route("/claude-accounts/save", post(save_current_account_handler))
         .route("/claude-accounts/current", get(get_current_account_handler))
+        .route(
+            "/claude-accounts/current-uuid",
+            get(get_current_uuid_handler),
+        )
         .route("/claude-accounts/{hash}", delete(delete_account_handler))
         .route(
             "/claude-accounts/{hash}/name",
@@ -135,6 +139,13 @@ async fn get_current_account_handler() -> Result<ResponseJson<ApiResponse<Option
     let current_hash = get_current_hash().await.map_err(map_claude_account_error)?;
 
     Ok(ResponseJson(ApiResponse::success(current_hash)))
+}
+
+/// GET /api/claude-accounts/current-uuid - Get the UUID of the current account
+async fn get_current_uuid_handler() -> Result<ResponseJson<ApiResponse<Option<String>>>, ApiError> {
+    let current_uuid = get_current_uuid().await.map_err(map_claude_account_error)?;
+
+    Ok(ResponseJson(ApiResponse::success(current_uuid)))
 }
 
 fn map_claude_account_error(err: ClaudeAccountError) -> ApiError {

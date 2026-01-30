@@ -10,9 +10,11 @@ import { useAccountInfo } from '@/hooks/useAccountInfo';
 import {
   useClaudeAccounts,
   useCurrentClaudeAccount,
+  useCurrentClaudeAccountUuid,
   useSwitchClaudeAccount,
   useDeleteClaudeAccount,
 } from '@/hooks/useClaudeAccounts';
+import type { SavedAccount } from 'shared/types';
 import { SaveAccountDialog } from '@/components/dialogs/account/SaveAccountDialog';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { UsageLimitDisplay } from '@/components/layout/UsageLimitDisplay';
@@ -23,18 +25,31 @@ export function ClaudeAccountSwitcher() {
     useAccountInfo();
   const { data: accounts = [], isLoading: isAccountsLoading } =
     useClaudeAccounts();
-  const { data: currentHashPrefix, isLoading: isCurrentLoading } =
+  const { data: currentHashPrefix, isLoading: isHashLoading } =
     useCurrentClaudeAccount();
+  const { data: currentUuid, isLoading: isUuidLoading } =
+    useCurrentClaudeAccountUuid();
 
   const switchAccount = useSwitchClaudeAccount();
   const deleteAccount = useDeleteClaudeAccount();
 
-  const isLoading = isAccountInfoLoading || isAccountsLoading || isCurrentLoading;
+  const isLoading =
+    isAccountInfoLoading || isAccountsLoading || isHashLoading || isUuidLoading;
   const claudeInfo = accountInfo?.claude;
 
-  // Check if current account is saved
-  const isCurrentAccountSaved =
-    currentHashPrefix && accounts.some((a) => a.hashPrefix === currentHashPrefix);
+  // UUID-first matching with hash fallback
+  const isCurrentAccountSaved = currentUuid
+    ? accounts.some((a) => a.accountUuid === currentUuid)
+    : currentHashPrefix &&
+      accounts.some((a) => a.hashPrefix === currentHashPrefix);
+
+  // Helper for per-account comparison
+  const isAccountCurrent = (account: SavedAccount) => {
+    if (currentUuid && account.accountUuid) {
+      return account.accountUuid === currentUuid;
+    }
+    return account.hashPrefix === currentHashPrefix;
+  };
 
   const getAccountDisplayName = (account: {
     name: string | null;
@@ -161,7 +176,7 @@ export function ClaudeAccountSwitcher() {
             </DropdownMenuItem>
           ) : (
             accounts.map((account) => {
-              const isCurrent = account.hashPrefix === currentHashPrefix;
+              const isCurrent = isAccountCurrent(account);
               const displayName = getAccountDisplayName(account);
 
               return (
