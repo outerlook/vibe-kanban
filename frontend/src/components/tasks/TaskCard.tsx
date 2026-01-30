@@ -36,6 +36,7 @@ import { OperationStatusBadge } from './OperationStatusBadge';
 import { HookStatusBadge } from './HookStatusBadge';
 import { TaskGroupFormDialog } from '@/components/dialogs';
 import { useIsCompactView } from '@/stores/useKanbanViewStore';
+import { useLongPress } from '@/hooks/useLongPress';
 
 interface TaskCardProps {
   task: TaskWithAttemptStatus;
@@ -46,6 +47,8 @@ interface TaskCardProps {
   isSelected?: boolean;
   projectId: string;
   sharedTask?: SharedTaskRecord;
+  isMobile?: boolean;
+  onLongPress?: () => void;
 }
 
 function TaskCardComponent({
@@ -57,6 +60,8 @@ function TaskCardComponent({
   isSelected,
   projectId,
   sharedTask,
+  isMobile,
+  onLongPress,
 }: TaskCardProps) {
   const { t } = useTranslation('tasks');
   const navigate = useNavigateWithSearch();
@@ -69,6 +74,17 @@ function TaskCardComponent({
   const isCompact = useIsCompactView();
   const isUnread = isTaskUnread(task);
   const groupName = getGroupName(task.task_group_id);
+
+  const longPressCallback = useCallback(() => {
+    onLongPress?.();
+  }, [onLongPress]);
+
+  const longPressHandlers = useLongPress(longPressCallback, {
+    delay: 500,
+    threshold: 10,
+  });
+
+  const mobileProps = isMobile && onLongPress ? longPressHandlers : {};
 
   const [groupContextMenu, setGroupContextMenu] = useState<{
     open: boolean;
@@ -171,12 +187,15 @@ function TaskCardComponent({
       isOpen={isOpen}
       isSelected={isSelected}
       forwardedRef={localRef}
-      dragDisabled={(!!sharedTask || !!task.shared_task_id) && !isSignedIn}
+      dragDisabled={
+        isMobile || ((!!sharedTask || !!task.shared_task_id) && !isSignedIn)
+      }
       className={
         sharedTask || task.shared_task_id
           ? 'relative overflow-hidden pl-5 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3px] before:bg-card-foreground before:content-[""]'
           : undefined
       }
+      {...mobileProps}
     >
       <div className="flex flex-col gap-2">
         <TaskCardHeader

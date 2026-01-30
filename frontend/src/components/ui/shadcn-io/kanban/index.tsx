@@ -76,6 +76,10 @@ export type KanbanCardProps = Pick<Feature, 'id' | 'name'> & {
   isOpen?: boolean;
   isSelected?: boolean;
   dragDisabled?: boolean;
+  onPointerDown?: (e: React.PointerEvent) => void;
+  onPointerUp?: (e: React.PointerEvent) => void;
+  onPointerMove?: (e: React.PointerEvent) => void;
+  onPointerCancel?: (e: React.PointerEvent) => void;
 };
 
 export const KanbanCard = ({
@@ -92,6 +96,10 @@ export const KanbanCard = ({
   isOpen,
   isSelected,
   dragDisabled = false,
+  onPointerDown,
+  onPointerUp,
+  onPointerMove,
+  onPointerCancel,
 }: KanbanCardProps) => {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
@@ -126,6 +134,10 @@ export const KanbanCard = ({
       tabIndex={tabIndex}
       onClick={onClick}
       onKeyDown={onKeyDown}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onPointerMove={onPointerMove}
+      onPointerCancel={onPointerCancel}
       style={{
         zIndex: isDragging ? 1000 : 1,
         transform: transform

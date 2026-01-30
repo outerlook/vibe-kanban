@@ -80,8 +80,9 @@ import { TaskSelectionProvider } from '@/contexts/TaskSelectionContext';
 import { TaskGroupsProvider } from '@/contexts/TaskGroupsContext';
 import { BulkActionsBar } from '@/components/tasks/BulkActionsBar';
 
-import type { TaskWithAttemptStatus } from 'shared/types';
+import type { TaskWithAttemptStatus, TaskStatus } from 'shared/types';
 import { TASK_STATUSES, normalizeStatus } from '@/constants/taskStatuses';
+import { TaskActionSheet } from '@/components/tasks/TaskActionSheet';
 
 type Task = TaskWithAttemptStatus;
 
@@ -101,6 +102,8 @@ export function ProjectTasks() {
   const [selectedSharedTaskId, setSelectedSharedTaskId] = useState<
     string | null
   >(null);
+  const [actionSheetTask, setActionSheetTask] =
+    useState<TaskWithAttemptStatus | null>(null);
   const { userId } = useAuth();
 
   const {
@@ -322,6 +325,30 @@ export function ProjectTasks() {
       setSearchParams(params, { replace: true });
     },
     [searchParams, setSearchParams]
+  );
+
+  const handleLongPressTask = useCallback((task: TaskWithAttemptStatus) => {
+    setActionSheetTask(task);
+  }, []);
+
+  const handleMobileStatusChange = useCallback(
+    (taskId: string, newStatus: TaskStatus) => {
+      const task = tasksById[taskId];
+      if (!task) return;
+      updateTask.mutate({
+        taskId,
+        data: {
+          title: task.title,
+          description: task.description,
+          status: newStatus,
+          parent_workspace_id: task.parent_workspace_id,
+          image_ids: null,
+          task_group_id: task.task_group_id,
+        },
+      });
+      setActionSheetTask(null);
+    },
+    [tasksById, updateTask]
   );
 
   const handleCreateNewTask = useCallback(() => {
@@ -781,6 +808,8 @@ export function ProjectTasks() {
               hasMoreByStatus={hasMoreByStatus}
               isLoadingMoreByStatus={isLoadingMoreByStatus}
               totalByStatus={totalByStatus}
+              isMobile={isMobile}
+              onLongPressTask={handleLongPressTask}
             />
           </div>
         )}
@@ -984,6 +1013,13 @@ export function ProjectTasks() {
       )}
 
       <div className="flex-1 min-h-0">{attemptArea}</div>
+
+      <TaskActionSheet
+        task={actionSheetTask}
+        isOpen={!!actionSheetTask}
+        onClose={() => setActionSheetTask(null)}
+        onStatusChange={handleMobileStatusChange}
+      />
     </div>
   );
 }

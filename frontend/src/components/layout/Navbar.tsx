@@ -32,6 +32,7 @@ import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { OpenInIdeSplitButton } from '@/components/ide/OpenInIdeSplitButton';
 import { useProjectRepos } from '@/hooks';
 import { useDiscordOnlineCount } from '@/hooks/useDiscordOnlineCount';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useTranslation } from 'react-i18next';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -147,6 +148,7 @@ export function Navbar() {
   );
 
   const isOAuthLoggedIn = loginStatus?.status === 'loggedin';
+  const isXL = useMediaQuery('(min-width: 1280px)');
 
   return (
     <div className="border-b bg-background">
@@ -216,7 +218,7 @@ export function Navbar() {
               </>
             ) : null}
 
-            {projectId ? (
+            {projectId && isXL ? (
               <>
                 <div className="flex items-center gap-1">
                   <Button

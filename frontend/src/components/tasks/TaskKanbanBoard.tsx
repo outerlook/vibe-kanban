@@ -16,6 +16,7 @@ import { SharedTaskCard } from './SharedTaskCard';
 import { useTaskSelection } from '@/contexts/TaskSelectionContext';
 import { Button } from '@/components/ui/button';
 import { Loader2, ClipboardList } from 'lucide-react';
+import { MobileKanbanCarousel } from './MobileKanbanCarousel';
 
 export type KanbanColumnItem =
   | {
@@ -43,6 +44,8 @@ interface TaskKanbanBoardProps {
   hasMoreByStatus: Record<TaskStatus, boolean>;
   isLoadingMoreByStatus: Record<TaskStatus, boolean>;
   totalByStatus: Record<TaskStatus, number>;
+  isMobile?: boolean;
+  onLongPressTask?: (task: TaskWithAttemptStatus) => void;
 }
 
 function TaskKanbanBoard({
@@ -58,10 +61,30 @@ function TaskKanbanBoard({
   hasMoreByStatus,
   isLoadingMoreByStatus,
   totalByStatus,
+  isMobile,
+  onLongPressTask,
 }: TaskKanbanBoardProps) {
   const { t } = useTranslation(['tasks']);
   const { userId } = useAuth();
   const { isTaskSelected } = useTaskSelection();
+
+  if (isMobile && onLongPressTask) {
+    return (
+      <MobileKanbanCarousel
+        columns={columns}
+        onViewTaskDetails={onViewTaskDetails}
+        onViewSharedTask={onViewSharedTask}
+        selectedTaskId={selectedTaskId}
+        selectedSharedTaskId={selectedSharedTaskId}
+        projectId={projectId}
+        loadMoreByStatus={loadMoreByStatus}
+        hasMoreByStatus={hasMoreByStatus}
+        isLoadingMoreByStatus={isLoadingMoreByStatus}
+        totalByStatus={totalByStatus}
+        onLongPressTask={onLongPressTask}
+      />
+    );
+  }
 
   return (
     <KanbanProvider onDragEnd={onDragEnd}>
