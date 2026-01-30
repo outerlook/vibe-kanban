@@ -80,8 +80,8 @@ use services::services::{
     diff_stream::{self, DiffStreamHandle},
     domain_events::{
         AutopilotHandler, DispatcherBuilder, DomainEvent, DomainEventDispatcher, ExecutionTrigger,
-        ExecutionTriggerCallback, FeedbackCollectionHandler, HandlerContext, NotificationHandler,
-        RemoteSyncHandler, ReviewAttentionHandler, WebSocketBroadcastHandler,
+        ExecutionTriggerCallback, FeedbackCollectionHandler, HandlerContext, HookExecutionStore,
+        NotificationHandler, RemoteSyncHandler, ReviewAttentionHandler, WebSocketBroadcastHandler,
     },
     feedback::FeedbackService,
     git::{Commit, DiffTarget, GitCli, GitService},
@@ -334,6 +334,9 @@ impl LocalContainerService {
             },
         );
 
+        // Create hook execution store for tracking spawned handler executions
+        let hook_execution_store = HookExecutionStore::new(global_msg_store.clone());
+
         // Build the domain event dispatcher with all handlers
         let event_dispatcher = Arc::new(
             DispatcherBuilder::new()
@@ -355,6 +358,7 @@ impl LocalContainerService {
                     None, // Will be overridden by with_execution_trigger
                 ))
                 .with_execution_trigger(execution_trigger_callback)
+                .with_hook_execution_store(hook_execution_store)
                 .build(),
         );
 

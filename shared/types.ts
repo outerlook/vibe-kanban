@@ -638,6 +638,44 @@ export type MergeQueueStatus = "queued" | "merging";
 
 export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert";
 
+export type HookPoint = "pre_task_create" | "post_task_create" | "pre_task_status_change" | "post_task_status_change" | "post_agent_complete" | "post_dependency_unblocked";
+
+export type HookExecutionStatus = "running" | "completed" | "failed";
+
+export type HookExecution = { 
+/**
+ * Unique identifier for this execution instance.
+ */
+id: string, 
+/**
+ * The task this hook execution relates to.
+ */
+task_id: string, 
+/**
+ * Name of the handler (e.g., "autopilot", "feedback_collection").
+ */
+handler_name: string, 
+/**
+ * The hook point that triggered this execution.
+ */
+hook_point: HookPoint, 
+/**
+ * Current status of the execution.
+ */
+status: HookExecutionStatus, 
+/**
+ * When the execution started.
+ */
+started_at: string, 
+/**
+ * When the execution completed (if finished).
+ */
+completed_at: string | null, 
+/**
+ * Error message if the execution failed.
+ */
+error: string | null, };
+
 export type ExecutorAction = { typ: ExecutorActionType, next_action: ExecutorAction | null, };
 
 export type McpConfig = { servers: { [key in string]?: JsonValue }, servers_path: Array<string>, template: JsonValue, preconfigured: JsonValue, is_toml_config: boolean, };

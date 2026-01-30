@@ -6,7 +6,7 @@ use thiserror::Error;
 use tokio::sync::RwLock;
 use utils::msg_store::MsgStore;
 
-use super::{DomainEvent, ExecutionTriggerCallback};
+use super::{DomainEvent, ExecutionTriggerCallback, HookExecutionStore};
 use crate::services::config::Config;
 
 /// Determines how an event handler should be executed.
@@ -40,6 +40,9 @@ pub struct HandlerContext {
     /// Optional callback for triggering executions from handlers.
     /// This is None in test contexts where execution triggering is not needed.
     pub execution_trigger: Option<ExecutionTriggerCallback>,
+    /// Store for tracking hook execution status. Used by the dispatcher
+    /// to track spawned handler executions.
+    pub hook_execution_store: Option<HookExecutionStore>,
 }
 
 impl HandlerContext {
@@ -54,7 +57,14 @@ impl HandlerContext {
             config,
             msg_store,
             execution_trigger,
+            hook_execution_store: None,
         }
+    }
+
+    /// Sets the hook execution store for tracking handler executions.
+    pub fn with_hook_execution_store(mut self, store: HookExecutionStore) -> Self {
+        self.hook_execution_store = Some(store);
+        self
     }
 }
 
