@@ -79,9 +79,10 @@ use services::services::{
     conversation::ConversationService,
     diff_stream::{self, DiffStreamHandle},
     domain_events::{
-        AutopilotHandler, DispatcherBuilder, DomainEvent, DomainEventDispatcher, ExecutionTrigger,
-        ExecutionTriggerCallback, FeedbackCollectionHandler, HandlerContext, HookExecutionStore,
-        NotificationHandler, RemoteSyncHandler, ReviewAttentionHandler, WebSocketBroadcastHandler,
+        AutopilotHandler, DispatcherBuilder, DomainEvent, DomainEventDispatcher,
+        EventDispatchCallback, ExecutionTrigger, ExecutionTriggerCallback,
+        FeedbackCollectionHandler, HandlerContext, HookExecutionStore, NotificationHandler,
+        RemoteSyncHandler, ReviewAttentionHandler, WebSocketBroadcastHandler,
     },
     feedback::FeedbackService,
     git::{Commit, DiffTarget, GitCli, GitService},
@@ -2399,6 +2400,16 @@ impl LocalContainerService {
                             let processor_op_status = operation_status.clone();
                             let processor_config = config_clone.clone();
 
+                            // Create event dispatch callback from container
+                            let event_dispatcher_clone = container_clone.event_dispatcher.clone();
+                            let event_dispatch_callback: EventDispatchCallback =
+                                Arc::new(move |event: DomainEvent| {
+                                    let dispatcher = event_dispatcher_clone.clone();
+                                    Box::pin(async move {
+                                        dispatcher.dispatch(event).await;
+                                    })
+                                });
+
                             tokio::spawn(async move {
                                 let processor = MergeQueueProcessor::with_operation_status(
                                     processor_pool,
@@ -2406,7 +2417,8 @@ impl LocalContainerService {
                                     processor_store,
                                     processor_op_status,
                                     processor_config,
-                                );
+                                )
+                                .with_event_dispatcher(event_dispatch_callback);
                                 if let Err(e) = processor.process_project_queue(project_id).await {
                                     tracing::error!(
                                         %project_id,
@@ -3535,6 +3547,20 @@ impl ContainerService for LocalContainerService {
         self.spawn_conversation_exit_monitor(&execution_process.id, spawned.exit_signal);
 
         Ok(())
+    }
+
+    async fn dispatch_event(&self, event: DomainEvent) {
+        self.event_dispatcher.dispatch(event).await;
+    }
+
+    fn event_dispatch_callback(&self) -> Option<EventDispatchCallback> {
+        let dispatcher = self.event_dispatcher.clone();
+        Some(Arc::new(move |event: DomainEvent| {
+            let dispatcher = dispatcher.clone();
+            Box::pin(async move {
+                dispatcher.dispatch(event).await;
+            })
+        }))
     }
 }
 fn success_exit_status() -> std::process::ExitStatus {

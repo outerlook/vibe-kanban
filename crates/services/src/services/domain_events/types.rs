@@ -100,3 +100,11 @@ pub enum ExecutionTrigger {
 /// resolves when the execution has been triggered (not completed).
 pub type ExecutionTriggerCallback =
     Arc<dyn Fn(ExecutionTrigger) -> BoxFuture<'static, Result<(), anyhow::Error>> + Send + Sync>;
+
+/// Callback type for dispatching domain events.
+///
+/// This callback allows services to dispatch domain events without direct access
+/// to the `DomainEventDispatcher`. Used by services like `PrMonitorService` and
+/// `MergeQueueProcessor` that need to dispatch events from outside the container.
+pub type EventDispatchCallback =
+    Arc<dyn Fn(DomainEvent) -> BoxFuture<'static, ()> + Send + Sync>;

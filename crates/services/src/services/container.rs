@@ -54,6 +54,7 @@ use uuid::Uuid;
 
 use crate::services::{
     config::Config,
+    domain_events::DomainEvent,
     git::{GitService, GitServiceError},
     notification::NotificationService,
     share::SharePublisher,
@@ -1877,4 +1878,21 @@ pub trait ContainerService {
         executor_action: &ExecutorAction,
         working_dir: &Path,
     ) -> Result<(), ContainerError>;
+
+    /// Dispatch a domain event to registered handlers.
+    ///
+    /// Default implementation is a no-op; implementors should override to dispatch
+    /// events to the actual domain event dispatcher for triggering handlers.
+    async fn dispatch_event(&self, _event: DomainEvent) {
+        // Default no-op implementation for compatibility
+    }
+
+    /// Get an event dispatch callback for use by services that need to dispatch
+    /// domain events asynchronously.
+    ///
+    /// Default implementation returns None; implementors should override to provide
+    /// a callback that dispatches to the domain event dispatcher.
+    fn event_dispatch_callback(&self) -> Option<crate::services::domain_events::EventDispatchCallback> {
+        None
+    }
 }

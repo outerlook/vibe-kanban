@@ -157,7 +157,9 @@ pub trait Deployment: Clone + Send + Sync + 'static {
                 analytics_service: analytics_service.clone(),
             });
         let publisher = self.share_publisher().ok();
-        PrMonitorService::spawn(db, analytics, publisher).await
+        // Note: Event dispatcher is passed as None here. Override this method in
+        // LocalDeployment to provide an event dispatcher for TaskStatusChanged events.
+        PrMonitorService::spawn(db, analytics, publisher, None).await
     }
 
     fn spawn_embedding_worker(&self) -> tokio::task::JoinHandle<()> {

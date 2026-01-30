@@ -23,6 +23,7 @@ use git2::BranchType;
 use serde::{Deserialize, Serialize};
 use services::services::{
     container::ContainerService,
+    domain_events::DomainEvent,
     git::{DiffTarget, GitCliError, GitServiceError},
     github::{CreatePrRequest, GitHubService, GitHubServiceError, UnifiedPrComment},
 };
@@ -578,7 +579,19 @@ pub async fn attach_existing_pr(
 
         // If PR is merged, mark task as done
         if matches!(pr_info.status, MergeStatus::Merged) {
+            let previous_status = task.status.clone();
             Task::update_status(pool, task.id, TaskStatus::Done).await?;
+
+            // Dispatch TaskStatusChanged event for handlers (autopilot, remote sync, etc.)
+            let mut updated_task = task.clone();
+            updated_task.status = TaskStatus::Done;
+            deployment
+                .container()
+                .dispatch_event(DomainEvent::TaskStatusChanged {
+                    task: updated_task,
+                    previous_status,
+                })
+                .await;
 
             // Try broadcast update to other users in organization
             if let Ok(publisher) = deployment.share_publisher() {

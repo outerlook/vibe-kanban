@@ -16,6 +16,7 @@ use tracing::{debug, error, info};
 
 use crate::services::{
     analytics::AnalyticsContext,
+    domain_events::{DomainEvent, EventDispatchCallback},
     github::{GitHubRepoInfo, GitHubService, GitHubServiceError},
     share::SharePublisher,
 };
@@ -36,6 +37,7 @@ pub struct PrMonitorService {
     poll_interval: Duration,
     analytics: Option<AnalyticsContext>,
     publisher: Option<SharePublisher>,
+    event_dispatcher: Option<EventDispatchCallback>,
 }
 
 impl PrMonitorService {
@@ -43,12 +45,14 @@ impl PrMonitorService {
         db: DBService,
         analytics: Option<AnalyticsContext>,
         publisher: Option<SharePublisher>,
+        event_dispatcher: Option<EventDispatchCallback>,
     ) -> tokio::task::JoinHandle<()> {
         let service = Self {
             db,
             poll_interval: Duration::from_secs(60), // Check every minute
             analytics,
             publisher,
+            event_dispatcher,
         };
         tokio::spawn(async move {
             service.start().await;
@@ -123,12 +127,26 @@ impl PrMonitorService {
             if matches!(&pr_status.status, MergeStatus::Merged)
                 && let Some(workspace) =
                     Workspace::find_by_id(&self.db.pool, pr_merge.workspace_id).await?
+                && let Ok(Some(task)) = Task::find_by_id(&self.db.pool, workspace.task_id).await
             {
                 info!(
                     "PR #{} was merged, updating task {} to done",
                     pr_merge.pr_info.number, workspace.task_id
                 );
+
+                let previous_status = task.status.clone();
                 Task::update_status(&self.db.pool, workspace.task_id, TaskStatus::Done).await?;
+
+                // Dispatch TaskStatusChanged event for handlers (autopilot, remote sync, etc.)
+                if let Some(dispatcher) = &self.event_dispatcher {
+                    let mut updated_task = task.clone();
+                    updated_task.status = TaskStatus::Done;
+                    dispatcher(DomainEvent::TaskStatusChanged {
+                        task: updated_task,
+                        previous_status,
+                    })
+                    .await;
+                }
 
                 // Note: Agent feedback collection is not done here because:
                 // 1. This service detects PRs merged externally (GitHub web UI)
@@ -136,9 +154,7 @@ impl PrMonitorService {
                 // 3. Feedback is collected via HTTP endpoints when merge is done through the app
 
                 // Track analytics event
-                if let Some(analytics) = &self.analytics
-                    && let Ok(Some(task)) = Task::find_by_id(&self.db.pool, workspace.task_id).await
-                {
+                if let Some(analytics) = &self.analytics {
                     analytics.analytics_service.track_event(
                         &analytics.user_id,
                         "pr_merged",

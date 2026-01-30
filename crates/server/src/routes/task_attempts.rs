@@ -55,6 +55,7 @@ use git2::BranchType;
 use serde::{Deserialize, Serialize};
 use services::services::{
     container::{ContainerService, StartWorkspaceResult},
+    domain_events::DomainEvent,
     git::{ConflictOp, GitCliError, GitServiceError},
     github::GitHubService,
     merge_queue_processor::MergeQueueProcessor,
@@ -631,7 +632,20 @@ pub async fn merge_task_attempt(
         &merge_commit_id,
     )
     .await?;
+
+    let previous_status = task.status.clone();
     Task::update_status(pool, task.id, TaskStatus::Done).await?;
+
+    // Dispatch TaskStatusChanged event for handlers (autopilot, remote sync, etc.)
+    let mut updated_task = task.clone();
+    updated_task.status = TaskStatus::Done;
+    deployment
+        .container()
+        .dispatch_event(DomainEvent::TaskStatusChanged {
+            task: updated_task,
+            previous_status,
+        })
+        .await;
 
     // Stop any running dev servers for this workspace
     let dev_servers =
@@ -2209,15 +2223,21 @@ pub async fn queue_merge(
         let processor_store = deployment.merge_queue_store().clone();
         let processor_op_status = deployment.operation_status().clone();
         let processor_config = deployment.config().clone();
+        let event_dispatcher = deployment.container().event_dispatch_callback();
 
         tokio::spawn(async move {
-            let processor = MergeQueueProcessor::with_operation_status(
+            let mut processor = MergeQueueProcessor::with_operation_status(
                 processor_pool,
                 processor_git,
                 processor_store,
                 processor_op_status,
                 processor_config,
             );
+
+            // Attach event dispatcher if available for TaskStatusChanged events
+            if let Some(dispatcher) = event_dispatcher {
+                processor = processor.with_event_dispatcher(dispatcher);
+            }
 
             if let Err(e) = processor.process_project_queue(project_id).await {
                 tracing::error!(

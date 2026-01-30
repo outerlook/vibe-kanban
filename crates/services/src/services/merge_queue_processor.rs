@@ -24,6 +24,7 @@ use uuid::Uuid;
 use super::{
     autopilot,
     config::Config,
+    domain_events::{DomainEvent, EventDispatchCallback},
     git::{GitService, GitServiceError},
     merge_queue_store::{MergeQueueEntry, MergeQueueStore},
     operation_status::{OperationStatus, OperationStatusStore, OperationStatusType},
@@ -82,6 +83,7 @@ pub struct MergeQueueProcessor {
     merge_queue_store: MergeQueueStore,
     operation_status: Option<OperationStatusStore>,
     config: Arc<RwLock<Config>>,
+    event_dispatcher: Option<EventDispatchCallback>,
 }
 
 impl MergeQueueProcessor {
@@ -98,6 +100,7 @@ impl MergeQueueProcessor {
             merge_queue_store,
             operation_status: None,
             config,
+            event_dispatcher: None,
         }
     }
 
@@ -115,7 +118,14 @@ impl MergeQueueProcessor {
             merge_queue_store,
             operation_status: Some(operation_status),
             config,
+            event_dispatcher: None,
         }
+    }
+
+    /// Set the event dispatcher callback for dispatching domain events.
+    pub fn with_event_dispatcher(mut self, dispatcher: EventDispatchCallback) -> Self {
+        self.event_dispatcher = Some(dispatcher);
+        self
     }
 
     /// Process all queued entries for a project until the queue is empty.
@@ -275,6 +285,7 @@ impl MergeQueueProcessor {
         .await?;
 
         // Step 6: Update task status to Done
+        let previous_status = task.status.clone();
         Task::update_status(&self.pool, task.id, TaskStatus::Done).await?;
 
         // Note: Agent feedback collection is not done here because:
@@ -287,10 +298,22 @@ impl MergeQueueProcessor {
             "Task marked as Done after successful merge"
         );
 
-        // Step 7: Auto-dequeue unblocked dependents if autopilot is enabled
-        // Note: Enqueued tasks will be picked up by container's process_queue when
-        // the next execution completes or when any new execution is requested.
-        self.auto_dequeue_unblocked_dependents(task.id).await;
+        // Step 7: Dispatch TaskStatusChanged event for handlers (autopilot, remote sync, etc.)
+        // The AutopilotHandler will handle auto-dequeueing unblocked dependents.
+        if let Some(dispatcher) = &self.event_dispatcher {
+            let mut updated_task = task.clone();
+            updated_task.status = TaskStatus::Done;
+            dispatcher(DomainEvent::TaskStatusChanged {
+                task: updated_task,
+                previous_status,
+            })
+            .await;
+        } else {
+            // Fallback: If no event dispatcher is configured, auto-dequeue directly.
+            // Note: Enqueued tasks will be picked up by container's process_queue when
+            // the next execution completes or when any new execution is requested.
+            self.auto_dequeue_unblocked_dependents(task.id).await;
+        }
 
         Ok(merge_commit)
     }

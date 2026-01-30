@@ -19,4 +19,4 @@ pub use handlers::{
 };
 pub use hook_execution::{HookExecution, HookExecutionStatus, HookExecutionStore};
 pub use hook_points::HookPoint;
-pub use types::{DomainEvent, ExecutionTrigger, ExecutionTriggerCallback};
+pub use types::{DomainEvent, EventDispatchCallback, ExecutionTrigger, ExecutionTriggerCallback};
