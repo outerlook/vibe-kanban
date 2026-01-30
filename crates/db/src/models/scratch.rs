@@ -36,6 +36,7 @@ pub struct DraftFollowUpData {
 pub enum ScratchPayload {
     DraftTask(String),
     DraftFollowUp(DraftFollowUpData),
+    DraftConversationMessage(DraftFollowUpData),
 }
 
 impl ScratchPayload {
