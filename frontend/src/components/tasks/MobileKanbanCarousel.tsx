@@ -15,7 +15,6 @@ import { TASK_STATUSES } from '@/constants/taskStatuses';
 import { statusLabels, statusBoardColors } from '@/utils/statusLabels';
 import { useAuth } from '@/hooks';
 import { useTaskSelection } from '@/contexts/TaskSelectionContext';
-import { useLongPress } from '@/hooks/useLongPress';
 import type { TaskStatus, TaskWithAttemptStatus } from 'shared/types';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import type { KanbanColumns } from './TaskKanbanBoard';
@@ -26,7 +25,6 @@ interface MobileKanbanCarouselProps {
   onViewSharedTask?: (task: SharedTaskRecord) => void;
   selectedTaskId?: string;
   selectedSharedTaskId?: string | null;
-  onCreateTask?: () => void;
   projectId: string;
   loadMoreByStatus: Record<TaskStatus, () => void>;
   hasMoreByStatus: Record<TaskStatus, boolean>;
@@ -34,51 +32,6 @@ interface MobileKanbanCarouselProps {
   totalByStatus: Record<TaskStatus, number>;
   onLongPressTask: (task: TaskWithAttemptStatus) => void;
 }
-
-interface MobileTaskCardProps {
-  task: TaskWithAttemptStatus;
-  index: number;
-  status: TaskStatus;
-  onViewDetails: (task: TaskWithAttemptStatus) => void;
-  isOpen: boolean;
-  isSelected: boolean;
-  projectId: string;
-  sharedTask?: SharedTaskRecord;
-  onLongPress: (task: TaskWithAttemptStatus) => void;
-}
-
-const MobileTaskCard = memo(function MobileTaskCard({
-  task,
-  index,
-  status,
-  onViewDetails,
-  isOpen,
-  isSelected,
-  projectId,
-  sharedTask,
-  onLongPress,
-}: MobileTaskCardProps) {
-  const handleLongPress = useCallback(() => {
-    onLongPress(task);
-  }, [onLongPress, task]);
-
-  const longPressHandlers = useLongPress(handleLongPress);
-
-  return (
-    <div {...longPressHandlers}>
-      <TaskCard
-        task={task}
-        index={index}
-        status={status}
-        onViewDetails={onViewDetails}
-        isOpen={isOpen}
-        isSelected={isSelected}
-        projectId={projectId}
-        sharedTask={sharedTask}
-      />
-    </div>
-  );
-});
 
 function MobileKanbanCarouselComponent({
   columns,
@@ -182,7 +135,7 @@ function MobileKanbanCarouselComponent({
 
                       if (isOwnTask) {
                         return (
-                          <MobileTaskCard
+                          <TaskCard
                             key={item.task.id}
                             task={item.task}
                             index={index}
@@ -192,7 +145,8 @@ function MobileKanbanCarouselComponent({
                             isSelected={isTaskSelected(item.task.id)}
                             projectId={projectId}
                             sharedTask={item.sharedTask}
-                            onLongPress={onLongPressTask}
+                            isMobile
+                            onLongPress={() => onLongPressTask(item.task)}
                           />
                         );
                       }

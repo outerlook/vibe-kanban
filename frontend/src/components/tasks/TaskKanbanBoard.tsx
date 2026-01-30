@@ -76,7 +76,6 @@ function TaskKanbanBoard({
         onViewSharedTask={onViewSharedTask}
         selectedTaskId={selectedTaskId}
         selectedSharedTaskId={selectedSharedTaskId}
-        onCreateTask={onCreateTask}
         projectId={projectId}
         loadMoreByStatus={loadMoreByStatus}
         hasMoreByStatus={hasMoreByStatus}
