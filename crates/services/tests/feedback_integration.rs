@@ -79,9 +79,10 @@ async fn create_test_workspace(pool: &SqlitePool, task_id: Uuid, branch: &str) -
 /// Sessions reference workspaces, and execution_processes reference sessions.
 async fn create_test_session(pool: &SqlitePool, workspace_id: Uuid) -> Uuid {
     let id = Uuid::new_v4();
-    sqlx::query("INSERT INTO sessions (id, workspace_id) VALUES (?, ?)")
+    sqlx::query("INSERT INTO sessions (id, workspace_id, executor) VALUES (?, ?, ?)")
         .bind(id)
         .bind(workspace_id)
+        .bind("claude_code") // Required by trigger that updates tasks.last_executor
         .execute(pool)
         .await
         .expect("Failed to create session");
