@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::{self, Error as AnyhowError};
 use deployment::{Deployment, DeploymentError};
 use server::{DeploymentImpl, perform_cleanup_actions, routes, shutdown_signal};
@@ -10,6 +12,8 @@ use utils::{
     assets::{alerts_dir, asset_dir},
     browser::open_browser,
     sentry::{self as sentry_utils, SentrySource, sentry_layer},
+    server_log_layer::ServerLogLayer,
+    server_log_store::ServerLogStore,
 };
 
 #[derive(Debug, Error)]
@@ -33,14 +37,20 @@ async fn main() -> Result<(), VibeKanbanError> {
 
     sentry_utils::init_once(SentrySource::Backend);
 
+    // Create the server log store for capturing logs to stream via WebSocket
+    let server_log_store = Arc::new(ServerLogStore::new());
+
     let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
     let filter_string = format!(
         "warn,server={level},services={level},db={level},executors={level},deployment={level},local_deployment={level},utils={level}",
         level = log_level
     );
-    let env_filter = EnvFilter::try_new(filter_string).expect("Failed to create tracing filter");
+    let fmt_filter = EnvFilter::try_new(&filter_string).expect("Failed to create tracing filter");
+    let log_layer_filter =
+        EnvFilter::try_new(&filter_string).expect("Failed to create tracing filter");
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_filter(env_filter))
+        .with(tracing_subscriber::fmt::layer().with_filter(fmt_filter))
+        .with(ServerLogLayer::new(server_log_store.clone()).with_filter(log_layer_filter))
         .with(sentry_layer())
         .init();
 
