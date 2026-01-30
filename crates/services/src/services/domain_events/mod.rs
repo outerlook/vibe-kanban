@@ -14,7 +14,7 @@ pub use dispatcher::{DispatcherBuilder, DomainEventDispatcher};
 pub use handler::{EventHandler, ExecutionMode, HandlerContext, HandlerError};
 pub use handlers::{
     AutopilotHandler, FeedbackCollectionHandler, NotificationHandler, RemoteSyncHandler,
-    WebSocketBroadcastHandler,
+    ReviewAttentionHandler, WebSocketBroadcastHandler,
 };
 pub use hook_points::HookPoint;
 pub use types::{DomainEvent, ExecutionTrigger, ExecutionTriggerCallback};

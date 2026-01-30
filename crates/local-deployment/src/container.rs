@@ -80,7 +80,7 @@ use services::services::{
     domain_events::{
         AutopilotHandler, DispatcherBuilder, DomainEvent, DomainEventDispatcher,
         FeedbackCollectionHandler, HandlerContext, NotificationHandler, RemoteSyncHandler,
-        WebSocketBroadcastHandler,
+        ReviewAttentionHandler, WebSocketBroadcastHandler,
     },
     feedback::FeedbackService,
     git::{Commit, DiffTarget, GitCli, GitService},
@@ -212,6 +212,7 @@ impl LocalContainerService {
                 .with_handler(NotificationHandler::new(notification_service.clone()))
                 .with_handler(AutopilotHandler::new())
                 .with_handler(RemoteSyncHandler::new(publisher.clone().ok()))
+                .with_handler(ReviewAttentionHandler::new())
                 .with_handler(FeedbackCollectionHandler::new(
                     db.clone(),
                     config.clone(),
