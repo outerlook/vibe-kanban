@@ -222,6 +222,7 @@ impl LocalContainerService {
                     db.clone(),
                     config.clone(),
                     global_msg_store,
+                    None, // execution_trigger will be set in DispatcherBuilder later
                 ))
                 .build(),
         );

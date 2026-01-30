@@ -8,7 +8,7 @@ use utils::msg_store::MsgStore;
 
 use crate::services::config::Config;
 
-use super::DomainEvent;
+use super::{DomainEvent, ExecutionTriggerCallback};
 
 /// Determines how an event handler should be executed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,14 +38,23 @@ pub struct HandlerContext {
     pub db: DBService,
     pub config: Arc<RwLock<Config>>,
     pub msg_store: Arc<MsgStore>,
+    /// Optional callback for triggering executions from handlers.
+    /// This is None in test contexts where execution triggering is not needed.
+    pub execution_trigger: Option<ExecutionTriggerCallback>,
 }
 
 impl HandlerContext {
-    pub fn new(db: DBService, config: Arc<RwLock<Config>>, msg_store: Arc<MsgStore>) -> Self {
+    pub fn new(
+        db: DBService,
+        config: Arc<RwLock<Config>>,
+        msg_store: Arc<MsgStore>,
+        execution_trigger: Option<ExecutionTriggerCallback>,
+    ) -> Self {
         Self {
             db,
             config,
             msg_store,
+            execution_trigger,
         }
     }
 }
