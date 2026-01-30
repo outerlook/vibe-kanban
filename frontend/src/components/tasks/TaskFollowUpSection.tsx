@@ -424,7 +424,6 @@ export function TaskFollowUpSection({
     try {
       await attemptsApi.cancelQueuedExecution(workspaceId);
       invalidateTaskQueries(queryClient, task.id, {
-        projectId,
         includeAttempts: true,
       });
     } catch (error) {
@@ -432,7 +431,7 @@ export function TaskFollowUpSection({
     } finally {
       setIsCancellingExecution(false);
     }
-  }, [workspaceId, queryClient, task.id, projectId]);
+  }, [workspaceId, queryClient, task.id]);
 
   // Handler to queue the current message for execution after agent finishes
   const handleQueueMessage = useCallback(async () => {

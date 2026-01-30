@@ -5,8 +5,6 @@ import type {
   CreateTaskGroup,
   UpdateTaskGroup,
 } from 'shared/types';
-import { taskKeys } from './useTask';
-import { projectTasksKeys } from './useProjectTasks';
 
 export const taskGroupKeys = {
   all: ['taskGroups'] as const,
@@ -122,14 +120,7 @@ export function useDeleteTaskGroup() {
       queryClient.invalidateQueries({
         queryKey: taskGroupKeys.byProject(projectId),
       });
-      // Invalidate tasks since they may reference this group
-      queryClient.invalidateQueries({
-        queryKey: taskKeys.all,
-      });
-      // Invalidate project tasks for kanban board refresh
-      queryClient.invalidateQueries({
-        queryKey: projectTasksKeys.byProject(projectId),
-      });
+      // Task cache updates (task_group_id cleared) handled by WebSocket stream
     },
     onError: (err) => {
       console.error('Failed to delete task group:', err);
@@ -147,24 +138,11 @@ export function useAssignTasksToGroup() {
   >({
     mutationFn: ({ groupId, taskIds }) =>
       taskGroupsApi.assignTasks(groupId, taskIds),
-    onSuccess: (_data, { taskIds, projectId }) => {
-      // Invalidate individual tasks that were assigned
-      taskIds.forEach((taskId) => {
-        queryClient.invalidateQueries({
-          queryKey: taskKeys.byId(taskId),
-        });
-      });
-      // Invalidate task list since task_group_id changed
-      queryClient.invalidateQueries({
-        queryKey: taskKeys.all,
-      });
+    onSuccess: (_data, { projectId }) => {
+      // Task cache updates (task_group_id changed) handled by WebSocket stream
       // Invalidate task groups for the project
       queryClient.invalidateQueries({
         queryKey: taskGroupKeys.byProject(projectId),
-      });
-      // Invalidate project tasks for kanban board refresh
-      queryClient.invalidateQueries({
-        queryKey: projectTasksKeys.byProject(projectId),
       });
     },
     onError: (err) => {
@@ -192,14 +170,7 @@ export function useMergeTaskGroup() {
       queryClient.invalidateQueries({
         queryKey: taskGroupKeys.byProject(projectId),
       });
-      // Invalidate tasks since their group assignments changed
-      queryClient.invalidateQueries({
-        queryKey: taskKeys.all,
-      });
-      // Invalidate project tasks for kanban board refresh
-      queryClient.invalidateQueries({
-        queryKey: projectTasksKeys.byProject(projectId),
-      });
+      // Task cache updates (task_group_id changed) handled by WebSocket stream
     },
     onError: (err) => {
       console.error('Failed to merge task groups:', err);

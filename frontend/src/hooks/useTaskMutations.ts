@@ -92,7 +92,6 @@ export function useTaskMutations(projectId?: string) {
       // Invalidate relationships if task has a parent
       if (createdTask.parent_workspace_id) {
         invalidateTaskQueries(queryClient, createdTask.id, {
-          projectId,
           includeRelationships: true,
           attemptId: createdTask.parent_workspace_id,
         });
@@ -168,7 +167,6 @@ export function useTaskMutations(projectId?: string) {
       // Invalidate relationships if task has a parent
       if (createdTask.parent_workspace_id) {
         invalidateTaskQueries(queryClient, createdTask.id, {
-          projectId,
           includeRelationships: true,
           attemptId: createdTask.parent_workspace_id,
         });
@@ -267,7 +265,6 @@ export function useTaskMutations(projectId?: string) {
       // Invalidate dependencies since they may have changed
       if (updatedTask) {
         invalidateTaskQueries(queryClient, updatedTask.id, {
-          projectId,
           includeDependencies: true,
         });
       }
@@ -315,7 +312,6 @@ export function useTaskMutations(projectId?: string) {
     onSettled: (_result, _error, taskId) => {
       // Invalidate related queries
       invalidateTaskQueries(queryClient, taskId, {
-        projectId,
         includeDependencies: true,
         includeRelationships: true,
       });
@@ -324,10 +320,7 @@ export function useTaskMutations(projectId?: string) {
 
   const shareTask = useMutation({
     mutationFn: (taskId: string) => tasksApi.share(taskId),
-    onSuccess: (_data, taskId: string) => {
-      // Invalidate task cache to reflect the shared_task_id update
-      invalidateTaskQueries(queryClient, taskId, { projectId });
-    },
+    // Task cache update is handled by WebSocket stream
     onError: (err) => {
       console.error('Failed to share task:', err);
     },
@@ -335,9 +328,7 @@ export function useTaskMutations(projectId?: string) {
 
   const unshareSharedTask = useMutation({
     mutationFn: (sharedTaskId: string) => tasksApi.unshare(sharedTaskId),
-    onSuccess: () => {
-      invalidateTaskQueries(queryClient, undefined, { projectId });
-    },
+    // Task cache update is handled by WebSocket stream
     onError: (err) => {
       console.error('Failed to unshare task:', err);
     },
@@ -345,12 +336,7 @@ export function useTaskMutations(projectId?: string) {
 
   const linkSharedTaskToLocal = useMutation({
     mutationFn: (data: SharedTaskDetails) => tasksApi.linkToLocal(data),
-    onSuccess: (createdTask: Task | null) => {
-      console.log('Linked shared task to local successfully', createdTask);
-      if (createdTask) {
-        invalidateTaskQueries(queryClient, createdTask.id, { projectId });
-      }
-    },
+    // Task cache update is handled by WebSocket stream
     onError: (err) => {
       console.error('Failed to link shared task to local:', err);
     },

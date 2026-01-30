@@ -1,16 +1,20 @@
 import type { QueryClient } from '@tanstack/react-query';
 import {
-  taskKeys,
-  projectTasksKeys,
   taskDependenciesKeys,
   taskDependencyTreeKeys,
   taskAttemptKeys,
   taskRelationshipsKeys,
 } from '@/lib/taskCacheHelpers';
 
+// Re-export for backwards compatibility with existing imports
+export {
+  taskDependenciesKeys,
+  taskDependencyTreeKeys,
+  taskAttemptKeys,
+  taskRelationshipsKeys,
+};
+
 export type InvalidateTaskQueriesOptions = {
-  /** Project ID to invalidate project-scoped task lists */
-  projectId?: string;
   /** Invalidate dependency queries (blocked_by/blocking) */
   includeDependencies?: boolean;
   /** Invalidate task attempts queries */
@@ -22,8 +26,13 @@ export type InvalidateTaskQueriesOptions = {
 };
 
 /**
- * Centralized task query invalidation.
- * Invalidates task-related caches based on the provided options.
+ * Invalidate task-related queries that are NOT handled by WebSocket.
+ *
+ * Note: Task CRUD operations (create, update, delete) are handled by WebSocket
+ * and optimistic updates, so this function only handles:
+ * - Dependencies (blocked_by/blocking)
+ * - Task attempts
+ * - Task relationships (subtasks/parent)
  */
 export function invalidateTaskQueries(
   queryClient: QueryClient,
@@ -31,28 +40,11 @@ export function invalidateTaskQueries(
   options: InvalidateTaskQueriesOptions = {}
 ): void {
   const {
-    projectId,
     includeDependencies = false,
     includeAttempts = false,
     includeRelationships = false,
     attemptId,
   } = options;
-
-  // Always invalidate the core task queries
-  queryClient.invalidateQueries({ queryKey: taskKeys.all });
-  if (taskId) {
-    queryClient.invalidateQueries({ queryKey: taskKeys.byId(taskId) });
-  }
-
-  // Invalidate project task list if projectId provided
-  if (projectId) {
-    queryClient.invalidateQueries({
-      queryKey: projectTasksKeys.byProject(projectId),
-    });
-    queryClient.invalidateQueries({
-      queryKey: projectTasksKeys.byProjectInfinite(projectId),
-    });
-  }
 
   // Invalidate dependency queries
   if (includeDependencies && taskId) {
@@ -110,12 +102,3 @@ export function invalidateDependencyQueriesForTasks(
   });
 }
 
-// Re-export query keys for convenience
-export {
-  taskKeys,
-  projectTasksKeys,
-  taskDependenciesKeys,
-  taskDependencyTreeKeys,
-  taskAttemptKeys,
-  taskRelationshipsKeys,
-};
