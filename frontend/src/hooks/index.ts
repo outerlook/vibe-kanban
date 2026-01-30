@@ -90,3 +90,8 @@ export {
   WORKTREE_FILTER_VALUES,
   type WorktreeFilterHook,
 } from './useWorktreeFilter';
+export {
+  useLongPress,
+  type UseLongPressOptions,
+  type PointerEventHandlers,
+} from './useLongPress';
