@@ -298,6 +298,16 @@ export type UpdateMemberRoleRequest = { role: MemberRole, };
 
 export type UpdateMemberRoleResponse = { user_id: string, role: MemberRole, };
 
+export type ServerLogEntry = { timestamp: string, 
+/**
+ * Log level: "TRACE", "DEBUG", "INFO", "WARN", "ERROR"
+ */
+level: string, 
+/**
+ * Module path (e.g., "server::routes::tasks")
+ */
+target: string, message: string, };
+
 export type RemoteProject = { id: string, organization_id: string, name: string, metadata: Record<string, unknown>, created_at: string, };
 
 export type ListProjectsResponse = { projects: Array<RemoteProject>, };

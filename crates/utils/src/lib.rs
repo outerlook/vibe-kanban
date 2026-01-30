@@ -13,6 +13,7 @@ pub mod jwt;
 pub mod log_msg;
 pub mod msg_store;
 pub mod path;
+pub mod server_log_store;
 pub mod response;
 pub mod sentry;
 pub mod shell;
