@@ -27,6 +27,7 @@ pub mod organizations;
 pub mod projects;
 pub mod repo;
 pub mod scratch;
+pub mod server_logs;
 pub mod sessions;
 pub mod settings;
 pub mod shared_tasks;
@@ -64,6 +65,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(approvals::router())
         .merge(account_info::router())
         .merge(scratch::router(&deployment))
+        .merge(server_logs::router(&deployment))
         .merge(sessions::router(&deployment))
         .merge(settings::router())
         .merge(skills::router())
