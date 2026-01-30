@@ -33,6 +33,7 @@ import { useTaskSelection } from '@/contexts/TaskSelectionContext';
 import { useTaskGroupsContext } from '@/contexts/TaskGroupsContext';
 import { TaskGroupBadge } from './TaskGroupBadge';
 import { OperationStatusBadge } from './OperationStatusBadge';
+import { HookStatusBadge } from './HookStatusBadge';
 import { TaskGroupFormDialog } from '@/components/dialogs';
 import { useIsCompactView } from '@/stores/useKanbanViewStore';
 
@@ -237,6 +238,7 @@ function TaskCardComponent({
           </Badge>
         )}
         <OperationStatusBadge taskId={task.id} />
+        <HookStatusBadge taskId={task.id} />
         <TaskGroupBadge
           groupId={task.task_group_id}
           groupName={groupName}
