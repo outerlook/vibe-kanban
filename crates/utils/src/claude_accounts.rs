@@ -154,6 +154,66 @@ async fn set_file_permissions(path: &PathBuf) -> Result<(), ClaudeAccountError> 
     Ok(())
 }
 
+/// Response from Anthropic OAuth profile API
+#[derive(Debug, Deserialize)]
+struct AnthropicProfileResponse {
+    account: AnthropicAccountProfile,
+}
+
+/// Account profile from Anthropic OAuth API
+#[derive(Debug, Deserialize)]
+struct AnthropicAccountProfile {
+    uuid: String,
+    #[allow(dead_code)]
+    email: Option<String>,
+    #[allow(dead_code)]
+    display_name: Option<String>,
+}
+
+/// Fetch the stable account UUID from the Anthropic OAuth profile API.
+///
+/// This UUID remains constant even when OAuth tokens are refreshed,
+/// unlike the token hash which changes with each token refresh.
+///
+/// Returns `None` on any error (network, invalid token, parse failure)
+/// for graceful degradation.
+pub async fn fetch_account_uuid(access_token: &str) -> Option<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .ok()?;
+
+    let response = client
+        .get("https://api.anthropic.com/api/oauth/profile")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("anthropic-beta", "oauth-2025-04-20")
+        .send()
+        .await;
+
+    match response {
+        Ok(resp) => {
+            if !resp.status().is_success() {
+                tracing::warn!(
+                    "Anthropic profile API returned status: {}",
+                    resp.status()
+                );
+                return None;
+            }
+            match resp.json::<AnthropicProfileResponse>().await {
+                Ok(profile) => Some(profile.account.uuid),
+                Err(e) => {
+                    tracing::warn!("Failed to parse Anthropic profile response: {}", e);
+                    None
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to fetch Anthropic profile: {}", e);
+            None
+        }
+    }
+}
+
 /// Get the path to Claude credentials file
 fn claude_credentials_path() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".claude").join(".credentials.json"))
@@ -370,5 +430,42 @@ mod tests {
         // Note: In test environment, the actual accounts_dir may or may not exist
         let result = list_accounts().await;
         assert!(result.is_ok(), "list_accounts should not fail");
+    }
+
+    #[test]
+    fn test_anthropic_profile_response_deserialization() {
+        let json = r#"{
+            "account": {
+                "uuid": "be75afdf-b8bf-49f6-ad6c-01e8c13c2210",
+                "email": "user@example.com",
+                "display_name": "User Name"
+            }
+        }"#;
+
+        let response: AnthropicProfileResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            response.account.uuid,
+            "be75afdf-b8bf-49f6-ad6c-01e8c13c2210"
+        );
+        assert_eq!(response.account.email, Some("user@example.com".to_string()));
+        assert_eq!(
+            response.account.display_name,
+            Some("User Name".to_string())
+        );
+    }
+
+    #[test]
+    fn test_anthropic_profile_response_minimal() {
+        // Test with only required fields
+        let json = r#"{
+            "account": {
+                "uuid": "test-uuid-1234"
+            }
+        }"#;
+
+        let response: AnthropicProfileResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.account.uuid, "test-uuid-1234");
+        assert_eq!(response.account.email, None);
+        assert_eq!(response.account.display_name, None);
     }
 }
