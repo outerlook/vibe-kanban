@@ -11,23 +11,32 @@
 //! These tests use mock callbacks to capture triggers without needing the full
 //! LocalContainerService infrastructure.
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
-use db::models::execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus, ExecutorActionField};
-use db::models::task::{Task, TaskStatus};
-use db::models::workspace::Workspace;
-use executors::actions::{ExecutorAction, ExecutorActionType, script::{ScriptRequest, ScriptRequestLanguage, ScriptContext}};
+use db::models::{
+    execution_process::{
+        ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus, ExecutorActionField,
+    },
+    task::{Task, TaskStatus},
+    workspace::Workspace,
+};
+use executors::actions::{
+    ExecutorAction, ExecutorActionType,
+    script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+};
 use futures::FutureExt;
 use services::services::domain_events::{
-    DispatcherBuilder, DomainEvent, EventHandler, ExecutionTrigger,
-    ExecutionTriggerCallback, HandlerContext,
+    DispatcherBuilder, DomainEvent, EventHandler, ExecutionTrigger, ExecutionTriggerCallback,
+    HandlerContext,
+    handlers::{FeedbackCollectionHandler, ReviewAttentionHandler},
 };
-use services::services::domain_events::handlers::{
-    FeedbackCollectionHandler, ReviewAttentionHandler,
-};
-use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 use tempfile::NamedTempFile;
 use tokio::sync::{Mutex, RwLock};
 use utils::msg_store::MsgStore;
@@ -69,7 +78,12 @@ async fn create_test_project(pool: &SqlitePool, name: &str) -> Uuid {
 }
 
 /// Creates a test task in the database.
-async fn create_test_task(pool: &SqlitePool, project_id: Uuid, title: &str, status: TaskStatus) -> Task {
+async fn create_test_task(
+    pool: &SqlitePool,
+    project_id: Uuid,
+    title: &str,
+    status: TaskStatus,
+) -> Task {
     let id = Uuid::new_v4();
     let status_str = match status {
         TaskStatus::Todo => "todo",
@@ -186,8 +200,10 @@ async fn create_test_execution_process(
         context: ScriptContext::SetupScript,
         working_dir: None,
     };
-    let executor_action = ExecutorAction::new(ExecutorActionType::ScriptRequest(script_request), None);
-    let executor_action_json = serde_json::to_string(&executor_action).expect("serialize executor action");
+    let executor_action =
+        ExecutorAction::new(ExecutorActionType::ScriptRequest(script_request), None);
+    let executor_action_json =
+        serde_json::to_string(&executor_action).expect("serialize executor action");
 
     sqlx::query(
         "INSERT INTO execution_processes (id, session_id, status, run_reason, executor_action, started_at, created_at, updated_at)
@@ -231,9 +247,7 @@ struct TriggerCapture {
 }
 
 /// Creates a mock execution trigger callback that captures all triggers.
-fn create_mock_trigger_callback(
-    capture: Arc<Mutex<TriggerCapture>>,
-) -> ExecutionTriggerCallback {
+fn create_mock_trigger_callback(capture: Arc<Mutex<TriggerCapture>>) -> ExecutionTriggerCallback {
     Arc::new(move |trigger: ExecutionTrigger| {
         let capture = Arc::clone(&capture);
         async move {
@@ -244,13 +258,15 @@ fn create_mock_trigger_callback(
                     task_id,
                     execution_process_id,
                 } => {
-                    cap.feedback_triggers.push((workspace_id, task_id, execution_process_id));
+                    cap.feedback_triggers
+                        .push((workspace_id, task_id, execution_process_id));
                 }
                 ExecutionTrigger::ReviewAttention {
                     task_id,
                     execution_process_id,
                 } => {
-                    cap.review_attention_triggers.push((task_id, execution_process_id));
+                    cap.review_attention_triggers
+                        .push((task_id, execution_process_id));
                 }
             }
             Ok(())
@@ -312,10 +328,16 @@ async fn test_feedback_handler_triggers_callback_on_coding_agent_completion() {
     let event = DomainEvent::ExecutionCompleted {
         process: execution.clone(),
     };
-    assert!(handler.handles(&event), "Handler should handle CodingAgent completed event");
+    assert!(
+        handler.handles(&event),
+        "Handler should handle CodingAgent completed event"
+    );
 
     // Dispatch event directly to handler
-    handler.handle(event, &ctx).await.expect("Handler should succeed");
+    handler
+        .handle(event, &ctx)
+        .await
+        .expect("Handler should succeed");
 
     // Verify trigger was captured
     let capture = trigger_capture.lock().await;
@@ -477,7 +499,10 @@ async fn test_feedback_handler_skips_if_feedback_exists() {
     };
 
     // Handler should succeed but NOT trigger callback (feedback already exists)
-    handler.handle(event, &ctx).await.expect("Handler should succeed");
+    handler
+        .handle(event, &ctx)
+        .await
+        .expect("Handler should succeed");
 
     let capture = trigger_capture.lock().await;
     assert!(
@@ -523,10 +548,16 @@ async fn test_review_attention_handler_triggers_on_inreview_status() {
     };
 
     // Verify handler accepts this event
-    assert!(handler.handles(&event), "Handler should handle InReview status change");
+    assert!(
+        handler.handles(&event),
+        "Handler should handle InReview status change"
+    );
 
     // Dispatch event directly to handler
-    handler.handle(event, &ctx).await.expect("Handler should succeed");
+    handler
+        .handle(event, &ctx)
+        .await
+        .expect("Handler should succeed");
 
     // Verify trigger was captured
     let capture = trigger_capture.lock().await;
@@ -612,7 +643,10 @@ async fn test_review_attention_handler_skips_without_workspace() {
     };
 
     // Handler should succeed but not trigger callback
-    handler.handle(event, &ctx).await.expect("Handler should succeed");
+    handler
+        .handle(event, &ctx)
+        .await
+        .expect("Handler should succeed");
 
     let capture = trigger_capture.lock().await;
     assert!(
@@ -651,7 +685,10 @@ async fn test_review_attention_handler_skips_without_coding_agent_execution() {
         previous_status: TaskStatus::InProgress,
     };
 
-    handler.handle(event, &ctx).await.expect("Handler should succeed");
+    handler
+        .handle(event, &ctx)
+        .await
+        .expect("Handler should succeed");
 
     let capture = trigger_capture.lock().await;
     assert!(
@@ -844,7 +881,8 @@ async fn test_dispatcher_both_handlers_no_cross_triggering() {
     }
 
     // Create new task with InReview status for TaskStatusChanged event
-    let task_inreview = create_test_task(&pool, project_id, "InReview Task", TaskStatus::InReview).await;
+    let task_inreview =
+        create_test_task(&pool, project_id, "InReview Task", TaskStatus::InReview).await;
     let workspace2 = create_test_workspace(&pool, task_inreview.id, "review-branch").await;
     let session2_id = create_test_session(&pool, workspace2.id).await;
     let _execution2 = create_test_execution_process(
@@ -902,14 +940,15 @@ async fn test_no_duplicate_feedback_triggers() {
     let count_clone = Arc::clone(&trigger_count);
 
     // Create a counting callback
-    let counting_callback: ExecutionTriggerCallback = Arc::new(move |_trigger: ExecutionTrigger| {
-        let count = Arc::clone(&count_clone);
-        async move {
-            count.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        }
-        .boxed()
-    });
+    let counting_callback: ExecutionTriggerCallback =
+        Arc::new(move |_trigger: ExecutionTrigger| {
+            let count = Arc::clone(&count_clone);
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+            .boxed()
+        });
 
     let db_service = db::DBService { pool: pool.clone() };
     let config = Arc::new(RwLock::new(services::services::config::Config::default()));
@@ -1019,8 +1058,7 @@ async fn test_finalize_task_path_triggers_review_attention() {
     );
 
     assert_eq!(
-        capture.review_attention_triggers[0].0,
-        task.id,
+        capture.review_attention_triggers[0].0, task.id,
         "Task ID should match"
     );
 }
@@ -1072,7 +1110,10 @@ async fn test_handlers_gracefully_handle_no_callback() {
             &ctx,
         )
         .await;
-    assert!(result.is_ok(), "FeedbackCollectionHandler should succeed without callback");
+    assert!(
+        result.is_ok(),
+        "FeedbackCollectionHandler should succeed without callback"
+    );
 
     // ReviewAttentionHandler should handle gracefully
     let review_handler = ReviewAttentionHandler::new();
@@ -1085,5 +1126,8 @@ async fn test_handlers_gracefully_handle_no_callback() {
             &ctx,
         )
         .await;
-    assert!(result.is_ok(), "ReviewAttentionHandler should succeed without callback");
+    assert!(
+        result.is_ok(),
+        "ReviewAttentionHandler should succeed without callback"
+    );
 }

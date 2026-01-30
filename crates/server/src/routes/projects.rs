@@ -627,13 +627,19 @@ pub async fn get_project_prs(
         return Ok(ResponseJson(ApiResponse::success(cached)));
     }
 
-    tracing::debug!("Cache miss for project {} PRs, fetching from GitHub", project.id);
+    tracing::debug!(
+        "Cache miss for project {} PRs, fetching from GitHub",
+        project.id
+    );
 
     // Fetch fresh data from GitHub
     let response = fetch_project_prs_from_github(&project, &deployment).await?;
 
     // Store in cache
-    deployment.pr_cache().insert(project.id, response.clone()).await;
+    deployment
+        .pr_cache()
+        .insert(project.id, response.clone())
+        .await;
 
     Ok(ResponseJson(ApiResponse::success(response)))
 }
@@ -889,9 +895,9 @@ pub async fn get_merge_queue_count(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<MergeQueueCountResponse>>, ApiError> {
     let count = deployment.merge_queue_store().count_by_project(project.id);
-    Ok(ResponseJson(ApiResponse::success(MergeQueueCountResponse {
-        count,
-    })))
+    Ok(ResponseJson(ApiResponse::success(
+        MergeQueueCountResponse { count },
+    )))
 }
 
 /// GET /api/projects/:id/workspaces - Get all workspaces for a project's tasks
@@ -921,9 +927,9 @@ pub async fn get_project_worktrees(
         .await?;
 
     if repositories.is_empty() {
-        return Ok(ResponseJson(ApiResponse::success(ProjectWorktreesResponse {
-            worktrees: vec![],
-        })));
+        return Ok(ResponseJson(ApiResponse::success(
+            ProjectWorktreesResponse { worktrees: vec![] },
+        )));
     }
 
     // Get all task groups for this project
@@ -976,9 +982,11 @@ pub async fn get_project_worktrees(
         }
     }
 
-    Ok(ResponseJson(ApiResponse::success(ProjectWorktreesResponse {
-        worktrees: all_worktrees,
-    })))
+    Ok(ResponseJson(ApiResponse::success(
+        ProjectWorktreesResponse {
+            worktrees: all_worktrees,
+        },
+    )))
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {

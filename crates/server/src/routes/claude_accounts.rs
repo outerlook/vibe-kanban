@@ -8,8 +8,8 @@ use axum::{
 use utils::{
     claude_accounts::{
         ClaudeAccountError, SaveAccountRequest, SavedAccount, UpdateNameRequest, delete_account,
-        get_current_hash, list_accounts, load_account, save_account,
-        set_secure_file_permissions, update_account_name,
+        get_current_hash, list_accounts, load_account, save_account, set_secure_file_permissions,
+        update_account_name,
     },
     response::ApiResponse,
 };
@@ -21,10 +21,7 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/claude-accounts", get(list_accounts_handler))
         .route("/claude-accounts/save", post(save_current_account_handler))
         .route("/claude-accounts/current", get(get_current_account_handler))
-        .route(
-            "/claude-accounts/{hash}",
-            delete(delete_account_handler),
-        )
+        .route("/claude-accounts/{hash}", delete(delete_account_handler))
         .route(
             "/claude-accounts/{hash}/name",
             put(update_account_name_handler),
@@ -37,9 +34,7 @@ pub fn router() -> Router<DeploymentImpl> {
 
 /// GET /api/claude-accounts - List all saved accounts
 async fn list_accounts_handler() -> Result<ResponseJson<ApiResponse<Vec<SavedAccount>>>, ApiError> {
-    let accounts = list_accounts()
-        .await
-        .map_err(map_claude_account_error)?;
+    let accounts = list_accounts().await.map_err(map_claude_account_error)?;
 
     tracing::info!(count = accounts.len(), "Listed Claude accounts");
     Ok(ResponseJson(ApiResponse::success(accounts)))
@@ -87,9 +82,8 @@ async fn switch_account_handler(
     }
 
     // Write credentials atomically
-    let contents = serde_json::to_string_pretty(&credentials).map_err(|e| {
-        ApiError::Internal(format!("Failed to serialize credentials: {}", e))
-    })?;
+    let contents = serde_json::to_string_pretty(&credentials)
+        .map_err(|e| ApiError::Internal(format!("Failed to serialize credentials: {}", e)))?;
 
     tokio::fs::write(&credentials_path, contents).await.map_err(|e| {
         tracing::warn!(error = %e, path = ?credentials_path, "Failed to write credentials file");
@@ -136,11 +130,9 @@ async fn delete_account_handler(Path(hash): Path<String>) -> Result<StatusCode, 
 }
 
 /// GET /api/claude-accounts/current - Get the hash of the current account
-async fn get_current_account_handler(
-) -> Result<ResponseJson<ApiResponse<Option<String>>>, ApiError> {
-    let current_hash = get_current_hash()
-        .await
-        .map_err(map_claude_account_error)?;
+async fn get_current_account_handler() -> Result<ResponseJson<ApiResponse<Option<String>>>, ApiError>
+{
+    let current_hash = get_current_hash().await.map_err(map_claude_account_error)?;
 
     Ok(ResponseJson(ApiResponse::success(current_hash)))
 }
@@ -153,9 +145,9 @@ fn map_claude_account_error(err: ClaudeAccountError) -> ApiError {
         ClaudeAccountError::NoCredentials => ApiError::NotFound(
             "No Claude credentials found. Please log in to Claude first.".to_string(),
         ),
-        ClaudeAccountError::InvalidCredentials => ApiError::BadRequest(
-            "Invalid credentials file: missing required fields".to_string(),
-        ),
+        ClaudeAccountError::InvalidCredentials => {
+            ApiError::BadRequest("Invalid credentials file: missing required fields".to_string())
+        }
         ClaudeAccountError::Io(e) => {
             tracing::warn!(error = %e, "IO error in claude_accounts");
             ApiError::Internal(format!("File system error: {}", e))

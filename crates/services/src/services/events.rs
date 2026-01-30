@@ -306,12 +306,14 @@ impl EventService {
                     if let Ok(Some(project_with_counts)) =
                         Project::find_by_id_with_task_counts(&db.pool, task.project_id).await
                     {
-                        msg_store.push_patch(project_with_counts_patch::replace(&project_with_counts));
+                        msg_store
+                            .push_patch(project_with_counts_patch::replace(&project_with_counts));
                     }
 
                     // Push updates for tasks that depend on this one.
                     // Their is_blocked status may have changed.
-                    if let Ok(dependent_tasks) = TaskDependency::find_blocking(&db.pool, task.id).await
+                    if let Ok(dependent_tasks) =
+                        TaskDependency::find_blocking(&db.pool, task.id).await
                     {
                         for dep_task in dependent_tasks {
                             let _ = Self::push_task_update_for_task(
@@ -530,9 +532,8 @@ impl EventService {
                                         && let Ok(project_id) =
                                             <Uuid as Decode<Sqlite>>::decode(project_value)
                                     {
-                                        let _ = project_counts_sender.try_send(
-                                            ProjectCountsRefreshEvent { project_id },
-                                        );
+                                        let _ = project_counts_sender
+                                            .try_send(ProjectCountsRefreshEvent { project_id });
                                     }
                                 }
                             }

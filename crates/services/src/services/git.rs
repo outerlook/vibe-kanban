@@ -1015,9 +1015,8 @@ impl GitService {
         &self,
         worktree_path: &Path,
     ) -> Result<(usize, usize), GitServiceError> {
-        let summary = GixReader::get_worktree_status(worktree_path).map_err(|e| {
-            GitServiceError::InvalidRepository(format!("gix status failed: {e}"))
-        })?;
+        let summary = GixReader::get_worktree_status(worktree_path)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("gix status failed: {e}")))?;
         Ok((summary.uncommitted_tracked, summary.untracked))
     }
 
@@ -2027,7 +2026,11 @@ mod tests {
             .expect("Failed to checkout main");
 
         for i in 1..=2 {
-            fs::write(repo_path.join(format!("main{}.txt", i)), format!("main{}", i)).unwrap();
+            fs::write(
+                repo_path.join(format!("main{}.txt", i)),
+                format!("main{}", i),
+            )
+            .unwrap();
             Command::new("git")
                 .args(["add", "."])
                 .current_dir(repo_path)

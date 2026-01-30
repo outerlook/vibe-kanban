@@ -127,12 +127,9 @@ pub async fn get_task_attempt_with_session(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<WorkspaceWithSession>>, ApiError> {
-    let session =
-        Session::find_latest_by_workspace_id(&deployment.db().pool, workspace.id).await?;
+    let session = Session::find_latest_by_workspace_id(&deployment.db().pool, workspace.id).await?;
     let workspace_with_session = WorkspaceWithSession { workspace, session };
-    Ok(ResponseJson(ApiResponse::success(
-        workspace_with_session,
-    )))
+    Ok(ResponseJson(ApiResponse::success(workspace_with_session)))
 }
 
 #[derive(Debug, Serialize, Deserialize, ts_rs::TS)]
@@ -869,9 +866,11 @@ pub async fn push_task_attempt_branch(
     let worktree_path = workspace_path.join(&repo.name);
 
     // Set operation status before starting push
-    deployment
-        .operation_status()
-        .set(OperationStatus::new(workspace.id, workspace.task_id, OperationStatusType::Pushing));
+    deployment.operation_status().set(OperationStatus::new(
+        workspace.id,
+        workspace.task_id,
+        OperationStatusType::Pushing,
+    ));
 
     let result = deployment
         .git()
@@ -916,9 +915,11 @@ pub async fn force_push_task_attempt_branch(
     let worktree_path = workspace_path.join(&repo.name);
 
     // Set operation status before starting force push
-    deployment
-        .operation_status()
-        .set(OperationStatus::new(workspace.id, workspace.task_id, OperationStatusType::Pushing));
+    deployment.operation_status().set(OperationStatus::new(
+        workspace.id,
+        workspace.task_id,
+        OperationStatusType::Pushing,
+    ));
 
     let result = deployment
         .git()
@@ -1107,7 +1108,14 @@ pub async fn get_task_attempt_branch_status(
         let git = deployment.git();
 
         // Run independent git operations in parallel using spawn_blocking
-        let (head_result, rebase_result, conflicts_result, counts_result, branch_type_result, target_dirty_result) = tokio::join!(
+        let (
+            head_result,
+            rebase_result,
+            conflicts_result,
+            counts_result,
+            branch_type_result,
+            target_dirty_result,
+        ) = tokio::join!(
             tokio::task::spawn_blocking({
                 let git = git.clone();
                 let path = worktree_path.clone();
@@ -1145,7 +1153,9 @@ pub async fn get_task_attempt_branch_status(
                         Ok(Some(checkout_path)) => {
                             // Target branch is checked out somewhere, check for uncommitted tracked changes
                             match git.get_worktree_change_counts(&checkout_path) {
-                                Ok((uncommitted_tracked, _untracked)) => Some(uncommitted_tracked > 0),
+                                Ok((uncommitted_tracked, _untracked)) => {
+                                    Some(uncommitted_tracked > 0)
+                                }
                                 Err(_) => None,
                             }
                         }
@@ -1571,9 +1581,11 @@ pub async fn rebase_task_attempt(
     let worktree_path = workspace_path.join(&repo.name);
 
     // Set operation status before starting rebase
-    deployment
-        .operation_status()
-        .set(OperationStatus::new(workspace.id, workspace.task_id, OperationStatusType::Rebasing));
+    deployment.operation_status().set(OperationStatus::new(
+        workspace.id,
+        workspace.task_id,
+        OperationStatusType::Rebasing,
+    ));
 
     let result = deployment.git().rebase_branch(
         &repo.path,
@@ -2316,10 +2328,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/change-target-branch", post(change_target_branch))
         .route("/rename-branch", post(rename_branch))
         .route("/repos", get(get_task_attempt_repos))
-        .route(
-            "/queue-merge",
-            post(queue_merge).delete(cancel_queue_merge),
-        )
+        .route("/queue-merge", post(queue_merge).delete(cancel_queue_merge))
         .route("/queue-status", get(get_queue_status))
         .route("/execution-queue", delete(cancel_execution_queue))
         .layer(from_fn_with_state(

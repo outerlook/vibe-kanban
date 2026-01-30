@@ -127,9 +127,9 @@ impl EventHandler for ReviewAttentionHandler {
             "Triggering review attention collection"
         );
 
-        trigger_callback(trigger)
-            .await
-            .map_err(|e| HandlerError::Failed(format!("Failed to trigger review attention: {e}")))?;
+        trigger_callback(trigger).await.map_err(|e| {
+            HandlerError::Failed(format!("Failed to trigger review attention: {e}"))
+        })?;
 
         Ok(())
     }
@@ -137,9 +137,10 @@ impl EventHandler for ReviewAttentionHandler {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use db::models::task::Task;
     use uuid::Uuid;
+
+    use super::*;
 
     fn make_task(status: TaskStatus) -> Task {
         Task {

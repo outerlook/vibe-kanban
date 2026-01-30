@@ -4,6 +4,8 @@ use std::{
     time::Duration,
 };
 
+// Re-export for external use
+pub use sqlx::migrate::MigrateError as SqlxMigrateError;
 use sqlx::{
     Error, Pool, Row, Sqlite,
     migrate::MigrateError,
@@ -12,9 +14,6 @@ use sqlx::{
         SqliteSynchronous,
     },
 };
-
-// Re-export for external use
-pub use sqlx::migrate::MigrateError as SqlxMigrateError;
 use utils::assets::asset_dir;
 
 pub mod models;
@@ -109,12 +108,10 @@ impl DBService {
         missing_version: i64,
     ) -> Result<bool, Error> {
         // Get the description of the missing migration from the database
-        let row = sqlx::query(
-            "SELECT description FROM _sqlx_migrations WHERE version = ?",
-        )
-        .bind(missing_version)
-        .fetch_optional(pool)
-        .await?;
+        let row = sqlx::query("SELECT description FROM _sqlx_migrations WHERE version = ?")
+            .bind(missing_version)
+            .fetch_optional(pool)
+            .await?;
 
         let Some(row) = row else {
             return Ok(false);
@@ -136,13 +133,11 @@ impl DBService {
                 );
 
                 // Update the version in the database
-                sqlx::query(
-                    "UPDATE _sqlx_migrations SET version = ? WHERE version = ?",
-                )
-                .bind(migration.version)
-                .bind(missing_version)
-                .execute(pool)
-                .await?;
+                sqlx::query("UPDATE _sqlx_migrations SET version = ? WHERE version = ?")
+                    .bind(migration.version)
+                    .bind(missing_version)
+                    .execute(pool)
+                    .await?;
 
                 tracing::info!(
                     "Migration version updated from {} to {}",

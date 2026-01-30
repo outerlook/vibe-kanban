@@ -26,14 +26,15 @@ pub fn router() -> Router<DeploymentImpl> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use axum::{
-        body::{to_bytes, Body},
+        body::{Body, to_bytes},
         http::{Request, StatusCode},
     };
     use executors::executors::claude::SkillInfo;
     use local_deployment::LocalDeployment;
     use tower::ServiceExt;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_get_skills_returns_empty_when_no_cache() {
@@ -41,7 +42,12 @@ mod tests {
         let app = router().with_state(deployment);
 
         let response = app
-            .oneshot(Request::builder().uri("/skills").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/skills")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -84,7 +90,12 @@ mod tests {
         let app = router().with_state(deployment);
 
         let response = app
-            .oneshot(Request::builder().uri("/skills").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/skills")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 

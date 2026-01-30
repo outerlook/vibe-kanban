@@ -328,7 +328,10 @@ mod tests {
         let hash1 = hash_token("token-a");
         let hash2 = hash_token("token-b");
 
-        assert_ne!(hash1, hash2, "Different tokens should produce different hashes");
+        assert_ne!(
+            hash1, hash2,
+            "Different tokens should produce different hashes"
+        );
     }
 
     #[test]

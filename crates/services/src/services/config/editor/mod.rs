@@ -215,11 +215,7 @@ impl EditorConfig {
 
         let file_path = path.to_string_lossy().to_string();
 
-        Some(
-            template
-                .replace("%d", &dir_path)
-                .replace("%f", &file_path),
-        )
+        Some(template.replace("%d", &dir_path).replace("%f", &file_path))
     }
 
     /// Get the custom editor if this config points to one.
@@ -416,7 +412,9 @@ mod tests {
         let result = EditorConfig::substitute_placeholders("--folder %d --file %f", path);
         assert_eq!(
             result,
-            Some("--folder /home/user/project/src --file /home/user/project/src/main.rs".to_string())
+            Some(
+                "--folder /home/user/project/src --file /home/user/project/src/main.rs".to_string()
+            )
         );
     }
 

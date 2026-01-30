@@ -599,7 +599,9 @@ pub struct GetTaskFeedbackRequest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetRecentFeedbackRequest {
-    #[schemars(description = "Maximum number of feedback entries to return (default: 10, max: 50)")]
+    #[schemars(
+        description = "Maximum number of feedback entries to return (default: 10, max: 50)"
+    )]
     pub limit: Option<i32>,
 }
 
@@ -1791,7 +1793,9 @@ impl TaskServer {
         TaskServer::success(&response)
     }
 
-    #[tool(description = "Update a task group's name, description, or base branch. `group_id` is required!")]
+    #[tool(
+        description = "Update a task group's name, description, or base branch. `group_id` is required!"
+    )]
     async fn update_task_group(
         &self,
         Parameters(UpdateTaskGroupRequest {
@@ -1995,11 +1999,11 @@ impl TaskServer {
     ) -> Result<CallToolResult, ErrorData> {
         let url = self.url(&format!("/api/feedback/task/{}", task_id));
 
-        let feedback_list: Vec<ApiFeedbackEntry> =
-            match self.send_json(self.client.get(&url)).await {
-                Ok(f) => f,
-                Err(e) => return Ok(e),
-            };
+        let feedback_list: Vec<ApiFeedbackEntry> = match self.send_json(self.client.get(&url)).await
+        {
+            Ok(f) => f,
+            Err(e) => return Ok(e),
+        };
 
         let entries: Vec<FeedbackEntry> = feedback_list.into_iter().map(Into::into).collect();
 
@@ -2022,11 +2026,11 @@ impl TaskServer {
         let limit = limit.unwrap_or(10).clamp(1, 50);
         let url = self.url(&format!("/api/feedback/recent?limit={}", limit));
 
-        let feedback_list: Vec<ApiFeedbackEntry> =
-            match self.send_json(self.client.get(&url)).await {
-                Ok(f) => f,
-                Err(e) => return Ok(e),
-            };
+        let feedback_list: Vec<ApiFeedbackEntry> = match self.send_json(self.client.get(&url)).await
+        {
+            Ok(f) => f,
+            Err(e) => return Ok(e),
+        };
 
         let entries: Vec<FeedbackEntry> = feedback_list.into_iter().map(Into::into).collect();
 

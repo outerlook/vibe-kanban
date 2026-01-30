@@ -12,22 +12,15 @@ use std::{
 
 use async_trait::async_trait;
 use db::{
+    DBService,
     models::{
         agent_feedback::{AgentFeedback, CreateAgentFeedback},
         execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
     },
-    DBService,
 };
-use executors::logs::{
-    NormalizedEntryType,
-    utils::patch::extract_normalized_entry_from_patch,
-};
+use executors::logs::{NormalizedEntryType, utils::patch::extract_normalized_entry_from_patch};
 use tokio::sync::RwLock;
-use utils::{
-    log_msg::LogMsg,
-    msg_store::MsgStore,
-    text::truncate_to_char_boundary,
-};
+use utils::{log_msg::LogMsg, msg_store::MsgStore, text::truncate_to_char_boundary};
 use uuid::Uuid;
 
 use crate::services::{
@@ -369,9 +362,12 @@ mod tests {
         let status = ExecutionProcessStatus::Completed;
         let run_reason = ExecutionProcessRunReason::CodingAgent;
 
-        let matches =
-            status == ExecutionProcessStatus::Completed && run_reason == ExecutionProcessRunReason::CodingAgent;
-        assert!(matches, "Handler should match completed CodingAgent execution");
+        let matches = status == ExecutionProcessStatus::Completed
+            && run_reason == ExecutionProcessRunReason::CodingAgent;
+        assert!(
+            matches,
+            "Handler should match completed CodingAgent execution"
+        );
     }
 
     #[test]
@@ -379,8 +375,8 @@ mod tests {
         let status = ExecutionProcessStatus::Failed;
         let run_reason = ExecutionProcessRunReason::CodingAgent;
 
-        let matches =
-            status == ExecutionProcessStatus::Completed && run_reason == ExecutionProcessRunReason::CodingAgent;
+        let matches = status == ExecutionProcessStatus::Completed
+            && run_reason == ExecutionProcessRunReason::CodingAgent;
         assert!(!matches, "Handler should not match failed execution");
     }
 

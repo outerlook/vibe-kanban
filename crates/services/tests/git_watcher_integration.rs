@@ -3,14 +3,10 @@
 //! These tests verify that the git watcher correctly detects changes
 //! in real git repositories and worktrees.
 
-use std::fs;
-use std::path::Path;
-use std::time::Duration;
+use std::{fs, path::Path, time::Duration};
 
 use git2::Repository;
-use services::services::git_watcher::{
-    GitStateChangeKind, GitWatcherManager, resolve_git_dir,
-};
+use services::services::git_watcher::{GitStateChangeKind, GitWatcherManager, resolve_git_dir};
 use tempfile::TempDir;
 
 fn create_git_repo(path: &Path) -> Repository {
@@ -39,12 +35,14 @@ fn create_worktree(main_repo: &Repository, worktree_path: &Path, branch_name: &s
         .worktree(
             branch_name,
             worktree_path,
-            Some(&git2::WorktreeAddOptions::new().reference(Some(
-                &main_repo
-                    .find_branch(branch_name, git2::BranchType::Local)
-                    .unwrap()
-                    .into_reference(),
-            ))),
+            Some(
+                &git2::WorktreeAddOptions::new().reference(Some(
+                    &main_repo
+                        .find_branch(branch_name, git2::BranchType::Local)
+                        .unwrap()
+                        .into_reference(),
+                )),
+            ),
         )
         .unwrap();
 }
@@ -68,9 +66,7 @@ fn test_resolve_git_dir_for_worktree() {
 
     // The git dir should be in the main repo's .git/worktrees directory
     assert!(
-        git_dir
-            .to_string_lossy()
-            .contains(".git/worktrees/feature"),
+        git_dir.to_string_lossy().contains(".git/worktrees/feature"),
         "Git dir should be in worktrees directory: {:?}",
         git_dir
     );
@@ -383,10 +379,12 @@ async fn test_select_all_pattern_for_multiple_subscriptions() {
         .map(|(i, sub)| Box::pin(async move { (i, sub.recv().await) }))
         .collect();
 
-    let timeout_result =
-        tokio::time::timeout(Duration::from_secs(2), select_all(futures)).await;
+    let timeout_result = tokio::time::timeout(Duration::from_secs(2), select_all(futures)).await;
 
-    assert!(timeout_result.is_ok(), "Should receive event within timeout");
+    assert!(
+        timeout_result.is_ok(),
+        "Should receive event within timeout"
+    );
 
     let (result, _completed_index, _remaining) = timeout_result.unwrap();
     let (sub_index, event) = result;

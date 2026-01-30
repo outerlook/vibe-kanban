@@ -85,7 +85,9 @@ async fn trigger_follow_up_for_answered_question(
     // Load the user question to get the original questions
     let user_question = UserQuestion::get_by_approval_id(pool, approval_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("User question not found for approval_id: {}", approval_id))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!("User question not found for approval_id: {}", approval_id)
+        })?;
 
     // Parse the questions JSON
     let questions: Vec<QuestionData> = serde_json::from_str(&user_question.questions)?;

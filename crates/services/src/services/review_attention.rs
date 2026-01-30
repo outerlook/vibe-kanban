@@ -5,7 +5,7 @@
 
 use executors::{
     actions::{
-        coding_agent_follow_up::CodingAgentFollowUpRequest, ExecutorAction, ExecutorActionType,
+        ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
     },
     profile::ExecutorProfileId,
 };
@@ -110,7 +110,9 @@ Be honest and conservative - when in doubt, flag for attention."#
     /// # Returns
     /// * `Ok(ReviewAttentionResult)` - The parsed result
     /// * `Err(ReviewAttentionError::ParseError)` - Failed to extract valid JSON
-    pub fn parse_review_attention_response(assistant_message: &str) -> Result<ReviewAttentionResult> {
+    pub fn parse_review_attention_response(
+        assistant_message: &str,
+    ) -> Result<ReviewAttentionResult> {
         let trimmed = assistant_message.trim();
 
         if trimmed.is_empty() {
@@ -121,13 +123,9 @@ Be honest and conservative - when in doubt, flag for attention."#
 
         let json_str = Self::extract_json(trimmed)?;
 
-        let response: ReviewAttentionResponse =
-            serde_json::from_str(&json_str).map_err(|e| {
-                ReviewAttentionError::ParseError(format!(
-                    "Failed to deserialize JSON: {}",
-                    e
-                ))
-            })?;
+        let response: ReviewAttentionResponse = serde_json::from_str(&json_str).map_err(|e| {
+            ReviewAttentionError::ParseError(format!("Failed to deserialize JSON: {}", e))
+        })?;
 
         Ok(ReviewAttentionResult {
             needs_attention: response.needs_attention,
@@ -236,7 +234,10 @@ Be honest and conservative - when in doubt, flag for attention."#
             working_dir,
         };
 
-        ExecutorAction::new(ExecutorActionType::CodingAgentFollowUpRequest(follow_up), None)
+        ExecutorAction::new(
+            ExecutorActionType::CodingAgentFollowUpRequest(follow_up),
+            None,
+        )
     }
 }
 
@@ -276,7 +277,10 @@ mod tests {
 
         let parsed = result.unwrap();
         assert!(parsed.needs_attention);
-        assert_eq!(parsed.reasoning, Some("Tests are failing for edge cases".to_string()));
+        assert_eq!(
+            parsed.reasoning,
+            Some("Tests are failing for edge cases".to_string())
+        );
     }
 
     #[test]
@@ -291,7 +295,10 @@ mod tests {
 
         let parsed = result.unwrap();
         assert!(!parsed.needs_attention);
-        assert_eq!(parsed.reasoning, Some("All tests pass, implementation is complete".to_string()));
+        assert_eq!(
+            parsed.reasoning,
+            Some("All tests pass, implementation is complete".to_string())
+        );
     }
 
     #[test]

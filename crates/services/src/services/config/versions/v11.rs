@@ -286,7 +286,10 @@ mod tests {
         assert_eq!(backup.enabled, deserialized.enabled);
         assert_eq!(backup.interval_hours, deserialized.interval_hours);
         assert_eq!(backup.retention_hours_all, deserialized.retention_hours_all);
-        assert_eq!(backup.retention_daily_days, deserialized.retention_daily_days);
+        assert_eq!(
+            backup.retention_daily_days,
+            deserialized.retention_daily_days
+        );
         assert_eq!(
             backup.retention_weekly_weeks,
             deserialized.retention_weekly_weeks

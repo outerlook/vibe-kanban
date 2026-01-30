@@ -36,7 +36,9 @@ use utils::response::ApiResponse;
 use uuid::Uuid;
 
 use crate::{
-    DeploymentImpl, error::ApiError, middleware::load_conversation_middleware,
+    DeploymentImpl,
+    error::ApiError,
+    middleware::load_conversation_middleware,
     routes::images::{ImageResponse, process_image_upload},
 };
 
@@ -296,9 +298,12 @@ pub async fn get_executions(
     Extension(conversation): Extension<ConversationSession>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<ExecutionProcess>>>, ApiError> {
-    let executions =
-        ExecutionProcess::find_by_conversation_session_id(&deployment.db().pool, conversation.id, false)
-            .await?;
+    let executions = ExecutionProcess::find_by_conversation_session_id(
+        &deployment.db().pool,
+        conversation.id,
+        false,
+    )
+    .await?;
 
     Ok(ResponseJson(ApiResponse::success(executions)))
 }

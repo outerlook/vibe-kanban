@@ -6,17 +6,23 @@
 //! - Handlers receive correct event data
 //! - Handler errors are logged but don't fail dispatch
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use async_trait::async_trait;
-use db::models::task::{Task, TaskStatus};
-use db::models::workspace::Workspace;
+use db::models::{
+    task::{Task, TaskStatus},
+    workspace::Workspace,
+};
 use services::services::domain_events::{
     DispatcherBuilder, DomainEvent, EventHandler, ExecutionMode, HandlerContext, HandlerError,
 };
-use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 use tempfile::NamedTempFile;
 use tokio::sync::{Mutex, RwLock};
 use utils::msg_store::MsgStore;

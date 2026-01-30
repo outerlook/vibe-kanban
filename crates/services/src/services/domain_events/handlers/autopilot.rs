@@ -10,9 +10,9 @@ use db::models::{
 use executors::profile::ExecutorProfileId;
 use tracing::{debug, error, info};
 
-use crate::services::autopilot;
-use crate::services::domain_events::{
-    DomainEvent, EventHandler, ExecutionMode, HandlerContext, HandlerError,
+use crate::services::{
+    autopilot,
+    domain_events::{DomainEvent, EventHandler, ExecutionMode, HandlerContext, HandlerError},
 };
 
 /// Handler that auto-queues unblocked dependent tasks when autopilot is enabled.
@@ -122,18 +122,20 @@ impl EventHandler for AutopilotHandler {
                 };
 
             // Get the executor profile from the last session
-            let executor_profile_id =
-                match self.get_executor_profile_for_workspace(ctx, workspace.id).await {
-                    Some(profile) => profile,
-                    None => {
-                        debug!(
-                            task_id = %unblocked_task.id,
-                            workspace_id = %workspace.id,
-                            "Skipping auto-dequeue: no session found for workspace"
-                        );
-                        continue;
-                    }
-                };
+            let executor_profile_id = match self
+                .get_executor_profile_for_workspace(ctx, workspace.id)
+                .await
+            {
+                Some(profile) => profile,
+                None => {
+                    debug!(
+                        task_id = %unblocked_task.id,
+                        workspace_id = %workspace.id,
+                        "Skipping auto-dequeue: no session found for workspace"
+                    );
+                    continue;
+                }
+            };
 
             // Create execution queue entry
             match ExecutionQueue::create(&ctx.db.pool, workspace.id, &executor_profile_id).await {

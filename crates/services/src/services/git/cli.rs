@@ -371,7 +371,10 @@ impl GitCli {
     ///
     /// Returns a list of worktrees with their paths, branches, and whether they're
     /// the main repository.
-    pub fn discover_worktrees(&self, any_repo_path: &Path) -> Result<Vec<WorktreeEntry>, GitCliError> {
+    pub fn discover_worktrees(
+        &self,
+        any_repo_path: &Path,
+    ) -> Result<Vec<WorktreeEntry>, GitCliError> {
         // Get the common git directory (the main repo's .git directory)
         // This works from any worktree or the main repo
         let common_dir = self.git(any_repo_path, ["rev-parse", "--git-common-dir"])?;
@@ -387,9 +390,9 @@ impl GitCli {
         };
 
         // The main repo is the parent of the .git directory
-        let main_repo = git_dir
-            .parent()
-            .ok_or_else(|| GitCliError::CommandFailed("Could not determine main repo path".into()))?;
+        let main_repo = git_dir.parent().ok_or_else(|| {
+            GitCliError::CommandFailed("Could not determine main repo path".into())
+        })?;
 
         self.list_worktrees(main_repo)
     }

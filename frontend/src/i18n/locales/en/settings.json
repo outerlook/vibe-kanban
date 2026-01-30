@@ -11,6 +11,8 @@
         "agentsDesc": "Coding agent configurations",
         "mcp": "MCP Servers",
         "mcpDesc": "Model Context Protocol servers",
+        "server-logs": "Server Logs",
+        "server-logsDesc": "View real-time server logs",
         "organizations": "Organization Settings",
         "organizationsDesc": "Manage organization members and permissions",
         "github": "GitHub",

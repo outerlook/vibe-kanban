@@ -89,11 +89,7 @@ impl Approvals {
     }
 
     /// Register a protocol peer for an execution process
-    pub async fn register_protocol_peer(
-        &self,
-        execution_process_id: Uuid,
-        peer: ProtocolPeer,
-    ) {
+    pub async fn register_protocol_peer(&self, execution_process_id: Uuid, peer: ProtocolPeer) {
         let mut map = self.protocol_peers.write().await;
         map.insert(execution_process_id, peer);
     }
@@ -150,12 +146,14 @@ impl Approvals {
                         requested_at: request.created_at,
                         timeout_at: request.timeout_at,
                     },
-                    ApprovalRequestType::UserQuestion { questions } => ToolStatus::PendingUserInput {
-                        approval_id: req_id.clone(),
-                        requested_at: request.created_at,
-                        timeout_at: None, // User questions don't timeout
-                        questions: questions.clone(),
-                    },
+                    ApprovalRequestType::UserQuestion { questions } => {
+                        ToolStatus::PendingUserInput {
+                            approval_id: req_id.clone(),
+                            requested_at: request.created_at,
+                            timeout_at: None, // User questions don't timeout
+                            questions: questions.clone(),
+                        }
+                    }
                 };
                 let approval_entry = matching_tool
                     .with_tool_status(pending_status)
@@ -262,10 +260,7 @@ impl Approvals {
                         .send_tool_result(tool_ctx.tool_call_id.clone(), answers_value, false)
                         .await
                     {
-                        tracing::error!(
-                            "Failed to send tool_result for answered question: {}",
-                            e
-                        );
+                        tracing::error!("Failed to send tool_result for answered question: {}", e);
                     }
                 } else {
                     tracing::warn!(
@@ -278,7 +273,9 @@ impl Approvals {
             // If approved, answered, or denied, and task is still InReview, move back to InProgress
             if matches!(
                 final_status,
-                ApprovalStatus::Approved | ApprovalStatus::Answered { .. } | ApprovalStatus::Denied { .. }
+                ApprovalStatus::Approved
+                    | ApprovalStatus::Answered { .. }
+                    | ApprovalStatus::Denied { .. }
             ) && let Ok(ctx) =
                 ExecutionProcess::load_context(pool, tool_ctx.execution_process_id).await
                 && ctx.task.status == TaskStatus::InReview

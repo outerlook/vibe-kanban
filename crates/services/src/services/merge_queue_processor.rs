@@ -3,8 +3,7 @@
 //! Processes entries in the merge queue for a project, orchestrating:
 //! rebase → merge, handling conflicts by skipping to next task.
 
-use std::path::Path;
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use db::models::{
     execution_queue::ExecutionQueue,
@@ -22,11 +21,13 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use super::autopilot;
-use super::config::Config;
-use super::git::{GitService, GitServiceError};
-use super::merge_queue_store::{MergeQueueEntry, MergeQueueStore};
-use super::operation_status::{OperationStatus, OperationStatusStore, OperationStatusType};
+use super::{
+    autopilot,
+    config::Config,
+    git::{GitService, GitServiceError},
+    merge_queue_store::{MergeQueueEntry, MergeQueueStore},
+    operation_status::{OperationStatus, OperationStatusStore, OperationStatusType},
+};
 
 /// Errors that can occur during merge queue processing
 #[derive(Debug, Error)]
@@ -218,7 +219,10 @@ impl MergeQueueProcessor {
         let workspace_repo =
             WorkspaceRepo::find_by_workspace_and_repo_id(&self.pool, workspace.id, repo.id)
                 .await?
-                .ok_or(MergeQueueError::WorkspaceRepoNotFound(workspace.id, repo.id))?;
+                .ok_or(MergeQueueError::WorkspaceRepoNotFound(
+                    workspace.id,
+                    repo.id,
+                ))?;
 
         // Get paths
         let repo_path = &repo.path;
@@ -248,14 +252,27 @@ impl MergeQueueProcessor {
 
         // Step 3: Merge changes
         let merge_commit = self
-            .merge_changes(repo_path, &worktree_path, task_branch, base_branch, commit_message)
+            .merge_changes(
+                repo_path,
+                &worktree_path,
+                task_branch,
+                base_branch,
+                commit_message,
+            )
             .await?;
 
         // Step 4: Remove the queue entry (completed successfully)
         self.merge_queue_store.remove(entry.workspace_id);
 
         // Step 5: Create merge record
-        Merge::create_direct(&self.pool, workspace.id, repo.id, base_branch, &merge_commit).await?;
+        Merge::create_direct(
+            &self.pool,
+            workspace.id,
+            repo.id,
+            base_branch,
+            &merge_commit,
+        )
+        .await?;
 
         // Step 6: Update task status to Done
         Task::update_status(&self.pool, task.id, TaskStatus::Done).await?;
@@ -298,19 +315,18 @@ impl MergeQueueProcessor {
         }
 
         // Find unblocked dependent tasks
-        let unblocked_tasks = match autopilot::find_unblocked_dependents(&self.pool, completed_task_id)
-            .await
-        {
-            Ok(tasks) => tasks,
-            Err(e) => {
-                error!(
-                    task_id = %completed_task_id,
-                    error = %e,
-                    "Failed to find unblocked dependents"
-                );
-                return 0;
-            }
-        };
+        let unblocked_tasks =
+            match autopilot::find_unblocked_dependents(&self.pool, completed_task_id).await {
+                Ok(tasks) => tasks,
+                Err(e) => {
+                    error!(
+                        task_id = %completed_task_id,
+                        error = %e,
+                        "Failed to find unblocked dependents"
+                    );
+                    return 0;
+                }
+            };
 
         if unblocked_tasks.is_empty() {
             debug!(
@@ -330,42 +346,39 @@ impl MergeQueueProcessor {
 
         for unblocked_task in unblocked_tasks {
             // Find the latest workspace for this task
-            let workspace = match Workspace::find_latest_by_task_id(&self.pool, unblocked_task.id)
-                .await
-            {
-                Ok(Some(ws)) => ws,
-                Ok(None) => {
-                    debug!(
-                        task_id = %unblocked_task.id,
-                        "Skipping auto-dequeue: task has no workspace"
-                    );
-                    continue;
-                }
-                Err(e) => {
-                    error!(
-                        task_id = %unblocked_task.id,
-                        error = %e,
-                        "Failed to find workspace for unblocked task"
-                    );
-                    continue;
-                }
-            };
+            let workspace =
+                match Workspace::find_latest_by_task_id(&self.pool, unblocked_task.id).await {
+                    Ok(Some(ws)) => ws,
+                    Ok(None) => {
+                        debug!(
+                            task_id = %unblocked_task.id,
+                            "Skipping auto-dequeue: task has no workspace"
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        error!(
+                            task_id = %unblocked_task.id,
+                            error = %e,
+                            "Failed to find workspace for unblocked task"
+                        );
+                        continue;
+                    }
+                };
 
             // Get the executor profile from the last session
-            let executor_profile_id = match self
-                .get_executor_profile_for_workspace(workspace.id)
-                .await
-            {
-                Some(profile) => profile,
-                None => {
-                    debug!(
-                        task_id = %unblocked_task.id,
-                        workspace_id = %workspace.id,
-                        "Skipping auto-dequeue: no session found for workspace"
-                    );
-                    continue;
-                }
-            };
+            let executor_profile_id =
+                match self.get_executor_profile_for_workspace(workspace.id).await {
+                    Some(profile) => profile,
+                    None => {
+                        debug!(
+                            task_id = %unblocked_task.id,
+                            workspace_id = %workspace.id,
+                            "Skipping auto-dequeue: no session found for workspace"
+                        );
+                        continue;
+                    }
+                };
 
             // Create execution queue entry
             match ExecutionQueue::create(&self.pool, workspace.id, &executor_profile_id).await {
@@ -447,14 +460,15 @@ impl MergeQueueProcessor {
         );
 
         // Perform the rebase
-        match self
-            .git
-            .rebase_branch(repo_path, worktree_path, base_branch, base_branch, task_branch)
-        {
+        match self.git.rebase_branch(
+            repo_path,
+            worktree_path,
+            base_branch,
+            base_branch,
+            task_branch,
+        ) {
             Ok(_) => Ok(()),
-            Err(GitServiceError::MergeConflicts(msg)) => {
-                Err(MergeQueueError::RebaseConflict(msg))
-            }
+            Err(GitServiceError::MergeConflicts(msg)) => Err(MergeQueueError::RebaseConflict(msg)),
             Err(e) => Err(e.into()),
         }
     }
@@ -469,8 +483,8 @@ impl MergeQueueProcessor {
         commit_message: &str,
     ) -> Result<String, MergeQueueError> {
         match self.git.merge_changes(
-            repo_path,      // base_worktree_path (main repo)
-            worktree_path,  // task_worktree_path
+            repo_path,     // base_worktree_path (main repo)
+            worktree_path, // task_worktree_path
             task_branch,
             base_branch,
             commit_message,
@@ -504,10 +518,7 @@ mod tests {
     #[test]
     fn test_merge_queue_error_conflict_message() {
         let merge_err = MergeQueueError::MergeConflict("merge conflict details".to_string());
-        assert_eq!(
-            merge_err.conflict_message(),
-            Some("merge conflict details")
-        );
+        assert_eq!(merge_err.conflict_message(), Some("merge conflict details"));
 
         let rebase_err = MergeQueueError::RebaseConflict("rebase conflict details".to_string());
         assert_eq!(

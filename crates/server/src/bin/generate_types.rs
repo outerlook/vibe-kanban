@@ -135,6 +135,7 @@ fn generate_types_content() -> String {
         utils::api::organizations::ListMembersResponse::decl(),
         utils::api::organizations::UpdateMemberRoleRequest::decl(),
         utils::api::organizations::UpdateMemberRoleResponse::decl(),
+        utils::server_log_store::ServerLogEntry::decl(),
         utils::api::projects::RemoteProject::decl(),
         utils::api::projects::ListProjectsResponse::decl(),
         utils::api::projects::RemoteProjectMembersResponse::decl(),

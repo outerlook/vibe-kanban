@@ -40,9 +40,7 @@ fn copy_binary(
             let src_meta = fs::metadata(&src).ok();
             let dest_meta = fs::metadata(&dest_binary).ok();
             match (src_meta, dest_meta) {
-                (Some(s), Some(d)) => {
-                    s.modified().ok() > d.modified().ok() || s.len() != d.len()
-                }
+                (Some(s), Some(d)) => s.modified().ok() > d.modified().ok() || s.len() != d.len(),
                 _ => true,
             }
         } else {

@@ -24,10 +24,13 @@ use db::{
     },
 };
 use executors::actions::{
-    script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
     ExecutorAction, ExecutorActionType,
+    script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
 };
-use fake::{Fake, faker::lorem::en::{Paragraph, Sentence}};
+use fake::{
+    Fake,
+    faker::lorem::en::{Paragraph, Sentence},
+};
 use rand::{Rng, seq::SliceRandom};
 use sqlx::{
     SqlitePool,
@@ -69,26 +72,65 @@ const EXECUTION_PROCESS_COUNT: usize = 3;
 const SEED_DB_PATH: &str = "dev_assets_seed/dev.db";
 
 const TASK_TEMPLATES: &[(&str, &str)] = &[
-    ("Implement OAuth login flow", "Add Google & GitHub authentication"),
-    ("Design user registration form", "Create responsive signup UI"),
-    ("Add password reset functionality", "Email-based password recovery"),
-    ("Create admin dashboard", "Analytics and user management views"),
-    ("Implement search functionality", "Full-text search with filters"),
-    ("Add file upload feature", "Support images and documents up to 10MB"),
-    ("Set up CI/CD pipeline", "GitHub Actions for automated testing"),
+    (
+        "Implement OAuth login flow",
+        "Add Google & GitHub authentication",
+    ),
+    (
+        "Design user registration form",
+        "Create responsive signup UI",
+    ),
+    (
+        "Add password reset functionality",
+        "Email-based password recovery",
+    ),
+    (
+        "Create admin dashboard",
+        "Analytics and user management views",
+    ),
+    (
+        "Implement search functionality",
+        "Full-text search with filters",
+    ),
+    (
+        "Add file upload feature",
+        "Support images and documents up to 10MB",
+    ),
+    (
+        "Set up CI/CD pipeline",
+        "GitHub Actions for automated testing",
+    ),
     ("Implement rate limiting", "API throttling to prevent abuse"),
     ("Add notification system", "Real-time alerts via WebSocket"),
     ("Create API documentation", "OpenAPI spec with examples"),
-    ("Refactor billing module", "Simplify invoice generation logic"),
-    ("Improve onboarding flow", "Guided tour with contextual hints"),
+    (
+        "Refactor billing module",
+        "Simplify invoice generation logic",
+    ),
+    (
+        "Improve onboarding flow",
+        "Guided tour with contextual hints",
+    ),
     ("Build audit log view", "Track admin actions and export CSV"),
     ("Optimize database queries", "Reduce dashboard load time"),
-    ("Add multi-factor authentication", "SMS and authenticator support"),
-    ("Implement dark mode toggle", "Persist user theme preference"),
-    ("Create localization framework", "Support English and Spanish"),
+    (
+        "Add multi-factor authentication",
+        "SMS and authenticator support",
+    ),
+    (
+        "Implement dark mode toggle",
+        "Persist user theme preference",
+    ),
+    (
+        "Create localization framework",
+        "Support English and Spanish",
+    ),
     ("Add team permissions", "Role-based access control"),
     ("Set up feature flags", "Gradual rollout controls"),
-    ("Implement subscription plans", "Monthly and annual billing tiers"),
+    (
+        "Implement subscription plans",
+        "Monthly and annual billing tiers",
+    ),
     ("Design landing page", "Hero section with value props"),
     ("Create reporting exports", "CSV and PDF generation"),
     ("Integrate payment gateway", "Stripe checkout and webhooks"),
@@ -230,17 +272,16 @@ async fn create_projects(pool: &SqlitePool) -> Result<Vec<Project>> {
     Ok(projects)
 }
 
-async fn create_task_groups(
-    pool: &SqlitePool,
-    projects: &[Project],
-) -> Result<Vec<TaskGroup>> {
+async fn create_task_groups(pool: &SqlitePool, projects: &[Project]) -> Result<Vec<TaskGroup>> {
     let mut groups = Vec::new();
     for (index, project) in projects.iter().enumerate() {
         let name_pair = TASK_GROUP_NAMES
             .get(index)
             .unwrap_or(&("Sprint 1", "Sprint 2"));
-        let first = TaskGroup::create(pool, project.id, name_pair.0.to_string(), None, None).await?;
-        let second = TaskGroup::create(pool, project.id, name_pair.1.to_string(), None, None).await?;
+        let first =
+            TaskGroup::create(pool, project.id, name_pair.0.to_string(), None, None).await?;
+        let second =
+            TaskGroup::create(pool, project.id, name_pair.1.to_string(), None, None).await?;
         groups.push(first);
         groups.push(second);
     }
@@ -311,7 +352,10 @@ async fn create_dependencies(
 
     let mut tasks_by_project: HashMap<Uuid, Vec<&Task>> = HashMap::new();
     for task in tasks {
-        tasks_by_project.entry(task.project_id).or_default().push(task);
+        tasks_by_project
+            .entry(task.project_id)
+            .or_default()
+            .push(task);
     }
 
     let project_tasks: Vec<&[&Task]> = tasks_by_project

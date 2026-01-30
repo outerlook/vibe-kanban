@@ -85,8 +85,14 @@ impl SkillsData {
                 // Try to parse each skill JSON object into SkillInfo
                 // Skills typically have: name, description (optional), namespace (optional)
                 let name = v.get("name")?.as_str()?.to_string();
-                let description = v.get("description").and_then(|d| d.as_str()).map(String::from);
-                let namespace = v.get("namespace").and_then(|n| n.as_str()).map(String::from);
+                let description = v
+                    .get("description")
+                    .and_then(|d| d.as_str())
+                    .map(String::from);
+                let namespace = v
+                    .get("namespace")
+                    .and_then(|n| n.as_str())
+                    .map(String::from);
                 Some(SkillInfo {
                     name,
                     description,
@@ -364,7 +370,9 @@ impl ClaudeCode {
 
             // Register the protocol peer with approval service for sending tool results
             if let Some(ref approvals) = approvals_clone {
-                approvals.register_protocol_peer(protocol_peer.clone()).await;
+                approvals
+                    .register_protocol_peer(protocol_peer.clone())
+                    .await;
             }
 
             // Initialize control protocol
@@ -931,10 +939,9 @@ impl ClaudeLogProcessor {
                 match subtype.as_deref() {
                     Some("init") => {
                         // Extract skills data from init message if available
-                        if let Some(skills_data) = SkillsData::from_init_message(
-                            slash_commands.clone(),
-                            skills.clone(),
-                        ) {
+                        if let Some(skills_data) =
+                            SkillsData::from_init_message(slash_commands.clone(), skills.clone())
+                        {
                             self.pending_skills_data = Some(skills_data);
                         }
                         // Skip system init messages because it doesn't contain the actual model that will be used in assistant messages in case of claude-code-router.
