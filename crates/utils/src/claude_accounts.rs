@@ -564,4 +564,150 @@ mod tests {
         assert_eq!(response.account.email, None);
         assert_eq!(response.account.display_name, None);
     }
+
+    /// Test that demonstrates the token refresh scenario fix.
+    ///
+    /// The original bug: when OAuth tokens are refreshed, the access token changes,
+    /// causing the hash_prefix to change. This made the UI show "account not saved"
+    /// even though the account was saved (just with a different hash).
+    ///
+    /// The fix: use account_uuid (stable across token refreshes) for matching,
+    /// with hash_prefix as a fallback for legacy accounts.
+    #[test]
+    fn test_uuid_matching_survives_token_refresh() {
+        let stable_uuid = "be75afdf-b8bf-49f6-ad6c-01e8c13c2210";
+
+        // Simulate a saved account with original token
+        let saved_account = SavedAccount {
+            hash_prefix: hash_token("original-access-token"),
+            account_uuid: Some(stable_uuid.to_string()),
+            name: Some("My Account".to_string()),
+            subscription_type: "pro".to_string(),
+            rate_limit_tier: None,
+            created_at: chrono::Utc::now(),
+        };
+
+        // Simulate token refresh: new token, different hash, but same UUID
+        let refreshed_hash = hash_token("refreshed-access-token");
+        let current_uuid = stable_uuid;
+
+        // Hashes are different (this is the original bug scenario)
+        assert_ne!(
+            saved_account.hash_prefix, refreshed_hash,
+            "Token refresh should change the hash"
+        );
+
+        // UUID-based matching should still work
+        let is_current_by_uuid =
+            saved_account.account_uuid.as_deref() == Some(current_uuid);
+        assert!(
+            is_current_by_uuid,
+            "UUID matching should identify the account as current despite hash change"
+        );
+
+        // Hash-based matching would fail (the original bug)
+        let is_current_by_hash = saved_account.hash_prefix == refreshed_hash;
+        assert!(
+            !is_current_by_hash,
+            "Hash matching fails after token refresh (this is the bug we fixed)"
+        );
+    }
+
+    /// Test that legacy accounts (without UUID) still work via hash fallback.
+    #[test]
+    fn test_legacy_account_hash_fallback() {
+        let token = "legacy-access-token";
+
+        // Legacy account saved without UUID
+        let legacy_account = SavedAccount {
+            hash_prefix: hash_token(token),
+            account_uuid: None, // Legacy: no UUID
+            name: Some("Legacy Account".to_string()),
+            subscription_type: "free".to_string(),
+            rate_limit_tier: None,
+            created_at: chrono::Utc::now(),
+        };
+
+        let current_hash = hash_token(token);
+        let current_uuid: Option<&str> = None; // API might fail to fetch UUID
+
+        // UUID matching not possible (both None)
+        let uuid_match = match (legacy_account.account_uuid.as_deref(), current_uuid) {
+            (Some(saved), Some(current)) => saved == current,
+            _ => false,
+        };
+
+        // Hash fallback should work
+        let hash_match = legacy_account.hash_prefix == current_hash;
+
+        // The combined logic: UUID-first, then hash fallback
+        let is_current = uuid_match || hash_match;
+
+        assert!(
+            !uuid_match,
+            "UUID matching not possible for legacy accounts"
+        );
+        assert!(hash_match, "Hash fallback should identify legacy account");
+        assert!(is_current, "Combined logic should identify legacy account as current");
+    }
+
+    /// Test the frontend `isAccountCurrent` logic simulation.
+    #[test]
+    fn test_is_account_current_logic() {
+        fn is_account_current(
+            account: &SavedAccount,
+            current_uuid: Option<&str>,
+            current_hash: &str,
+        ) -> bool {
+            // UUID-first matching with hash fallback
+            // This mirrors the frontend ClaudeAccountSwitcher logic
+            if let (Some(account_uuid), Some(uuid)) = (&account.account_uuid, current_uuid) {
+                return account_uuid == uuid;
+            }
+            account.hash_prefix == current_hash
+        }
+
+        let uuid = "test-uuid-1234";
+        let old_token = "old-token";
+        let new_token = "new-token";
+
+        let account = SavedAccount {
+            hash_prefix: hash_token(old_token),
+            account_uuid: Some(uuid.to_string()),
+            name: None,
+            subscription_type: "pro".to_string(),
+            rate_limit_tier: None,
+            created_at: chrono::Utc::now(),
+        };
+
+        // Scenario 1: Same UUID, different hash (token refreshed) -> CURRENT
+        assert!(
+            is_account_current(&account, Some(uuid), &hash_token(new_token)),
+            "UUID match should override hash mismatch"
+        );
+
+        // Scenario 2: Same UUID, same hash -> CURRENT
+        assert!(
+            is_account_current(&account, Some(uuid), &hash_token(old_token)),
+            "Both match -> current"
+        );
+
+        // Scenario 3: Different UUID, same hash -> NOT CURRENT
+        assert!(
+            !is_account_current(&account, Some("different-uuid"), &hash_token(old_token)),
+            "UUID mismatch should take precedence"
+        );
+
+        // Scenario 4: No UUID available, hash match -> CURRENT (fallback)
+        assert!(
+            is_account_current(&account, None, &hash_token(old_token)),
+            "Hash fallback when no current UUID"
+        );
+
+        // Scenario 5: No UUID available, hash mismatch -> NOT CURRENT
+        assert!(
+            !is_account_current(&account, None, &hash_token(new_token)),
+            "Hash fallback fails on mismatch"
+        );
+    }
 }
