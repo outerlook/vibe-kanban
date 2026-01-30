@@ -16,7 +16,7 @@ import { useTranslation } from 'react-i18next';
 interface CommitMessagePreviewDialogProps {
   initialMessage: string;
   onConfirm: (message: string) => Promise<void>;
-  onRegenerate: () => Promise<string>;
+  onRegenerate?: () => Promise<string>;
 }
 
 type DialogResult = 'confirmed' | 'canceled';
@@ -37,6 +37,7 @@ const CommitMessagePreviewDialogImpl =
       }, [modal.visible, initialMessage]);
 
       const handleRegenerate = useCallback(async () => {
+        if (!onRegenerate) return;
         setIsRegenerating(true);
         try {
           const newMessage = await onRegenerate();
@@ -85,24 +86,26 @@ const CommitMessagePreviewDialogImpl =
                 className={isLoading ? 'opacity-50 cursor-not-allowed' : ''}
               />
             </div>
-            <DialogFooter className="sm:justify-between">
-              <Button
-                variant="outline"
-                onClick={handleRegenerate}
-                disabled={isLoading}
-              >
-                {isRegenerating ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {t('commitMessageDialog.regenerating', 'Regenerating...')}
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    {t('commitMessageDialog.regenerate', 'Regenerate')}
-                  </>
-                )}
-              </Button>
+            <DialogFooter className={onRegenerate ? 'sm:justify-between' : 'sm:justify-end'}>
+              {onRegenerate && (
+                <Button
+                  variant="outline"
+                  onClick={handleRegenerate}
+                  disabled={isLoading}
+                >
+                  {isRegenerating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      {t('commitMessageDialog.regenerating', 'Regenerating...')}
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      {t('commitMessageDialog.regenerate', 'Regenerate')}
+                    </>
+                  )}
+                </Button>
+              )}
               <div className="flex gap-2">
                 <Button
                   variant="outline"
