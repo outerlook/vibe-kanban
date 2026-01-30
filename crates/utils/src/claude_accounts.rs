@@ -151,10 +151,6 @@ pub async fn set_secure_file_permissions(path: &std::path::Path) -> std::io::Res
     Ok(())
 }
 
-async fn set_file_permissions(path: &PathBuf) -> Result<(), ClaudeAccountError> {
-    set_secure_file_permissions(path).await?;
-    Ok(())
-}
 
 /// Response from Anthropic OAuth profile API
 #[derive(Debug, Deserialize)]
@@ -334,7 +330,7 @@ pub async fn save_account(name: Option<String>) -> Result<SavedAccount, ClaudeAc
     let file_path = account_file_path(&hash_prefix);
     let contents = serde_json::to_string_pretty(&stored)?;
     tokio::fs::write(&file_path, contents).await?;
-    set_file_permissions(&file_path).await?;
+    set_secure_file_permissions(&file_path).await?;
 
     Ok(metadata)
 }
@@ -431,7 +427,7 @@ async fn migrate_account_uuid(hash_prefix: &str) -> Result<(), ClaudeAccountErro
         let file_path = account_file_path(hash_prefix);
         let contents = serde_json::to_string_pretty(&stored)?;
         tokio::fs::write(&file_path, contents).await?;
-        set_file_permissions(&file_path).await?;
+        set_secure_file_permissions(&file_path).await?;
         tracing::info!(hash_prefix = %hash_prefix, "Migrated account to include UUID");
     }
 

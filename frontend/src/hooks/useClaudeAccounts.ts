@@ -27,7 +27,7 @@ export function useCurrentClaudeAccount() {
 export function useCurrentClaudeAccountUuid() {
   return useQuery<string | null>({
     queryKey: claudeAccountsKeys.currentUuid,
-    queryFn: () => claudeAccountsApi.getCurrentUuid(),
+    queryFn: claudeAccountsApi.getCurrentUuid,
     staleTime: 30 * 1000, // 30 seconds
   });
 }
