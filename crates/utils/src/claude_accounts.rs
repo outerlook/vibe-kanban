@@ -32,6 +32,8 @@ pub enum ClaudeAccountError {
 pub struct SavedAccount {
     /// First 8 characters of SHA256 hash of the access token
     pub hash_prefix: String,
+    /// Stable account UUID from Anthropic OAuth profile
+    pub account_uuid: Option<String>,
     /// User-defined name for this account
     pub name: Option<String>,
     /// Subscription type (e.g., "pro", "free")
@@ -292,6 +294,7 @@ pub async fn save_account(name: Option<String>) -> Result<SavedAccount, ClaudeAc
 
     let metadata = SavedAccount {
         hash_prefix: hash_prefix.clone(),
+        account_uuid: None, // TODO: Populate from fetch_account_uuid in a future task
         name,
         subscription_type,
         rate_limit_tier: oauth.rate_limit_tier,
@@ -423,6 +426,7 @@ mod tests {
     fn test_saved_account_serialization() {
         let account = SavedAccount {
             hash_prefix: "abcd1234".to_string(),
+            account_uuid: Some("be75afdf-b8bf-49f6-ad6c-01e8c13c2210".to_string()),
             name: Some("Work Account".to_string()),
             subscription_type: "pro".to_string(),
             rate_limit_tier: Some("tier-1".to_string()),
@@ -431,13 +435,33 @@ mod tests {
 
         let json = serde_json::to_string(&account).unwrap();
         assert!(json.contains("\"hashPrefix\":\"abcd1234\""));
+        assert!(json.contains("\"accountUuid\":\"be75afdf-b8bf-49f6-ad6c-01e8c13c2210\""));
         assert!(json.contains("\"name\":\"Work Account\""));
         assert!(json.contains("\"subscriptionType\":\"pro\""));
 
         // Verify deserialization
         let deserialized: SavedAccount = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.hash_prefix, account.hash_prefix);
+        assert_eq!(deserialized.account_uuid, account.account_uuid);
         assert_eq!(deserialized.name, account.name);
+    }
+
+    #[test]
+    fn test_saved_account_backward_compatibility() {
+        // Test deserialization of old format without account_uuid field
+        let old_json = r#"{
+            "hashPrefix": "abcd1234",
+            "name": "Old Account",
+            "subscriptionType": "pro",
+            "rateLimitTier": null,
+            "createdAt": "2024-01-15T10:30:00Z"
+        }"#;
+
+        let account: SavedAccount = serde_json::from_str(old_json).unwrap();
+        assert_eq!(account.hash_prefix, "abcd1234");
+        assert_eq!(account.account_uuid, None);
+        assert_eq!(account.name, Some("Old Account".to_string()));
+        assert_eq!(account.subscription_type, "pro");
     }
 
     #[tokio::test]
