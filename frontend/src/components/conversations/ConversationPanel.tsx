@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MessageSquare, Pencil, GitBranch, Home } from 'lucide-react';
 import { ConversationList } from './ConversationList';
@@ -18,6 +18,7 @@ import {
   useConversationExecutions,
   useStopConversationExecution,
 } from '@/hooks/useConversations';
+import { useConversationQueueStatus } from '@/hooks/useConversationQueueStatus';
 import type { ConversationSession, ExecutionProcessStatus } from 'shared/types';
 
 interface ConversationPanelProps {
@@ -38,10 +39,49 @@ export function ConversationPanel({ projectId }: ConversationPanelProps) {
   const runningExecutionId = executions?.find(
     (ep) => ep.status === ('running' as ExecutionProcessStatus)
   )?.id;
+  const isExecutionRunning = !!runningExecutionId;
 
   const { stopExecution, isStopping } = useStopConversationExecution(
     selectedConversation?.id
   );
+
+  // Queue status for queuing messages while agent is running
+  const {
+    isQueued,
+    queuedMessage,
+    isLoading: isQueueLoading,
+    queueMessage,
+    cancelQueue,
+    refresh: refreshQueueStatus,
+  } = useConversationQueueStatus(selectedConversation?.id);
+
+  // Track previous execution count to detect new executions
+  const prevExecutionCountRef = useRef(executions?.length ?? 0);
+
+  // Refresh queue status when execution stops OR when a new execution starts
+  useEffect(() => {
+    const currentCount = executions?.length ?? 0;
+    const prevCount = prevExecutionCountRef.current;
+    prevExecutionCountRef.current = currentCount;
+
+    if (!selectedConversation?.id) return;
+
+    // Refresh when execution stops
+    if (!isExecutionRunning) {
+      refreshQueueStatus();
+      return;
+    }
+
+    // Refresh when a new execution starts (could be queued message consumption)
+    if (currentCount > prevCount) {
+      refreshQueueStatus();
+    }
+  }, [
+    isExecutionRunning,
+    selectedConversation?.id,
+    executions?.length,
+    refreshQueueStatus,
+  ]);
 
   const handleSelectConversation = useCallback(
     (conversation: ConversationSession) => {
@@ -153,12 +193,16 @@ export function ConversationPanel({ projectId }: ConversationPanelProps) {
 
             {/* Message input */}
             <MessageInput
-              onSend={handleSendMessage}
               conversationId={selectedConversation.id}
-              disabled={!!runningExecutionId || sendMessage.isPending}
+              onSend={handleSendMessage}
+              isExecutionRunning={isExecutionRunning || sendMessage.isPending}
               onStop={() => runningExecutionId && stopExecution(runningExecutionId)}
               isStopping={isStopping}
-              showStopButton={!!runningExecutionId}
+              isQueued={isQueued}
+              queuedMessage={queuedMessage}
+              queueMessage={queueMessage}
+              cancelQueue={cancelQueue}
+              isQueueLoading={isQueueLoading}
             />
           </>
         ) : (

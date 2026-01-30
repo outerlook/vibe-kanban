@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     io,
     path::{Path, PathBuf},
+    str::FromStr,
     sync::{Arc, LazyLock, Mutex},
     time::Duration,
 };
@@ -1452,7 +1453,7 @@ impl LocalContainerService {
             // Cleanup child handle
             child_store.write().await.remove(&exec_id);
 
-            // Store assistant message and send notification on successful completion
+            // Store assistant message, send notification, and process queued messages on successful completion
             if matches!(status, ExecutionProcessStatus::Completed)
                 && let Ok(Some(execution_process)) =
                     ExecutionProcess::find_by_id(&db.pool, exec_id).await
@@ -1483,6 +1484,50 @@ impl LocalContainerService {
                 .await
                 {
                     tracing::error!("Failed to send conversation response notification: {}", e);
+                }
+
+                // Process queued message (if any)
+                if let Some(queued_msg) =
+                    container.queued_message_service.take_queued(conversation_session_id)
+                {
+                    tracing::info!(
+                        "Found queued message for conversation {}, starting follow-up execution",
+                        conversation_session_id
+                    );
+
+                    // Delete the scratch since we're consuming the queued message
+                    if let Err(e) = Scratch::delete(
+                        &db.pool,
+                        conversation_session_id,
+                        &ScratchType::DraftConversationMessage,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            "Failed to delete scratch after consuming queued conversation message: {}",
+                            e
+                        );
+                    }
+
+                    // Start the queued follow-up execution
+                    if let Err(e) = container
+                        .start_queued_conversation_follow_up(&conversation, &queued_msg.data)
+                        .await
+                    {
+                        tracing::error!("Failed to start queued conversation follow-up: {}", e);
+                    }
+                }
+            } else if let Ok(Some(execution_process)) =
+                ExecutionProcess::find_by_id(&db.pool, exec_id).await
+                && let Some(conversation_session_id) = execution_process.conversation_session_id
+            {
+                // Execution failed or was killed - discard the queued message
+                if container.queued_message_service.take_queued(conversation_session_id).is_some() {
+                    tracing::info!(
+                        "Discarding queued message for conversation {} due to execution status {:?}",
+                        conversation_session_id,
+                        status
+                    );
                 }
             }
         })
@@ -1550,6 +1595,67 @@ impl LocalContainerService {
             None,
         )
         .await
+    }
+
+    /// Start a follow-up conversation execution from a queued message
+    async fn start_queued_conversation_follow_up(
+        &self,
+        conversation: &ConversationSession,
+        queued_data: &DraftFollowUpData,
+    ) -> Result<ExecutionProcess, ContainerError> {
+        // Get executor from conversation session or default to CLAUDE_CODE
+        let executor_name = conversation
+            .executor
+            .clone()
+            .unwrap_or("CLAUDE_CODE".to_string());
+
+        // Parse executor name to BaseCodingAgent
+        let normalized_executor = executor_name.replace('-', "_").to_ascii_uppercase();
+        let base_executor = BaseCodingAgent::from_str(&normalized_executor).map_err(|_| {
+            ContainerError::Other(anyhow!("Unknown executor: {}", executor_name))
+        })?;
+
+        // Build executor profile with variant from queued data
+        let executor_profile_id = ExecutorProfileId {
+            executor: base_executor,
+            variant: queued_data.variant.clone(),
+        };
+
+        // Get latest agent session ID for continuing the conversation
+        let latest_agent_session_id =
+            ConversationService::get_latest_agent_session_id(&self.db.pool, conversation.id)
+                .await
+                .map_err(|e| ContainerError::Other(anyhow!("Failed to get agent session ID: {e}")))?;
+
+        // Build ExecutorAction - use follow-up if we have a session, otherwise initial
+        let action_type = if let Some(agent_session_id) = latest_agent_session_id {
+            ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
+                prompt: queued_data.message.clone(),
+                session_id: agent_session_id,
+                executor_profile_id: executor_profile_id.clone(),
+                working_dir: None,
+            })
+        } else {
+            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+                prompt: queued_data.message.clone(),
+                executor_profile_id: executor_profile_id.clone(),
+                working_dir: None,
+            })
+        };
+
+        let executor_action = ExecutorAction::new(action_type, None);
+
+        // Create user message for the queued content
+        if let Err(e) =
+            ConversationService::add_user_message(&self.db.pool, conversation.id, queued_data.message.clone())
+                .await
+        {
+            tracing::error!("Failed to create user message for queued content: {}", e);
+        }
+
+        // Start conversation execution
+        self.start_conversation_execution(conversation, &executor_action)
+            .await
     }
 
     /// Collect feedback from the coding agent after successful execution.

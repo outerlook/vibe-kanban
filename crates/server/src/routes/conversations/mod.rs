@@ -1,3 +1,5 @@
+pub mod queue;
+
 use std::str::FromStr;
 
 use axum::{
@@ -349,4 +351,5 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         )
         .nest("/conversations/{conversation_id}", conversation_actions)
         .nest("/conversations/{conversation_id}", conversation_images)
+        .nest("/conversations/{conversation_id}/queue", queue::router(deployment))
 }
