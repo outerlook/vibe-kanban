@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { AlertTriangle, Plus, X } from 'lucide-react';
@@ -91,7 +92,7 @@ export function ProjectTasks() {
     taskId?: string;
     attemptId?: string;
   }>();
-  const navigate = useNavigate();
+  const navigate = useNavigateWithSearch();
   const { enableScope, disableScope, activeScopes } = useHotkeysContext();
   const [searchParams, setSearchParams] = useSearchParams();
   const isXL = useMediaQuery('(min-width: 1280px)');
@@ -216,36 +217,20 @@ export function ProjectTasks() {
     return attempts[0].id;
   }, [attempts]);
 
-  const navigateWithSearch = useCallback(
-    (pathname: string, options?: { replace?: boolean }) => {
-      const search = searchParams.toString();
-      navigate({ pathname, search: search ? `?${search}` : '' }, options);
-    },
-    [navigate, searchParams]
-  );
-
   useEffect(() => {
     if (!projectId || !taskId) return;
     if (!isLatest) return;
     if (isAttemptsLoading) return;
 
     if (!latestAttemptId) {
-      navigateWithSearch(paths.task(projectId, taskId), { replace: true });
+      navigate(paths.task(projectId, taskId), { replace: true });
       return;
     }
 
-    navigateWithSearch(paths.attempt(projectId, taskId, latestAttemptId), {
+    navigate(paths.attempt(projectId, taskId, latestAttemptId), {
       replace: true,
     });
-  }, [
-    projectId,
-    taskId,
-    isLatest,
-    isAttemptsLoading,
-    latestAttemptId,
-    navigate,
-    navigateWithSearch,
-  ]);
+  }, [projectId, taskId, isLatest, isAttemptsLoading, latestAttemptId, navigate]);
 
   // Redirect to task list if task doesn't exist after all data has loaded
   useEffect(() => {
@@ -548,12 +533,12 @@ export function ProjectTasks() {
       setSelectedSharedTaskId(null);
 
       if (attemptIdToShow) {
-        navigateWithSearch(paths.attempt(projectId, task.id, attemptIdToShow));
+        navigate(paths.attempt(projectId, task.id, attemptIdToShow));
       } else {
-        navigateWithSearch(`${paths.task(projectId, task.id)}/attempts/latest`);
+        navigate(`${paths.task(projectId, task.id)}/attempts/latest`);
       }
     },
-    [projectId, navigateWithSearch]
+    [projectId, navigate]
   );
 
   const handleViewSharedTask = useCallback(
@@ -561,10 +546,10 @@ export function ProjectTasks() {
       setSelectedSharedTaskId(sharedTask.id);
       setMode(null);
       if (projectId) {
-        navigateWithSearch(paths.projectTasks(projectId), { replace: true });
+        navigate(paths.projectTasks(projectId), { replace: true });
       }
     },
-    [navigateWithSearch, projectId, setMode]
+    [navigate, projectId, setMode]
   );
 
   const selectNextTask = useCallback(() => {
@@ -840,7 +825,7 @@ export function ProjectTasks() {
                 <BreadcrumbLink
                   className="cursor-pointer hover:underline"
                   onClick={() =>
-                    navigateWithSearch(paths.task(projectId!, taskId!))
+                    navigate(paths.task(projectId!, taskId!))
                   }
                 >
                   {truncateTitle(selectedTask?.title)}
@@ -871,7 +856,7 @@ export function ProjectTasks() {
           onClick={() => {
             setSelectedSharedTaskId(null);
             if (projectId) {
-              navigateWithSearch(paths.projectTasks(projectId), {
+              navigate(paths.projectTasks(projectId), {
                 replace: true,
               });
             }
