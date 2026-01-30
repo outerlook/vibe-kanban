@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -106,6 +107,8 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
   );
 
   const statusQueries = useQueries({ queries: queryConfigs });
+  const statusQueriesRef = useRef(statusQueries);
+  statusQueriesRef.current = statusQueries;
 
   const allQueriesSuccess = statusQueries.every((q) => q.isSuccess);
   const anyQueryError = statusQueries.some((q) => q.isError);
@@ -135,45 +138,42 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
     }
   }, [projectId]);
 
-  // Derive pagination state from query results
-  const derivedPaginationByStatus = useMemo((): PerStatusPagination => {
-    const result = createInitialPaginationState();
-    for (const query of statusQueries) {
-      if (!query.data) continue;
-      const { status, page } = query.data;
-      result[status] = {
-        offset: page.tasks.length,
-        total: page.total,
-        hasMore: page.hasMore,
-        isLoading: false,
-      };
-    }
-    return result;
-  }, [statusQueries]);
-
-  // Sync derived pagination to state (needed for load-more tracking)
+  // Sync pagination state from query results when queries complete
   useEffect(() => {
     if (!projectId) {
       setPaginationByStatus(createInitialPaginationState);
       return;
     }
     if (allQueriesSuccess) {
+      const queries = statusQueriesRef.current;
       setPaginationByStatus((prev) => {
+        // Derive pagination from current query results
+        const derived = createInitialPaginationState();
+        for (const query of queries) {
+          if (!query.data) continue;
+          const { status, page } = query.data;
+          derived[status] = {
+            offset: page.tasks.length,
+            total: page.total,
+            hasMore: page.hasMore,
+            isLoading: false,
+          };
+        }
+
         // Only update if there's a meaningful difference
         const hasChanges = ALL_STATUSES.some((status) => {
-          const derived = derivedPaginationByStatus[status];
           const current = prev[status];
           return (
-            derived.total !== current.total ||
-            derived.hasMore !== current.hasMore ||
+            derived[status].total !== current.total ||
+            derived[status].hasMore !== current.hasMore ||
             // Only sync offset if not currently loading more
-            (!current.isLoading && derived.offset !== current.offset)
+            (!current.isLoading && derived[status].offset !== current.offset)
           );
         });
-        return hasChanges ? derivedPaginationByStatus : prev;
+        return hasChanges ? derived : prev;
       });
     }
-  }, [projectId, allQueriesSuccess, derivedPaginationByStatus]);
+  }, [projectId, allQueriesSuccess]);
 
   // Set error from query failures
   useEffect(() => {
