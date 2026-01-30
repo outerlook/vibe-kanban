@@ -205,7 +205,10 @@ impl Task {
         .fetch_all(pool)
         .await?;
 
-        Ok(tasks.into_iter().map(TaskWithAttemptStatus::from_task).collect())
+        Ok(tasks
+            .into_iter()
+            .map(TaskWithAttemptStatus::from_task)
+            .collect())
     }
 
     pub async fn find_by_id_with_attempt_status(
@@ -976,7 +979,10 @@ LIMIT ?4"#,
     /// - Execution process status changes (affects has_in_progress_attempt, last_attempt_failed)
     /// - Execution queue changes (affects is_queued)
     /// - Session creation (affects last_executor)
-    pub async fn update_materialized_status(pool: &SqlitePool, task_id: Uuid) -> Result<(), sqlx::Error> {
+    pub async fn update_materialized_status(
+        pool: &SqlitePool,
+        task_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"UPDATE tasks SET
                 is_blocked = (
@@ -1194,7 +1200,7 @@ mod tests {
 #[cfg(test)]
 mod deser_tests {
     use super::*;
-    
+
     #[test]
     fn test_task_with_attempt_status_deserialize() {
         let json = r#"{
@@ -1215,7 +1221,7 @@ mod deser_tests {
             "last_executor": "",
             "needs_attention": null
         }"#;
-        
+
         let result: Result<TaskWithAttemptStatus, _> = serde_json::from_str(json);
         match &result {
             Ok(task) => println!("Deserialized successfully: {:?}", task.task.title),

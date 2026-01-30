@@ -154,19 +154,21 @@ impl Default for DispatcherBuilder {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::time::Duration;
+    use std::{
+        sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+        time::Duration,
+    };
 
     use async_trait::async_trait;
-    use db::models::task::{Task, TaskStatus};
-    use db::models::workspace::Workspace;
+    use db::models::{
+        task::{Task, TaskStatus},
+        workspace::Workspace,
+    };
     use tokio::sync::RwLock;
     use utils::msg_store::MsgStore;
 
-    use crate::services::config::Config;
-    use crate::services::domain_events::HandlerError;
-
     use super::*;
+    use crate::services::{config::Config, domain_events::HandlerError};
 
     fn test_task() -> Task {
         Task {
@@ -203,8 +205,9 @@ mod tests {
     fn test_context() -> HandlerContext {
         // We need a real-ish db for tests, but we can use an in-memory SQLite pool
         // The handlers in these tests don't actually query the database
-        let pool =
-            sqlx::sqlite::SqlitePoolOptions::new().connect_lazy("sqlite::memory:").unwrap();
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect_lazy("sqlite::memory:")
+            .unwrap();
         let db = db::DBService { pool };
         let config = Arc::new(RwLock::new(Config::default()));
         let msg_store = Arc::new(MsgStore::default());

@@ -16,9 +16,8 @@ use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::load_task_group_middleware};
-
 use super::projects::MergeQueueCountResponse;
+use crate::{DeploymentImpl, error::ApiError, middleware::load_task_group_middleware};
 
 #[derive(Debug, Deserialize)]
 pub struct ListTaskGroupsQuery {
@@ -189,9 +188,9 @@ pub async fn get_merge_queue_count(
     let count = deployment
         .merge_queue_store()
         .count_by_workspace_ids(&workspace_ids);
-    Ok(ResponseJson(ApiResponse::success(MergeQueueCountResponse {
-        count,
-    })))
+    Ok(ResponseJson(ApiResponse::success(
+        MergeQueueCountResponse { count },
+    )))
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {

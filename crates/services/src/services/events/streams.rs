@@ -13,8 +13,6 @@ use db::models::{
     task::{Task, TaskWithAttemptStatus},
     workspace::{Workspace, WorkspaceWithSession},
 };
-
-use crate::services::operation_status::{OperationStatus, OperationStatusStore};
 use futures::StreamExt;
 use moka::future::Cache;
 use once_cell::sync::Lazy;
@@ -29,6 +27,7 @@ use super::{
     patches::execution_process_patch,
     types::{EventError, EventPatch, RecordTypes},
 };
+use crate::services::operation_status::{OperationStatus, OperationStatusStore};
 
 static TASK_PROJECT_CACHE: Lazy<Cache<Uuid, Uuid>> = Lazy::new(|| {
     Cache::builder()
@@ -85,7 +84,9 @@ fn workspace_id_from_operation_status_path(path: &str) -> Option<Uuid> {
 }
 
 async fn cache_project_for_workspace(workspace_id: Uuid, project_id: Uuid) {
-    WORKSPACE_PROJECT_CACHE.insert(workspace_id, project_id).await;
+    WORKSPACE_PROJECT_CACHE
+        .insert(workspace_id, project_id)
+        .await;
 }
 
 async fn get_project_for_workspace(db: &SqlitePool, workspace_id: Uuid) -> Option<Uuid> {
@@ -97,7 +98,9 @@ async fn get_project_for_workspace(db: &SqlitePool, workspace_id: Uuid) -> Optio
     // Look up workspace -> task -> project
     if let Ok(Some(workspace)) = Workspace::find_by_id(db, workspace_id).await {
         if let Some(project_id) = get_project_for_task(db, workspace.task_id).await {
-            WORKSPACE_PROJECT_CACHE.insert(workspace_id, project_id).await;
+            WORKSPACE_PROJECT_CACHE
+                .insert(workspace_id, project_id)
+                .await;
             return Some(project_id);
         }
     }
@@ -157,8 +160,7 @@ impl EventService {
             db_pool: &SqlitePool,
             project_id: Uuid,
         ) -> Result<(LogMsg, Vec<Uuid>), sqlx::Error> {
-            let tasks =
-                Task::find_by_project_id_with_attempt_status(db_pool, project_id).await?;
+            let tasks = Task::find_by_project_id_with_attempt_status(db_pool, project_id).await?;
 
             // Collect workspace IDs for operation_status filtering
             let task_ids: Vec<Uuid> = tasks.iter().map(|t| t.id).collect();
@@ -305,9 +307,7 @@ impl EventService {
                                         match patch_op {
                                             json_patch::PatchOperation::Add(op) => {
                                                 if check_status_belongs_to_project(
-                                                    &db_pool,
-                                                    &op.value,
-                                                    project_id,
+                                                    &db_pool, &op.value, project_id,
                                                 )
                                                 .await
                                                 {
@@ -316,9 +316,7 @@ impl EventService {
                                             }
                                             json_patch::PatchOperation::Replace(op) => {
                                                 if check_status_belongs_to_project(
-                                                    &db_pool,
-                                                    &op.value,
-                                                    project_id,
+                                                    &db_pool, &op.value, project_id,
                                                 )
                                                 .await
                                                 {
@@ -328,8 +326,11 @@ impl EventService {
                                             json_patch::PatchOperation::Remove(_) => {
                                                 // For remove, check cache or allow through
                                                 if let Some(ws_project_id) =
-                                                    get_project_for_workspace(&db_pool, workspace_id)
-                                                        .await
+                                                    get_project_for_workspace(
+                                                        &db_pool,
+                                                        workspace_id,
+                                                    )
+                                                    .await
                                                     && ws_project_id == project_id
                                                 {
                                                     return Some(Ok(LogMsg::JsonPatch(patch)));
@@ -426,8 +427,7 @@ impl EventService {
         }
 
         // Get initial snapshot of tasks and workspace IDs
-        let (tasks_msg, workspace_ids) =
-            build_tasks_snapshot(&self.db.pool, project_id).await?;
+        let (tasks_msg, workspace_ids) = build_tasks_snapshot(&self.db.pool, project_id).await?;
 
         // Get operation statuses for workspaces in this project
         let operation_statuses = operation_status_store.get_by_workspace_ids(&workspace_ids);
@@ -939,15 +939,16 @@ impl EventService {
             let workspaces_with_sessions =
                 WorkspaceWithSession::fetch_with_latest_sessions(db_pool, Some(task_id)).await?;
 
-            let workspaces_map: serde_json::Map<String, serde_json::Value> = workspaces_with_sessions
-                .into_iter()
-                .map(|ws| {
-                    (
-                        ws.workspace.id.to_string(),
-                        serde_json::to_value(ws).unwrap(),
-                    )
-                })
-                .collect();
+            let workspaces_map: serde_json::Map<String, serde_json::Value> =
+                workspaces_with_sessions
+                    .into_iter()
+                    .map(|ws| {
+                        (
+                            ws.workspace.id.to_string(),
+                            serde_json::to_value(ws).unwrap(),
+                        )
+                    })
+                    .collect();
 
             let patch = json!([{
                 "op": "replace",

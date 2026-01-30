@@ -7,7 +7,7 @@
 
 use db::models::{execution_queue::ExecutionQueue, task::Task};
 use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
-use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 use uuid::Uuid;
 
 /// Creates an in-memory SQLite database and runs all migrations.
@@ -154,7 +154,10 @@ async fn test_execution_queue_cancel_updates_task_is_queued() {
         .await
         .expect("Failed to find task")
         .expect("Task not found");
-    assert!(task.is_queued, "Task should be queued after creating queue entry");
+    assert!(
+        task.is_queued,
+        "Task should be queued after creating queue entry"
+    );
 
     // Delete queue entry (simulating cancel)
     ExecutionQueue::delete_by_workspace(&pool, workspace_id)
@@ -253,6 +256,8 @@ async fn test_execution_queue_count() {
     }
 
     // Verify count
-    let count = ExecutionQueue::count(&pool).await.expect("Failed to get count");
+    let count = ExecutionQueue::count(&pool)
+        .await
+        .expect("Failed to get count");
     assert_eq!(count, 3);
 }

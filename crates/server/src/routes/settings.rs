@@ -54,9 +54,7 @@ async fn set_github_token(
     Json(payload): Json<SetGitHubTokenRequest>,
 ) -> Result<ResponseJson<ApiResponse<GitHubSettingsStatus>>, ApiError> {
     if payload.token.trim().is_empty() {
-        return Err(ApiError::BadRequest(
-            "Token cannot be empty".to_string(),
-        ));
+        return Err(ApiError::BadRequest("Token cannot be empty".to_string()));
     }
 
     let pool = &deployment.db().pool;

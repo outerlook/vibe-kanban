@@ -168,12 +168,8 @@ impl IntoResponse for ApiError {
                     GixReaderError::ReferenceNotFound(_) => {
                         (StatusCode::NOT_FOUND, "GitServiceError")
                     }
-                    GixReaderError::ObjectNotFound(_) => {
-                        (StatusCode::NOT_FOUND, "GitServiceError")
-                    }
-                    GixReaderError::RemoteNotFound(_) => {
-                        (StatusCode::NOT_FOUND, "GitServiceError")
-                    }
+                    GixReaderError::ObjectNotFound(_) => (StatusCode::NOT_FOUND, "GitServiceError"),
+                    GixReaderError::RemoteNotFound(_) => (StatusCode::NOT_FOUND, "GitServiceError"),
                     GixReaderError::InvalidObjectId(_) => {
                         (StatusCode::BAD_REQUEST, "GitServiceError")
                     }

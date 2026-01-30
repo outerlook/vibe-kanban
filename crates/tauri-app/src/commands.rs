@@ -24,10 +24,7 @@ pub async fn get_server_url(state: State<'_, AppState>) -> Result<String, String
 ///
 /// The setting is persisted to the config file.
 #[tauri::command]
-pub async fn set_server_url(
-    url: String,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn set_server_url(url: String, state: State<'_, AppState>) -> Result<(), String> {
     // Update state
     *state.backend_url.lock().await = url.clone();
 

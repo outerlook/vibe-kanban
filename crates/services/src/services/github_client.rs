@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Utc};
-use octocrab::{params, Octocrab};
+use octocrab::{Octocrab, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use thiserror::Error;
@@ -142,10 +142,7 @@ impl GitHubClient {
                 let summary = PullRequestSummary {
                     number: pr.number,
                     title: pr.title.unwrap_or_default(),
-                    url: pr
-                        .html_url
-                        .map(|u| u.to_string())
-                        .unwrap_or_default(),
+                    url: pr.html_url.map(|u| u.to_string()).unwrap_or_default(),
                     author: pr
                         .user
                         .map(|u| u.login)
@@ -203,10 +200,7 @@ impl GitHubClient {
                 let summary = PullRequestSummary {
                     number: pr.number,
                     title: pr.title.unwrap_or_default(),
-                    url: pr
-                        .html_url
-                        .map(|u| u.to_string())
-                        .unwrap_or_default(),
+                    url: pr.html_url.map(|u| u.to_string()).unwrap_or_default(),
                     author: pr
                         .user
                         .map(|u| u.login)
@@ -279,7 +273,13 @@ impl GitHubClient {
             .data
             .and_then(|d| d.repository)
             .and_then(|r| r.pull_request)
-            .map(|pr| pr.review_threads.nodes.iter().filter(|t| !t.is_resolved).count())
+            .map(|pr| {
+                pr.review_threads
+                    .nodes
+                    .iter()
+                    .filter(|t| !t.is_resolved)
+                    .count()
+            })
             .unwrap_or(0);
 
         Ok(count)
@@ -518,7 +518,13 @@ mod tests {
             .data
             .and_then(|d| d.repository)
             .and_then(|r| r.pull_request)
-            .map(|pr| pr.review_threads.nodes.iter().filter(|t| !t.is_resolved).count())
+            .map(|pr| {
+                pr.review_threads
+                    .nodes
+                    .iter()
+                    .filter(|t| !t.is_resolved)
+                    .count()
+            })
             .unwrap_or(0);
 
         assert_eq!(count, 2);
@@ -543,7 +549,13 @@ mod tests {
             .data
             .and_then(|d| d.repository)
             .and_then(|r| r.pull_request)
-            .map(|pr| pr.review_threads.nodes.iter().filter(|t| !t.is_resolved).count())
+            .map(|pr| {
+                pr.review_threads
+                    .nodes
+                    .iter()
+                    .filter(|t| !t.is_resolved)
+                    .count()
+            })
             .unwrap_or(0);
 
         assert_eq!(count, 0);
@@ -564,7 +576,13 @@ mod tests {
             .data
             .and_then(|d| d.repository)
             .and_then(|r| r.pull_request)
-            .map(|pr| pr.review_threads.nodes.iter().filter(|t| !t.is_resolved).count())
+            .map(|pr| {
+                pr.review_threads
+                    .nodes
+                    .iter()
+                    .filter(|t| !t.is_resolved)
+                    .count()
+            })
             .unwrap_or(0);
 
         assert_eq!(count, 0);

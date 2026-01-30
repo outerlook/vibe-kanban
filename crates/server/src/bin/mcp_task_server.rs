@@ -31,13 +31,13 @@ fn main() -> anyhow::Result<()> {
                 let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
                 let port = std::env::var("BACKEND_PORT")
                     .or_else(|_| std::env::var("PORT"))
-                    .map_err(|_| anyhow::anyhow!(
-                        "VIBE_BACKEND_URL or BACKEND_PORT/PORT must be set"
-                    ))?;
+                    .map_err(|_| {
+                        anyhow::anyhow!("VIBE_BACKEND_URL or BACKEND_PORT/PORT must be set")
+                    })?;
 
-                let port: u16 = port.parse().map_err(|e| {
-                    anyhow::anyhow!("Invalid port value '{}': {}", port, e)
-                })?;
+                let port: u16 = port
+                    .parse()
+                    .map_err(|e| anyhow::anyhow!("Invalid port value '{}': {}", port, e))?;
 
                 let url = format!("http://{}:{}", host, port);
                 tracing::info!("[MCP] Using backend URL: {}", url);

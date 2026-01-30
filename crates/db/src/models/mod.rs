@@ -1,6 +1,5 @@
 pub mod agent_feedback;
 pub mod app_settings;
-pub mod review_attention;
 pub mod coding_agent_turn;
 pub mod conversation_message;
 pub mod conversation_session;
@@ -17,6 +16,7 @@ pub mod notification;
 pub mod project;
 pub mod project_repo;
 pub mod repo;
+pub mod review_attention;
 pub mod scratch;
 pub mod session;
 pub mod tag;

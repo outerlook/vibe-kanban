@@ -12,7 +12,7 @@ use db::models::{
     execution_process::ExecutionProcessStatus,
 };
 use services::services::feedback::FeedbackService;
-use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 use tempfile::NamedTempFile;
 use uuid::Uuid;
 
@@ -164,8 +164,13 @@ async fn test_feedback_stored_after_successful_parsing() {
     let task_id = create_test_task(&pool, project_id, "Test Task").await;
     let workspace_id = create_test_workspace(&pool, task_id, "feature-branch").await;
     let session_id = create_test_session(&pool, workspace_id).await;
-    let exec_id =
-        create_test_execution_process(&pool, workspace_id, session_id, ExecutionProcessStatus::Completed).await;
+    let exec_id = create_test_execution_process(
+        &pool,
+        workspace_id,
+        session_id,
+        ExecutionProcessStatus::Completed,
+    )
+    .await;
 
     // Simulate agent response with valid feedback JSON
     let agent_response = r#"{
@@ -177,10 +182,14 @@ async fn test_feedback_stored_after_successful_parsing() {
     }"#;
 
     // Simulate the feedback storage flow
-    let result = simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
+    let result =
+        simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
 
     // Verify feedback was stored
-    assert!(result.is_ok(), "Expected feedback to be stored successfully");
+    assert!(
+        result.is_ok(),
+        "Expected feedback to be stored successfully"
+    );
     let feedback = result.unwrap();
 
     assert_eq!(feedback.task_id, task_id);
@@ -216,8 +225,13 @@ async fn test_feedback_stored_with_json_in_markdown_code_block() {
     let task_id = create_test_task(&pool, project_id, "Markdown Task").await;
     let workspace_id = create_test_workspace(&pool, task_id, "feature-md").await;
     let session_id = create_test_session(&pool, workspace_id).await;
-    let exec_id =
-        create_test_execution_process(&pool, workspace_id, session_id, ExecutionProcessStatus::Completed).await;
+    let exec_id = create_test_execution_process(
+        &pool,
+        workspace_id,
+        session_id,
+        ExecutionProcessStatus::Completed,
+    )
+    .await;
 
     // Agent response with JSON embedded in markdown code block
     let agent_response = r#"Here's my feedback on the task:
@@ -234,7 +248,8 @@ async fn test_feedback_stored_with_json_in_markdown_code_block() {
 
 Hope this helps improve the system!"#;
 
-    let result = simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
+    let result =
+        simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
 
     assert!(result.is_ok());
     let feedback = result.unwrap();
@@ -259,8 +274,13 @@ async fn test_feedback_retrievable_by_task_id() {
 
     // Create multiple feedback entries for the same task
     for i in 1..=3 {
-        let exec_id =
-            create_test_execution_process(&pool, workspace_id, session_id, ExecutionProcessStatus::Completed).await;
+        let exec_id = create_test_execution_process(
+            &pool,
+            workspace_id,
+            session_id,
+            ExecutionProcessStatus::Completed,
+        )
+        .await;
 
         let agent_response = format!(
             r#"{{
@@ -273,7 +293,8 @@ async fn test_feedback_retrievable_by_task_id() {
             i
         );
 
-        let result = simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, &agent_response).await;
+        let result =
+            simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, &agent_response).await;
         assert!(result.is_ok(), "Failed to store feedback round {}", i);
 
         // Small delay to ensure distinct timestamps
@@ -304,13 +325,19 @@ async fn test_feedback_not_stored_for_malformed_json() {
     let task_id = create_test_task(&pool, project_id, "Malformed Task").await;
     let workspace_id = create_test_workspace(&pool, task_id, "feature-malformed").await;
     let session_id = create_test_session(&pool, workspace_id).await;
-    let exec_id =
-        create_test_execution_process(&pool, workspace_id, session_id, ExecutionProcessStatus::Completed).await;
+    let exec_id = create_test_execution_process(
+        &pool,
+        workspace_id,
+        session_id,
+        ExecutionProcessStatus::Completed,
+    )
+    .await;
 
     // Malformed JSON response
     let agent_response = r#"This is not valid JSON at all {broken"#;
 
-    let result = simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
+    let result =
+        simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
 
     // Should fail to parse
     assert!(result.is_err());
@@ -320,7 +347,10 @@ async fn test_feedback_not_stored_for_malformed_json() {
     let feedbacks = AgentFeedback::find_by_task_id(&pool, task_id)
         .await
         .expect("Query should succeed");
-    assert!(feedbacks.is_empty(), "No feedback should be stored for malformed JSON");
+    assert!(
+        feedbacks.is_empty(),
+        "No feedback should be stored for malformed JSON"
+    );
 }
 
 #[tokio::test]
@@ -331,13 +361,19 @@ async fn test_feedback_not_stored_for_empty_response() {
     let task_id = create_test_task(&pool, project_id, "Empty Task").await;
     let workspace_id = create_test_workspace(&pool, task_id, "feature-empty").await;
     let session_id = create_test_session(&pool, workspace_id).await;
-    let exec_id =
-        create_test_execution_process(&pool, workspace_id, session_id, ExecutionProcessStatus::Completed).await;
+    let exec_id = create_test_execution_process(
+        &pool,
+        workspace_id,
+        session_id,
+        ExecutionProcessStatus::Completed,
+    )
+    .await;
 
     // Empty response
     let agent_response = "";
 
-    let result = simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
+    let result =
+        simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
 
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("Parse error"));
@@ -357,12 +393,18 @@ async fn test_feedback_not_stored_for_whitespace_only_response() {
     let task_id = create_test_task(&pool, project_id, "Whitespace Task").await;
     let workspace_id = create_test_workspace(&pool, task_id, "feature-ws").await;
     let session_id = create_test_session(&pool, workspace_id).await;
-    let exec_id =
-        create_test_execution_process(&pool, workspace_id, session_id, ExecutionProcessStatus::Completed).await;
+    let exec_id = create_test_execution_process(
+        &pool,
+        workspace_id,
+        session_id,
+        ExecutionProcessStatus::Completed,
+    )
+    .await;
 
     let agent_response = "   \n\t  ";
 
-    let result = simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
+    let result =
+        simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
 
     assert!(result.is_err());
 
@@ -389,8 +431,13 @@ async fn test_feedback_skipped_for_failed_execution_status() {
     let session_id = create_test_session(&pool, workspace_id).await;
 
     // Create execution with Failed status
-    let exec_id =
-        create_test_execution_process(&pool, workspace_id, session_id, ExecutionProcessStatus::Failed).await;
+    let exec_id = create_test_execution_process(
+        &pool,
+        workspace_id,
+        session_id,
+        ExecutionProcessStatus::Failed,
+    )
+    .await;
 
     // Even with valid feedback JSON, we simulate the behavior where
     // spawn_feedback_parser returns early for non-Completed status
@@ -411,7 +458,8 @@ async fn test_feedback_skipped_for_failed_execution_status() {
         // Don't store feedback - this is the expected behavior
     } else {
         // This branch should NOT be taken for failed executions
-        let _ = simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
+        let _ =
+            simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
     }
 
     // Verify no feedback was stored
@@ -434,8 +482,13 @@ async fn test_feedback_skipped_for_killed_execution_status() {
     let session_id = create_test_session(&pool, workspace_id).await;
 
     // Create execution with Killed status
-    let exec_id =
-        create_test_execution_process(&pool, workspace_id, session_id, ExecutionProcessStatus::Killed).await;
+    let exec_id = create_test_execution_process(
+        &pool,
+        workspace_id,
+        session_id,
+        ExecutionProcessStatus::Killed,
+    )
+    .await;
 
     let agent_response = r#"{
         "task_clarity": "This should not be stored either",
@@ -451,7 +504,8 @@ async fn test_feedback_skipped_for_killed_execution_status() {
     if exec_status != ExecutionProcessStatus::Completed {
         // Don't store feedback - expected behavior for Killed status
     } else {
-        let _ = simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
+        let _ =
+            simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
     }
 
     let feedbacks = AgentFeedback::find_by_task_id(&pool, task_id)
@@ -495,8 +549,13 @@ async fn test_feedback_storage_independent_of_task_state() {
     let task_id = create_test_task(&pool, project_id, "Non-blocking Task").await;
     let workspace_id = create_test_workspace(&pool, task_id, "feature-nonblock").await;
     let session_id = create_test_session(&pool, workspace_id).await;
-    let exec_id =
-        create_test_execution_process(&pool, workspace_id, session_id, ExecutionProcessStatus::Completed).await;
+    let exec_id = create_test_execution_process(
+        &pool,
+        workspace_id,
+        session_id,
+        ExecutionProcessStatus::Completed,
+    )
+    .await;
 
     // Store feedback
     let agent_response = r#"{
@@ -507,7 +566,8 @@ async fn test_feedback_storage_independent_of_task_state() {
         "agent_documentation": null
     }"#;
 
-    let result = simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
+    let result =
+        simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
     assert!(result.is_ok());
 
     // Update task to 'done' status (simulating task finalization)
@@ -551,8 +611,13 @@ async fn test_multiple_feedback_entries_per_task() {
     ];
 
     for (clarity, docs) in feedbacks_to_create {
-        let exec_id =
-            create_test_execution_process(&pool, workspace_id, session_id, ExecutionProcessStatus::Completed).await;
+        let exec_id = create_test_execution_process(
+            &pool,
+            workspace_id,
+            session_id,
+            ExecutionProcessStatus::Completed,
+        )
+        .await;
 
         let agent_response = format!(
             r#"{{
@@ -565,7 +630,8 @@ async fn test_multiple_feedback_entries_per_task() {
             clarity, docs
         );
 
-        let result = simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, &agent_response).await;
+        let result =
+            simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, &agent_response).await;
         assert!(result.is_ok());
 
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -580,7 +646,11 @@ async fn test_multiple_feedback_entries_per_task() {
     // Check each execution has unique feedback
     let exec_ids: std::collections::HashSet<_> =
         feedbacks.iter().map(|f| f.execution_process_id).collect();
-    assert_eq!(exec_ids.len(), 3, "Each feedback should have unique execution_process_id");
+    assert_eq!(
+        exec_ids.len(),
+        3,
+        "Each feedback should have unique execution_process_id"
+    );
 }
 
 // ============================================================================
@@ -595,8 +665,13 @@ async fn test_feedback_find_by_execution_process_id() {
     let task_id = create_test_task(&pool, project_id, "Find by Exec Task").await;
     let workspace_id = create_test_workspace(&pool, task_id, "feature-find").await;
     let session_id = create_test_session(&pool, workspace_id).await;
-    let exec_id =
-        create_test_execution_process(&pool, workspace_id, session_id, ExecutionProcessStatus::Completed).await;
+    let exec_id = create_test_execution_process(
+        &pool,
+        workspace_id,
+        session_id,
+        ExecutionProcessStatus::Completed,
+    )
+    .await;
 
     let agent_response = r#"{
         "task_clarity": "Find by exec test",
@@ -618,7 +693,10 @@ async fn test_feedback_find_by_execution_process_id() {
     assert!(feedback.is_some());
     let feedback = feedback.unwrap();
     assert_eq!(feedback.execution_process_id, exec_id);
-    assert_eq!(get_feedback_field(&feedback, "task_clarity"), Some("Find by exec test".to_string()));
+    assert_eq!(
+        get_feedback_field(&feedback, "task_clarity"),
+        Some("Find by exec test".to_string())
+    );
 }
 
 #[tokio::test]
@@ -632,8 +710,13 @@ async fn test_feedback_find_recent() {
         let task_id = create_test_task(&pool, project_id, &format!("Task {}", i)).await;
         let workspace_id = create_test_workspace(&pool, task_id, &format!("feature-{}", i)).await;
         let session_id = create_test_session(&pool, workspace_id).await;
-        let exec_id =
-            create_test_execution_process(&pool, workspace_id, session_id, ExecutionProcessStatus::Completed).await;
+        let exec_id = create_test_execution_process(
+            &pool,
+            workspace_id,
+            session_id,
+            ExecutionProcessStatus::Completed,
+        )
+        .await;
 
         let agent_response = format!(
             r#"{{
@@ -677,8 +760,13 @@ async fn test_feedback_with_special_characters_and_quotes() {
     let task_id = create_test_task(&pool, project_id, "Special Chars Task").await;
     let workspace_id = create_test_workspace(&pool, task_id, "feature-special").await;
     let session_id = create_test_session(&pool, workspace_id).await;
-    let exec_id =
-        create_test_execution_process(&pool, workspace_id, session_id, ExecutionProcessStatus::Completed).await;
+    let exec_id = create_test_execution_process(
+        &pool,
+        workspace_id,
+        session_id,
+        ExecutionProcessStatus::Completed,
+    )
+    .await;
 
     // Response with escaped quotes and special characters
     let agent_response = r#"{
@@ -689,14 +777,21 @@ async fn test_feedback_with_special_characters_and_quotes() {
         "agent_documentation": "Used regex: \\d+\\.\\d+"
     }"#;
 
-    let result = simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
+    let result =
+        simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
 
     assert!(result.is_ok());
     let feedback = result.unwrap();
-    assert!(get_feedback_field(&feedback, "task_clarity")
-        .unwrap()
-        .contains("implement feature X"));
-    assert!(get_feedback_field(&feedback, "missing_tools").unwrap().contains("{curly}"));
+    assert!(
+        get_feedback_field(&feedback, "task_clarity")
+            .unwrap()
+            .contains("implement feature X")
+    );
+    assert!(
+        get_feedback_field(&feedback, "missing_tools")
+            .unwrap()
+            .contains("{curly}")
+    );
 }
 
 #[tokio::test]
@@ -707,8 +802,13 @@ async fn test_feedback_with_all_null_fields() {
     let task_id = create_test_task(&pool, project_id, "All Null Task").await;
     let workspace_id = create_test_workspace(&pool, task_id, "feature-null").await;
     let session_id = create_test_session(&pool, workspace_id).await;
-    let exec_id =
-        create_test_execution_process(&pool, workspace_id, session_id, ExecutionProcessStatus::Completed).await;
+    let exec_id = create_test_execution_process(
+        &pool,
+        workspace_id,
+        session_id,
+        ExecutionProcessStatus::Completed,
+    )
+    .await;
 
     // Agent has no feedback to give
     let agent_response = r#"{
@@ -719,7 +819,8 @@ async fn test_feedback_with_all_null_fields() {
         "agent_documentation": null
     }"#;
 
-    let result = simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
+    let result =
+        simulate_feedback_storage(&pool, exec_id, task_id, workspace_id, agent_response).await;
 
     assert!(result.is_ok());
     let feedback = result.unwrap();
@@ -727,7 +828,10 @@ async fn test_feedback_with_all_null_fields() {
     assert_eq!(get_feedback_field(&feedback, "task_clarity"), None);
     assert_eq!(get_feedback_field(&feedback, "missing_tools"), None);
     assert_eq!(get_feedback_field(&feedback, "integration_problems"), None);
-    assert_eq!(get_feedback_field(&feedback, "improvement_suggestions"), None);
+    assert_eq!(
+        get_feedback_field(&feedback, "improvement_suggestions"),
+        None
+    );
     assert_eq!(get_feedback_field(&feedback, "agent_documentation"), None);
 }
 
@@ -739,8 +843,13 @@ async fn test_feedback_find_by_id() {
     let task_id = create_test_task(&pool, project_id, "Find by ID Task").await;
     let workspace_id = create_test_workspace(&pool, task_id, "feature-id").await;
     let session_id = create_test_session(&pool, workspace_id).await;
-    let exec_id =
-        create_test_execution_process(&pool, workspace_id, session_id, ExecutionProcessStatus::Completed).await;
+    let exec_id = create_test_execution_process(
+        &pool,
+        workspace_id,
+        session_id,
+        ExecutionProcessStatus::Completed,
+    )
+    .await;
 
     let agent_response = r#"{
         "task_clarity": "Find by ID test",
@@ -762,7 +871,10 @@ async fn test_feedback_find_by_id() {
     assert!(found.is_some());
     let found = found.unwrap();
     assert_eq!(found.id, created.id);
-    assert_eq!(get_feedback_field(&found, "task_clarity"), Some("Find by ID test".to_string()));
+    assert_eq!(
+        get_feedback_field(&found, "task_clarity"),
+        Some("Find by ID test".to_string())
+    );
 }
 
 #[tokio::test]

@@ -1,16 +1,14 @@
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use chrono::Utc;
-use tokio::sync::RwLock;
-use tokio::time::interval;
+use tokio::{sync::RwLock, time::interval};
 use tracing::{debug, error, info};
 use utils::assets::{asset_dir, backup_dir};
 
-use crate::services::backup::{
-    apply_gfs_retention, create_backup_archive, delete_old_backups, list_backups,
+use crate::services::{
+    backup::{apply_gfs_retention, create_backup_archive, delete_old_backups, list_backups},
+    config::Config,
 };
-use crate::services::config::Config;
 
 /// Service to run periodic backups and apply retention policy.
 pub struct BackupService {
@@ -44,7 +42,8 @@ impl BackupService {
                 continue;
             }
 
-            let backup_interval = Duration::from_secs(backup_config.interval_hours as u64 * 60 * 60);
+            let backup_interval =
+                Duration::from_secs(backup_config.interval_hours as u64 * 60 * 60);
             let backup_dir = backup_dir();
 
             // Check if we need to create a new backup based on the last backup time

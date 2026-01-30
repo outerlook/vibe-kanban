@@ -6,9 +6,7 @@
 use std::{collections::HashMap, path::Path, sync::atomic::AtomicBool};
 
 use chrono::{DateTime, Utc};
-use gix::bstr::BStr;
-use gix::remote::Direction;
-use gix::status::index_worktree;
+use gix::{bstr::BStr, remote::Direction, status::index_worktree};
 use thiserror::Error;
 
 /// Statistics for a single file based on git history
@@ -191,7 +189,11 @@ impl GixReader {
         local_oid: &str,
         remote_oid: &str,
     ) -> Result<(usize, usize), GixReaderError> {
-        Self::ahead_behind(repo, Self::parse_oid(local_oid)?, Self::parse_oid(remote_oid)?)
+        Self::ahead_behind(
+            repo,
+            Self::parse_oid(local_oid)?,
+            Self::parse_oid(remote_oid)?,
+        )
     }
 
     /// Compute a tree-to-tree diff with rename detection.
@@ -202,7 +204,7 @@ impl GixReader {
     ) -> Result<Vec<TreeDiffEntry>, GixReaderError> {
         use gix::{
             bstr::ByteSlice,
-            object::tree::{diff::ChangeDetached, EntryKind},
+            object::tree::{EntryKind, diff::ChangeDetached},
         };
 
         let mut entries = Vec::new();
@@ -711,7 +713,11 @@ impl GixReader {
         ancestor_oid: &str,
         descendant_oid: &str,
     ) -> Result<bool, GixReaderError> {
-        Self::is_ancestor(repo, Self::parse_oid(ancestor_oid)?, Self::parse_oid(descendant_oid)?)
+        Self::is_ancestor(
+            repo,
+            Self::parse_oid(ancestor_oid)?,
+            Self::parse_oid(descendant_oid)?,
+        )
     }
 
     /// Find the merge base (common ancestor) of two commits.
@@ -768,37 +774,38 @@ impl GixReader {
             }
 
             let info = info_result?;
-            let commit = info.object().map_err(|e| {
-                GixReaderError::Diff(format!("Failed to get commit object: {e}"))
-            })?;
+            let commit = info
+                .object()
+                .map_err(|e| GixReaderError::Diff(format!("Failed to get commit object: {e}")))?;
 
             // Get commit timestamp
             let commit_time = {
-                let time = commit.time().map_err(|e| {
-                    GixReaderError::Diff(format!("Failed to get commit time: {e}"))
-                })?;
+                let time = commit
+                    .time()
+                    .map_err(|e| GixReaderError::Diff(format!("Failed to get commit time: {e}")))?;
                 DateTime::from_timestamp(time.seconds, 0).unwrap_or_else(Utc::now)
             };
 
             // Get the commit tree
-            let commit_tree = commit.tree().map_err(|e| {
-                GixReaderError::Diff(format!("Failed to get commit tree: {e}"))
-            })?;
+            let commit_tree = commit
+                .tree()
+                .map_err(|e| GixReaderError::Diff(format!("Failed to get commit tree: {e}")))?;
 
             // Get parent tree (or empty for root commits)
             let parent_ids: Vec<_> = commit.parent_ids().collect();
-            let parent_tree = if parent_ids.is_empty() {
-                None
-            } else {
-                // Use first parent for simplicity (following linear history)
-                let parent_id = parent_ids[0];
-                let parent_commit = repo.find_commit(parent_id).map_err(|e| {
-                    GixReaderError::Diff(format!("Failed to find parent commit: {e}"))
-                })?;
-                Some(parent_commit.tree().map_err(|e| {
-                    GixReaderError::Diff(format!("Failed to get parent tree: {e}"))
-                })?)
-            };
+            let parent_tree =
+                if parent_ids.is_empty() {
+                    None
+                } else {
+                    // Use first parent for simplicity (following linear history)
+                    let parent_id = parent_ids[0];
+                    let parent_commit = repo.find_commit(parent_id).map_err(|e| {
+                        GixReaderError::Diff(format!("Failed to find parent commit: {e}"))
+                    })?;
+                    Some(parent_commit.tree().map_err(|e| {
+                        GixReaderError::Diff(format!("Failed to get parent tree: {e}"))
+                    })?)
+                };
 
             // Diff trees to find changed files
             let changes = repo
@@ -1283,8 +1290,11 @@ mod tests {
 
         // Add 3 commits on feature
         for i in 1..=3 {
-            fs::write(repo_path.join(format!("feature{}.txt", i)), format!("content{}", i))
-                .unwrap();
+            fs::write(
+                repo_path.join(format!("feature{}.txt", i)),
+                format!("content{}", i),
+            )
+            .unwrap();
             Command::new("git")
                 .args(["add", "."])
                 .current_dir(repo_path)
@@ -1305,7 +1315,11 @@ mod tests {
             .expect("Failed to checkout main");
 
         for i in 1..=2 {
-            fs::write(repo_path.join(format!("main{}.txt", i)), format!("main{}", i)).unwrap();
+            fs::write(
+                repo_path.join(format!("main{}.txt", i)),
+                format!("main{}", i),
+            )
+            .unwrap();
             Command::new("git")
                 .args(["add", "."])
                 .current_dir(repo_path)
@@ -1504,7 +1518,11 @@ mod tests {
 
         // Create a repo with some history
         for i in 1..=10 {
-            fs::write(repo_path.join(format!("file{}.txt", i)), format!("content{}", i)).unwrap();
+            fs::write(
+                repo_path.join(format!("file{}.txt", i)),
+                format!("content{}", i),
+            )
+            .unwrap();
             Command::new("git")
                 .args(["add", "."])
                 .current_dir(repo_path)
@@ -1601,8 +1619,14 @@ mod tests {
         println!("\n=== Gix vs Git CLI Performance Comparison ===");
         println!("Operations per iteration: head_info + worktree_status + ahead_behind");
         println!("Iterations: {}", iterations);
-        println!("Git CLI total: {:?} ({:?} per iteration)", cli_duration, cli_per_op);
-        println!("Gix total:     {:?} ({:?} per iteration)", gix_duration, gix_per_op);
+        println!(
+            "Git CLI total: {:?} ({:?} per iteration)",
+            cli_duration, cli_per_op
+        );
+        println!(
+            "Gix total:     {:?} ({:?} per iteration)",
+            gix_duration, gix_per_op
+        );
         println!("Speedup: {:.2}x faster", speedup);
         println!("==============================================\n");
 

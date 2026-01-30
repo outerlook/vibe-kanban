@@ -87,9 +87,7 @@ impl LocalDeployment {
         Self::new_internal(server_log_store).await
     }
 
-    async fn new_internal(
-        server_log_store: Arc<ServerLogStore>,
-    ) -> Result<Self, DeploymentError> {
+    async fn new_internal(server_log_store: Arc<ServerLogStore>) -> Result<Self, DeploymentError> {
         let mut raw_config = load_config_from_file(&config_path()).await;
 
         let profiles = ExecutorConfigs::get_cached();

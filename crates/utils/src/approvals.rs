@@ -138,9 +138,7 @@ pub fn format_qa_as_follow_up_prompt(
     questions: &[QuestionData],
     answers: &[QuestionAnswer],
 ) -> String {
-    let mut prompt = String::from(
-        "The user has answered your question(s). Here is the Q&A:\n\n",
-    );
+    let mut prompt = String::from("The user has answered your question(s). Here is the Q&A:\n\n");
 
     for answer in answers {
         if answer.question_index >= questions.len() {

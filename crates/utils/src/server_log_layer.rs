@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use tracing::field::{Field, Visit};
-use tracing::{Event, Subscriber};
-use tracing_subscriber::layer::Context;
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::Layer;
+use tracing::{
+    Event, Subscriber,
+    field::{Field, Visit},
+};
+use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 
 use crate::server_log_store::{ServerLogEntry, ServerLogStore};
 

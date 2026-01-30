@@ -45,8 +45,7 @@ use services::services::{
 use sqlx::Error as SqlxError;
 use thiserror::Error;
 use tokio::sync::RwLock;
-use utils::sentry as sentry_utils;
-use utils::server_log_store::ServerLogStore;
+use utils::{sentry as sentry_utils, server_log_store::ServerLogStore};
 
 #[derive(Debug, Clone, Copy, Error)]
 #[error("Remote client not configured")]

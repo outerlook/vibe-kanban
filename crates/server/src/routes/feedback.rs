@@ -27,9 +27,10 @@ pub struct FeedbackResponse {
 
 impl From<AgentFeedback> for FeedbackResponse {
     fn from(f: AgentFeedback) -> Self {
-        let feedback = f.feedback_json.as_ref().and_then(|json_str| {
-            serde_json::from_str(json_str).ok()
-        });
+        let feedback = f
+            .feedback_json
+            .as_ref()
+            .and_then(|json_str| serde_json::from_str(json_str).ok());
 
         FeedbackResponse {
             id: f.id,
