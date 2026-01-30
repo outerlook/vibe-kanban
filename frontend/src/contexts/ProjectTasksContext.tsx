@@ -12,12 +12,13 @@ import { useQueries } from '@tanstack/react-query';
 import { useProject } from '@/contexts/ProjectContext';
 import { tasksApi, getApiBaseUrlSync } from '@/lib/api';
 import type { Operation } from 'rfc6902';
-import type { OperationStatus, TaskStatus, TaskWithAttemptStatus } from 'shared/types';
+import type { HookExecution, OperationStatus, TaskStatus, TaskWithAttemptStatus } from 'shared/types';
 
 const PAGE_SIZE = 25;
 const ALL_STATUSES: TaskStatus[] = ['todo', 'inprogress', 'inreview', 'done', 'cancelled'];
 const TASK_PATH_PREFIX = '/tasks/';
 const OPERATION_STATUS_PATH_PREFIX = '/operation_status/';
+const HOOK_EXECUTION_PATH_PREFIX = '/hook_executions/';
 
 type WsJsonPatchMsg = { JsonPatch: Operation[] };
 type WsFinishedMsg = { finished: boolean };
@@ -61,6 +62,7 @@ interface ProjectTasksContextValue {
   tasksById: Record<string, TaskWithAttemptStatus>;
   operationStatuses: Record<string, OperationStatus>;
   operationStatusesByTaskId: Record<string, OperationStatus>;
+  hookExecutionsByTaskId: Record<string, HookExecution[]>;
   paginationByStatus: PerStatusPagination;
   isQueriesLoading: boolean;
   isInitialSyncComplete: boolean;
@@ -79,6 +81,7 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
   const { projectId } = useProject();
   const [tasksById, setTasksById] = useState<Record<string, TaskWithAttemptStatus>>({});
   const [operationStatuses, setOperationStatuses] = useState<Record<string, OperationStatus>>({});
+  const [hookExecutionsByTaskId, setHookExecutionsByTaskId] = useState<Record<string, HookExecution[]>>({});
   const [paginationByStatus, setPaginationByStatus] = useState<PerStatusPagination>(createInitialPaginationState);
   const [error, setError] = useState<string | null>(null);
   const [syncedDataIds, setSyncedDataIds] = useState<string | null>(null);
@@ -145,6 +148,7 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
     if (!projectId) {
       setTasksById((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       setOperationStatuses((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+      setHookExecutionsByTaskId((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       setPaginationByStatus(createInitialPaginationState);
       setSyncedDataIds(null);
       return;
@@ -333,6 +337,68 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
     });
   }, []);
 
+  // Apply hook execution patches from WebSocket
+  // Path format: /hook_executions/{task_id}/{execution_id}
+  const applyHookExecutionPatches = useCallback((patches: Operation[]) => {
+    if (!patches.length) return;
+
+    setHookExecutionsByTaskId((prev) => {
+      let next = prev;
+
+      for (const op of patches) {
+        if (!op.path.startsWith(HOOK_EXECUTION_PATH_PREFIX)) continue;
+
+        const remainder = op.path.slice(HOOK_EXECUTION_PATH_PREFIX.length);
+        const slashIndex = remainder.indexOf('/');
+        if (slashIndex === -1) continue;
+
+        const taskId = decodePointerSegment(remainder.slice(0, slashIndex));
+        const executionId = decodePointerSegment(remainder.slice(slashIndex + 1));
+        if (!taskId || !executionId) continue;
+
+        if (op.op === 'remove') {
+          const existingList = next[taskId];
+          if (!existingList) continue;
+          const idx = existingList.findIndex((e) => e.id === executionId);
+          if (idx === -1) continue;
+          if (next === prev) next = { ...prev };
+          const newList = existingList.filter((e) => e.id !== executionId);
+          if (newList.length === 0) {
+            delete next[taskId];
+          } else {
+            next[taskId] = newList;
+          }
+          continue;
+        }
+
+        if (op.op !== 'add' && op.op !== 'replace') continue;
+
+        const execution = op.value as HookExecution;
+        if (!execution || typeof execution !== 'object' || !execution.id) continue;
+
+        if (next === prev) next = { ...prev };
+
+        const existingList = next[taskId] ?? [];
+        const idx = existingList.findIndex((e) => e.id === executionId);
+
+        if (op.op === 'add') {
+          if (idx === -1) {
+            next[taskId] = [...existingList, execution];
+          }
+        } else {
+          // replace
+          if (idx !== -1) {
+            const newList = [...existingList];
+            newList[idx] = execution;
+            next[taskId] = newList;
+          }
+        }
+      }
+
+      return next;
+    });
+  }, []);
+
   // Single WebSocket connection for the entire app
   useEffect(() => {
     if (!projectId) {
@@ -372,6 +438,7 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
           if ('JsonPatch' in msg) {
             applyTaskPatches(msg.JsonPatch);
             applyOperationStatusPatches(msg.JsonPatch);
+            applyHookExecutionPatches(msg.JsonPatch);
           }
           if ('finished' in msg) {
             ws?.close(1000, 'finished');
@@ -412,7 +479,7 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
         ws = null;
       }
     };
-  }, [projectId, applyTaskPatches, applyOperationStatusPatches]);
+  }, [projectId, applyTaskPatches, applyOperationStatusPatches, applyHookExecutionPatches]);
 
   // Compute a mapping from task_id to OperationStatus for quick lookup
   const operationStatusesByTaskId = useMemo(() => {
@@ -428,6 +495,7 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
       tasksById,
       operationStatuses,
       operationStatusesByTaskId,
+      hookExecutionsByTaskId,
       paginationByStatus,
       isQueriesLoading,
       isInitialSyncComplete,
@@ -435,7 +503,7 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
       loadMoreForStatus,
       mergeTasks,
     }),
-    [tasksById, operationStatuses, operationStatusesByTaskId, paginationByStatus, isQueriesLoading, isInitialSyncComplete, error, loadMoreForStatus, mergeTasks]
+    [tasksById, operationStatuses, operationStatusesByTaskId, hookExecutionsByTaskId, paginationByStatus, isQueriesLoading, isInitialSyncComplete, error, loadMoreForStatus, mergeTasks]
   );
 
   return (
