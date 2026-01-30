@@ -292,9 +292,14 @@ pub async fn save_account(name: Option<String>) -> Result<SavedAccount, ClaudeAc
 
     let hash_prefix = hash_token(&access_token);
 
+    let account_uuid = fetch_account_uuid(&access_token).await;
+    if account_uuid.is_none() {
+        tracing::warn!("Failed to fetch account UUID, saving without UUID");
+    }
+
     let metadata = SavedAccount {
         hash_prefix: hash_prefix.clone(),
-        account_uuid: None, // TODO: Populate from fetch_account_uuid in a future task
+        account_uuid,
         name,
         subscription_type,
         rate_limit_tier: oauth.rate_limit_tier,
