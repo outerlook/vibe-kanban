@@ -6,9 +6,8 @@ use thiserror::Error;
 use tokio::sync::RwLock;
 use utils::msg_store::MsgStore;
 
-use crate::services::config::Config;
-
 use super::{DomainEvent, ExecutionTriggerCallback, HookExecutionStore};
+use crate::services::config::Config;
 
 /// Determines how an event handler should be executed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

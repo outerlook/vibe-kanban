@@ -238,11 +238,7 @@ mod tests {
             }
         ]);
 
-        let message = ToolResultMessage::new(
-            "tool-use-123".to_string(),
-            result.clone(),
-            false,
-        );
+        let message = ToolResultMessage::new("tool-use-123".to_string(), result.clone(), false);
 
         let json = serde_json::to_value(&message).unwrap();
 
@@ -258,11 +254,7 @@ mod tests {
             "error": "User cancelled the question"
         });
 
-        let message = ToolResultMessage::new(
-            "tool-456".to_string(),
-            error_result.clone(),
-            true,
-        );
+        let message = ToolResultMessage::new("tool-456".to_string(), error_result.clone(), true);
 
         let json = serde_json::to_value(&message).unwrap();
 

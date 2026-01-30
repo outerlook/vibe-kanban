@@ -71,11 +71,7 @@ impl GlobalSkillsCache {
     /// Get the count of cached skills, or 0 if none cached.
     pub async fn skills_count(&self) -> usize {
         let inner = self.inner.read().await;
-        inner
-            .skills
-            .as_ref()
-            .map(|s| s.skills.len())
-            .unwrap_or(0)
+        inner.skills.as_ref().map(|s| s.skills.len()).unwrap_or(0)
     }
 
     /// Get the count of cached slash commands, or 0 if none cached.
@@ -97,8 +93,9 @@ impl Default for GlobalSkillsCache {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use executors::executors::claude::SkillInfo;
+
+    use super::*;
 
     fn make_test_skills_data() -> SkillsData {
         SkillsData {

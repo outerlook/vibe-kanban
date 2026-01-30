@@ -219,9 +219,10 @@ pub async fn check_branch_merge_status(
         .and_then(|pr| pr.merge_target_branch.clone())
         .unwrap_or_else(|| "main".to_string());
 
-    let result = deployment
-        .git()
-        .is_branch_merged_into(&repo.path, &payload.branch_name, &target_branch);
+    let result =
+        deployment
+            .git()
+            .is_branch_merged_into(&repo.path, &payload.branch_name, &target_branch);
 
     let status = match result {
         Ok(None) => BranchMergeStatus {
@@ -274,9 +275,10 @@ pub async fn batch_check_branch_merge_status(
     let mut statuses = std::collections::HashMap::new();
 
     for branch_name in payload.branches {
-        let result = deployment
-            .git()
-            .is_branch_merged_into(&repo.path, &branch_name, &target_branch);
+        let result =
+            deployment
+                .git()
+                .is_branch_merged_into(&repo.path, &branch_name, &target_branch);
 
         let status = match result {
             Ok(None) => BranchMergeStatus {

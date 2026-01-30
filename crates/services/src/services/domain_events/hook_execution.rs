@@ -158,12 +158,7 @@ impl HookExecutionStore {
     /// Get all active executions across all tasks.
     /// Useful for initial state sync when a client connects.
     pub fn get_all(&self) -> Vec<HookExecution> {
-        self.executions
-            .read()
-            .values()
-            .flatten()
-            .cloned()
-            .collect()
+        self.executions.read().values().flatten().cloned().collect()
     }
 
     /// Clear completed (non-Running) executions for a task.

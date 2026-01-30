@@ -70,12 +70,12 @@ impl DomainEventDispatcher {
                     let result = handler.handle(event, &ctx).await;
 
                     // Update execution status if we were tracking
-                    if let Some(exec_id) = execution_id {
-                        if let Some(store) = &ctx.hook_execution_store {
-                            match &result {
-                                Ok(()) => store.complete_execution(exec_id),
-                                Err(e) => store.fail_execution(exec_id, e.to_string()),
-                            }
+                    if let Some(exec_id) = execution_id
+                        && let Some(store) = &ctx.hook_execution_store
+                    {
+                        match &result {
+                            Ok(()) => store.complete_execution(exec_id),
+                            Err(e) => store.fail_execution(exec_id, e.to_string()),
                         }
                     }
 
@@ -201,19 +201,21 @@ impl Default for DispatcherBuilder {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::time::Duration;
+    use std::{
+        sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+        time::Duration,
+    };
 
     use async_trait::async_trait;
-    use db::models::task::{Task, TaskStatus};
-    use db::models::workspace::Workspace;
+    use db::models::{
+        task::{Task, TaskStatus},
+        workspace::Workspace,
+    };
     use tokio::sync::RwLock;
     use utils::msg_store::MsgStore;
 
-    use crate::services::config::Config;
-    use crate::services::domain_events::HandlerError;
-
     use super::*;
+    use crate::services::{config::Config, domain_events::HandlerError};
 
     fn test_task() -> Task {
         Task {
@@ -250,8 +252,9 @@ mod tests {
     fn test_context() -> HandlerContext {
         // We need a real-ish db for tests, but we can use an in-memory SQLite pool
         // The handlers in these tests don't actually query the database
-        let pool =
-            sqlx::sqlite::SqlitePoolOptions::new().connect_lazy("sqlite::memory:").unwrap();
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect_lazy("sqlite::memory:")
+            .unwrap();
         let db = db::DBService { pool };
         let config = Arc::new(RwLock::new(Config::default()));
         let msg_store = Arc::new(MsgStore::default());
@@ -781,7 +784,13 @@ mod tests {
         assert_eq!(execs[0].handler_name, "failing_spawned");
         assert_eq!(execs[0].hook_point, HookPoint::PostTaskStatusChange);
         assert_eq!(execs[0].status, HookExecutionStatus::Failed);
-        assert!(execs[0].error.as_ref().unwrap().contains("intentional failure"));
+        assert!(
+            execs[0]
+                .error
+                .as_ref()
+                .unwrap()
+                .contains("intentional failure")
+        );
     }
 
     #[tokio::test]
@@ -851,6 +860,9 @@ mod tests {
 
         // But no hook executions should be tracked (since event has no task_id)
         let all_execs = hook_store.get_all();
-        assert!(all_execs.is_empty(), "No executions should be tracked for events without task_id");
+        assert!(
+            all_execs.is_empty(),
+            "No executions should be tracked for events without task_id"
+        );
     }
 }

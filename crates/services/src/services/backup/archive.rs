@@ -1,11 +1,12 @@
-use std::fs::File;
-use std::io::{BufReader, Read, Write};
-use std::path::{Path, PathBuf};
+use std::{
+    fs::File,
+    io::{BufReader, Read, Write},
+    path::{Path, PathBuf},
+};
 
 use chrono::Utc;
 use tracing::warn;
-use zip::write::SimpleFileOptions;
-use zip::CompressionMethod;
+use zip::{CompressionMethod, write::SimpleFileOptions};
 
 use super::BackupError;
 
@@ -66,7 +67,10 @@ fn create_backup_archive_blocking(
     if alerts_dir.exists() && alerts_dir.is_dir() {
         add_directory_to_zip(&mut zip, &alerts_dir, ALERT_DIR, options)?;
     } else {
-        warn!("Skipping missing alerts directory: {}", alerts_dir.display());
+        warn!(
+            "Skipping missing alerts directory: {}",
+            alerts_dir.display()
+        );
     }
 
     zip.finish()?;
@@ -124,9 +128,11 @@ fn add_directory_to_zip<W: Write + std::io::Seek>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Read;
+
     use tempfile::TempDir;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_create_backup_archive() {
@@ -146,18 +152,22 @@ mod tests {
             .unwrap();
 
         assert!(archive_path.exists());
-        assert!(archive_path
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .starts_with("backup_"));
-        assert!(archive_path
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .ends_with(".zip"));
+        assert!(
+            archive_path
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("backup_")
+        );
+        assert!(
+            archive_path
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .ends_with(".zip")
+        );
 
         let file = File::open(&archive_path).unwrap();
         let mut zip = zip::ZipArchive::new(file).unwrap();

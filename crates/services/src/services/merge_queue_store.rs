@@ -127,7 +127,9 @@ impl MergeQueueStore {
     pub fn remove(&self, workspace_id: Uuid) -> Option<MergeQueueEntry> {
         let removed = {
             let mut entries = self.entries.write();
-            let idx = entries.iter().position(|e| e.workspace_id == workspace_id)?;
+            let idx = entries
+                .iter()
+                .position(|e| e.workspace_id == workspace_id)?;
             Some(entries.remove(idx))
         };
 
@@ -190,8 +192,9 @@ impl MergeQueueStore {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::Duration;
+
+    use super::*;
 
     fn create_store() -> MergeQueueStore {
         let msg_store = Arc::new(MsgStore::new());
@@ -205,12 +208,7 @@ mod tests {
         let workspace_id = Uuid::new_v4();
         let repo_id = Uuid::new_v4();
 
-        let entry = store.enqueue(
-            project_id,
-            workspace_id,
-            repo_id,
-            "Test commit".to_string(),
-        );
+        let entry = store.enqueue(project_id, workspace_id, repo_id, "Test commit".to_string());
 
         assert_eq!(entry.project_id, project_id);
         assert_eq!(entry.workspace_id, workspace_id);

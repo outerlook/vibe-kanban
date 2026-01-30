@@ -125,11 +125,10 @@ function HookExecutionItem({ execution }: { execution: HookExecution }) {
 
 export function HookStatusDetails({ taskId }: HookStatusDetailsProps) {
   const { hookExecutionsByTaskId } = useProjectTasksContext();
-  const executions = hookExecutionsByTaskId[taskId] ?? [];
 
   const sortedExecutions = useMemo(
-    () => sortExecutions(executions),
-    [executions]
+    () => sortExecutions(hookExecutionsByTaskId[taskId] ?? []),
+    [hookExecutionsByTaskId, taskId]
   );
 
   if (sortedExecutions.length === 0) {

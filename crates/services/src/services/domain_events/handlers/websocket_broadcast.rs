@@ -6,9 +6,8 @@ use db::models::{
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::services::events::{project_with_counts_patch, task_patch};
-
 use super::super::{DomainEvent, EventHandler, ExecutionMode, HandlerContext, HandlerError};
+use crate::services::events::{project_with_counts_patch, task_patch};
 
 /// Handler that broadcasts task and project updates via WebSocket patches.
 ///
@@ -56,7 +55,10 @@ impl EventHandler for WebSocketBroadcastHandler {
                 // When execution completes, refresh the task to get latest status.
                 // ExecutionProcess links to task through session -> workspace -> task
                 if let Some(session_id) = process.session_id {
-                    if let Some(task_id) = self.get_task_id_from_session(&ctx.db.pool, session_id).await {
+                    if let Some(task_id) = self
+                        .get_task_id_from_session(&ctx.db.pool, session_id)
+                        .await
+                    {
                         if let Some(task_with_status) =
                             Task::find_by_id_with_attempt_status(&ctx.db.pool, task_id).await?
                         {
@@ -80,7 +82,9 @@ impl WebSocketBroadcastHandler {
         session_id: Uuid,
     ) -> Option<Uuid> {
         let session = Session::find_by_id(pool, session_id).await.ok()??;
-        let workspace = Workspace::find_by_id(pool, session.workspace_id).await.ok()??;
+        let workspace = Workspace::find_by_id(pool, session.workspace_id)
+            .await
+            .ok()??;
         Some(workspace.task_id)
     }
 
@@ -110,8 +114,9 @@ impl WebSocketBroadcastHandler {
             match TaskDependency::find_blocking(&ctx.db.pool, task.id).await {
                 Ok(dependent_tasks) => {
                     for dep_task in dependent_tasks {
-                        if let Err(e) =
-                            self.push_task_update(&ctx.db.pool, &ctx.msg_store, dep_task.id).await
+                        if let Err(e) = self
+                            .push_task_update(&ctx.db.pool, &ctx.msg_store, dep_task.id)
+                            .await
                         {
                             warn!(
                                 task_id = %dep_task.id,
@@ -198,7 +203,8 @@ mod tests {
     #[test]
     fn test_handles_execution_completed() {
         use db::models::execution_process::{
-            ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus, ExecutorActionField,
+            ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus,
+            ExecutorActionField,
         };
 
         let handler = WebSocketBroadcastHandler::new();

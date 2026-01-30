@@ -132,7 +132,10 @@ fn classify_git_change(relative_path: &Path) -> GitStateChangeKind {
         GitStateChangeKind::Index
     } else if path_str.starts_with("refs/") || path_str == "packed-refs" {
         GitStateChangeKind::Refs
-    } else if path_str == "REBASE_HEAD" || path_str.starts_with("rebase-merge/") || path_str.starts_with("rebase-apply/") {
+    } else if path_str == "REBASE_HEAD"
+        || path_str.starts_with("rebase-merge/")
+        || path_str.starts_with("rebase-apply/")
+    {
         GitStateChangeKind::RebaseHead
     } else if path_str == "MERGE_HEAD" {
         GitStateChangeKind::MergeHead
@@ -236,7 +239,10 @@ impl GitWatcherManager {
 
     /// Subscribe to git state changes for a worktree path.
     /// Creates a new watcher if one doesn't exist, or returns a subscription to the existing one.
-    pub fn subscribe(&self, worktree_path: PathBuf) -> Result<GitWatcherSubscription, GitWatcherError> {
+    pub fn subscribe(
+        &self,
+        worktree_path: PathBuf,
+    ) -> Result<GitWatcherSubscription, GitWatcherError> {
         // Resolve the actual git directory
         let git_dir = resolve_git_dir(&worktree_path)?;
         let canonical_git_dir = dunce::canonicalize(&git_dir).unwrap_or_else(|_| git_dir.clone());
@@ -413,6 +419,7 @@ impl GitWatcherManager {
 #[cfg(test)]
 mod tests {
     use std::fs;
+
     use tempfile::TempDir;
 
     use super::*;
@@ -423,7 +430,11 @@ mod tests {
         fs::create_dir_all(git_dir.join("refs/heads")).unwrap();
         fs::create_dir_all(git_dir.join("objects")).unwrap();
         fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
-        fs::write(git_dir.join("config"), "[core]\n\trepositoryformatversion = 0\n").unwrap();
+        fs::write(
+            git_dir.join("config"),
+            "[core]\n\trepositoryformatversion = 0\n",
+        )
+        .unwrap();
         // Create empty index
         fs::write(git_dir.join("index"), "").unwrap();
     }

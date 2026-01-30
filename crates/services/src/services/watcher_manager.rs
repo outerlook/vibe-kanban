@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-use futures::{select, FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, select};
 use futures_timer::Delay;
 use notify_debouncer_full::DebounceEventResult;
 use parking_lot::RwLock;

@@ -5,7 +5,7 @@
 
 use executors::{
     actions::{
-        coding_agent_follow_up::CodingAgentFollowUpRequest, ExecutorAction, ExecutorActionType,
+        ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
     },
     profile::ExecutorProfileId,
 };
@@ -174,7 +174,10 @@ Be specific and actionable in your feedback. If a category doesn't apply, set it
             working_dir,
         };
 
-        ExecutorAction::new(ExecutorActionType::CodingAgentFollowUpRequest(follow_up), None)
+        ExecutorAction::new(
+            ExecutorActionType::CodingAgentFollowUpRequest(follow_up),
+            None,
+        )
     }
 }
 
@@ -211,7 +214,10 @@ mod tests {
         // Verify it's valid JSON by parsing it
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(parsed["task_clarity"], "The task was clear");
-        assert_eq!(parsed["missing_tools"], "Would have liked a database viewer");
+        assert_eq!(
+            parsed["missing_tools"],
+            "Would have liked a database viewer"
+        );
         assert!(parsed["integration_problems"].is_null());
     }
 
@@ -354,8 +360,18 @@ Let me know if you need more details."#;
 
         let json_str = result.unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
-        assert!(parsed["task_clarity"].as_str().unwrap().contains("implement feature X"));
-        assert!(parsed["missing_tools"].as_str().unwrap().contains("{curly}"));
+        assert!(
+            parsed["task_clarity"]
+                .as_str()
+                .unwrap()
+                .contains("implement feature X")
+        );
+        assert!(
+            parsed["missing_tools"]
+                .as_str()
+                .unwrap()
+                .contains("{curly}")
+        );
     }
 
     #[test]
@@ -367,8 +383,11 @@ Let me know if you need more details."#;
         };
         let working_dir = Some("/path/to/work".to_string());
 
-        let action =
-            FeedbackService::create_feedback_action(session_id.clone(), profile_id.clone(), working_dir.clone());
+        let action = FeedbackService::create_feedback_action(
+            session_id.clone(),
+            profile_id.clone(),
+            working_dir.clone(),
+        );
 
         // Verify the action is a follow-up request
         match action.typ {

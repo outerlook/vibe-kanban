@@ -1163,7 +1163,11 @@ pub trait ContainerService {
             ExecutorActionType::CodingAgentFollowUpRequest(request) => {
                 let executor = ExecutorConfigs::get_cached()
                     .get_coding_agent_or_default(&request.executor_profile_id);
-                executor.normalize_logs_with_skills_callback(temp_store.clone(), &current_dir, None);
+                executor.normalize_logs_with_skills_callback(
+                    temp_store.clone(),
+                    &current_dir,
+                    None,
+                );
             }
             _ => {
                 tracing::debug!(
@@ -1569,7 +1573,12 @@ pub trait ContainerService {
         }
 
         if let Err(start_error) = self
-            .start_execution_inner(workspace, &execution_process, executor_action, effective_purpose)
+            .start_execution_inner(
+                workspace,
+                &execution_process,
+                executor_action,
+                effective_purpose,
+            )
             .await
         {
             // Mark process as failed
@@ -1699,8 +1708,14 @@ pub trait ContainerService {
             ) => ExecutionProcessRunReason::CodingAgent,
         };
 
-        self.start_execution(&ctx.workspace, &ctx.session, next_action, &next_run_reason, None)
-            .await?;
+        self.start_execution(
+            &ctx.workspace,
+            &ctx.session,
+            next_action,
+            &next_run_reason,
+            None,
+        )
+        .await?;
 
         tracing::debug!("Started next action: {:?}", next_action);
         Ok(())
@@ -1729,10 +1744,14 @@ pub trait ContainerService {
             path
         } else {
             // No worktree specified - use the project's main repository path
-            let repos =
-                ProjectRepo::find_repos_for_project(&self.db().pool, conversation_session.project_id)
-                    .await
-                    .map_err(|e| ContainerError::Other(anyhow!("Failed to get project repositories: {}", e)))?;
+            let repos = ProjectRepo::find_repos_for_project(
+                &self.db().pool,
+                conversation_session.project_id,
+            )
+            .await
+            .map_err(|e| {
+                ContainerError::Other(anyhow!("Failed to get project repositories: {}", e))
+            })?;
 
             let repo = repos.first().ok_or_else(|| {
                 ContainerError::Other(anyhow!(
@@ -1835,7 +1854,11 @@ pub trait ContainerService {
                     } else {
                         None
                     };
-                executor.normalize_logs_with_skills_callback(msg_store, &working_dir, skills_callback);
+                executor.normalize_logs_with_skills_callback(
+                    msg_store,
+                    &working_dir,
+                    skills_callback,
+                );
             }
 
             self.spawn_stream_normalized_entries_to_db(&execution_process.id);

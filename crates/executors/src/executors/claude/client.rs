@@ -219,7 +219,9 @@ impl ClaudeAgentClient {
     }
 
     /// Extract questions from AskUserQuestion tool input.
-    fn extract_questions(tool_input: &serde_json::Value) -> Result<Vec<QuestionData>, ExecutorError> {
+    fn extract_questions(
+        tool_input: &serde_json::Value,
+    ) -> Result<Vec<QuestionData>, ExecutorError> {
         // The tool input should have a "questions" field containing an array
         let questions_value = tool_input.get("questions").ok_or_else(|| {
             ExecutorApprovalError::RequestFailed(

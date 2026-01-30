@@ -1,14 +1,18 @@
 use db::models::{
-    execution_process::ExecutionProcess, notification::Notification, project::Project,
-    project::ProjectWithTaskCounts, scratch::Scratch, task::TaskWithAttemptStatus,
+    execution_process::ExecutionProcess,
+    notification::Notification,
+    project::{Project, ProjectWithTaskCounts},
+    scratch::Scratch,
+    task::TaskWithAttemptStatus,
     workspace::Workspace,
 };
 use json_patch::{AddOperation, Patch, PatchOperation, RemoveOperation, ReplaceOperation};
 use uuid::Uuid;
 
-use crate::services::domain_events::HookExecution;
-use crate::services::merge_queue_store::MergeQueueEntry;
-use crate::services::operation_status::OperationStatus;
+use crate::services::{
+    domain_events::HookExecution, merge_queue_store::MergeQueueEntry,
+    operation_status::OperationStatus,
+};
 
 // Shared helper to escape JSON Pointer segments
 fn escape_pointer_segment(s: &str) -> String {

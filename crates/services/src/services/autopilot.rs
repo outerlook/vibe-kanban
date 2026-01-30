@@ -3,7 +3,10 @@
 //! This module provides functions to find dependent tasks that become unblocked
 //! after a task completes.
 
-use db::models::{task::Task, task::TaskStatus, task_dependency::TaskDependency};
+use db::models::{
+    task::{Task, TaskStatus},
+    task_dependency::TaskDependency,
+};
 use sqlx::SqlitePool;
 use tracing::{debug, info};
 use uuid::Uuid;

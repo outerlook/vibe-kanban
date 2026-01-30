@@ -461,7 +461,9 @@ pub async fn create_task_and_start(
     task.last_executor = payload.executor_profile_id.executor.to_string();
 
     tracing::info!("Started attempt for task {}", task.id);
-    Ok(ResponseJson(ApiResponse::success(TaskWithAttemptStatus::from_task(task))))
+    Ok(ResponseJson(ApiResponse::success(
+        TaskWithAttemptStatus::from_task(task),
+    )))
 }
 
 pub async fn update_task(

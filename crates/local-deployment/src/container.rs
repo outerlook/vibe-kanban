@@ -78,10 +78,9 @@ use services::services::{
     conversation::ConversationService,
     diff_stream::{self, DiffStreamHandle},
     domain_events::{
-        AutopilotHandler, DispatcherBuilder, DomainEvent, DomainEventDispatcher,
-        ExecutionTrigger, ExecutionTriggerCallback, FeedbackCollectionHandler, HandlerContext,
-        HookExecutionStore, NotificationHandler, RemoteSyncHandler, ReviewAttentionHandler,
-        WebSocketBroadcastHandler,
+        AutopilotHandler, DispatcherBuilder, DomainEvent, DomainEventDispatcher, ExecutionTrigger,
+        ExecutionTriggerCallback, FeedbackCollectionHandler, HandlerContext, HookExecutionStore,
+        NotificationHandler, RemoteSyncHandler, ReviewAttentionHandler, WebSocketBroadcastHandler,
     },
     feedback::FeedbackService,
     git::{Commit, DiffTarget, GitCli, GitService},
@@ -100,6 +99,7 @@ use services::services::{
 use tokio::{sync::RwLock, task::JoinHandle};
 use tokio_util::io::ReaderStream;
 use utils::{
+    assets::ClaudeCodeHookAssets,
     diff::create_unified_diff,
     log_msg::LogMsg,
     msg_store::MsgStore,
@@ -108,7 +108,6 @@ use utils::{
 use uuid::Uuid;
 
 use crate::{command, copy};
-use utils::assets::ClaudeCodeHookAssets;
 
 /// Extract token usage from a MsgStore by scanning history for TokenUsage entries
 fn extract_token_usage_from_msg_store(msg_store: &MsgStore) -> Option<(i64, i64)> {
@@ -209,13 +208,12 @@ impl LocalContainerService {
         // Create late-bound container reference for the execution trigger callback.
         // This allows handlers to trigger executions via the callback without circular
         // dependencies during construction.
-        let container_ref: Arc<RwLock<Option<LocalContainerService>>> =
-            Arc::new(RwLock::new(None));
+        let container_ref: Arc<RwLock<Option<LocalContainerService>>> = Arc::new(RwLock::new(None));
 
         // Create execution trigger callback that routes triggers to container methods
         let callback_container_ref = Arc::clone(&container_ref);
-        let execution_trigger_callback: ExecutionTriggerCallback =
-            Arc::new(move |trigger: ExecutionTrigger| {
+        let execution_trigger_callback: ExecutionTriggerCallback = Arc::new(
+            move |trigger: ExecutionTrigger| {
                 let container_ref = Arc::clone(&callback_container_ref);
                 async move {
                     let container = {
@@ -332,7 +330,8 @@ impl LocalContainerService {
                     }
                 }
                 .boxed()
-            });
+            },
+        );
 
         // Create hook execution store for tracking spawned handler executions
         let hook_execution_store = HookExecutionStore::new(global_msg_store.clone());
@@ -1265,11 +1264,7 @@ impl LocalContainerService {
                         }
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "Failed to read .git file for repo '{}': {}",
-                            repo.name,
-                            e
-                        );
+                        tracing::warn!("Failed to read .git file for repo '{}': {}", repo.name, e);
                         continue;
                     }
                 }
@@ -1297,7 +1292,10 @@ impl LocalContainerService {
 
             // Check if .claude/ is already excluded
             let claude_pattern = ".claude/";
-            if !existing_content.lines().any(|line| line.trim() == claude_pattern) {
+            if !existing_content
+                .lines()
+                .any(|line| line.trim() == claude_pattern)
+            {
                 // Append .claude/ to exclude file
                 let new_content = if existing_content.is_empty() || existing_content.ends_with('\n')
                 {
@@ -1315,14 +1313,14 @@ impl LocalContainerService {
                     continue;
                 }
 
-                tracing::debug!("Added .claude/ to .git/info/exclude for repo '{}'", repo.name);
+                tracing::debug!(
+                    "Added .claude/ to .git/info/exclude for repo '{}'",
+                    repo.name
+                );
             }
         }
 
-        tracing::info!(
-            "Deployed Claude Code hooks to {} repos",
-            repos.len()
-        );
+        tracing::info!("Deployed Claude Code hooks to {} repos", repos.len());
 
         Ok(())
     }
@@ -1680,13 +1678,7 @@ impl LocalContainerService {
                             "Feedback execution {} not found, stopping parser",
                             feedback_exec_id
                         );
-                        cleanup(
-                            msg_stores,
-                            feedback_pending_cleanup,
-                            db,
-                            feedback_exec_id,
-                        )
-                        .await;
+                        cleanup(msg_stores, feedback_pending_cleanup, db, feedback_exec_id).await;
                         return;
                     }
                     Err(e) => {
@@ -1695,13 +1687,7 @@ impl LocalContainerService {
                             feedback_exec_id,
                             e
                         );
-                        cleanup(
-                            msg_stores,
-                            feedback_pending_cleanup,
-                            db,
-                            feedback_exec_id,
-                        )
-                        .await;
+                        cleanup(msg_stores, feedback_pending_cleanup, db, feedback_exec_id).await;
                         return;
                     }
                 };
@@ -1715,13 +1701,7 @@ impl LocalContainerService {
                             feedback_exec_id,
                             exec.status
                         );
-                        cleanup(
-                            msg_stores,
-                            feedback_pending_cleanup,
-                            db,
-                            feedback_exec_id,
-                        )
-                        .await;
+                        cleanup(msg_stores, feedback_pending_cleanup, db, feedback_exec_id).await;
                         return;
                     }
                 }
@@ -1742,13 +1722,7 @@ impl LocalContainerService {
                     "No assistant message found for feedback execution {}",
                     feedback_exec_id
                 );
-                cleanup(
-                    msg_stores,
-                    feedback_pending_cleanup,
-                    db,
-                    feedback_exec_id,
-                )
-                .await;
+                cleanup(msg_stores, feedback_pending_cleanup, db, feedback_exec_id).await;
                 return;
             };
 
@@ -1761,13 +1735,7 @@ impl LocalContainerService {
                         feedback_exec_id,
                         e
                     );
-                    cleanup(
-                        msg_stores,
-                        feedback_pending_cleanup,
-                        db,
-                        feedback_exec_id,
-                    )
-                    .await;
+                    cleanup(msg_stores, feedback_pending_cleanup, db, feedback_exec_id).await;
                     return;
                 }
             };
@@ -1794,13 +1762,7 @@ impl LocalContainerService {
             }
 
             // Final cleanup after successful processing
-            cleanup(
-                msg_stores,
-                feedback_pending_cleanup,
-                db,
-                feedback_exec_id,
-            )
-            .await;
+            cleanup(msg_stores, feedback_pending_cleanup, db, feedback_exec_id).await;
         });
     }
 
@@ -1834,18 +1796,18 @@ impl LocalContainerService {
         };
 
         // Get the CodingAgentTurn to retrieve prompt and summary
-        let turn = CodingAgentTurn::find_by_execution_process_id(
-            &self.db.pool,
-            ctx.execution_process.id,
-        )
-        .await
-        .map_err(|e| ContainerError::Other(anyhow!("Failed to get coding agent turn: {e}")))?
-        .ok_or_else(|| {
-            ContainerError::Other(anyhow!(
-                "No coding agent turn found for execution {}",
-                ctx.execution_process.id
-            ))
-        })?;
+        let turn =
+            CodingAgentTurn::find_by_execution_process_id(&self.db.pool, ctx.execution_process.id)
+                .await
+                .map_err(|e| {
+                    ContainerError::Other(anyhow!("Failed to get coding agent turn: {e}"))
+                })?
+                .ok_or_else(|| {
+                    ContainerError::Other(anyhow!(
+                        "No coding agent turn found for execution {}",
+                        ctx.execution_process.id
+                    ))
+                })?;
 
         // If no summary, we can't analyze
         let summary = turn.summary.ok_or_else(|| {
@@ -1971,13 +1933,7 @@ impl LocalContainerService {
                             "Review attention execution {} not found, stopping parser",
                             review_exec_id
                         );
-                        cleanup(
-                            msg_stores,
-                            feedback_pending_cleanup,
-                            db,
-                            review_exec_id,
-                        )
-                        .await;
+                        cleanup(msg_stores, feedback_pending_cleanup, db, review_exec_id).await;
                         return;
                     }
                     Err(e) => {
@@ -1986,13 +1942,7 @@ impl LocalContainerService {
                             review_exec_id,
                             e
                         );
-                        cleanup(
-                            msg_stores,
-                            feedback_pending_cleanup,
-                            db,
-                            review_exec_id,
-                        )
-                        .await;
+                        cleanup(msg_stores, feedback_pending_cleanup, db, review_exec_id).await;
                         return;
                     }
                 };
@@ -2006,13 +1956,7 @@ impl LocalContainerService {
                             review_exec_id,
                             exec.status
                         );
-                        cleanup(
-                            msg_stores,
-                            feedback_pending_cleanup,
-                            db,
-                            review_exec_id,
-                        )
-                        .await;
+                        cleanup(msg_stores, feedback_pending_cleanup, db, review_exec_id).await;
                         return;
                     }
                 }
@@ -2033,13 +1977,7 @@ impl LocalContainerService {
                     "No assistant message found for review attention execution {}",
                     review_exec_id
                 );
-                cleanup(
-                    msg_stores,
-                    feedback_pending_cleanup,
-                    db,
-                    review_exec_id,
-                )
-                .await;
+                cleanup(msg_stores, feedback_pending_cleanup, db, review_exec_id).await;
                 return;
             };
 
@@ -2052,13 +1990,7 @@ impl LocalContainerService {
                         review_exec_id,
                         e
                     );
-                    cleanup(
-                        msg_stores,
-                        feedback_pending_cleanup,
-                        db,
-                        review_exec_id,
-                    )
-                    .await;
+                    cleanup(msg_stores, feedback_pending_cleanup, db, review_exec_id).await;
                     return;
                 }
             };
@@ -2091,25 +2023,28 @@ impl LocalContainerService {
             }
 
             // Update Task.needs_attention field
-            let update_succeeded = match Task::update_needs_attention(&db.pool, task_id, Some(result.needs_attention)).await {
-                Ok(_) => {
-                    tracing::info!(
-                        "Updated task {} needs_attention to {}",
-                        task_id,
-                        result.needs_attention
-                    );
-                    true
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to update task {} needs_attention to {}: {}",
-                        task_id,
-                        result.needs_attention,
-                        e
-                    );
-                    false
-                }
-            };
+            let update_succeeded =
+                match Task::update_needs_attention(&db.pool, task_id, Some(result.needs_attention))
+                    .await
+                {
+                    Ok(_) => {
+                        tracing::info!(
+                            "Updated task {} needs_attention to {}",
+                            task_id,
+                            result.needs_attention
+                        );
+                        true
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to update task {} needs_attention to {}: {}",
+                            task_id,
+                            result.needs_attention,
+                            e
+                        );
+                        false
+                    }
+                };
 
             // Trigger autopilot merge if update succeeded and task doesn't need attention
             if update_succeeded && !result.needs_attention {
@@ -2186,47 +2121,51 @@ impl LocalContainerService {
                         };
 
                         // Load workspace
-                        let workspace = match Workspace::find_by_id(&db_clone.pool, workspace_id).await {
-                            Ok(Some(w)) => w,
-                            Ok(None) => {
-                                tracing::warn!(
-                                    task_id = %task_id,
-                                    workspace_id = %workspace_id,
-                                    "Autopilot merge skipped: workspace not found"
-                                );
-                                return;
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    task_id = %task_id,
-                                    workspace_id = %workspace_id,
-                                    error = %e,
-                                    "Autopilot merge skipped: failed to load workspace"
-                                );
-                                return;
-                            }
-                        };
+                        let workspace =
+                            match Workspace::find_by_id(&db_clone.pool, workspace_id).await {
+                                Ok(Some(w)) => w,
+                                Ok(None) => {
+                                    tracing::warn!(
+                                        task_id = %task_id,
+                                        workspace_id = %workspace_id,
+                                        "Autopilot merge skipped: workspace not found"
+                                    );
+                                    return;
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        task_id = %task_id,
+                                        workspace_id = %workspace_id,
+                                        error = %e,
+                                        "Autopilot merge skipped: failed to load workspace"
+                                    );
+                                    return;
+                                }
+                            };
 
                         // Find workspace repos
-                        let workspace_repos = match WorkspaceRepo::find_by_workspace_id(&db_clone.pool, workspace_id).await {
-                            Ok(repos) if !repos.is_empty() => repos,
-                            Ok(_) => {
-                                tracing::warn!(
-                                    task_id = %task_id,
-                                    workspace_id = %workspace_id,
-                                    "Autopilot merge skipped: no workspace repos found"
-                                );
-                                return;
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    task_id = %task_id,
-                                    error = %e,
-                                    "Autopilot merge skipped: failed to load workspace repos"
-                                );
-                                return;
-                            }
-                        };
+                        let workspace_repos =
+                            match WorkspaceRepo::find_by_workspace_id(&db_clone.pool, workspace_id)
+                                .await
+                            {
+                                Ok(repos) if !repos.is_empty() => repos,
+                                Ok(_) => {
+                                    tracing::warn!(
+                                        task_id = %task_id,
+                                        workspace_id = %workspace_id,
+                                        "Autopilot merge skipped: no workspace repos found"
+                                    );
+                                    return;
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        task_id = %task_id,
+                                        error = %e,
+                                        "Autopilot merge skipped: failed to load workspace repos"
+                                    );
+                                    return;
+                                }
+                            };
 
                         // Build fallback commit message from task title and description
                         let fallback_commit_message = {
@@ -2245,7 +2184,12 @@ impl LocalContainerService {
                         let project_id = task.project_id;
                         for workspace_repo in &workspace_repos {
                             // Load the repo for AI commit message generation
-                            let repo = match Repo::find_by_id(&db_clone.pool, workspace_repo.repo_id).await {
+                            let repo = match Repo::find_by_id(
+                                &db_clone.pool,
+                                workspace_repo.repo_id,
+                            )
+                            .await
+                            {
                                 Ok(Some(r)) => r,
                                 Ok(None) => {
                                     tracing::warn!(
@@ -2385,13 +2329,7 @@ impl LocalContainerService {
             }
 
             // Final cleanup after successful processing
-            cleanup(
-                msg_stores,
-                feedback_pending_cleanup,
-                db,
-                review_exec_id,
-            )
-            .await;
+            cleanup(msg_stores, feedback_pending_cleanup, db, review_exec_id).await;
         });
     }
 
@@ -2637,24 +2575,23 @@ impl LocalContainerService {
         }
 
         // Fetch all normalized entries for this execution
-        let entries =
-            match ExecutionProcessNormalizedEntry::fetch_all_for_execution(
-                &self.db.pool,
-                execution_process.id,
-            )
-            .await
-            {
-                Ok(entries) => entries,
-                Err(e) => {
-                    tracing::warn!(
-                        task_id = %task.id,
-                        execution_id = %execution_process.id,
-                        error = %e,
-                        "Failed to fetch commit message generation output, using fallback"
-                    );
-                    return Ok(None);
-                }
-            };
+        let entries = match ExecutionProcessNormalizedEntry::fetch_all_for_execution(
+            &self.db.pool,
+            execution_process.id,
+        )
+        .await
+        {
+            Ok(entries) => entries,
+            Err(e) => {
+                tracing::warn!(
+                    task_id = %task.id,
+                    execution_id = %execution_process.id,
+                    error = %e,
+                    "Failed to fetch commit message generation output, using fallback"
+                );
+                return Ok(None);
+            }
+        };
 
         // Find the last AssistantMessage entry and extract its content
         let commit_message = entries
@@ -3509,8 +3446,9 @@ fn success_exit_status() -> std::process::ExitStatus {
 
 #[cfg(test)]
 mod tests {
-    use dashmap::DashSet;
     use std::sync::Arc;
+
+    use dashmap::DashSet;
     use uuid::Uuid;
 
     /// Tests that the DashSet-based guard correctly blocks duplicate workspace spawns.
@@ -3589,10 +3527,7 @@ mod tests {
 
         // Exactly one insert should succeed (return true)
         let successes = results.iter().filter(|&&r| r).count();
-        assert_eq!(
-            successes, 1,
-            "Exactly one concurrent insert should succeed"
-        );
+        assert_eq!(successes, 1, "Exactly one concurrent insert should succeed");
 
         // The rest should fail (return false)
         let failures = results.iter().filter(|&&r| !r).count();

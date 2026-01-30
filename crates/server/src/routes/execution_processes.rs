@@ -235,15 +235,25 @@ pub async fn stream_execution_processes_ws(
 
     match (query.workspace_id, query.conversation_session_id) {
         (Some(workspace_id), None) => Ok(ws.on_upgrade(move |socket| async move {
-            if let Err(e) =
-                handle_workspace_execution_processes_ws(socket, deployment, workspace_id, show_soft_deleted).await
+            if let Err(e) = handle_workspace_execution_processes_ws(
+                socket,
+                deployment,
+                workspace_id,
+                show_soft_deleted,
+            )
+            .await
             {
                 tracing::warn!("execution processes WS closed: {}", e);
             }
         })),
         (None, Some(conversation_session_id)) => Ok(ws.on_upgrade(move |socket| async move {
-            if let Err(e) =
-                handle_conversation_execution_processes_ws(socket, deployment, conversation_session_id, show_soft_deleted).await
+            if let Err(e) = handle_conversation_execution_processes_ws(
+                socket,
+                deployment,
+                conversation_session_id,
+                show_soft_deleted,
+            )
+            .await
             {
                 tracing::warn!("execution processes WS closed: {}", e);
             }

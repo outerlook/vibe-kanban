@@ -1,6 +1,8 @@
-use std::collections::HashSet;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use chrono::{DateTime, Datelike, Duration, NaiveDateTime, Utc};
 use tracing::{debug, warn};
@@ -103,7 +105,13 @@ pub fn apply_gfs_retention(
 
     // Process backups from oldest to newest so "first of period" means earliest
     for backup in backups {
-        let tier = classify_backup(&backup, hourly_cutoff, daily_cutoff, weekly_cutoff, monthly_cutoff);
+        let tier = classify_backup(
+            &backup,
+            hourly_cutoff,
+            daily_cutoff,
+            weekly_cutoff,
+            monthly_cutoff,
+        );
 
         let should_keep = match tier {
             RetentionTier::Hourly => {
@@ -242,8 +250,9 @@ pub fn delete_old_backups(to_delete: Vec<PathBuf>) -> Result<u32, BackupError> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use chrono::{TimeZone, Timelike};
+
+    use super::*;
 
     fn make_backup(path: &str, timestamp: DateTime<Utc>) -> BackupFile {
         BackupFile {
@@ -313,7 +322,10 @@ mod tests {
         let now = Utc.with_ymd_and_hms(2024, 6, 15, 12, 0, 0).unwrap();
         let backup_time = now - Duration::hours(2);
 
-        let backups = vec![make_backup("/backups/backup_20240615_100000.zip", backup_time)];
+        let backups = vec![make_backup(
+            "/backups/backup_20240615_100000.zip",
+            backup_time,
+        )];
 
         let (keep, delete) = apply_gfs_retention(backups, &config, now);
         assert_eq!(keep.len(), 1);
@@ -447,23 +459,14 @@ mod tests {
             make_backup("/backups/hourly1.zip", now - Duration::hours(2)),
             make_backup("/backups/hourly2.zip", now - Duration::hours(10)),
             // Daily tier - one per day
-            make_backup(
-                "/backups/daily1.zip",
-                now - Duration::days(2),
-            ),
+            make_backup("/backups/daily1.zip", now - Duration::days(2)),
             make_backup(
                 "/backups/daily2.zip",
                 now - Duration::days(2) + Duration::hours(6),
             ),
-            make_backup(
-                "/backups/daily3.zip",
-                now - Duration::days(3),
-            ),
+            make_backup("/backups/daily3.zip", now - Duration::days(3)),
             // Weekly tier - one per week
-            make_backup(
-                "/backups/weekly1.zip",
-                now - Duration::weeks(2),
-            ),
+            make_backup("/backups/weekly1.zip", now - Duration::weeks(2)),
             make_backup(
                 "/backups/weekly2.zip",
                 now - Duration::weeks(2) + Duration::days(1),
@@ -533,9 +536,9 @@ mod tests {
         let config = BackupConfig {
             enabled: true,
             interval_hours: 1,
-            retention_hours_all: 6,   // Only 6 hours of full retention
-            retention_daily_days: 3,  // Only 3 days
-            retention_weekly_weeks: 2, // Only 2 weeks
+            retention_hours_all: 6,      // Only 6 hours of full retention
+            retention_daily_days: 3,     // Only 3 days
+            retention_weekly_weeks: 2,   // Only 2 weeks
             retention_monthly_months: 6, // Only 6 months
         };
         let now = Utc.with_ymd_and_hms(2024, 6, 15, 12, 0, 0).unwrap();
