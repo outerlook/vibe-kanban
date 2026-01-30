@@ -26,7 +26,7 @@ pub enum DomainEvent {
     },
 
     /// An execution process completed (success or failure).
-    ExecutionCompleted { process: ExecutionProcess },
+    ExecutionCompleted { process: ExecutionProcess, task_id: Uuid },
 
     /// A workspace was created.
     WorkspaceCreated { workspace: Workspace },
@@ -42,15 +42,13 @@ impl DomainEvent {
     /// Returns the task ID associated with this event, if any.
     ///
     /// Some events don't have an associated task directly available:
-    /// - `ExecutionCompleted`: Task ID requires async DB lookup via `load_context()`
     /// - `ProjectUpdated`: No task context
     ///
     /// These return `None` and hook tracking will be skipped for them.
     pub fn task_id(&self) -> Option<Uuid> {
         match self {
             DomainEvent::TaskStatusChanged { task, .. } => Some(task.id),
-            // ExecutionCompleted doesn't have task_id directly; requires load_context() async call
-            DomainEvent::ExecutionCompleted { .. } => None,
+            DomainEvent::ExecutionCompleted { task_id, .. } => Some(*task_id),
             DomainEvent::WorkspaceCreated { workspace } => Some(workspace.task_id),
             DomainEvent::WorkspaceDeleted { task_id, .. } => Some(*task_id),
             DomainEvent::ProjectUpdated { .. } => None,

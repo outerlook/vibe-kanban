@@ -1,8 +1,5 @@
 use async_trait::async_trait;
-use db::models::{
-    project::Project, session::Session, task::Task, task_dependency::TaskDependency,
-    workspace::Workspace,
-};
+use db::models::{project::Project, task::Task, task_dependency::TaskDependency};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -51,21 +48,13 @@ impl EventHandler for WebSocketBroadcastHandler {
             DomainEvent::TaskStatusChanged { task, .. } => {
                 self.handle_task_status_changed(&task, ctx).await
             }
-            DomainEvent::ExecutionCompleted { process } => {
+            DomainEvent::ExecutionCompleted { task_id, .. } => {
                 // When execution completes, refresh the task to get latest status.
-                // ExecutionProcess links to task through session -> workspace -> task
-                if let Some(session_id) = process.session_id {
-                    if let Some(task_id) = self
-                        .get_task_id_from_session(&ctx.db.pool, session_id)
-                        .await
-                    {
-                        if let Some(task_with_status) =
-                            Task::find_by_id_with_attempt_status(&ctx.db.pool, task_id).await?
-                        {
-                            let patch = task_patch::replace(&task_with_status);
-                            ctx.msg_store.push_patch(patch);
-                        }
-                    }
+                if let Some(task_with_status) =
+                    Task::find_by_id_with_attempt_status(&ctx.db.pool, task_id).await?
+                {
+                    let patch = task_patch::replace(&task_with_status);
+                    ctx.msg_store.push_patch(patch);
                 }
                 Ok(())
             }
@@ -75,19 +64,6 @@ impl EventHandler for WebSocketBroadcastHandler {
 }
 
 impl WebSocketBroadcastHandler {
-    /// Get task_id from session by following session -> workspace -> task chain
-    async fn get_task_id_from_session(
-        &self,
-        pool: &sqlx::SqlitePool,
-        session_id: Uuid,
-    ) -> Option<Uuid> {
-        let session = Session::find_by_id(pool, session_id).await.ok()??;
-        let workspace = Workspace::find_by_id(pool, session.workspace_id)
-            .await
-            .ok()??;
-        Some(workspace.task_id)
-    }
-
     async fn handle_task_status_changed(
         &self,
         task: &Task,
@@ -227,13 +203,18 @@ mod tests {
             updated_at: chrono::Utc::now(),
         };
 
-        let event = DomainEvent::ExecutionCompleted { process };
+        let event = DomainEvent::ExecutionCompleted {
+            process,
+            task_id: uuid::Uuid::new_v4(),
+        };
 
         assert!(handler.handles(&event));
     }
 
     #[test]
     fn test_does_not_handle_other_events() {
+        use db::models::workspace::Workspace;
+
         let handler = WebSocketBroadcastHandler::new();
         let workspace = Workspace {
             id: uuid::Uuid::new_v4(),

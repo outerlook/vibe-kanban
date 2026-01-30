@@ -233,14 +233,14 @@ impl EventHandler for FeedbackCollectionHandler {
     fn handles(&self, event: &DomainEvent) -> bool {
         matches!(
             event,
-            DomainEvent::ExecutionCompleted { process }
+            DomainEvent::ExecutionCompleted { process, .. }
             if process.status == ExecutionProcessStatus::Completed
                 && process.run_reason == ExecutionProcessRunReason::CodingAgent
         )
     }
 
     async fn handle(&self, event: DomainEvent, ctx: &HandlerContext) -> Result<(), HandlerError> {
-        let DomainEvent::ExecutionCompleted { process } = event else {
+        let DomainEvent::ExecutionCompleted { process, .. } = event else {
             return Ok(());
         };
 

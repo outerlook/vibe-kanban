@@ -738,6 +738,7 @@ impl LocalContainerService {
                     .event_dispatcher
                     .dispatch(DomainEvent::ExecutionCompleted {
                         process: ctx.execution_process.clone(),
+                        task_id: ctx.task.id,
                     })
                     .await;
 

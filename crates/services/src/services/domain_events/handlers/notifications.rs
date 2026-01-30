@@ -34,7 +34,7 @@ impl EventHandler for NotificationHandler {
     }
 
     async fn handle(&self, event: DomainEvent, ctx: &HandlerContext) -> Result<(), HandlerError> {
-        let DomainEvent::ExecutionCompleted { process } = event else {
+        let DomainEvent::ExecutionCompleted { process, .. } = event else {
             return Ok(());
         };
 
