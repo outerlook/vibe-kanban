@@ -461,7 +461,7 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
       if (closed) return;
       const endpoint = `/api/tasks/stream/ws?project_id=${encodeURIComponent(
         projectId
-      )}&include_snapshot=false`;
+      )}&include_snapshot=true`;
       const fullEndpoint = getApiBaseUrlSync() + endpoint;
       const wsEndpoint = fullEndpoint.replace(/^http/, 'ws');
       ws = new WebSocket(wsEndpoint);
