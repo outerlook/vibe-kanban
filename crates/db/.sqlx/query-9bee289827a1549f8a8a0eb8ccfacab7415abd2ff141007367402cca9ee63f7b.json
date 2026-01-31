@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM conversation_images WHERE conversation_session_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "9bee289827a1549f8a8a0eb8ccfacab7415abd2ff141007367402cca9ee63f7b"
+}

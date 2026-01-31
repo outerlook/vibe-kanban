@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT EXISTS(\n                SELECT 1\n                FROM conversation_images\n                WHERE conversation_session_id = $1 AND image_id = $2\n               ) AS \"exists!: bool\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "exists!: bool",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ee2b7be1a6b258aa457fa2457eb330c8e6750e9b1e9987aba0b0157ecc45e554"
+}
