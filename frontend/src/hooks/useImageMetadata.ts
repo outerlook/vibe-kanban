@@ -7,6 +7,7 @@ export function useImageMetadata(
   taskAttemptId: string | undefined,
   src: string,
   taskId?: string | undefined,
+  conversationId?: string | undefined,
   localImages?: LocalImageMetadata[]
 ) {
   const isVibeImage = src.startsWith('.vibe-images/');
@@ -33,12 +34,12 @@ export function useImageMetadata(
     [localImage]
   );
 
-  const hasContext = !!taskAttemptId || !!taskId;
+  const hasContext = !!taskAttemptId || !!taskId || !!conversationId;
   // Only fetch from API if: vibe image, has context, and NO local image
   const shouldFetch = isVibeImage && hasContext && !localImage;
 
   const query = useQuery({
-    queryKey: ['imageMetadata', taskAttemptId, taskId, src],
+    queryKey: ['imageMetadata', taskAttemptId, taskId, conversationId, src],
     queryFn: async (): Promise<ImageMetadata | null> => {
       // Pure API logic - no local image handling
       if (taskAttemptId) {
@@ -51,6 +52,13 @@ export function useImageMetadata(
       if (taskId) {
         const res = await fetch(
           `/api/images/task/${taskId}/metadata?path=${encodeURIComponent(src)}`
+        );
+        const data = await res.json();
+        return data.data as ImageMetadata | null;
+      }
+      if (conversationId) {
+        const res = await fetch(
+          `/api/images/conversation/${conversationId}/metadata?path=${encodeURIComponent(src)}`
         );
         const data = await res.json();
         return data.data as ImageMetadata | null;

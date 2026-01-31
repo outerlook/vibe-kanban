@@ -56,6 +56,7 @@ function ImageComponent({
     taskAttemptId,
     src,
     taskId,
+    undefined,
     localImages
   );
 
