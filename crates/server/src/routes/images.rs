@@ -190,17 +190,22 @@ pub async fn get_task_images(
     Ok(ResponseJson(ApiResponse::success(image_responses)))
 }
 
-/// Get metadata for an image associated with a task.
-/// The path should be in the format `.vibe-images/{uuid}.{ext}`.
-pub async fn get_task_image_metadata(
-    Path(task_id): Path<Uuid>,
-    State(deployment): State<DeploymentImpl>,
-    Query(query): Query<ImageMetadataQuery>,
-) -> Result<ResponseJson<ApiResponse<ImageMetadata>>, ApiError> {
-    let not_found_response = || ImageMetadata {
+/// Shared logic for getting image metadata with an authorization check.
+/// Returns `ImageMetadata` with `exists: true` if the image exists and is authorized,
+/// or `exists: false` if not found or unauthorized.
+async fn get_image_metadata_impl<F, Fut>(
+    pool: &sqlx::SqlitePool,
+    path: &str,
+    is_authorized: F,
+) -> Result<ImageMetadata, ApiError>
+where
+    F: FnOnce(Uuid) -> Fut,
+    Fut: std::future::Future<Output = Result<bool, sqlx::Error>>,
+{
+    let not_found = || ImageMetadata {
         exists: false,
         file_name: None,
-        path: Some(query.path.clone()),
+        path: Some(path.to_string()),
         size_bytes: None,
         format: None,
         proxy_url: None,
@@ -208,31 +213,30 @@ pub async fn get_task_image_metadata(
 
     // Validate path starts with .vibe-images/
     let vibe_images_prefix = format!("{}/", utils::path::VIBE_IMAGES_DIR);
-    if !query.path.starts_with(&vibe_images_prefix) {
-        return Ok(ResponseJson(ApiResponse::success(not_found_response())));
+    if !path.starts_with(&vibe_images_prefix) {
+        return Ok(not_found());
     }
 
     // Reject paths with .. to prevent traversal
-    if query.path.contains("..") {
-        return Ok(ResponseJson(ApiResponse::success(not_found_response())));
+    if path.contains("..") {
+        return Ok(not_found());
     }
 
     // Extract the filename from the path (e.g., "uuid.png" from ".vibe-images/uuid.png")
-    let file_name = match query.path.strip_prefix(&vibe_images_prefix) {
+    let file_name = match path.strip_prefix(&vibe_images_prefix) {
         Some(name) if !name.is_empty() => name,
-        _ => return Ok(ResponseJson(ApiResponse::success(not_found_response()))),
+        _ => return Ok(not_found()),
     };
 
     // Look up the image by file_path (which is just the filename in the images table)
-    let image = match Image::find_by_file_path(&deployment.db().pool, file_name).await? {
+    let image = match Image::find_by_file_path(pool, file_name).await? {
         Some(img) => img,
-        None => return Ok(ResponseJson(ApiResponse::success(not_found_response()))),
+        None => return Ok(not_found()),
     };
 
-    // Verify the image is associated with this task
-    let is_associated = TaskImage::is_associated(&deployment.db().pool, task_id, image.id).await?;
-    if !is_associated {
-        return Ok(ResponseJson(ApiResponse::success(not_found_response())));
+    // Verify authorization
+    if !is_authorized(image.id).await? {
+        return Ok(not_found());
     }
 
     // Get format from extension
@@ -243,14 +247,29 @@ pub async fn get_task_image_metadata(
     // Build the proxy URL
     let proxy_url = format!("/api/images/{}/file", image.id);
 
-    Ok(ResponseJson(ApiResponse::success(ImageMetadata {
+    Ok(ImageMetadata {
         exists: true,
         file_name: Some(image.original_name),
-        path: Some(query.path),
+        path: Some(path.to_string()),
         size_bytes: Some(image.size_bytes),
         format,
         proxy_url: Some(proxy_url),
-    })))
+    })
+}
+
+/// Get metadata for an image associated with a task.
+/// The path should be in the format `.vibe-images/{uuid}.{ext}`.
+pub async fn get_task_image_metadata(
+    Path(task_id): Path<Uuid>,
+    State(deployment): State<DeploymentImpl>,
+    Query(query): Query<ImageMetadataQuery>,
+) -> Result<ResponseJson<ApiResponse<ImageMetadata>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let metadata = get_image_metadata_impl(pool, &query.path, |image_id| {
+        TaskImage::is_associated(pool, task_id, image_id)
+    })
+    .await?;
+    Ok(ResponseJson(ApiResponse::success(metadata)))
 }
 
 /// Get metadata for an image associated with a conversation session.
@@ -260,62 +279,12 @@ pub async fn get_conversation_image_metadata(
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<ImageMetadataQuery>,
 ) -> Result<ResponseJson<ApiResponse<ImageMetadata>>, ApiError> {
-    let not_found_response = || ImageMetadata {
-        exists: false,
-        file_name: None,
-        path: Some(query.path.clone()),
-        size_bytes: None,
-        format: None,
-        proxy_url: None,
-    };
-
-    // Validate path starts with .vibe-images/
-    let vibe_images_prefix = format!("{}/", utils::path::VIBE_IMAGES_DIR);
-    if !query.path.starts_with(&vibe_images_prefix) {
-        return Ok(ResponseJson(ApiResponse::success(not_found_response())));
-    }
-
-    // Reject paths with .. to prevent traversal
-    if query.path.contains("..") {
-        return Ok(ResponseJson(ApiResponse::success(not_found_response())));
-    }
-
-    // Extract the filename from the path (e.g., "uuid.png" from ".vibe-images/uuid.png")
-    let file_name = match query.path.strip_prefix(&vibe_images_prefix) {
-        Some(name) if !name.is_empty() => name,
-        _ => return Ok(ResponseJson(ApiResponse::success(not_found_response()))),
-    };
-
-    // Look up the image by file_path (which is just the filename in the images table)
-    let image = match Image::find_by_file_path(&deployment.db().pool, file_name).await? {
-        Some(img) => img,
-        None => return Ok(ResponseJson(ApiResponse::success(not_found_response()))),
-    };
-
-    // Verify the image is associated with this conversation session
-    let is_associated =
-        ConversationImage::is_associated(&deployment.db().pool, conversation_session_id, image.id)
-            .await?;
-    if !is_associated {
-        return Ok(ResponseJson(ApiResponse::success(not_found_response())));
-    }
-
-    // Get format from extension
-    let format = StdPath::new(file_name)
-        .extension()
-        .map(|ext| ext.to_string_lossy().to_lowercase());
-
-    // Build the proxy URL
-    let proxy_url = format!("/api/images/{}/file", image.id);
-
-    Ok(ResponseJson(ApiResponse::success(ImageMetadata {
-        exists: true,
-        file_name: Some(image.original_name),
-        path: Some(query.path),
-        size_bytes: Some(image.size_bytes),
-        format,
-        proxy_url: Some(proxy_url),
-    })))
+    let pool = &deployment.db().pool;
+    let metadata = get_image_metadata_impl(pool, &query.path, |image_id| {
+        ConversationImage::is_associated(pool, conversation_session_id, image_id)
+    })
+    .await?;
+    Ok(ResponseJson(ApiResponse::success(metadata)))
 }
 
 pub fn routes() -> Router<DeploymentImpl> {
