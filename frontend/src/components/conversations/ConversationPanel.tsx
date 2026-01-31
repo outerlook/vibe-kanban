@@ -23,9 +23,10 @@ import type { ConversationSession, ExecutionProcessStatus } from 'shared/types';
 
 interface ConversationPanelProps {
   projectId: string;
+  initialConversationId?: string;
 }
 
-export function ConversationPanel({ projectId }: ConversationPanelProps) {
+export function ConversationPanel({ projectId, initialConversationId: _initialConversationId }: ConversationPanelProps) {
   const { t } = useTranslation('common');
   const [selectedConversation, setSelectedConversation] =
     useState<ConversationSession | null>(null);

@@ -1,3 +1,4 @@
+import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useProject } from '@/contexts/ProjectContext';
 import { Loader } from '@/components/ui/loader';
@@ -7,6 +8,10 @@ import { ConversationPanel } from '@/components/conversations/ConversationPanel'
 
 export function ProjectConversations() {
   const { t } = useTranslation(['common']);
+  const { conversationId } = useParams<{
+    projectId: string;
+    conversationId?: string;
+  }>();
   const { projectId, isLoading, error } = useProject();
 
   if (error) {
@@ -31,7 +36,7 @@ export function ProjectConversations() {
 
   return (
     <div className="h-full p-4">
-      <ConversationPanel projectId={projectId} />
+      <ConversationPanel projectId={projectId} initialConversationId={conversationId} />
     </div>
   );
 }
