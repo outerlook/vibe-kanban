@@ -17,6 +17,7 @@ import {
   TaskAttemptContext,
   TaskContext,
   LocalImagesContext,
+  ConversationContext,
   type LocalImageMetadata,
 } from './wysiwyg/context/task-attempt-context';
 import { FileTagTypeaheadPlugin } from './wysiwyg/plugins/file-tag-typeahead-plugin';
@@ -62,6 +63,8 @@ type WysiwygProps = {
   taskId?: string;
   /** Local images for immediate rendering (before saved to server) */
   localImages?: LocalImageMetadata[];
+  /** Conversation ID for resolving conversation-specific images */
+  conversationId?: string;
   /** Optional edit callback - shows edit button in read-only mode when provided */
   onEdit?: () => void;
   /** Optional delete callback - shows delete button in read-only mode when provided */
@@ -84,6 +87,7 @@ function WYSIWYGEditor({
   taskAttemptId,
   taskId,
   localImages,
+  conversationId,
   onEdit,
   onDelete,
   autoFocus = false,
@@ -195,10 +199,11 @@ function WYSIWYGEditor({
 
   const editorContent = (
     <div className="wysiwyg text-sm">
-      <TaskAttemptContext.Provider value={taskAttemptId}>
-        <TaskContext.Provider value={taskId}>
-          <LocalImagesContext.Provider value={localImages ?? []}>
-            <LexicalComposer initialConfig={initialConfig}>
+      <ConversationContext.Provider value={conversationId}>
+        <TaskAttemptContext.Provider value={taskAttemptId}>
+          <TaskContext.Provider value={taskId}>
+            <LocalImagesContext.Provider value={localImages ?? []}>
+              <LexicalComposer initialConfig={initialConfig}>
               <MarkdownSyncPlugin
                 value={value}
                 onChange={onChange}
@@ -247,10 +252,11 @@ function WYSIWYGEditor({
               )}
               {/* Link sanitization for read-only mode */}
               {disabled && <ReadOnlyLinkPlugin />}
-            </LexicalComposer>
-          </LocalImagesContext.Provider>
-        </TaskContext.Provider>
-      </TaskAttemptContext.Provider>
+              </LexicalComposer>
+            </LocalImagesContext.Provider>
+          </TaskContext.Provider>
+        </TaskAttemptContext.Provider>
+      </ConversationContext.Provider>
     </div>
   );
 

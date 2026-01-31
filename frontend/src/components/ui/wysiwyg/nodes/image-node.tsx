@@ -4,6 +4,7 @@ import { HelpCircle, Loader2 } from 'lucide-react';
 import {
   useTaskAttemptId,
   useTaskId,
+  useConversationId,
   useLocalImages,
 } from '../context/task-attempt-context';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
@@ -45,6 +46,7 @@ function ImageComponent({
   const { src, altText } = data;
   const taskAttemptId = useTaskAttemptId();
   const taskId = useTaskId();
+  const conversationId = useConversationId();
   const localImages = useLocalImages();
 
   const isVibeImage = src.startsWith('.vibe-images/');
@@ -56,6 +58,7 @@ function ImageComponent({
     taskAttemptId,
     src,
     taskId,
+    conversationId,
     localImages
   );
 
@@ -83,8 +86,8 @@ function ImageComponent({
   let displayName: string;
   let metadataLine: string | null = null;
 
-  // Check if we have context for fetching metadata (either taskAttemptId or taskId)
-  const hasContext = !!taskAttemptId || !!taskId;
+  // Check if we have context for fetching metadata (taskAttemptId, taskId, or conversationId)
+  const hasContext = !!taskAttemptId || !!taskId || !!conversationId;
   // Check if image exists in local images (for create mode where no task context exists yet)
   const hasLocalImage = localImages.some((img) => img.path === src);
 

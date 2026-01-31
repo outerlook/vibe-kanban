@@ -16,6 +16,7 @@ use db::models::{
         ConversationSession, ConversationSessionStatus, UpdateConversationSession,
     },
     execution_process::ExecutionProcess,
+    image::ConversationImage,
 };
 use deployment::Deployment;
 use executors::{
@@ -322,6 +323,15 @@ pub async fn upload_conversation_image(
 
     // Reuse the existing image upload processing (no task association needed)
     let image_response = process_image_upload(&deployment, multipart, None).await?;
+
+    // Associate the uploaded image with the conversation
+    ConversationImage::associate_many_dedup(
+        &deployment.db().pool,
+        conversation_id,
+        std::slice::from_ref(&image_response.id),
+    )
+    .await?;
+
     Ok(ResponseJson(ApiResponse::success(image_response)))
 }
 

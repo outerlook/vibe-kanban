@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT i.id as \"id!: Uuid\",\n                      i.file_path as \"file_path!\",\n                      i.original_name as \"original_name!\",\n                      i.mime_type,\n                      i.size_bytes as \"size_bytes!\",\n                      i.hash as \"hash!\",\n                      i.created_at as \"created_at!: DateTime<Utc>\",\n                      i.updated_at as \"updated_at!: DateTime<Utc>\"\n               FROM images i\n               LEFT JOIN task_images ti ON i.id = ti.image_id\n               WHERE ti.task_id IS NULL",
+  "query": "SELECT i.id as \"id!: Uuid\",\n                      i.file_path as \"file_path!\",\n                      i.original_name as \"original_name!\",\n                      i.mime_type,\n                      i.size_bytes as \"size_bytes!\",\n                      i.hash as \"hash!\",\n                      i.created_at as \"created_at!: DateTime<Utc>\",\n                      i.updated_at as \"updated_at!: DateTime<Utc>\"\n               FROM images i\n               JOIN conversation_images ci ON i.id = ci.image_id\n               WHERE ci.conversation_session_id = $1\n               ORDER BY ci.created_at",
   "describe": {
     "columns": [
       {
@@ -45,7 +45,7 @@
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 1
     },
     "nullable": [
       true,
@@ -58,5 +58,5 @@
       false
     ]
   },
-  "hash": "bc4d59205c5ff082e33cbe0c3d32d5915c471ca17ac9b6ff61b75cf7cd9839fc"
+  "hash": "ed81033895f5a6c1de33945f82f9894211d693523023bf73c0629a79af7eb411"
 }
