@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MessageSquare, Pencil, GitBranch, Home } from 'lucide-react';
+import { MessageSquare, Pencil, GitBranch, Home, ArrowLeft } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { ConversationList } from './ConversationList';
 import { ConversationView } from './ConversationView';
 import { MessageInput } from './MessageInput';
@@ -23,9 +24,10 @@ import type { ConversationSession, ExecutionProcessStatus } from 'shared/types';
 
 interface ConversationPanelProps {
   projectId: string;
+  isMobile?: boolean;
 }
 
-export function ConversationPanel({ projectId }: ConversationPanelProps) {
+export function ConversationPanel({ projectId, isMobile = false }: ConversationPanelProps) {
   const { t } = useTranslation('common');
   const [selectedConversation, setSelectedConversation] =
     useState<ConversationSession | null>(null);
@@ -125,6 +127,122 @@ export function ConversationPanel({ projectId }: ConversationPanelProps) {
     });
   }, [selectedConversation]);
 
+  const handleBackToList = useCallback(() => {
+    setSelectedConversation(null);
+  }, []);
+
+  const conversationHeader = selectedConversation && (
+    <div className="border-b px-4 py-3 flex items-center gap-2">
+      {isMobile && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 mr-1"
+          onClick={handleBackToList}
+          aria-label={t('conversations.backToList', { defaultValue: 'Back to conversations' })}
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+      )}
+      <MessageSquare className="h-4 w-4 text-muted-foreground" />
+      <h2 className="font-medium truncate">
+        {selectedConversation.title}
+      </h2>
+      <button
+        onClick={handleRenameConversation}
+        className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+        aria-label="Rename conversation"
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
+
+      <TooltipProvider>
+        {selectedConversation.worktree_path ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline" className="text-xs gap-1">
+                <GitBranch className="h-3 w-3" />
+                {selectedConversation.worktree_branch}
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>
+              {selectedConversation.worktree_path}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="secondary" className="text-xs gap-1">
+                <Home className="h-3 w-3" />
+                main
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>Main repository</TooltipContent>
+          </Tooltip>
+        )}
+      </TooltipProvider>
+
+      {selectedConversation.executor && (
+        <span className="text-xs text-muted-foreground px-2 py-0.5 bg-muted rounded ml-auto">
+          {selectedConversation.executor}
+        </span>
+      )}
+    </div>
+  );
+
+  const conversationContent = selectedConversation && (
+    <>
+      <ConversationView conversationId={selectedConversation.id} />
+      <MessageInput
+        conversationId={selectedConversation.id}
+        onSend={handleSendMessage}
+        isExecutionRunning={isExecutionRunning || sendMessage.isPending}
+        onStop={() => runningExecutionId && stopExecution(runningExecutionId)}
+        isStopping={isStopping}
+        isQueued={isQueued}
+        queuedMessage={queuedMessage}
+        queueMessage={queueMessage}
+        cancelQueue={cancelQueue}
+        isQueueLoading={isQueueLoading}
+      />
+    </>
+  );
+
+  const emptyState = (
+    <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
+      <MessageSquare className="h-12 w-12 mb-4 opacity-50" />
+      <p>
+        {t('conversations.selectOrCreate', {
+          defaultValue: 'Select a conversation or create a new one',
+        })}
+      </p>
+    </div>
+  );
+
+  // Mobile layout: show either list or conversation (full-screen)
+  if (isMobile) {
+    if (selectedConversation) {
+      return (
+        <div className="flex h-full flex-col border rounded-lg overflow-hidden bg-background">
+          {conversationHeader}
+          {conversationContent}
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex h-full flex-col border rounded-lg overflow-hidden bg-background">
+        <ConversationList
+          projectId={projectId}
+          selectedConversationId={undefined}
+          onSelectConversation={handleSelectConversation}
+          onCreateConversation={handleCreateConversation}
+        />
+      </div>
+    );
+  }
+
+  // Desktop layout: side-by-side
   return (
     <div className="flex h-full border rounded-lg overflow-hidden bg-background">
       {/* Sidebar with conversation list */}
@@ -141,79 +259,11 @@ export function ConversationPanel({ projectId }: ConversationPanelProps) {
       <div className="flex-1 flex flex-col min-w-0">
         {selectedConversation ? (
           <>
-            {/* Header */}
-            <div className="border-b px-4 py-3 flex items-center gap-2">
-              <MessageSquare className="h-4 w-4 text-muted-foreground" />
-              <h2 className="font-medium truncate">
-                {selectedConversation.title}
-              </h2>
-              <button
-                onClick={handleRenameConversation}
-                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                aria-label="Rename conversation"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-
-              <TooltipProvider>
-                {selectedConversation.worktree_path ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge variant="outline" className="text-xs gap-1">
-                        <GitBranch className="h-3 w-3" />
-                        {selectedConversation.worktree_branch}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {selectedConversation.worktree_path}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge variant="secondary" className="text-xs gap-1">
-                        <Home className="h-3 w-3" />
-                        main
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>Main repository</TooltipContent>
-                  </Tooltip>
-                )}
-              </TooltipProvider>
-
-              {selectedConversation.executor && (
-                <span className="text-xs text-muted-foreground px-2 py-0.5 bg-muted rounded ml-auto">
-                  {selectedConversation.executor}
-                </span>
-              )}
-            </div>
-
-            {/* Conversation view */}
-            <ConversationView conversationId={selectedConversation.id} />
-
-            {/* Message input */}
-            <MessageInput
-              conversationId={selectedConversation.id}
-              onSend={handleSendMessage}
-              isExecutionRunning={isExecutionRunning || sendMessage.isPending}
-              onStop={() => runningExecutionId && stopExecution(runningExecutionId)}
-              isStopping={isStopping}
-              isQueued={isQueued}
-              queuedMessage={queuedMessage}
-              queueMessage={queueMessage}
-              cancelQueue={cancelQueue}
-              isQueueLoading={isQueueLoading}
-            />
+            {conversationHeader}
+            {conversationContent}
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
-            <MessageSquare className="h-12 w-12 mb-4 opacity-50" />
-            <p>
-              {t('conversations.selectOrCreate', {
-                defaultValue: 'Select a conversation or create a new one',
-              })}
-            </p>
-          </div>
+          emptyState
         )}
       </div>
     </div>

@@ -4,10 +4,13 @@ import { Loader } from '@/components/ui/loader';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertTriangle } from 'lucide-react';
 import { ConversationPanel } from '@/components/conversations/ConversationPanel';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 
 export function ProjectConversations() {
   const { t } = useTranslation(['common']);
   const { projectId, isLoading, error } = useProject();
+  const isDesktop = useMediaQuery('(min-width: 1280px)');
+  const isMobile = !isDesktop;
 
   if (error) {
     return (
@@ -31,7 +34,7 @@ export function ProjectConversations() {
 
   return (
     <div className="h-full p-4">
-      <ConversationPanel projectId={projectId} />
+      <ConversationPanel projectId={projectId} isMobile={isMobile} />
     </div>
   );
 }
