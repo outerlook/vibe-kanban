@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MessageSquare, Pencil, GitBranch, Home } from 'lucide-react';
 import { ConversationList } from './ConversationList';
@@ -14,11 +14,14 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {
+  useConversation,
   useSendMessage,
   useConversationExecutions,
   useStopConversationExecution,
 } from '@/hooks/useConversations';
 import { useConversationQueueStatus } from '@/hooks/useConversationQueueStatus';
+import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
+import { paths } from '@/lib/paths';
 import type { ConversationSession, ExecutionProcessStatus } from 'shared/types';
 
 interface ConversationPanelProps {
@@ -26,10 +29,20 @@ interface ConversationPanelProps {
   initialConversationId?: string;
 }
 
-export function ConversationPanel({ projectId, initialConversationId: _initialConversationId }: ConversationPanelProps) {
+export function ConversationPanel({ projectId, initialConversationId }: ConversationPanelProps) {
   const { t } = useTranslation('common');
-  const [selectedConversation, setSelectedConversation] =
-    useState<ConversationSession | null>(null);
+  const navigate = useNavigateWithSearch();
+
+  // Fetch conversation data when ID is in URL
+  const { data: selectedConversation, isError: isConversationError } =
+    useConversation(initialConversationId);
+
+  // Redirect to list if conversation doesn't exist
+  useEffect(() => {
+    if (initialConversationId && isConversationError) {
+      navigate(paths.projectConversations(projectId), { replace: true });
+    }
+  }, [initialConversationId, isConversationError, navigate, projectId]);
 
   const sendMessage = useSendMessage();
   const { data: executions } = useConversationExecutions(
@@ -86,18 +99,18 @@ export function ConversationPanel({ projectId, initialConversationId: _initialCo
 
   const handleSelectConversation = useCallback(
     (conversation: ConversationSession) => {
-      setSelectedConversation(conversation);
+      navigate(paths.conversation(projectId, conversation.id));
     },
-    []
+    [projectId, navigate]
   );
 
   const handleCreateConversation = useCallback(() => {
     NewConversationDialog.show({ projectId }).then((result) => {
       if (result) {
-        setSelectedConversation(result);
+        navigate(paths.conversation(projectId, result.id));
       }
     });
-  }, [projectId]);
+  }, [projectId, navigate]);
 
   const handleSendMessage = useCallback(
     (content: string) => {
@@ -117,13 +130,8 @@ export function ConversationPanel({ projectId, initialConversationId: _initialCo
     RenameConversationDialog.show({
       conversationId: selectedConversation.id,
       currentTitle: selectedConversation.title,
-    }).then((result) => {
-      if (result.action === 'confirmed' && result.title) {
-        setSelectedConversation((prev) =>
-          prev ? { ...prev, title: result.title! } : null
-        );
-      }
     });
+    // The mutation in the dialog updates the query cache, so useConversation will auto-update
   }, [selectedConversation]);
 
   return (
