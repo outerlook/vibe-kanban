@@ -93,12 +93,13 @@ impl DomainEventDispatcher {
 
     /// Starts tracking a hook execution if the store is available and event has a task_id.
     /// Returns the execution ID if tracking was started, None otherwise.
+    /// Also returns None if the handler is not in the tracked handlers whitelist.
     fn track_execution_start(&self, event: &DomainEvent, handler_name: &str) -> Option<uuid::Uuid> {
         let store = self.ctx.hook_execution_store.as_ref()?;
         let task_id = event.task_id()?;
         let hook_point = event.hook_point();
 
-        Some(store.start_execution(task_id, handler_name, hook_point))
+        store.start_execution(task_id, handler_name, hook_point)
     }
 }
 
@@ -663,12 +664,13 @@ mod tests {
         let msg_store = Arc::new(MsgStore::default());
         let hook_store = HookExecutionStore::new(msg_store.clone());
 
+        // Use a tracked handler name (autopilot) for the test
         struct SpawnedTrackingHandler;
 
         #[async_trait]
         impl EventHandler for SpawnedTrackingHandler {
             fn name(&self) -> &'static str {
-                "spawned_tracking"
+                "autopilot" // Must be in TRACKED_HANDLERS
             }
 
             fn execution_mode(&self) -> ExecutionMode {
@@ -714,7 +716,7 @@ mod tests {
         // Should have a running execution
         let execs = hook_store.get_for_task(task_id);
         assert_eq!(execs.len(), 1);
-        assert_eq!(execs[0].handler_name, "spawned_tracking");
+        assert_eq!(execs[0].handler_name, "autopilot");
         assert_eq!(execs[0].hook_point, HookPoint::PostTaskStatusChange);
         assert_eq!(execs[0].status, HookExecutionStatus::Running);
 
@@ -734,12 +736,13 @@ mod tests {
         let msg_store = Arc::new(MsgStore::default());
         let hook_store = HookExecutionStore::new(msg_store.clone());
 
+        // Use a tracked handler name (feedback_collection) for the test
         struct FailingSpawnedHandler;
 
         #[async_trait]
         impl EventHandler for FailingSpawnedHandler {
             fn name(&self) -> &'static str {
-                "failing_spawned"
+                "feedback_collection" // Must be in TRACKED_HANDLERS
             }
 
             fn execution_mode(&self) -> ExecutionMode {
@@ -781,7 +784,7 @@ mod tests {
         // Should be marked as failed
         let execs = hook_store.get_for_task(task_id);
         assert_eq!(execs.len(), 1);
-        assert_eq!(execs[0].handler_name, "failing_spawned");
+        assert_eq!(execs[0].handler_name, "feedback_collection");
         assert_eq!(execs[0].hook_point, HookPoint::PostTaskStatusChange);
         assert_eq!(execs[0].status, HookExecutionStatus::Failed);
         assert!(
