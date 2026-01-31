@@ -193,7 +193,9 @@ impl Image {
                       i.updated_at as "updated_at!: DateTime<Utc>"
                FROM images i
                LEFT JOIN task_images ti ON i.id = ti.image_id
-               WHERE ti.task_id IS NULL"#
+               LEFT JOIN conversation_images ci ON i.id = ci.image_id
+               WHERE ti.task_id IS NULL
+                 AND ci.conversation_session_id IS NULL"#
         )
         .fetch_all(pool)
         .await
