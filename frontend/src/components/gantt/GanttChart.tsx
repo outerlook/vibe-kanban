@@ -1,9 +1,13 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useState } from 'react';
 import { Gantt, Tooltip } from '@svar-ui/react-gantt';
 import type { IApi, ITask, TID } from '@svar-ui/react-gantt';
+import { Monitor } from 'lucide-react';
 import { GanttTooltipContent } from './GanttTooltipContent';
 import type { SvarGanttTask, SvarGanttLink } from '@/lib/transformGantt';
 import { GANTT_SCALES } from '@/lib/ganttConfig';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import '@/styles/gantt.css';
 
 /**
@@ -41,6 +45,8 @@ interface GanttChartProps {
 
 export function GanttChart({ tasks, links, onSelectTask }: GanttChartProps) {
   const apiRef = useRef<IApi | null>(null);
+  const isDesktop = useMediaQuery('(min-width: 1280px)');
+  const [dismissedMobileWarning, setDismissedMobileWarning] = useState(false);
 
   const handleInit = useCallback(
     (api: IApi) => {
@@ -64,6 +70,33 @@ export function GanttChart({ tasks, links, onSelectTask }: GanttChartProps) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
         No tasks to display
+      </div>
+    );
+  }
+
+  if (!isDesktop && !dismissedMobileWarning) {
+    return (
+      <div className="flex items-center justify-center h-full p-4">
+        <Card variant="outlined" className="max-w-sm">
+          <CardContent className="pt-6 text-center space-y-4">
+            <Monitor className="h-12 w-12 mx-auto text-muted-foreground" />
+            <div className="space-y-2">
+              <h3 className="font-semibold text-lg">
+                Best viewed on desktop
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                The Gantt chart is optimized for larger screens. For the best
+                experience, please use a desktop or tablet in landscape mode.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => setDismissedMobileWarning(true)}
+            >
+              View anyway
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
