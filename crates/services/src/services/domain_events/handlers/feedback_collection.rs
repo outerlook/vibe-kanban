@@ -287,18 +287,29 @@ impl EventHandler for FeedbackCollectionHandler {
             execution_process_id: process.id,
         };
 
-        if let Err(e) = trigger_callback(trigger).await {
-            tracing::warn!(
-                "Failed to trigger feedback collection for workspace {}: {}",
-                workspace_id,
-                e
-            );
-        } else {
-            tracing::info!(
-                "Triggered feedback collection for workspace {} task {}",
-                workspace_id,
-                task_id
-            );
+        match trigger_callback(trigger).await {
+            Ok(spawned_exec_id) => {
+                tracing::info!(
+                    "Triggered feedback collection for workspace {} task {}, execution {}",
+                    workspace_id,
+                    task_id,
+                    spawned_exec_id
+                );
+
+                // Link the spawned execution process to this hook execution
+                if let (Some(hook_exec_id), Some(store)) =
+                    (ctx.hook_execution_id, &ctx.hook_execution_store)
+                {
+                    store.link_execution_process(hook_exec_id, spawned_exec_id);
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to trigger feedback collection for workspace {}: {}",
+                    workspace_id,
+                    e
+                );
+            }
         }
 
         Ok(())

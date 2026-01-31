@@ -55,7 +55,6 @@ impl DomainEventDispatcher {
             if handler.handles(&event) {
                 let handler = Arc::clone(handler);
                 let event = event.clone();
-                let ctx = Arc::clone(&self.ctx);
 
                 debug!(
                     handler = handler.name(),
@@ -66,12 +65,17 @@ impl DomainEventDispatcher {
                 // Track hook execution if we have a store and task_id
                 let execution_id = self.track_execution_start(&event, handler.name());
 
+                // Create a context with hook_execution_id set for this handler
+                let mut handler_ctx = (*self.ctx).clone();
+                handler_ctx.hook_execution_id = execution_id;
+                let handler_ctx = Arc::new(handler_ctx);
+
                 tokio::spawn(async move {
-                    let result = handler.handle(event, &ctx).await;
+                    let result = handler.handle(event, &handler_ctx).await;
 
                     // Update execution status if we were tracking
                     if let Some(exec_id) = execution_id
-                        && let Some(store) = &ctx.hook_execution_store
+                        && let Some(store) = &handler_ctx.hook_execution_store
                     {
                         match &result {
                             Ok(()) => store.complete_execution(exec_id),
@@ -600,7 +604,7 @@ mod tests {
 
         let callback: ExecutionTriggerCallback = Arc::new(move |_trigger| {
             called_clone.store(true, Ordering::SeqCst);
-            async { Ok(()) }.boxed()
+            async { Ok(uuid::Uuid::new_v4()) }.boxed()
         });
 
         let dispatcher = DispatcherBuilder::new()

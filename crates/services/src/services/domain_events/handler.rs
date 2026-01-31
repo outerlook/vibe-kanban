@@ -5,6 +5,7 @@ use db::DBService;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use utils::msg_store::MsgStore;
+use uuid::Uuid;
 
 use super::{DomainEvent, ExecutionTriggerCallback, HookExecutionStore};
 use crate::services::config::Config;
@@ -43,6 +44,10 @@ pub struct HandlerContext {
     /// Store for tracking hook execution status. Used by the dispatcher
     /// to track spawned handler executions.
     pub hook_execution_store: Option<HookExecutionStore>,
+    /// The ID of the hook execution tracking this handler invocation.
+    /// Set by the dispatcher for spawned handlers to enable linking
+    /// triggered execution processes back to the hook execution.
+    pub hook_execution_id: Option<Uuid>,
 }
 
 impl HandlerContext {
@@ -58,6 +63,7 @@ impl HandlerContext {
             msg_store,
             execution_trigger,
             hook_execution_store: None,
+            hook_execution_id: None,
         }
     }
 

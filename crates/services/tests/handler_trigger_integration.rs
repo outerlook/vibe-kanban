@@ -269,7 +269,7 @@ fn create_mock_trigger_callback(capture: Arc<Mutex<TriggerCapture>>) -> Executio
                         .push((task_id, execution_process_id));
                 }
             }
-            Ok(())
+            Ok(Uuid::new_v4())
         }
         .boxed()
     })
@@ -951,7 +951,7 @@ async fn test_no_duplicate_feedback_triggers() {
             let count = Arc::clone(&count_clone);
             async move {
                 count.fetch_add(1, Ordering::SeqCst);
-                Ok(())
+                Ok(Uuid::new_v4())
             }
             .boxed()
         });
@@ -1137,5 +1137,254 @@ async fn test_handlers_gracefully_handle_no_callback() {
     assert!(
         result.is_ok(),
         "ReviewAttentionHandler should succeed without callback"
+    );
+}
+
+// ============================================================================
+// Hook-to-Execution Linking Integration Tests
+// ============================================================================
+
+/// Tests that when FeedbackCollectionHandler triggers an execution, it links
+/// the spawned execution process back to the hook execution that triggered it.
+#[tokio::test]
+async fn test_feedback_handler_links_hook_to_execution() {
+    use services::services::domain_events::HookExecutionStore;
+
+    let (pool, _db_file) = create_test_db().await;
+
+    // Create test data
+    let project_id = create_test_project(&pool, "link_test_project").await;
+    let task = create_test_task(&pool, project_id, "Link test task", TaskStatus::InReview).await;
+    let workspace = create_test_workspace(&pool, task.id, "test-branch").await;
+    let session_id = create_test_session(&pool, workspace.id).await;
+    let execution = create_test_execution_process(
+        &pool,
+        session_id,
+        ExecutionProcessStatus::Completed,
+        ExecutionProcessRunReason::CodingAgent,
+    )
+    .await;
+
+    // Create a callback that captures the spawned execution ID
+    let spawned_exec_id = Uuid::new_v4();
+    let callback: ExecutionTriggerCallback = {
+        let id = spawned_exec_id;
+        Arc::new(move |_trigger| async move { Ok(id) }.boxed())
+    };
+
+    // Create handler context with hook_execution_id and store set
+    let db_service = db::DBService { pool: pool.clone() };
+    let config = Arc::new(RwLock::new(services::services::config::Config::default()));
+    let msg_store = Arc::new(MsgStore::default());
+    let hook_store = HookExecutionStore::new(msg_store.clone());
+
+    // Simulate what the dispatcher does: set hook_execution_id on the context
+    let hook_exec_id = hook_store
+        .start_execution(task.id, "feedback_collection", services::services::domain_events::HookPoint::PostAgentComplete)
+        .expect("feedback_collection should be a tracked handler");
+
+    let mut ctx = HandlerContext::new(db_service.clone(), config.clone(), msg_store.clone(), Some(callback));
+    ctx.hook_execution_store = Some(hook_store.clone());
+    ctx.hook_execution_id = Some(hook_exec_id);
+
+    // Call the handler
+    let feedback_handler = FeedbackCollectionHandler::new(
+        db_service.clone(),
+        config.clone(),
+        Arc::new(RwLock::new(HashMap::new())),
+        Arc::new(RwLock::new(std::collections::HashSet::new())),
+    );
+
+    let result = feedback_handler
+        .handle(
+            DomainEvent::ExecutionCompleted {
+                process: execution.clone(),
+                task_id: task.id,
+            },
+            &ctx,
+        )
+        .await;
+
+    assert!(result.is_ok(), "Handler should succeed");
+
+    // Verify the hook execution is linked to the spawned execution
+    let execs = hook_store.get_for_task(task.id);
+    assert_eq!(execs.len(), 1);
+    assert_eq!(execs[0].linked_execution_process_id, Some(spawned_exec_id));
+}
+
+/// Tests that when ReviewAttentionHandler triggers an execution, it links
+/// the spawned execution process back to the hook execution that triggered it.
+#[tokio::test]
+async fn test_review_handler_links_hook_to_execution() {
+    use services::services::domain_events::HookExecutionStore;
+
+    let (pool, _db_file) = create_test_db().await;
+
+    // Create test data
+    let project_id = create_test_project(&pool, "review_link_test_project").await;
+    let task = create_test_task(&pool, project_id, "Review link test task", TaskStatus::InReview).await;
+    let workspace = create_test_workspace(&pool, task.id, "test-branch").await;
+    let session_id = create_test_session(&pool, workspace.id).await;
+    let _execution = create_test_execution_process(
+        &pool,
+        session_id,
+        ExecutionProcessStatus::Completed,
+        ExecutionProcessRunReason::CodingAgent,
+    )
+    .await;
+
+    // Create a callback that returns a spawned execution ID
+    let spawned_exec_id = Uuid::new_v4();
+    let callback: ExecutionTriggerCallback = {
+        let id = spawned_exec_id;
+        Arc::new(move |_trigger| async move { Ok(id) }.boxed())
+    };
+
+    // Create handler context with hook_execution_id and store set
+    let db_service = db::DBService { pool: pool.clone() };
+    let config = Arc::new(RwLock::new(services::services::config::Config::default()));
+    let msg_store = Arc::new(MsgStore::default());
+    let hook_store = HookExecutionStore::new(msg_store.clone());
+
+    // Simulate what the dispatcher does: set hook_execution_id on the context
+    let hook_exec_id = hook_store
+        .start_execution(task.id, "review_attention", services::services::domain_events::HookPoint::PostTaskStatusChange)
+        .expect("review_attention should be a tracked handler");
+
+    let mut ctx = HandlerContext::new(db_service.clone(), config.clone(), msg_store.clone(), Some(callback));
+    ctx.hook_execution_store = Some(hook_store.clone());
+    ctx.hook_execution_id = Some(hook_exec_id);
+
+    // Call the handler
+    let review_handler = ReviewAttentionHandler::new();
+    let result = review_handler
+        .handle(
+            DomainEvent::TaskStatusChanged {
+                task: task.clone(),
+                previous_status: TaskStatus::InProgress,
+            },
+            &ctx,
+        )
+        .await;
+
+    assert!(result.is_ok(), "Handler should succeed");
+
+    // Verify the hook execution is linked to the spawned execution
+    let execs = hook_store.get_for_task(task.id);
+    assert_eq!(execs.len(), 1);
+    assert_eq!(execs[0].linked_execution_process_id, Some(spawned_exec_id));
+}
+
+/// Tests that dispatcher correctly sets hook_execution_id on context for spawned handlers.
+#[tokio::test]
+async fn test_dispatcher_sets_hook_execution_id_for_spawned_handlers() {
+    use services::services::domain_events::{ExecutionMode, HandlerError, HookExecutionStore};
+    use async_trait::async_trait;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    // Custom handler that checks if hook_execution_id is set
+    struct HookIdCheckHandler {
+        hook_id_was_set: Arc<AtomicBool>,
+        hook_id_matched: Arc<AtomicBool>,
+    }
+
+    #[async_trait]
+    impl EventHandler for HookIdCheckHandler {
+        fn name(&self) -> &'static str {
+            "feedback_collection" // Must be a tracked handler
+        }
+
+        fn execution_mode(&self) -> ExecutionMode {
+            ExecutionMode::Spawned
+        }
+
+        fn handles(&self, _event: &DomainEvent) -> bool {
+            true
+        }
+
+        async fn handle(
+            &self,
+            _event: DomainEvent,
+            ctx: &HandlerContext,
+        ) -> Result<(), HandlerError> {
+            // Check if hook_execution_id was set
+            if ctx.hook_execution_id.is_some() {
+                self.hook_id_was_set.store(true, Ordering::SeqCst);
+            }
+            // Check if the hook_execution_id matches what's in the store
+            if let (Some(id), Some(store)) = (ctx.hook_execution_id, &ctx.hook_execution_store) {
+                let all_execs = store.get_all();
+                if all_execs.iter().any(|e| e.id == id) {
+                    self.hook_id_matched.store(true, Ordering::SeqCst);
+                }
+            }
+            Ok(())
+        }
+    }
+
+    let msg_store = Arc::new(MsgStore::default());
+    let hook_store = HookExecutionStore::new(msg_store.clone());
+
+    let hook_id_was_set = Arc::new(AtomicBool::new(false));
+    let hook_id_matched = Arc::new(AtomicBool::new(false));
+
+    let handler = HookIdCheckHandler {
+        hook_id_was_set: Arc::clone(&hook_id_was_set),
+        hook_id_matched: Arc::clone(&hook_id_matched),
+    };
+
+    // Create a minimal context
+    let pool = SqlitePoolOptions::new()
+        .connect_lazy("sqlite::memory:")
+        .unwrap();
+    let db = db::DBService { pool };
+    let config = Arc::new(RwLock::new(services::services::config::Config::default()));
+    let ctx = HandlerContext::new(db, config, msg_store.clone(), None);
+
+    let dispatcher = DispatcherBuilder::new()
+        .with_handler(handler)
+        .with_context(ctx)
+        .with_hook_execution_store(hook_store)
+        .build();
+
+    // Create a task event with a task_id so tracking is enabled
+    let task = Task {
+        id: Uuid::new_v4(),
+        project_id: Uuid::new_v4(),
+        title: "Test task".to_string(),
+        description: None,
+        status: TaskStatus::Done,
+        parent_workspace_id: None,
+        shared_task_id: None,
+        task_group_id: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        is_blocked: false,
+        has_in_progress_attempt: false,
+        last_attempt_failed: false,
+        is_queued: false,
+        last_executor: String::new(),
+        needs_attention: None,
+    };
+
+    let event = DomainEvent::TaskStatusChanged {
+        task,
+        previous_status: TaskStatus::InProgress,
+    };
+
+    dispatcher.dispatch(event).await;
+
+    // Wait for spawned handler to complete
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    assert!(
+        hook_id_was_set.load(Ordering::SeqCst),
+        "hook_execution_id should be set on context for spawned handlers"
+    );
+    assert!(
+        hook_id_matched.load(Ordering::SeqCst),
+        "hook_execution_id should match an execution in the store"
     );
 }

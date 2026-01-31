@@ -127,9 +127,16 @@ impl EventHandler for ReviewAttentionHandler {
             "Triggering review attention collection"
         );
 
-        trigger_callback(trigger).await.map_err(|e| {
+        let spawned_exec_id = trigger_callback(trigger).await.map_err(|e| {
             HandlerError::Failed(format!("Failed to trigger review attention: {e}"))
         })?;
+
+        // Link the spawned execution process to this hook execution
+        if let (Some(hook_exec_id), Some(store)) =
+            (ctx.hook_execution_id, &ctx.hook_execution_store)
+        {
+            store.link_execution_process(hook_exec_id, spawned_exec_id);
+        }
 
         Ok(())
     }
