@@ -170,7 +170,7 @@ export function Navbar() {
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Join our Discord"
-              className="hidden sm:inline-flex items-center ml-3 text-xs font-medium overflow-hidden border h-6"
+              className="hidden xl:inline-flex items-center ml-3 text-xs font-medium overflow-hidden border h-6"
             >
               <span className="bg-muted text-foreground flex items-center p-2 border-r">
                 <svg
