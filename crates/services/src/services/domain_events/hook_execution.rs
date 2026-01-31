@@ -8,6 +8,7 @@ use std::{collections::HashMap, sync::Arc};
 pub const TRACKED_HANDLERS: &[&str] = &["autopilot", "feedback_collection", "review_attention"];
 
 use chrono::{DateTime, Utc};
+use db::models::execution_process::ExecutionProcessStatus;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -50,6 +51,10 @@ pub struct HookExecution {
     pub completed_at: Option<DateTime<Utc>>,
     /// Error message if the execution failed.
     pub error: Option<String>,
+    /// Linked execution process ID for hooks that spawn execution processes.
+    /// Used by handlers like `feedback_collection` and `review_attention` that
+    /// trigger separate execution processes via ExecutionTrigger callback.
+    pub linked_execution_process_id: Option<Uuid>,
 }
 
 impl HookExecution {
@@ -64,6 +69,7 @@ impl HookExecution {
             started_at: Utc::now(),
             completed_at: None,
             error: None,
+            linked_execution_process_id: None,
         }
     }
 
@@ -161,6 +167,52 @@ impl HookExecutionStore {
         }
     }
 
+    /// Link a hook execution to a spawned execution process.
+    /// Used by handlers that trigger separate execution processes (e.g., feedback_collection).
+    /// Broadcasts the update via MsgStore.
+    pub fn link_execution_process(&self, execution_id: Uuid, process_id: Uuid) {
+        let execution = {
+            let mut execs = self.executions.write();
+            Self::find_and_update(&mut execs, execution_id, |exec| {
+                exec.linked_execution_process_id = Some(process_id);
+            })
+        };
+
+        if let Some(exec) = execution {
+            let patch = hook_execution_patch::replace(&exec);
+            self.msg_store.push_patch(patch);
+        }
+    }
+
+    /// Update hook execution status based on linked execution process completion.
+    /// Searches by `linked_execution_process_id` and updates status/completed_at.
+    /// Broadcasts the update via MsgStore.
+    pub fn update_from_execution_process(
+        &self,
+        process_id: Uuid,
+        status: ExecutionProcessStatus,
+        completed_at: DateTime<Utc>,
+    ) {
+        let execution = {
+            let mut execs = self.executions.write();
+            Self::find_and_update_by_process_id(&mut execs, process_id, |exec| {
+                exec.status = match status {
+                    ExecutionProcessStatus::Completed => HookExecutionStatus::Completed,
+                    ExecutionProcessStatus::Failed | ExecutionProcessStatus::Killed => {
+                        HookExecutionStatus::Failed
+                    }
+                    ExecutionProcessStatus::Running => HookExecutionStatus::Running,
+                };
+                exec.completed_at = Some(completed_at);
+            })
+        };
+
+        if let Some(exec) = execution {
+            let patch = hook_execution_patch::replace(&exec);
+            self.msg_store.push_patch(patch);
+        }
+    }
+
     /// Get all executions for a specific task.
     pub fn get_for_task(&self, task_id: Uuid) -> Vec<HookExecution> {
         self.executions
@@ -211,6 +263,28 @@ impl HookExecutionStore {
     {
         for task_execs in execs.values_mut() {
             if let Some(exec) = task_execs.iter_mut().find(|e| e.id == execution_id) {
+                update_fn(exec);
+                return Some(exec.clone());
+            }
+        }
+        None
+    }
+
+    /// Helper to find an execution by linked execution process ID and apply an update function.
+    /// Returns the updated execution if found.
+    fn find_and_update_by_process_id<F>(
+        execs: &mut HashMap<Uuid, Vec<HookExecution>>,
+        process_id: Uuid,
+        update_fn: F,
+    ) -> Option<HookExecution>
+    where
+        F: FnOnce(&mut HookExecution),
+    {
+        for task_execs in execs.values_mut() {
+            if let Some(exec) = task_execs
+                .iter_mut()
+                .find(|e| e.linked_execution_process_id == Some(process_id))
+            {
                 update_fn(exec);
                 return Some(exec.clone());
             }
@@ -447,5 +521,126 @@ mod tests {
         assert!(!TRACKED_HANDLERS.contains(&"websocket_broadcast"));
         assert!(!TRACKED_HANDLERS.contains(&"notifications"));
         assert!(!TRACKED_HANDLERS.contains(&"remote_sync"));
+    }
+
+    #[test]
+    fn test_link_execution_process() {
+        let store = create_test_store();
+        let task_id = Uuid::new_v4();
+        let process_id = Uuid::new_v4();
+
+        let exec_id = store
+            .start_execution(task_id, "feedback_collection", HookPoint::PostAgentComplete)
+            .expect("feedback_collection should be tracked");
+
+        // Initially, no linked process
+        let execs = store.get_for_task(task_id);
+        assert!(execs[0].linked_execution_process_id.is_none());
+
+        // Link the execution process
+        store.link_execution_process(exec_id, process_id);
+
+        // Verify the link was set
+        let execs = store.get_for_task(task_id);
+        assert_eq!(execs[0].linked_execution_process_id, Some(process_id));
+    }
+
+    #[test]
+    fn test_update_from_execution_process() {
+        let store = create_test_store();
+        let task_id = Uuid::new_v4();
+        let process_id = Uuid::new_v4();
+
+        let exec_id = store
+            .start_execution(task_id, "review_attention", HookPoint::PostAgentComplete)
+            .expect("review_attention should be tracked");
+
+        // Link and then update from execution process
+        store.link_execution_process(exec_id, process_id);
+
+        let completed_at = Utc::now();
+        store.update_from_execution_process(
+            process_id,
+            ExecutionProcessStatus::Completed,
+            completed_at,
+        );
+
+        // Verify the status and completed_at were updated
+        let execs = store.get_for_task(task_id);
+        assert_eq!(execs[0].status, HookExecutionStatus::Completed);
+        assert_eq!(execs[0].completed_at, Some(completed_at));
+    }
+
+    #[test]
+    fn test_update_from_execution_process_failed() {
+        let store = create_test_store();
+        let task_id = Uuid::new_v4();
+        let process_id = Uuid::new_v4();
+
+        let exec_id = store
+            .start_execution(task_id, "feedback_collection", HookPoint::PostAgentComplete)
+            .expect("feedback_collection should be tracked");
+
+        store.link_execution_process(exec_id, process_id);
+
+        let completed_at = Utc::now();
+        store.update_from_execution_process(process_id, ExecutionProcessStatus::Failed, completed_at);
+
+        let execs = store.get_for_task(task_id);
+        assert_eq!(execs[0].status, HookExecutionStatus::Failed);
+        assert_eq!(execs[0].completed_at, Some(completed_at));
+    }
+
+    #[test]
+    fn test_update_from_execution_process_killed() {
+        let store = create_test_store();
+        let task_id = Uuid::new_v4();
+        let process_id = Uuid::new_v4();
+
+        let exec_id = store
+            .start_execution(task_id, "autopilot", HookPoint::PostTaskStatusChange)
+            .expect("autopilot should be tracked");
+
+        store.link_execution_process(exec_id, process_id);
+
+        let completed_at = Utc::now();
+        store.update_from_execution_process(process_id, ExecutionProcessStatus::Killed, completed_at);
+
+        let execs = store.get_for_task(task_id);
+        assert_eq!(execs[0].status, HookExecutionStatus::Failed);
+        assert_eq!(execs[0].completed_at, Some(completed_at));
+    }
+
+    #[test]
+    fn test_update_from_execution_process_no_match() {
+        let store = create_test_store();
+        let task_id = Uuid::new_v4();
+        let unlinked_process_id = Uuid::new_v4();
+
+        let _exec_id = store
+            .start_execution(task_id, "autopilot", HookPoint::PostTaskCreate)
+            .expect("autopilot should be tracked");
+
+        // Try to update with a process_id that doesn't match any linked execution
+        // This should not panic and should be a no-op
+        let completed_at = Utc::now();
+        store.update_from_execution_process(
+            unlinked_process_id,
+            ExecutionProcessStatus::Completed,
+            completed_at,
+        );
+
+        // The execution should remain unchanged (still Running, no completed_at)
+        let execs = store.get_for_task(task_id);
+        assert_eq!(execs[0].status, HookExecutionStatus::Running);
+        assert!(execs[0].completed_at.is_none());
+    }
+
+    #[test]
+    fn test_new_hook_execution_has_no_linked_process() {
+        let task_id = Uuid::new_v4();
+        let exec = HookExecution::new(task_id, "autopilot", HookPoint::PostTaskStatusChange);
+
+        assert!(exec.linked_execution_process_id.is_none());
     }
 }

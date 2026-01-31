@@ -678,7 +678,13 @@ completed_at: string | null,
 /**
  * Error message if the execution failed.
  */
-error: string | null, };
+error: string | null, 
+/**
+ * Linked execution process ID for hooks that spawn execution processes.
+ * Used by handlers like `feedback_collection` and `review_attention` that
+ * trigger separate execution processes via ExecutionTrigger callback.
+ */
+linked_execution_process_id: string | null, };
 
 export type ExecutorAction = { typ: ExecutorActionType, next_action: ExecutorAction | null, };
 
