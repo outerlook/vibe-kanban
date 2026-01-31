@@ -12,6 +12,12 @@ export function useTaskId() {
   return useContext(TaskContext);
 }
 
+export const ConversationContext = createContext<string | undefined>(undefined);
+
+export function useConversationId() {
+  return useContext(ConversationContext);
+}
+
 // Local images metadata for rendering uploaded images before they're saved
 export type LocalImageMetadata = {
   path: string; // ".vibe-images/uuid.png"
