@@ -247,6 +247,7 @@ export function MessageInput({
               onPasteFiles={handlePasteFiles}
               onCmdEnter={handleCmdEnter}
               className="min-h-[28px]"
+              conversationId={conversationId}
             />
           </div>
 
