@@ -38,6 +38,7 @@ export const useJsonPatchWsStream = <T extends object>(
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const dataRef = useRef<T | undefined>(undefined);
+  const prevEndpointRef = useRef<string | undefined>(undefined);
   const pendingPatchesRef = useRef<Operation[]>([]);
   const rafRef = useRef<number | null>(null);
   const retryTimerRef = useRef<number | null>(null);
@@ -82,6 +83,15 @@ export const useJsonPatchWsStream = <T extends object>(
       setError(null);
       dataRef.current = undefined;
       return;
+    }
+
+    // Reset data when endpoint changes (e.g., switching conversations)
+    // This ensures we don't carry stale data from the previous endpoint
+    const endpointChanged = prevEndpointRef.current !== endpoint;
+    if (endpointChanged) {
+      prevEndpointRef.current = endpoint;
+      dataRef.current = undefined;
+      setData(undefined);
     }
 
     // Initialize data

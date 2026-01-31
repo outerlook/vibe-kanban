@@ -214,6 +214,10 @@ function AppContent() {
                     element={<ProjectConversations />}
                   />
                   <Route
+                    path="/projects/:projectId/conversations/:conversationId"
+                    element={<ProjectConversations />}
+                  />
+                  <Route
                     path="/projects/:projectId/gantt"
                     element={<GanttView />}
                   />
