@@ -96,8 +96,10 @@ pub enum ExecutionTrigger {
 /// to request new executions without direct access to `ContainerService`.
 /// The callback accepts an `ExecutionTrigger` and returns a future that
 /// resolves when the execution has been triggered (not completed).
+///
+/// Returns the `Uuid` of the spawned execution process on success.
 pub type ExecutionTriggerCallback =
-    Arc<dyn Fn(ExecutionTrigger) -> BoxFuture<'static, Result<(), anyhow::Error>> + Send + Sync>;
+    Arc<dyn Fn(ExecutionTrigger) -> BoxFuture<'static, Result<Uuid, anyhow::Error>> + Send + Sync>;
 
 /// Callback type for dispatching domain events.
 ///
