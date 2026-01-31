@@ -255,22 +255,19 @@ impl LocalContainerService {
                                     )
                                 })?;
 
-                            // Spawn feedback collection as background task (non-blocking)
-                            let feedback_container = container.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = feedback_container
-                                    .collect_agent_feedback(&ctx, &agent_session_id)
-                                    .await
-                                {
-                                    tracing::warn!(
+                            // Start feedback collection and return the execution process ID
+                            let feedback_exec = container
+                                .collect_agent_feedback(&ctx, &agent_session_id)
+                                .await
+                                .map_err(|e| {
+                                    anyhow!(
                                         "Failed to start feedback collection for task {}: {}",
                                         task_id,
                                         e
-                                    );
-                                }
-                            });
+                                    )
+                                })?;
 
-                            Ok(())
+                            Ok(feedback_exec.id)
                         }
                         ExecutionTrigger::ReviewAttention {
                             task_id,
@@ -287,7 +284,9 @@ impl LocalContainerService {
                                     "Review attention is disabled, skipping for task {}",
                                     task_id
                                 );
-                                return Ok(());
+                                return Err(anyhow!(
+                                    "Review attention is disabled, no executor profile configured"
+                                ));
                             }
 
                             // Load context from execution process ID
@@ -313,22 +312,19 @@ impl LocalContainerService {
                                     )
                                 })?;
 
-                            // Spawn review attention collection as background task (non-blocking)
-                            let review_container = container.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = review_container
-                                    .collect_review_attention(&ctx, &agent_session_id)
-                                    .await
-                                {
-                                    tracing::debug!(
+                            // Start review attention and return the execution process ID
+                            let review_exec = container
+                                .collect_review_attention(&ctx, &agent_session_id)
+                                .await
+                                .map_err(|e| {
+                                    anyhow!(
                                         "Failed to start review attention for task {}: {}",
                                         task_id,
                                         e
-                                    );
-                                }
-                            });
+                                    )
+                                })?;
 
-                            Ok(())
+                            Ok(review_exec.id)
                         }
                     }
                 }
