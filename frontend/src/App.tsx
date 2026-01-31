@@ -26,6 +26,7 @@ import { DisclaimerDialog } from '@/components/dialogs/global/DisclaimerDialog';
 import { OnboardingDialog } from '@/components/dialogs/global/OnboardingDialog';
 import { ReleaseNotesDialog } from '@/components/dialogs/global/ReleaseNotesDialog';
 import { CommandPalette } from '@/components/CommandPalette';
+import { Toaster } from '@/components/ui/sonner';
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import NiceModal from '@ebay/nice-modal-react';
 
@@ -278,6 +279,7 @@ function App() {
                     <NiceModal.Provider>
                       <AppContent />
                       <BulkActionsBar />
+                      <Toaster />
                     </NiceModal.Provider>
                   </HotkeysProvider>
                 </TaskSelectionProvider>

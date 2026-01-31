@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -38,10 +39,6 @@ type CreationResult = {
   error?: string;
 };
 
-type CreationState =
-  | { phase: 'idle' }
-  | { phase: 'creating'; currentIndex: number; results: CreationResult[] };
-
 const BulkCreateAttemptsDialogImpl =
   NiceModal.create<BulkCreateAttemptsDialogProps>(({ taskIds }) => {
     const modal = useModal();
@@ -53,9 +50,6 @@ const BulkCreateAttemptsDialogImpl =
 
     const [userSelectedProfile, setUserSelectedProfile] =
       useState<ExecutorProfileId | null>(null);
-    const [creationState, setCreationState] = useState<CreationState>({
-      phase: 'idle',
-    });
 
     const { data: projectRepos = [], isLoading: isLoadingRepos } =
       useProjectRepos(projectId, { enabled: modal.visible });
@@ -85,7 +79,6 @@ const BulkCreateAttemptsDialogImpl =
       if (!modal.visible) {
         setUserSelectedProfile(null);
         resetBranchSelection();
-        setCreationState({ phase: 'idle' });
       }
     }, [modal.visible, resetBranchSelection]);
 
@@ -98,14 +91,11 @@ const BulkCreateAttemptsDialogImpl =
       (c) => c.targetBranch !== null
     );
 
-    const isCreating = creationState.phase === 'creating';
-
     const canCreate = Boolean(
       effectiveProfile &&
-      allBranchesSelected &&
-      projectRepos.length > 0 &&
-      !isCreating &&
-      !isLoadingInitial
+        allBranchesSelected &&
+        projectRepos.length > 0 &&
+        !isLoadingInitial
     );
 
     const createAttemptForTask = useCallback(
@@ -140,16 +130,24 @@ const BulkCreateAttemptsDialogImpl =
       }
 
       const repos = getWorkspaceRepoInputs();
+      const total = taskIds.length;
+
+      // Close dialog immediately
+      modal.hide();
+      clearSelection();
+
+      // Show progress toast
+      const toastId = toast.loading(
+        t('bulkCreateAttemptsDialog.progress', { current: 1, total })
+      );
+
       const results: CreationResult[] = [];
 
-      setCreationState({ phase: 'creating', currentIndex: 0, results: [] });
-
-      for (let i = 0; i < taskIds.length; i++) {
-        setCreationState({
-          phase: 'creating',
-          currentIndex: i,
-          results: [...results],
-        });
+      for (let i = 0; i < total; i++) {
+        toast.loading(
+          t('bulkCreateAttemptsDialog.progress', { current: i + 1, total }),
+          { id: toastId }
+        );
 
         const result = await createAttemptForTask(
           taskIds[i],
@@ -159,17 +157,58 @@ const BulkCreateAttemptsDialogImpl =
         results.push(result);
       }
 
-      // Find first successful attempt and navigate to it
+      const successCount = results.filter((r) => r.success).length;
+      const failedCount = total - successCount;
       const firstSuccess = results.find((r) => r.success);
-      clearSelection();
 
-      if (firstSuccess && projectId) {
-        navigate(
-          paths.attempt(projectId, firstSuccess.taskId, firstSuccess.attemptId!)
+      if (failedCount === 0) {
+        toast.success(
+          t('bulkCreateAttemptsDialog.summary', {
+            success: successCount,
+            total,
+            failed: 0,
+          }),
+          {
+            id: toastId,
+            action: firstSuccess &&
+              projectId && {
+                label: t('bulkCreateAttemptsDialog.goToFirst'),
+                onClick: () =>
+                  navigate(
+                    paths.attempt(
+                      projectId,
+                      firstSuccess.taskId,
+                      firstSuccess.attemptId!
+                    )
+                  ),
+              },
+          }
+        );
+      } else {
+        toast.error(
+          t('bulkCreateAttemptsDialog.summary', {
+            success: successCount,
+            total,
+            failed: failedCount,
+          }),
+          {
+            id: toastId,
+            description: t('bulkCreateAttemptsDialog.someFailedHint'),
+            action: firstSuccess &&
+              projectId && {
+                label: t('bulkCreateAttemptsDialog.goToFirst'),
+                onClick: () =>
+                  navigate(
+                    paths.attempt(
+                      projectId,
+                      firstSuccess.taskId,
+                      firstSuccess.attemptId!
+                    )
+                  ),
+              },
+          }
         );
       }
-
-      modal.hide();
     }, [
       effectiveProfile,
       allBranchesSelected,
@@ -181,18 +220,14 @@ const BulkCreateAttemptsDialogImpl =
       projectId,
       navigate,
       modal,
+      t,
     ]);
 
     const handleOpenChange = (open: boolean) => {
-      if (!open && !isCreating) {
+      if (!open) {
         modal.hide();
       }
     };
-
-    const progressPercent =
-      creationState.phase === 'creating'
-        ? ((creationState.currentIndex + 1) / taskIds.length) * 100
-        : 0;
 
     return (
       <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
@@ -209,56 +244,31 @@ const BulkCreateAttemptsDialogImpl =
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-              {isCreating ? (
-                <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground text-center">
-                    {t('bulkCreateAttemptsDialog.progress', {
-                      current: creationState.currentIndex + 1,
-                      total: taskIds.length,
-                    })}
-                  </p>
-                  <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-primary transition-all duration-300"
-                      style={{ width: `${progressPercent}%` }}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {profiles && (
-                    <ExecutorProfileSelector
-                      profiles={profiles}
-                      selectedProfile={effectiveProfile}
-                      onProfileSelect={setUserSelectedProfile}
-                      showLabel={true}
-                    />
-                  )}
+            {profiles && (
+              <ExecutorProfileSelector
+                profiles={profiles}
+                selectedProfile={effectiveProfile}
+                onProfileSelect={setUserSelectedProfile}
+                showLabel={true}
+              />
+            )}
 
-                  <RepoBranchSelector
-                    configs={repoBranchConfigs}
-                    onBranchChange={setRepoBranch}
-                    isLoading={isLoadingBranches}
-                    className="space-y-2"
-                  />
-                </>
-              )}
+            <RepoBranchSelector
+              configs={repoBranchConfigs}
+              onBranchChange={setRepoBranch}
+              isLoading={isLoadingBranches}
+              className="space-y-2"
+            />
           </div>
 
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => modal.hide()}
-              disabled={isCreating}
-            >
+            <Button variant="outline" onClick={() => modal.hide()}>
               {t('common:buttons.cancel')}
             </Button>
             <Button onClick={handleCreate} disabled={!canCreate}>
-              {isCreating
-                ? t('bulkCreateAttemptsDialog.creating')
-                : t('bulkCreateAttemptsDialog.start', {
-                    count: taskIds.length,
-                  })}
+              {t('bulkCreateAttemptsDialog.start', {
+                count: taskIds.length,
+              })}
             </Button>
           </DialogFooter>
         </DialogContent>
