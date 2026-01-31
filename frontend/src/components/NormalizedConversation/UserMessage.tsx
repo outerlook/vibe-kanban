@@ -11,10 +11,12 @@ const UserMessage = ({
   content,
   executionProcessId,
   taskAttempt,
+  conversationId,
 }: {
   content: string;
   executionProcessId?: string;
   taskAttempt?: WorkspaceWithSession;
+  conversationId?: string;
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const { capabilities } = useUserSystem();
@@ -69,6 +71,7 @@ const UserMessage = ({
               disabled
               className="whitespace-pre-wrap break-words flex flex-col gap-1 font-light"
               taskAttemptId={taskAttempt?.id}
+              conversationId={conversationId}
               onEdit={canRetry ? startRetry : undefined}
             />
           )}

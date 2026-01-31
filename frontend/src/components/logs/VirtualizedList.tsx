@@ -149,6 +149,7 @@ const VirtualizedListInner = ({ mode }: VirtualizedListProps) => {
             executionProcessId={data.executionProcessId}
             taskAttempt={mode.type === 'workspace' ? mode.attempt : undefined}
             task={mode.type === 'workspace' ? mode.task : undefined}
+            conversationId={mode.type === 'conversation' ? mode.conversationSessionId : undefined}
           />
         );
       }

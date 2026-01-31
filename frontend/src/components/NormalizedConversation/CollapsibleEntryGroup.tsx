@@ -16,6 +16,7 @@ interface CollapsibleEntryGroupProps {
   executionProcessId: string;
   taskAttempt?: WorkspaceWithSession;
   task?: TaskWithAttemptStatus;
+  conversationId?: string;
 }
 
 /**
@@ -64,6 +65,7 @@ export function CollapsibleEntryGroup({
   executionProcessId,
   taskAttempt,
   task,
+  conversationId,
 }: CollapsibleEntryGroupProps) {
   const [expanded, toggle] = useExpandable(
     `entry-group:${expansionKey}`,
@@ -113,6 +115,7 @@ export function CollapsibleEntryGroup({
               executionProcessId={executionProcessId}
               taskAttempt={taskAttempt}
               task={task}
+              conversationId={conversationId}
             />
           ))}
         </div>

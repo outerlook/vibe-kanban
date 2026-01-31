@@ -48,6 +48,7 @@ type Props = {
   executionProcessId?: string;
   taskAttempt?: WorkspaceWithSession;
   task?: TaskWithAttemptStatus;
+  conversationId?: string;
 };
 
 type FileEditAction = Extract<ActionType, { action: 'file_edit' }>;
@@ -277,6 +278,7 @@ const CollapsibleEntry: React.FC<{
   variant: CollapsibleVariant;
   contentClassName: string;
   taskAttemptId?: string;
+  conversationId?: string;
 }> = ({
   content,
   markdown,
@@ -284,6 +286,7 @@ const CollapsibleEntry: React.FC<{
   variant,
   contentClassName,
   taskAttemptId,
+  conversationId,
 }) => {
   const multiline = content.includes('\n');
   const [expanded, toggle] = useExpandable(`entry:${expansionKey}`, false);
@@ -296,6 +299,7 @@ const CollapsibleEntry: React.FC<{
           disabled
           className="whitespace-pre-wrap break-words"
           taskAttemptId={taskAttemptId}
+          conversationId={conversationId}
         />
       ) : (
         content
@@ -312,6 +316,7 @@ const CollapsibleEntry: React.FC<{
           disabled
           className="whitespace-pre-wrap break-words"
           taskAttemptId={taskAttemptId}
+          conversationId={conversationId}
         />
       ) : (
         firstLine
@@ -375,12 +380,14 @@ const PlanPresentationCard: React.FC<{
   defaultExpanded?: boolean;
   statusAppearance?: ToolStatusAppearance;
   taskAttemptId?: string;
+  conversationId?: string;
 }> = ({
   plan,
   expansionKey,
   defaultExpanded = false,
   statusAppearance = 'default',
   taskAttemptId,
+  conversationId,
 }) => {
   const { t } = useTranslation('common');
   const [expanded, toggle] = useExpandable(
@@ -431,6 +438,7 @@ const PlanPresentationCard: React.FC<{
                 disabled
                 className="whitespace-pre-wrap break-words"
                 taskAttemptId={taskAttemptId}
+                conversationId={conversationId}
               />
             </div>
           </div>
@@ -445,7 +453,8 @@ const ToolCallCard: React.FC<{
   expansionKey: string;
   forceExpanded?: boolean;
   taskAttemptId?: string;
-}> = ({ entry, expansionKey, forceExpanded = false, taskAttemptId }) => {
+  conversationId?: string;
+}> = ({ entry, expansionKey, forceExpanded = false, taskAttemptId, conversationId }) => {
   const { t } = useTranslation('common');
 
   // Determine if this is a NormalizedEntry with tool_use
@@ -575,6 +584,7 @@ const ToolCallCard: React.FC<{
                           value={actionType.result.value?.toString()}
                           disabled
                           taskAttemptId={taskAttemptId}
+                          conversationId={conversationId}
                         />
                       )}
                     {actionType.result?.type.type === 'json' &&
@@ -635,6 +645,7 @@ function DisplayConversationEntry({
   executionProcessId,
   taskAttempt,
   task,
+  conversationId,
 }: Props) {
   const { t } = useTranslation('common');
   const { t: tTasks } = useTranslation('tasks');
@@ -656,6 +667,7 @@ function DisplayConversationEntry({
         executionProcessId={executionProcessId ?? ''}
         taskAttempt={taskAttempt}
         task={task}
+        conversationId={conversationId}
       />
     );
   }
@@ -675,6 +687,7 @@ function DisplayConversationEntry({
           entry={entry}
           expansionKey={expansionKey}
           taskAttemptId={taskAttempt?.id}
+          conversationId={conversationId}
         />
       </div>
     );
@@ -697,6 +710,7 @@ function DisplayConversationEntry({
         content={entry.content}
         executionProcessId={executionProcessId}
         taskAttempt={taskAttempt}
+        conversationId={conversationId}
       />
     );
   }
@@ -722,6 +736,7 @@ function DisplayConversationEntry({
             disabled
             className="whitespace-pre-wrap break-words flex flex-col gap-1 font-light py-3"
             taskAttemptId={taskAttempt?.id}
+            conversationId={conversationId}
           />
         </div>
       </div>
@@ -767,6 +782,7 @@ function DisplayConversationEntry({
             defaultExpanded={defaultExpanded}
             statusAppearance={statusAppearance}
             taskAttemptId={taskAttempt?.id}
+            conversationId={conversationId}
           />
         );
       }
@@ -786,6 +802,7 @@ function DisplayConversationEntry({
           expansionKey={expansionKey}
           forceExpanded={isPendingApproval}
           taskAttemptId={taskAttempt?.id}
+          conversationId={conversationId}
         />
       );
     })();
@@ -839,6 +856,7 @@ function DisplayConversationEntry({
           variant={isSystem ? 'system' : 'error'}
           contentClassName={getContentClassName(entryType)}
           taskAttemptId={taskAttempt?.id}
+          conversationId={conversationId}
         />
       </div>
     );
@@ -914,6 +932,7 @@ function DisplayConversationEntry({
             disabled
             className="whitespace-pre-wrap break-words flex flex-col gap-1 font-light"
             taskAttemptId={taskAttempt?.id}
+            conversationId={conversationId}
           />
         ) : isNormalizedEntry(entry) ? (
           entry.content
