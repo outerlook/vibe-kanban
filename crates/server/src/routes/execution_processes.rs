@@ -17,13 +17,16 @@ use db::models::{
     execution_process_repo_state::ExecutionProcessRepoState,
 };
 use deployment::Deployment;
-use futures_util::{SinkExt, StreamExt, TryStreamExt, stream::BoxStream};
+use futures_util::{StreamExt, TryStreamExt, stream::BoxStream};
 use serde::Deserialize;
 use services::services::container::{ContainerError, ContainerService};
 use utils::{log_msg::LogMsg, response::ApiResponse};
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::load_execution_process_middleware};
+use crate::{
+    DeploymentImpl, error::ApiError, middleware::load_execution_process_middleware,
+    routes::ws_helpers::{forward_stream_to_ws, forward_ws_messages},
+};
 
 #[derive(Debug, Deserialize)]
 pub struct ExecutionProcessQuery {
@@ -92,45 +95,28 @@ async fn handle_raw_logs_ws(
         .ok_or_else(|| anyhow::anyhow!("Execution process not found"))?;
 
     let counter = Arc::new(AtomicUsize::new(0));
-    let mut stream = raw_stream.map_ok({
-        let counter = counter.clone();
-        move |m| match m {
-            LogMsg::Stdout(content) => {
-                let index = counter.fetch_add(1, Ordering::SeqCst);
-                let patch = ConversationPatch::add_stdout(index, content);
-                LogMsg::JsonPatch(patch).to_ws_message_unchecked()
-            }
-            LogMsg::Stderr(content) => {
-                let index = counter.fetch_add(1, Ordering::SeqCst);
-                let patch = ConversationPatch::add_stderr(index, content);
-                LogMsg::JsonPatch(patch).to_ws_message_unchecked()
-            }
-            LogMsg::Finished => LogMsg::Finished.to_ws_message_unchecked(),
-            _ => unreachable!("Raw stream should only have Stdout/Stderr/Finished"),
-        }
-    });
-
-    // Split socket into sender and receiver
-    let (mut sender, mut receiver) = socket.split();
-
-    // Drain (and ignore) any client->server messages so pings/pongs work
-    tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
-
-    // Forward server messages
-    while let Some(item) = stream.next().await {
-        match item {
-            Ok(msg) => {
-                if sender.send(msg).await.is_err() {
-                    break; // client disconnected
+    let stream = raw_stream
+        .map_ok({
+            let counter = counter.clone();
+            move |m| match m {
+                LogMsg::Stdout(content) => {
+                    let index = counter.fetch_add(1, Ordering::SeqCst);
+                    let patch = ConversationPatch::add_stdout(index, content);
+                    LogMsg::JsonPatch(patch).to_ws_message_unchecked()
                 }
+                LogMsg::Stderr(content) => {
+                    let index = counter.fetch_add(1, Ordering::SeqCst);
+                    let patch = ConversationPatch::add_stderr(index, content);
+                    LogMsg::JsonPatch(patch).to_ws_message_unchecked()
+                }
+                LogMsg::Finished => LogMsg::Finished.to_ws_message_unchecked(),
+                _ => unreachable!("Raw stream should only have Stdout/Stderr/Finished"),
             }
-            Err(e) => {
-                tracing::error!("stream error: {}", e);
-                break;
-            }
-        }
-    }
-    Ok(())
+        })
+        .map_err(|e| std::io::Error::other(e.to_string()))
+        .boxed();
+
+    forward_ws_messages(socket, stream).await
 }
 
 pub async fn stream_normalized_logs_ws(
@@ -195,23 +181,10 @@ async fn handle_normalized_logs_ws(
     socket: WebSocket,
     stream: impl futures_util::Stream<Item = anyhow::Result<LogMsg>> + Unpin + Send + 'static,
 ) -> anyhow::Result<()> {
-    let mut stream = stream.map_ok(|msg| msg.to_ws_message_unchecked());
-    let (mut sender, mut receiver) = socket.split();
-    tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
-    while let Some(item) = stream.next().await {
-        match item {
-            Ok(msg) => {
-                if sender.send(msg).await.is_err() {
-                    break;
-                }
-            }
-            Err(e) => {
-                tracing::error!("stream error: {}", e);
-                break;
-            }
-        }
-    }
-    Ok(())
+    let stream = stream
+        .map_err(|e| std::io::Error::other(e.to_string()))
+        .boxed();
+    forward_stream_to_ws(socket, stream).await
 }
 
 pub async fn stop_execution_process(
@@ -297,28 +270,7 @@ async fn stream_execution_processes_to_ws(
     socket: WebSocket,
     stream: BoxStream<'static, Result<LogMsg, std::io::Error>>,
 ) -> anyhow::Result<()> {
-    let mut stream = stream.map_ok(|msg| msg.to_ws_message_unchecked());
-
-    let (mut sender, mut receiver) = socket.split();
-
-    // Drain (and ignore) any client->server messages so pings/pongs work
-    tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
-
-    // Forward server messages
-    while let Some(item) = stream.next().await {
-        match item {
-            Ok(msg) => {
-                if sender.send(msg).await.is_err() {
-                    break; // client disconnected
-                }
-            }
-            Err(e) => {
-                tracing::error!("stream error: {}", e);
-                break;
-            }
-        }
-    }
-    Ok(())
+    forward_stream_to_ws(socket, stream).await
 }
 
 pub async fn get_execution_process_repo_states(

@@ -13,13 +13,15 @@ use db::models::notification::{
     CreateNotification, Notification, NotificationStats, UpdateNotification,
 };
 use deployment::Deployment;
-use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use serde::Deserialize;
 use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::load_notification_middleware};
+use crate::{
+    routes::ws_helpers::forward_stream_to_ws, DeploymentImpl, error::ApiError,
+    middleware::load_notification_middleware,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct ListNotificationsQuery {
@@ -171,32 +173,11 @@ async fn handle_notifications_ws(
     project_id: Option<Uuid>,
     include_snapshot: bool,
 ) -> anyhow::Result<()> {
-    let mut stream = deployment
+    let stream = deployment
         .events()
         .stream_notifications_raw(project_id, include_snapshot)
-        .await?
-        .map_ok(|msg| msg.to_ws_message_unchecked());
-
-    let (mut sender, mut receiver) = socket.split();
-
-    // Drain client->server messages so pings/pongs work
-    tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
-
-    // Forward server messages
-    while let Some(item) = stream.next().await {
-        match item {
-            Ok(msg) => {
-                if sender.send(msg).await.is_err() {
-                    break; // client disconnected
-                }
-            }
-            Err(e) => {
-                tracing::error!("stream error: {}", e);
-                break;
-            }
-        }
-    }
-    Ok(())
+        .await?;
+    forward_stream_to_ws(socket, stream).await
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {

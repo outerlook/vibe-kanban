@@ -9,12 +9,11 @@ use axum::{
 };
 use db::models::scratch::{CreateScratch, Scratch, ScratchType, UpdateScratch};
 use deployment::Deployment;
-use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use serde::Deserialize;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError};
+use crate::{routes::ws_helpers::forward_stream_to_ws, DeploymentImpl, error::ApiError};
 
 /// Path parameters for scratch routes with composite key
 #[derive(Deserialize)]
@@ -118,30 +117,11 @@ async fn handle_scratch_ws(
     id: Uuid,
     scratch_type: ScratchType,
 ) -> anyhow::Result<()> {
-    let mut stream = deployment
+    let stream = deployment
         .events()
         .stream_scratch_raw(id, &scratch_type)
-        .await?
-        .map_ok(|msg| msg.to_ws_message_unchecked());
-
-    let (mut sender, mut receiver) = socket.split();
-
-    tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
-
-    while let Some(item) = stream.next().await {
-        match item {
-            Ok(msg) => {
-                if sender.send(msg).await.is_err() {
-                    break;
-                }
-            }
-            Err(e) => {
-                tracing::error!("scratch stream error: {}", e);
-                break;
-            }
-        }
-    }
-    Ok(())
+        .await?;
+    forward_stream_to_ws(socket, stream).await
 }
 
 pub fn router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {

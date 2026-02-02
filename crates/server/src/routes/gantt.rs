@@ -10,13 +10,15 @@ use axum::{
 };
 use db::models::{gantt::GanttTask, project::Project};
 use deployment::Deployment;
-use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, middleware::load_project_middleware};
+use crate::{
+    routes::ws_helpers::forward_stream_to_ws, DeploymentImpl, error::ApiError,
+    middleware::load_project_middleware,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct GanttQuery {
@@ -75,34 +77,8 @@ async fn handle_gantt_ws(
     deployment: DeploymentImpl,
     project_id: Uuid,
 ) -> anyhow::Result<()> {
-    // Get the raw stream and convert LogMsg to WebSocket messages
-    let mut stream = deployment
-        .events()
-        .stream_gantt_raw(project_id)
-        .await?
-        .map(|msg| msg.map(|m| m.to_ws_message_unchecked()));
-
-    // Split socket into sender and receiver
-    let (mut sender, mut receiver) = socket.split();
-
-    // Drain (and ignore) any client->server messages so pings/pongs work
-    tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
-
-    // Forward server messages
-    while let Some(item) = stream.next().await {
-        match item {
-            Ok(msg) => {
-                if sender.send(msg).await.is_err() {
-                    break; // client disconnected
-                }
-            }
-            Err(e) => {
-                tracing::error!("gantt stream error: {}", e);
-                break;
-            }
-        }
-    }
-    Ok(())
+    let stream = deployment.events().stream_gantt_raw(project_id).await?;
+    forward_stream_to_ws(socket, stream).await
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {

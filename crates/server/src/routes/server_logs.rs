@@ -8,9 +8,9 @@ use axum::{
     routing::get,
 };
 use deployment::Deployment;
-use futures_util::{SinkExt, StreamExt, TryStreamExt};
+use futures_util::{StreamExt, TryStreamExt};
 
-use crate::DeploymentImpl;
+use crate::{routes::ws_helpers::forward_ws_messages, DeploymentImpl};
 
 /// WebSocket endpoint that streams server logs to clients.
 ///
@@ -33,32 +33,14 @@ async fn handle_server_logs_ws(
     let stream = deployment.server_log_store().history_plus_stream();
 
     // Convert each ServerLogEntry to a JSON WebSocket text message
-    let mut stream = stream.map_ok(|entry| {
-        let json = serde_json::to_string(&entry).unwrap_or_default();
-        axum::extract::ws::Message::Text(json.into())
-    });
+    let stream = stream
+        .map_ok(|entry| {
+            let json = serde_json::to_string(&entry).unwrap_or_default();
+            axum::extract::ws::Message::Text(json.into())
+        })
+        .boxed();
 
-    let (mut sender, mut receiver) = socket.split();
-
-    // Drain client->server messages so pings/pongs work
-    tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
-
-    // Forward server log entries to client
-    while let Some(item) = stream.next().await {
-        match item {
-            Ok(msg) => {
-                if sender.send(msg).await.is_err() {
-                    break; // client disconnected
-                }
-            }
-            Err(e) => {
-                tracing::error!("server logs stream error: {}", e);
-                break;
-            }
-        }
-    }
-
-    Ok(())
+    forward_ws_messages(socket, stream).await
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {

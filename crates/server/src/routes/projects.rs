@@ -22,7 +22,6 @@ use db::models::{
     workspace::Workspace,
 };
 use deployment::Deployment;
-use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use services::services::{
     file_search_cache::SearchQuery,
@@ -40,7 +39,7 @@ use uuid::Uuid;
 
 use crate::{
     DeploymentImpl, error::ApiError, middleware::load_project_middleware,
-    routes::settings::get_github_token,
+    routes::{settings::get_github_token, ws_helpers::forward_stream_to_ws},
 };
 
 #[derive(Deserialize, TS)]
@@ -95,34 +94,8 @@ pub async fn stream_projects_ws(
 }
 
 async fn handle_projects_ws(socket: WebSocket, deployment: DeploymentImpl) -> anyhow::Result<()> {
-    let mut stream = deployment
-        .events()
-        .stream_projects_raw()
-        .await?
-        .map_ok(|msg| msg.to_ws_message_unchecked());
-
-    // Split socket into sender and receiver
-    let (mut sender, mut receiver) = socket.split();
-
-    // Drain (and ignore) any client->server messages so pings/pongs work
-    tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
-
-    // Forward server messages
-    while let Some(item) = stream.next().await {
-        match item {
-            Ok(msg) => {
-                if sender.send(msg).await.is_err() {
-                    break; // client disconnected
-                }
-            }
-            Err(e) => {
-                tracing::error!("stream error: {}", e);
-                break;
-            }
-        }
-    }
-
-    Ok(())
+    let stream = deployment.events().stream_projects_raw().await?;
+    forward_stream_to_ws(socket, stream).await
 }
 
 pub async fn get_project(

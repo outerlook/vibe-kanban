@@ -69,7 +69,7 @@ use uuid::Uuid;
 
 use crate::{
     DeploymentImpl, error::ApiError, middleware::load_workspace_middleware,
-    routes::task_attempts::gh_cli_setup::GhCliSetupError,
+    routes::{task_attempts::gh_cli_setup::GhCliSetupError, ws_helpers::forward_stream_to_ws},
 };
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -367,34 +367,11 @@ async fn handle_workspaces_ws(
     task_id: Uuid,
     include_snapshot: bool,
 ) -> anyhow::Result<()> {
-    use futures_util::{SinkExt, StreamExt, TryStreamExt};
-
-    let mut stream = deployment
+    let stream = deployment
         .events()
         .stream_workspaces_for_task_raw(task_id, include_snapshot)
-        .await?
-        .map_ok(|msg| msg.to_ws_message_unchecked());
-
-    let (mut sender, mut receiver) = socket.split();
-
-    // Drain (and ignore) any client->server messages so pings/pongs work
-    tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
-
-    // Forward server messages
-    while let Some(item) = stream.next().await {
-        match item {
-            Ok(msg) => {
-                if sender.send(msg).await.is_err() {
-                    break; // client disconnected
-                }
-            }
-            Err(e) => {
-                tracing::error!("stream error: {}", e);
-                break;
-            }
-        }
-    }
-    Ok(())
+        .await?;
+    forward_stream_to_ws(socket, stream).await
 }
 
 /// WebSocket message sent when git state changes in a workspace
@@ -473,8 +450,11 @@ async fn handle_git_status_ws(
 
     let (mut sender, mut receiver) = socket.split();
 
-    // Drain client messages in background so pings/pongs work
-    tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
+    // Drain client messages in background so pings/pongs work.
+    // We use AbortHandle to cancel this task when the sender loop exits.
+    let drain_handle = tokio::spawn(async move {
+        while let Some(Ok(_)) = receiver.next().await {}
+    });
 
     // Create a stream that merges all subscriptions
     let workspace_id = workspace.id;
@@ -528,6 +508,13 @@ async fn handle_git_status_ws(
             }
         }
     }
+
+    // Abort the drain task to ensure the receiver half is dropped.
+    // This allows the TCP connection to properly close (preventing CLOSE_WAIT).
+    drain_handle.abort();
+
+    // Explicitly close the sender to trigger TCP FIN
+    let _ = sender.close().await;
 
     Ok(())
 }
