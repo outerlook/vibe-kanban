@@ -95,3 +95,4 @@ export {
   type UseLongPressOptions,
   type PointerEventHandlers,
 } from './useLongPress';
+export { useSoundEffects } from './useSoundEffects';
