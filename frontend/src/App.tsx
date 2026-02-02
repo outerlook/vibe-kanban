@@ -6,6 +6,7 @@ import { NormalLayout } from '@/components/layout/NormalLayout';
 import { usePostHog } from 'posthog-js/react';
 import { useAuth } from '@/hooks';
 import { usePreviousPath } from '@/hooks/usePreviousPath';
+import { useSoundEffects } from '@/hooks/useSoundEffects';
 
 import { UserSystemProvider, useUserSystem } from '@/components/ConfigProvider';
 import { ThemeProvider } from '@/components/ThemeProvider';
@@ -111,6 +112,18 @@ function AppContent() {
 
   // Track previous path for back navigation
   usePreviousPath();
+
+  // Sound effects with cross-tab leader election
+  const { isLeader } = useSoundEffects({
+    enabled: config?.notifications?.sound_enabled,
+  });
+
+  // Log leader status in dev mode for debugging
+  useEffect(() => {
+    if (import.meta.env.DEV && config?.notifications?.sound_enabled) {
+      console.log('[Sound] Leader status:', isLeader);
+    }
+  }, [isLeader, config?.notifications?.sound_enabled]);
 
   // Handle opt-in/opt-out and user identification when config loads
   useEffect(() => {
