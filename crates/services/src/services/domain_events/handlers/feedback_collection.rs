@@ -83,6 +83,12 @@ impl EventHandler for FeedbackCollectionHandler {
                 "Feedback already exists for workspace {}, skipping collection",
                 workspace_id
             );
+            // Mark as skipped instead of silently returning
+            if let (Some(hook_exec_id), Some(store)) =
+                (ctx.hook_execution_id, &ctx.hook_execution_store)
+            {
+                store.skip_execution(hook_exec_id);
+            }
             return Ok(());
         }
 
