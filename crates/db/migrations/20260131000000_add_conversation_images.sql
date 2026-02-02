@@ -1,7 +1,7 @@
 -- Create junction table for conversation_session-image associations
 -- Follows the same pattern as task_images from 20250818150000_refactor_images_to_junction_tables.sql
 
-CREATE TABLE conversation_images (
+CREATE TABLE IF NOT EXISTS conversation_images (
     id                      BLOB PRIMARY KEY,
     conversation_session_id BLOB NOT NULL,
     image_id                BLOB NOT NULL,
@@ -12,5 +12,5 @@ CREATE TABLE conversation_images (
 );
 
 -- Create indexes for efficient querying
-CREATE INDEX idx_conversation_images_conversation_session_id ON conversation_images(conversation_session_id);
-CREATE INDEX idx_conversation_images_image_id ON conversation_images(image_id);
+CREATE INDEX IF NOT EXISTS idx_conversation_images_conversation_session_id ON conversation_images(conversation_session_id);
+CREATE INDEX IF NOT EXISTS idx_conversation_images_image_id ON conversation_images(image_id);
