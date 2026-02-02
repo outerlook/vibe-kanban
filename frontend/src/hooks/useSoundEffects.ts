@@ -84,7 +84,7 @@ export function useSoundEffects(
 
   // Handle sound playback for new notifications
   useEffect(() => {
-    if (!enabled || !isLeader || !config?.notifications?.sound_enabled) {
+    if (!enabled || !isLeader || !config?.notifications?.sound_enabled || !config?.notifications?.frontend_sounds_enabled) {
       return;
     }
 
