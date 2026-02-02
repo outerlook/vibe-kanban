@@ -11,12 +11,9 @@
 //! These tests use mock callbacks to capture triggers without needing the full
 //! LocalContainerService infrastructure.
 
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 use db::models::{
@@ -317,12 +314,7 @@ async fn test_feedback_handler_triggers_callback_on_coding_agent_completion() {
     let ctx = test_context_with_trigger(pool.clone(), callback);
 
     // Create handler
-    let handler = FeedbackCollectionHandler::new(
-        db::DBService { pool: pool.clone() },
-        Arc::new(RwLock::new(services::services::config::Config::default())),
-        Arc::new(RwLock::new(HashMap::new())),
-        Arc::new(RwLock::new(std::collections::HashSet::new())),
-    );
+    let handler = FeedbackCollectionHandler::new(db::DBService { pool: pool.clone() });
 
     // Verify handler accepts this event
     let event = DomainEvent::ExecutionCompleted {
@@ -370,12 +362,7 @@ async fn test_feedback_handler_ignores_non_coding_agent_executions() {
     let workspace = create_test_workspace(&pool, task.id, "feature-branch").await;
     let session_id = create_test_session(&pool, workspace.id).await;
 
-    let handler = FeedbackCollectionHandler::new(
-        db::DBService { pool: pool.clone() },
-        Arc::new(RwLock::new(services::services::config::Config::default())),
-        Arc::new(RwLock::new(HashMap::new())),
-        Arc::new(RwLock::new(std::collections::HashSet::new())),
-    );
+    let handler = FeedbackCollectionHandler::new(db::DBService { pool: pool.clone() });
 
     // Test with different run reasons
     let run_reasons = [
@@ -415,12 +402,7 @@ async fn test_feedback_handler_ignores_failed_executions() {
     let workspace = create_test_workspace(&pool, task.id, "feature-branch").await;
     let session_id = create_test_session(&pool, workspace.id).await;
 
-    let handler = FeedbackCollectionHandler::new(
-        db::DBService { pool: pool.clone() },
-        Arc::new(RwLock::new(services::services::config::Config::default())),
-        Arc::new(RwLock::new(HashMap::new())),
-        Arc::new(RwLock::new(std::collections::HashSet::new())),
-    );
+    let handler = FeedbackCollectionHandler::new(db::DBService { pool: pool.clone() });
 
     // Test with non-completed statuses
     let statuses = [
@@ -490,12 +472,7 @@ async fn test_feedback_handler_skips_if_feedback_exists() {
     let callback = create_mock_trigger_callback(Arc::clone(&trigger_capture));
     let ctx = test_context_with_trigger(pool.clone(), callback);
 
-    let handler = FeedbackCollectionHandler::new(
-        db::DBService { pool: pool.clone() },
-        Arc::new(RwLock::new(services::services::config::Config::default())),
-        Arc::new(RwLock::new(HashMap::new())),
-        Arc::new(RwLock::new(std::collections::HashSet::new())),
-    );
+    let handler = FeedbackCollectionHandler::new(db::DBService { pool: pool.clone() });
 
     let event = DomainEvent::ExecutionCompleted {
         process: execution.clone(),
@@ -730,12 +707,7 @@ async fn test_dispatcher_feedback_collection_flow() {
     let config = Arc::new(RwLock::new(services::services::config::Config::default()));
 
     let dispatcher = DispatcherBuilder::new()
-        .with_handler(FeedbackCollectionHandler::new(
-            db_service.clone(),
-            config.clone(),
-            Arc::new(RwLock::new(HashMap::new())),
-            Arc::new(RwLock::new(std::collections::HashSet::new())),
-        ))
+        .with_handler(FeedbackCollectionHandler::new(db_service.clone()))
         .with_context(HandlerContext::new(
             db_service,
             config,
@@ -841,12 +813,7 @@ async fn test_dispatcher_both_handlers_no_cross_triggering() {
     let config = Arc::new(RwLock::new(services::services::config::Config::default()));
 
     let dispatcher = DispatcherBuilder::new()
-        .with_handler(FeedbackCollectionHandler::new(
-            db_service.clone(),
-            config.clone(),
-            Arc::new(RwLock::new(HashMap::new())),
-            Arc::new(RwLock::new(std::collections::HashSet::new())),
-        ))
+        .with_handler(FeedbackCollectionHandler::new(db_service.clone()))
         .with_handler(ReviewAttentionHandler::new())
         .with_context(HandlerContext::new(
             db_service,
@@ -960,12 +927,7 @@ async fn test_no_duplicate_feedback_triggers() {
     let config = Arc::new(RwLock::new(services::services::config::Config::default()));
 
     let dispatcher = DispatcherBuilder::new()
-        .with_handler(FeedbackCollectionHandler::new(
-            db_service.clone(),
-            config.clone(),
-            Arc::new(RwLock::new(HashMap::new())),
-            Arc::new(RwLock::new(std::collections::HashSet::new())),
-        ))
+        .with_handler(FeedbackCollectionHandler::new(db_service.clone()))
         .with_context(HandlerContext::new(
             db_service,
             config,
@@ -1102,12 +1064,7 @@ async fn test_handlers_gracefully_handle_no_callback() {
     );
 
     // FeedbackCollectionHandler should handle gracefully
-    let feedback_handler = FeedbackCollectionHandler::new(
-        db_service.clone(),
-        config.clone(),
-        Arc::new(RwLock::new(HashMap::new())),
-        Arc::new(RwLock::new(std::collections::HashSet::new())),
-    );
+    let feedback_handler = FeedbackCollectionHandler::new(db_service.clone());
 
     let result = feedback_handler
         .handle(
@@ -1188,12 +1145,7 @@ async fn test_feedback_handler_links_hook_to_execution() {
     ctx.hook_execution_id = Some(hook_exec_id);
 
     // Call the handler
-    let feedback_handler = FeedbackCollectionHandler::new(
-        db_service.clone(),
-        config.clone(),
-        Arc::new(RwLock::new(HashMap::new())),
-        Arc::new(RwLock::new(std::collections::HashSet::new())),
-    );
+    let feedback_handler = FeedbackCollectionHandler::new(db_service.clone());
 
     let result = feedback_handler
         .handle(

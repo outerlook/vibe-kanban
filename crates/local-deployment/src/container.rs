@@ -66,7 +66,13 @@ use executors::{
     approvals::{ExecutorApprovalService, NoopExecutorApprovalService},
     env::ExecutionEnv,
     executors::{BaseCodingAgent, ExecutorExitResult, ExecutorExitSignal, InterruptSender},
-    logs::{NormalizedEntryType, utils::patch::extract_normalized_entry_from_patch},
+    logs::{
+        NormalizedEntryType,
+        utils::{
+            extract_assistant_message_from_msg_store, extract_token_usage_from_msg_store,
+            patch::extract_normalized_entry_from_patch,
+        },
+    },
     profile::ExecutorProfileId,
 };
 use futures::{FutureExt, TryStreamExt, stream::select};
@@ -111,51 +117,6 @@ use utils::{
 use uuid::Uuid;
 
 use crate::{command, copy};
-
-/// Extract token usage from a MsgStore by scanning history for TokenUsage entries
-fn extract_token_usage_from_msg_store(msg_store: &MsgStore) -> Option<(i64, i64)> {
-    let history = msg_store.get_history();
-
-    // Scan in reverse to find the most recent TokenUsage entry
-    for msg in history.iter().rev() {
-        if let LogMsg::JsonPatch(patch) = msg
-            && let Some((_, entry)) = extract_normalized_entry_from_patch(patch)
-            && let NormalizedEntryType::TokenUsage {
-                input_tokens,
-                output_tokens,
-            } = entry.entry_type
-        {
-            return Some((input_tokens, output_tokens));
-        }
-    }
-
-    None
-}
-
-/// Extract the last assistant message from a MsgStore by scanning history
-fn extract_assistant_message_from_msg_store(msg_store: &MsgStore) -> Option<String> {
-    let history = msg_store.get_history();
-
-    // Scan in reverse to find the last assistant message
-    for msg in history.iter().rev() {
-        if let LogMsg::JsonPatch(patch) = msg
-            && let Some((_, entry)) = extract_normalized_entry_from_patch(patch)
-            && matches!(entry.entry_type, NormalizedEntryType::AssistantMessage)
-        {
-            let content = entry.content.trim();
-            if !content.is_empty() {
-                const MAX_CONTENT_LENGTH: usize = 4096;
-                if content.len() > MAX_CONTENT_LENGTH {
-                    let truncated = truncate_to_char_boundary(content, MAX_CONTENT_LENGTH);
-                    return Some(format!("{truncated}..."));
-                }
-                return Some(content.to_string());
-            }
-        }
-    }
-
-    None
-}
 
 #[derive(Clone)]
 pub struct LocalContainerService {
@@ -342,12 +303,7 @@ impl LocalContainerService {
                 .with_handler(RemoteSyncHandler::new(publisher.clone().ok()))
                 .with_handler(ReviewAttentionHandler::new())
                 .with_handler(HookExecutionUpdaterHandler::new())
-                .with_handler(FeedbackCollectionHandler::new(
-                    db.clone(),
-                    config.clone(),
-                    msg_stores.clone(),
-                    feedback_pending_cleanup.clone(),
-                ))
+                .with_handler(FeedbackCollectionHandler::new(db.clone()))
                 .with_context(HandlerContext::new(
                     db.clone(),
                     config.clone(),

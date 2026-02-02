@@ -4,9 +4,9 @@ use json_patch::Patch;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json, to_value};
 use ts_rs::TS;
-use workspace_utils::{diff::Diff, msg_store::MsgStore};
+use workspace_utils::{diff::Diff, log_msg::LogMsg, msg_store::MsgStore, text::truncate_to_char_boundary};
 
-use crate::logs::{NormalizedEntry, utils::EntryIndexProvider};
+use crate::logs::{NormalizedEntry, NormalizedEntryType, utils::EntryIndexProvider};
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, TS)]
 #[serde(rename_all = "lowercase")]
@@ -195,4 +195,55 @@ pub fn replace_normalized_entry(
     normalized_entry: NormalizedEntry,
 ) {
     upsert_normalized_entry(msg_store, index, normalized_entry, false);
+}
+
+/// Extract token usage from a MsgStore by scanning history for TokenUsage entries.
+///
+/// Scans the MsgStore history in reverse order to find the most recent TokenUsage entry,
+/// returning (input_tokens, output_tokens) if found.
+pub fn extract_token_usage_from_msg_store(msg_store: &MsgStore) -> Option<(i64, i64)> {
+    let history = msg_store.get_history();
+
+    // Scan in reverse to find the most recent TokenUsage entry
+    for msg in history.iter().rev() {
+        if let LogMsg::JsonPatch(patch) = msg
+            && let Some((_, entry)) = extract_normalized_entry_from_patch(patch)
+            && let NormalizedEntryType::TokenUsage {
+                input_tokens,
+                output_tokens,
+            } = entry.entry_type
+        {
+            return Some((input_tokens, output_tokens));
+        }
+    }
+
+    None
+}
+
+/// Extract the last assistant message from a MsgStore by scanning history.
+///
+/// Scans the MsgStore history in reverse order to find the last non-empty assistant message.
+/// Truncates messages longer than 4096 characters with an ellipsis.
+pub fn extract_assistant_message_from_msg_store(msg_store: &MsgStore) -> Option<String> {
+    let history = msg_store.get_history();
+
+    // Scan in reverse to find the last assistant message
+    for msg in history.iter().rev() {
+        if let LogMsg::JsonPatch(patch) = msg
+            && let Some((_, entry)) = extract_normalized_entry_from_patch(patch)
+            && matches!(entry.entry_type, NormalizedEntryType::AssistantMessage)
+        {
+            let content = entry.content.trim();
+            if !content.is_empty() {
+                const MAX_CONTENT_LENGTH: usize = 4096;
+                if content.len() > MAX_CONTENT_LENGTH {
+                    let truncated = truncate_to_char_boundary(content, MAX_CONTENT_LENGTH);
+                    return Some(format!("{truncated}..."));
+                }
+                return Some(content.to_string());
+            }
+        }
+    }
+
+    None
 }
