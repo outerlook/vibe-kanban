@@ -25,6 +25,7 @@ const hookPointDisplayNames: Record<HookPoint, string> = {
 const handlerDisplayNames: Record<string, string> = {
   autopilot: 'Autopilot',
   feedback_collection: 'Feedback Collection',
+  review_attention: 'Review Attention',
 };
 
 function getHandlerDisplayName(handlerName: string): string {

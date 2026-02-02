@@ -147,69 +147,32 @@ impl HookExecutionStore {
     }
 
     /// Mark an execution as completed successfully.
-    /// Broadcasts the update via MsgStore.
     pub fn complete_execution(&self, execution_id: Uuid) {
-        let execution = {
-            let mut execs = self.executions.write();
-            Self::find_and_update(&mut execs, execution_id, |exec| exec.set_completed())
-        };
-
-        if let Some(exec) = execution {
-            let patch = hook_execution_patch::replace(&exec);
-            self.msg_store.push_patch(patch);
-        }
+        self.update_and_broadcast(execution_id, |exec| exec.set_completed());
     }
 
     /// Mark an execution as failed with an error message.
-    /// Broadcasts the update via MsgStore.
     pub fn fail_execution(&self, execution_id: Uuid, error: impl Into<String>) {
         let error_str = error.into();
-        let execution = {
-            let mut execs = self.executions.write();
-            Self::find_and_update(&mut execs, execution_id, |exec| exec.set_failed(&error_str))
-        };
-
-        if let Some(exec) = execution {
-            let patch = hook_execution_patch::replace(&exec);
-            self.msg_store.push_patch(patch);
-        }
+        self.update_and_broadcast(execution_id, |exec| exec.set_failed(&error_str));
     }
 
     /// Mark an execution as skipped.
     /// Used when a handler determines it should not run (e.g., preconditions not met).
-    /// Broadcasts the update via MsgStore.
     pub fn skip_execution(&self, execution_id: Uuid) {
-        let execution = {
-            let mut execs = self.executions.write();
-            Self::find_and_update(&mut execs, execution_id, |exec| exec.set_skipped())
-        };
-
-        if let Some(exec) = execution {
-            let patch = hook_execution_patch::replace(&exec);
-            self.msg_store.push_patch(patch);
-        }
+        self.update_and_broadcast(execution_id, |exec| exec.set_skipped());
     }
 
     /// Link a hook execution to a spawned execution process.
     /// Used by handlers that trigger separate execution processes (e.g., feedback_collection).
-    /// Broadcasts the update via MsgStore.
     pub fn link_execution_process(&self, execution_id: Uuid, process_id: Uuid) {
-        let execution = {
-            let mut execs = self.executions.write();
-            Self::find_and_update(&mut execs, execution_id, |exec| {
-                exec.linked_execution_process_id = Some(process_id);
-            })
-        };
-
-        if let Some(exec) = execution {
-            let patch = hook_execution_patch::replace(&exec);
-            self.msg_store.push_patch(patch);
-        }
+        self.update_and_broadcast(execution_id, |exec| {
+            exec.linked_execution_process_id = Some(process_id);
+        });
     }
 
     /// Update hook execution status based on linked execution process completion.
     /// Searches by `linked_execution_process_id` and updates status/completed_at.
-    /// Broadcasts the update via MsgStore.
     pub fn update_from_execution_process(
         &self,
         process_id: Uuid,
@@ -231,8 +194,22 @@ impl HookExecutionStore {
         };
 
         if let Some(exec) = execution {
-            let patch = hook_execution_patch::replace(&exec);
-            self.msg_store.push_patch(patch);
+            self.msg_store.push_patch(hook_execution_patch::replace(&exec));
+        }
+    }
+
+    /// Helper: find an execution by ID, apply update, and broadcast patch.
+    fn update_and_broadcast<F>(&self, execution_id: Uuid, update_fn: F)
+    where
+        F: FnOnce(&mut HookExecution),
+    {
+        let execution = {
+            let mut execs = self.executions.write();
+            Self::find_and_update(&mut execs, execution_id, update_fn)
+        };
+
+        if let Some(exec) = execution {
+            self.msg_store.push_patch(hook_execution_patch::replace(&exec));
         }
     }
 

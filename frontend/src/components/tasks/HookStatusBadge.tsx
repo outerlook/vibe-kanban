@@ -6,10 +6,40 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import type { HookExecutionStatus } from 'shared/types';
+import type { LucideIcon } from 'lucide-react';
 
 interface HookStatusBadgeProps {
   taskId: string;
 }
+
+interface BadgeConfig {
+  icon: LucideIcon;
+  className: string;
+  iconClassName?: string;
+}
+
+const badgeConfigs: Record<HookExecutionStatus, BadgeConfig> = {
+  running: {
+    icon: Loader2,
+    className: 'bg-muted text-muted-foreground',
+    iconClassName: 'animate-spin',
+  },
+  failed: {
+    icon: XCircle,
+    className: 'bg-destructive/10 text-destructive',
+  },
+  skipped: {
+    icon: MinusCircle,
+    className: 'bg-muted text-muted-foreground',
+  },
+  completed: {
+    icon: CheckCircle2,
+    className: 'bg-green-500/10 text-green-600 dark:text-green-400',
+  },
+};
+
+const statusPriority: HookExecutionStatus[] = ['running', 'failed', 'skipped', 'completed'];
 
 export function HookStatusBadge({ taskId }: HookStatusBadgeProps) {
   const { hookExecutionsByTaskId } = useProjectTasksContext();
@@ -17,87 +47,35 @@ export function HookStatusBadge({ taskId }: HookStatusBadgeProps) {
 
   if (!executions || executions.length === 0) return null;
 
-  const runningCount = executions.filter((e) => e.status === 'running').length;
-  const failedCount = executions.filter((e) => e.status === 'failed').length;
-  const completedCount = executions.filter(
-    (e) => e.status === 'completed'
-  ).length;
-  const skippedCount = executions.filter((e) => e.status === 'skipped').length;
+  const countByStatus = executions.reduce(
+    (acc, e) => {
+      acc[e.status] = (acc[e.status] || 0) + 1;
+      return acc;
+    },
+    {} as Record<HookExecutionStatus, number>
+  );
 
-  const handlerNames = [...new Set(executions.map((e) => e.handler_name))];
-  const tooltipContent = handlerNames.join(', ');
+  const activeStatus = statusPriority.find((s) => countByStatus[s] > 0);
+  if (!activeStatus) return null;
 
-  if (runningCount > 0) {
-    return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin flex-shrink-0" />
-              <span>{runningCount}</span>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-xs">
-            <p className="text-sm">{tooltipContent}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  }
+  const config = badgeConfigs[activeStatus];
+  const Icon = config.icon;
+  const count = countByStatus[activeStatus];
+  const handlerNames = [...new Set(executions.map((e) => e.handler_name))].join(', ');
 
-  if (failedCount > 0) {
-    return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-destructive/10 text-destructive">
-              <XCircle className="h-3.5 w-3.5 flex-shrink-0" />
-              <span>{failedCount}</span>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-xs">
-            <p className="text-sm">{tooltipContent}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  }
-
-  if (skippedCount > 0) {
-    return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground">
-              <MinusCircle className="h-3.5 w-3.5 flex-shrink-0" />
-              <span>{skippedCount}</span>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-xs">
-            <p className="text-sm">{tooltipContent}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  }
-
-  if (completedCount > 0) {
-    return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/10 text-green-600 dark:text-green-400">
-              <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
-              <span>{completedCount}</span>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-xs">
-            <p className="text-sm">{tooltipContent}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  }
-
-  return null;
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${config.className}`}>
+            <Icon className={`h-3.5 w-3.5 flex-shrink-0 ${config.iconClassName ?? ''}`} />
+            <span>{count}</span>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs">
+          <p className="text-sm">{handlerNames}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
