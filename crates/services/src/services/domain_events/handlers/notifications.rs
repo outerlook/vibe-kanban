@@ -63,6 +63,9 @@ impl EventHandler for NotificationHandler {
 
         let title = format!("Task Complete: {}", execution_ctx.task.title);
 
+        // Check if frontend handles sounds (skip backend sound playback if so)
+        let frontend_sounds_enabled = ctx.config.read().await.notifications.frontend_sounds_enabled;
+
         match process.status {
             ExecutionProcessStatus::Completed => {
                 let message = format!(
@@ -72,8 +75,14 @@ impl EventHandler for NotificationHandler {
                     execution_ctx.session.executor
                 );
 
-                // OS notification
-                self.notification_service.notify(&title, &message).await;
+                // OS notification (skip sound if frontend handles it)
+                if frontend_sounds_enabled {
+                    self.notification_service
+                        .notify_push_only(&title, &message)
+                        .await;
+                } else {
+                    self.notification_service.notify(&title, &message).await;
+                }
 
                 // In-app notification
                 if let Err(e) = NotificationService::notify_agent_complete(
@@ -95,10 +104,16 @@ impl EventHandler for NotificationHandler {
                     execution_ctx.session.executor
                 );
 
-                // OS notification with error sound
-                self.notification_service
-                    .notify_error(&title, &message)
-                    .await;
+                // OS notification with error sound (skip sound if frontend handles it)
+                if frontend_sounds_enabled {
+                    self.notification_service
+                        .notify_push_only(&title, &message)
+                        .await;
+                } else {
+                    self.notification_service
+                        .notify_error(&title, &message)
+                        .await;
+                }
 
                 // In-app notification
                 if let Err(e) = NotificationService::notify_agent_error(
