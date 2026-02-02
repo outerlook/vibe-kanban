@@ -4,6 +4,8 @@
 //! through handler execution to execution completion.
 
 mod autopilot_e2e_fixtures;
+#[allow(dead_code)]
+mod autopilot_e2e_git_fixtures;
 
 use autopilot_e2e_fixtures::MockExecutionController;
 use services::services::domain_events::ExecutionTrigger;
