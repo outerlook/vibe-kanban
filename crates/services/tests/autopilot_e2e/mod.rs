@@ -8,9 +8,12 @@
 //! Test structure:
 //! - `fixtures`: Database, config, and entity creation helpers (including `EntityGraphBuilder`)
 //! - `entity_builder_tests`: Tests for the `EntityGraphBuilder` fluent API
-//! - Additional test modules will be added for specific scenarios
+//! - `test_merge_to_autopilot`: Tests for dependency triggering when tasks complete
 
 pub mod fixtures;
 
 #[cfg(test)]
 mod entity_builder_tests;
+
+#[cfg(test)]
+mod test_merge_to_autopilot;

@@ -16,9 +16,13 @@ use db::models::{
     task::{Task, TaskStatus},
     workspace::Workspace,
 };
-use executors::actions::{
-    ExecutorAction, ExecutorActionType,
-    script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+use executors::{
+    actions::{
+        ExecutorAction, ExecutorActionType,
+        script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+    },
+    executors::BaseCodingAgent,
+    profile::ExecutorProfileId,
 };
 use services::services::config::Config;
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
@@ -171,13 +175,26 @@ pub async fn create_workspace(pool: &SqlitePool, task_id: Uuid, branch: &str) ->
     }
 }
 
-/// Creates a test session in the database.
+/// Creates a test session in the database with proper ExecutorProfileId JSON.
 pub async fn create_session(pool: &SqlitePool, workspace_id: Uuid) -> Uuid {
+    create_session_with_executor(pool, workspace_id, BaseCodingAgent::ClaudeCode).await
+}
+
+/// Creates a test session with a specific executor.
+pub async fn create_session_with_executor(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+    executor: BaseCodingAgent,
+) -> Uuid {
     let id = Uuid::new_v4();
+    let executor_profile = ExecutorProfileId::new(executor);
+    let executor_json =
+        serde_json::to_string(&executor_profile).expect("Failed to serialize executor profile");
+
     sqlx::query("INSERT INTO sessions (id, workspace_id, executor) VALUES (?, ?, ?)")
         .bind(id)
         .bind(workspace_id)
-        .bind("claude_code")
+        .bind(&executor_json)
         .execute(pool)
         .await
         .expect("Failed to create session");
