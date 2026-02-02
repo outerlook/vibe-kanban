@@ -376,9 +376,24 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
   }, [queryClient]);
 
   // Apply hook execution patches from WebSocket
-  // Path format: /hook_executions/{task_id}/{execution_id}
+  // Path format: /hook_executions/{task_id}/{execution_id} for incremental patches
+  // Path format: /hook_executions for snapshot (replace op with nested object)
   const applyHookExecutionPatches = useCallback((patches: Operation[]) => {
     if (!patches.length) return;
+
+    // Check for snapshot operation first (path is exactly "/hook_executions" with replace op)
+    for (const op of patches) {
+      if (op.path === '/hook_executions' && op.op === 'replace' && op.value) {
+        // Snapshot format: { task_id: { exec_id: HookExecution, ... }, ... }
+        const snapshotData = op.value as Record<string, Record<string, HookExecution>>;
+        const newState: Record<string, HookExecution[]> = {};
+        for (const [taskId, executionsMap] of Object.entries(snapshotData)) {
+          newState[taskId] = Object.values(executionsMap);
+        }
+        setHookExecutionsByTaskId(newState);
+        return; // Snapshot replaces everything, skip incremental processing
+      }
+    }
 
     setHookExecutionsByTaskId((prev) => {
       let next = prev;
