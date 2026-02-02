@@ -5,6 +5,7 @@
 //! - `autopilot_config()`: Config with autopilot_enabled=true
 //! - `autopilot_disabled_config()`: Config with autopilot_enabled=false
 //! - Entity creation helpers for projects, tasks, workspaces, sessions, and executions
+//! - `EntityGraphBuilder`: Fluent API for creating complex entity hierarchies
 
 use std::sync::Arc;
 
@@ -248,5 +249,300 @@ pub async fn create_execution(
         completed_at: None,
         created_at: now,
         updated_at: now,
+    }
+}
+
+/// Creates a task dependency in the database.
+pub async fn create_task_dependency(pool: &SqlitePool, task_id: Uuid, depends_on_id: Uuid) {
+    let id = Uuid::new_v4();
+    let now = chrono::Utc::now();
+    sqlx::query(
+        "INSERT INTO task_dependencies (id, task_id, depends_on_id, created_at) VALUES (?, ?, ?, ?)",
+    )
+    .bind(id)
+    .bind(task_id)
+    .bind(depends_on_id)
+    .bind(now)
+    .execute(pool)
+    .await
+    .expect("Failed to create task dependency");
+}
+
+/// Fluent builder for creating test entity graphs.
+///
+/// Simplifies creating complex entity hierarchies (project → task → workspace → session → execution)
+/// with a chainable API.
+///
+/// # Example
+/// ```ignore
+/// let ctx = EntityGraphBuilder::new(pool.clone())
+///     .with_project("Test Project")
+///     .create_task("Task 1", TaskStatus::Todo).await
+///     .with_workspace("feature-branch").await
+///     .with_session().await
+///     .with_completed_coding_execution().await;
+///
+/// println!("Task ID: {}", ctx.task_id());
+/// println!("Execution ID: {}", ctx.execution_id());
+/// ```
+pub struct EntityGraphBuilder {
+    pool: SqlitePool,
+    project_id: Option<Uuid>,
+    project_name: Option<String>,
+}
+
+impl EntityGraphBuilder {
+    /// Creates a new EntityGraphBuilder with the given database pool.
+    pub fn new(pool: SqlitePool) -> Self {
+        Self {
+            pool,
+            project_id: None,
+            project_name: None,
+        }
+    }
+
+    /// Sets the project name for entities created by this builder.
+    /// The project is created lazily when the first task is created.
+    pub fn with_project(mut self, name: &str) -> Self {
+        self.project_name = Some(name.to_string());
+        self
+    }
+
+    /// Creates a task with the given title and status.
+    /// If no project exists yet, creates one using the configured name or "Test Project".
+    pub async fn create_task(mut self, title: &str, status: TaskStatus) -> TaskContext {
+        let project_id = if let Some(id) = self.project_id {
+            id
+        } else {
+            let name = self.project_name.as_deref().unwrap_or("Test Project");
+            let id = create_project(&self.pool, name).await;
+            self.project_id = Some(id);
+            id
+        };
+
+        let task = create_task(&self.pool, project_id, title, status).await;
+
+        TaskContext {
+            pool: self.pool.clone(),
+            builder_project_id: self.project_id,
+            builder_project_name: self.project_name.clone(),
+            task,
+        }
+    }
+
+    /// Returns the project ID if one has been created.
+    pub fn project_id(&self) -> Option<Uuid> {
+        self.project_id
+    }
+}
+
+/// Context for a created task, allowing further chaining.
+pub struct TaskContext {
+    pool: SqlitePool,
+    builder_project_id: Option<Uuid>,
+    builder_project_name: Option<String>,
+    task: Task,
+}
+
+impl TaskContext {
+    /// Returns the task ID.
+    pub fn task_id(&self) -> Uuid {
+        self.task.id
+    }
+
+    /// Returns the project ID.
+    pub fn project_id(&self) -> Uuid {
+        self.task.project_id
+    }
+
+    /// Returns a reference to the task.
+    pub fn task(&self) -> &Task {
+        &self.task
+    }
+
+    /// Adds a dependency - this task depends on the given task.
+    pub async fn with_dependency(self, depends_on_id: Uuid) -> Self {
+        create_task_dependency(&self.pool, self.task.id, depends_on_id).await;
+        self
+    }
+
+    /// Creates a workspace for this task with the given branch name.
+    pub async fn with_workspace(self, branch: &str) -> WorkspaceContext {
+        let workspace = create_workspace(&self.pool, self.task.id, branch).await;
+
+        WorkspaceContext {
+            pool: self.pool,
+            builder_project_id: self.builder_project_id,
+            builder_project_name: self.builder_project_name,
+            task: self.task,
+            workspace,
+        }
+    }
+
+    /// Creates another task under the same project.
+    pub async fn and_task(self, title: &str, status: TaskStatus) -> TaskContext {
+        let task = create_task(&self.pool, self.task.project_id, title, status).await;
+
+        TaskContext {
+            pool: self.pool,
+            builder_project_id: self.builder_project_id,
+            builder_project_name: self.builder_project_name,
+            task,
+        }
+    }
+
+    /// Returns a builder that can create more tasks under the same project.
+    pub fn builder(self) -> EntityGraphBuilder {
+        EntityGraphBuilder {
+            pool: self.pool,
+            project_id: self.builder_project_id,
+            project_name: self.builder_project_name,
+        }
+    }
+}
+
+/// Context for a created workspace, allowing further chaining.
+pub struct WorkspaceContext {
+    pool: SqlitePool,
+    builder_project_id: Option<Uuid>,
+    builder_project_name: Option<String>,
+    task: Task,
+    workspace: Workspace,
+}
+
+impl WorkspaceContext {
+    /// Returns the workspace ID.
+    pub fn workspace_id(&self) -> Uuid {
+        self.workspace.id
+    }
+
+    /// Returns the task ID.
+    pub fn task_id(&self) -> Uuid {
+        self.task.id
+    }
+
+    /// Returns the project ID.
+    pub fn project_id(&self) -> Uuid {
+        self.task.project_id
+    }
+
+    /// Returns a reference to the workspace.
+    pub fn workspace(&self) -> &Workspace {
+        &self.workspace
+    }
+
+    /// Returns a reference to the task.
+    pub fn task(&self) -> &Task {
+        &self.task
+    }
+
+    /// Creates a session for this workspace.
+    pub async fn with_session(self) -> SessionContext {
+        let session_id = create_session(&self.pool, self.workspace.id).await;
+
+        SessionContext {
+            pool: self.pool,
+            builder_project_id: self.builder_project_id,
+            builder_project_name: self.builder_project_name,
+            task: self.task,
+            workspace: self.workspace,
+            session_id,
+            execution: None,
+        }
+    }
+
+    /// Returns a builder that can create more tasks under the same project.
+    pub fn builder(self) -> EntityGraphBuilder {
+        EntityGraphBuilder {
+            pool: self.pool,
+            project_id: self.builder_project_id,
+            project_name: self.builder_project_name,
+        }
+    }
+}
+
+/// Context for a created session, allowing further chaining.
+pub struct SessionContext {
+    pool: SqlitePool,
+    builder_project_id: Option<Uuid>,
+    builder_project_name: Option<String>,
+    task: Task,
+    workspace: Workspace,
+    session_id: Uuid,
+    execution: Option<ExecutionProcess>,
+}
+
+impl SessionContext {
+    /// Returns the session ID.
+    pub fn session_id(&self) -> Uuid {
+        self.session_id
+    }
+
+    /// Returns the workspace ID.
+    pub fn workspace_id(&self) -> Uuid {
+        self.workspace.id
+    }
+
+    /// Returns the task ID.
+    pub fn task_id(&self) -> Uuid {
+        self.task.id
+    }
+
+    /// Returns the project ID.
+    pub fn project_id(&self) -> Uuid {
+        self.task.project_id
+    }
+
+    /// Returns the execution ID if an execution has been created.
+    pub fn execution_id(&self) -> Option<Uuid> {
+        self.execution.as_ref().map(|e| e.id)
+    }
+
+    /// Returns a reference to the execution if one has been created.
+    pub fn execution(&self) -> Option<&ExecutionProcess> {
+        self.execution.as_ref()
+    }
+
+    /// Returns a reference to the task.
+    pub fn task(&self) -> &Task {
+        &self.task
+    }
+
+    /// Returns a reference to the workspace.
+    pub fn workspace(&self) -> &Workspace {
+        &self.workspace
+    }
+
+    /// Creates a completed coding agent execution for this session.
+    pub async fn with_completed_coding_execution(mut self) -> Self {
+        let execution = create_execution(
+            &self.pool,
+            self.session_id,
+            ExecutionProcessStatus::Completed,
+            ExecutionProcessRunReason::CodingAgent,
+        )
+        .await;
+        self.execution = Some(execution);
+        self
+    }
+
+    /// Creates an execution with custom status and run reason.
+    pub async fn with_execution(
+        mut self,
+        status: ExecutionProcessStatus,
+        run_reason: ExecutionProcessRunReason,
+    ) -> Self {
+        let execution = create_execution(&self.pool, self.session_id, status, run_reason).await;
+        self.execution = Some(execution);
+        self
+    }
+
+    /// Returns a builder that can create more tasks under the same project.
+    pub fn builder(self) -> EntityGraphBuilder {
+        EntityGraphBuilder {
+            pool: self.pool,
+            project_id: self.builder_project_id,
+            project_name: self.builder_project_name,
+        }
     }
 }
