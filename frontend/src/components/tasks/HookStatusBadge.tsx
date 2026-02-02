@@ -1,4 +1,4 @@
-import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle2, Loader2, MinusCircle, XCircle } from 'lucide-react';
 import { useProjectTasksContext } from '@/contexts/ProjectTasksContext';
 import {
   Tooltip,
@@ -22,6 +22,7 @@ export function HookStatusBadge({ taskId }: HookStatusBadgeProps) {
   const completedCount = executions.filter(
     (e) => e.status === 'completed'
   ).length;
+  const skippedCount = executions.filter((e) => e.status === 'skipped').length;
 
   const handlerNames = [...new Set(executions.map((e) => e.handler_name))];
   const tooltipContent = handlerNames.join(', ');
@@ -52,6 +53,24 @@ export function HookStatusBadge({ taskId }: HookStatusBadgeProps) {
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-destructive/10 text-destructive">
               <XCircle className="h-3.5 w-3.5 flex-shrink-0" />
               <span>{failedCount}</span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs">
+            <p className="text-sm">{tooltipContent}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
+  if (skippedCount > 0) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground">
+              <MinusCircle className="h-3.5 w-3.5 flex-shrink-0" />
+              <span>{skippedCount}</span>
             </span>
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-xs">

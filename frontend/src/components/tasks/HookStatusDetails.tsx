@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { Loader2, CheckCircle2, MinusCircle, XCircle } from 'lucide-react';
 import { useProjectTasksContext } from '@/contexts/ProjectTasksContext';
 import type { HookExecution, HookExecutionStatus, HookPoint } from 'shared/types';
 import {
@@ -62,6 +62,8 @@ function StatusIcon({ status }: { status: HookExecutionStatus }) {
       return <CheckCircle2 className="h-4 w-4 text-green-500" />;
     case 'failed':
       return <XCircle className="h-4 w-4 text-destructive" />;
+    case 'skipped':
+      return <MinusCircle className="h-4 w-4 text-muted-foreground" />;
     default:
       return null;
   }
@@ -71,7 +73,8 @@ function sortExecutions(executions: HookExecution[]): HookExecution[] {
   const statusPriority: Record<HookExecutionStatus, number> = {
     running: 0,
     failed: 1,
-    completed: 2,
+    skipped: 2,
+    completed: 3,
   };
 
   return [...executions].sort((a, b) => {
