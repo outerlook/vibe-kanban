@@ -163,10 +163,10 @@ pub fn format_qa_as_follow_up_prompt(
         }
 
         // Add custom text if provided
-        if let Some(ref other_text) = answer.other_text {
-            if !other_text.is_empty() {
-                answer_parts.push(format!("Other: {}", other_text));
-            }
+        if let Some(ref other_text) = answer.other_text
+            && !other_text.is_empty()
+        {
+            answer_parts.push(format!("Other: {}", other_text));
         }
 
         prompt.push_str(&format!("**Answer:** {}\n\n", answer_parts.join(", ")));
