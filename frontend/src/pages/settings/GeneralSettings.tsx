@@ -1012,6 +1012,27 @@ export function GeneralSettings() {
                 </Button>
               </div>
             </SettingsField>
+
+            <SettingsField
+              label="Enable frontend sound playback"
+              htmlFor="frontend-sounds-enabled"
+              description="Play sounds directly in the browser instead of through the backend"
+              layout="horizontal"
+              indent
+            >
+              <Checkbox
+                id="frontend-sounds-enabled"
+                checked={draft.notifications.frontend_sounds_enabled}
+                onCheckedChange={(checked: boolean) =>
+                  updateDraft({
+                    notifications: {
+                      ...draft.notifications,
+                      frontend_sounds_enabled: checked,
+                    },
+                  })
+                }
+              />
+            </SettingsField>
           </>
         )}
 
