@@ -3049,10 +3049,11 @@ impl ContainerService for LocalContainerService {
         purpose: &str,
     ) -> Result<(), ContainerError> {
         // Guard against duplicate agent spawns for the same workspace.
-        // Dev servers are exempt - they're allowed to run concurrently with agents.
+        // Dev servers and internal agents are exempt - they're allowed to run concurrently with agents.
+        // Internal agents (feedback_collection, review_attention) are non-blocking metadata operations.
         if !matches!(
             execution_process.run_reason,
-            ExecutionProcessRunReason::DevServer
+            ExecutionProcessRunReason::DevServer | ExecutionProcessRunReason::InternalAgent
         ) {
             if !self.running_workspaces.insert(workspace.id) {
                 // Workspace ID was already present - another agent is running
