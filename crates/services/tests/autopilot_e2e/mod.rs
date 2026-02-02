@@ -20,3 +20,6 @@ mod test_diamond_deps;
 
 #[cfg(test)]
 mod test_merge_to_autopilot;
+
+#[cfg(test)]
+mod test_multi_level_deps;
