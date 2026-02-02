@@ -81,8 +81,9 @@ use services::services::{
     domain_events::{
         AutopilotHandler, DispatcherBuilder, DomainEvent, DomainEventDispatcher,
         EventDispatchCallback, ExecutionTrigger, ExecutionTriggerCallback,
-        FeedbackCollectionHandler, HandlerContext, HookExecutionStore, NotificationHandler,
-        RemoteSyncHandler, ReviewAttentionHandler, WebSocketBroadcastHandler,
+        FeedbackCollectionHandler, HandlerContext, HookExecutionStore,
+        HookExecutionUpdaterHandler, NotificationHandler, RemoteSyncHandler,
+        ReviewAttentionHandler, WebSocketBroadcastHandler,
     },
     feedback::FeedbackService,
     git::{Commit, DiffTarget, GitCli, GitService},
@@ -340,6 +341,7 @@ impl LocalContainerService {
                 .with_handler(AutopilotHandler::new())
                 .with_handler(RemoteSyncHandler::new(publisher.clone().ok()))
                 .with_handler(ReviewAttentionHandler::new())
+                .with_handler(HookExecutionUpdaterHandler::new())
                 .with_handler(FeedbackCollectionHandler::new(
                     db.clone(),
                     config.clone(),

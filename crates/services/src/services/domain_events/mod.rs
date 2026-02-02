@@ -14,8 +14,8 @@ mod types;
 pub use dispatcher::{DispatcherBuilder, DomainEventDispatcher};
 pub use handler::{EventHandler, ExecutionMode, HandlerContext, HandlerError};
 pub use handlers::{
-    AutopilotHandler, FeedbackCollectionHandler, NotificationHandler, RemoteSyncHandler,
-    ReviewAttentionHandler, WebSocketBroadcastHandler,
+    AutopilotHandler, FeedbackCollectionHandler, HookExecutionUpdaterHandler, NotificationHandler,
+    RemoteSyncHandler, ReviewAttentionHandler, WebSocketBroadcastHandler,
 };
 pub use hook_execution::{HookExecution, HookExecutionStatus, HookExecutionStore};
 pub use hook_points::HookPoint;
