@@ -4,6 +4,7 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { playSound, getSoundForNotificationType } from '@/lib/soundUtils';
 
 const LOCK_NAME = 'vibe-kanban-notification-sounds';
+const MAX_SEEN_NOTIFICATIONS = 100;
 
 interface UseSoundEffectsOptions {
   projectId?: string;
@@ -112,6 +113,12 @@ export function useSoundEffects(
       if (soundIdentifier) {
         playSound(soundIdentifier);
       }
+    }
+
+    // Prevent unbounded growth: keep only the most recent IDs
+    if (seenNotificationIds.current.size > MAX_SEEN_NOTIFICATIONS) {
+      const idsArray = Array.from(seenNotificationIds.current);
+      seenNotificationIds.current = new Set(idsArray.slice(-MAX_SEEN_NOTIFICATIONS));
     }
   }, [notifications, enabled, isLeader, config?.notifications]);
 

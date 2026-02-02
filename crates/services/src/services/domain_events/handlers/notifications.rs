@@ -107,7 +107,7 @@ impl EventHandler for NotificationHandler {
                 // OS notification with error sound (skip sound if frontend handles it)
                 if frontend_sounds_enabled {
                     self.notification_service
-                        .notify_error_push_only(&title, &message)
+                        .notify_push_only(&title, &message)
                         .await;
                 } else {
                     self.notification_service
