@@ -16,4 +16,7 @@ pub mod fixtures;
 mod entity_builder_tests;
 
 #[cfg(test)]
+mod test_diamond_deps;
+
+#[cfg(test)]
 mod test_merge_to_autopilot;
