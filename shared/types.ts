@@ -649,7 +649,7 @@ export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert";
 
 export type HookPoint = "pre_task_create" | "post_task_create" | "pre_task_status_change" | "post_task_status_change" | "post_agent_complete" | "post_dependency_unblocked";
 
-export type HookExecutionStatus = "running" | "completed" | "failed";
+export type HookExecutionStatus = "running" | "completed" | "failed" | "skipped";
 
 export type HookExecution = { 
 /**
