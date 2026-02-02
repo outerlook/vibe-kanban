@@ -42,6 +42,24 @@ impl NotificationService {
         }
     }
 
+    /// Send only push notification (skip sound playback).
+    /// Used when frontend_sounds_enabled is true to avoid backend playing sounds.
+    pub async fn notify_push_only(&self, title: &str, message: &str) {
+        let config = self.config.read().await.notifications.clone();
+        if config.push_enabled {
+            Self::send_push_notification(title, message).await;
+        }
+    }
+
+    /// Send only push notification for errors (skip sound playback).
+    /// Used when frontend_sounds_enabled is true to avoid backend playing sounds.
+    pub async fn notify_error_push_only(&self, title: &str, message: &str) {
+        let config = self.config.read().await.notifications.clone();
+        if config.push_enabled {
+            Self::send_push_notification(title, message).await;
+        }
+    }
+
     /// Internal method to send notifications with a given config
     async fn send_notification(config: &NotificationConfig, title: &str, message: &str) {
         if config.sound_enabled {
