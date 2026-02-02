@@ -36,7 +36,7 @@ import RawLogText from '../common/RawLogText';
 import UserMessage from './UserMessage';
 import PendingApprovalEntry from './PendingApprovalEntry';
 import PendingUserQuestionEntry from './PendingUserQuestionEntry';
-import { AnsweredQuestionCard } from './AnsweredQuestionCard';
+import { UserQuestionCard } from './UserQuestionCard';
 import { NextActionCard } from './NextActionCard';
 import { cn, formatTokenCount } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
@@ -789,9 +789,12 @@ function DisplayConversationEntry({
 
       if (toolEntry.action_type.action === 'user_question') {
         return (
-          <AnsweredQuestionCard
+          <UserQuestionCard
             questions={toolEntry.action_type.questions}
             answers={toolEntry.action_type.answers}
+            expansionKey={expansionKey}
+            defaultExpanded={defaultExpanded}
+            statusAppearance={statusAppearance}
           />
         );
       }
