@@ -26,6 +26,7 @@ pub enum HookExecutionStatus {
     Running,
     Completed,
     Failed,
+    Skipped,
 }
 
 /// Tracks an individual hook execution instance.
@@ -84,6 +85,13 @@ impl HookExecution {
         self.status = HookExecutionStatus::Failed;
         self.completed_at = Some(Utc::now());
         self.error = Some(error.into());
+    }
+
+    /// Marks the execution as skipped.
+    /// Used when a handler determines it should not run (e.g., preconditions not met).
+    pub fn set_skipped(&mut self) {
+        self.status = HookExecutionStatus::Skipped;
+        self.completed_at = Some(Utc::now());
     }
 }
 
@@ -159,6 +167,21 @@ impl HookExecutionStore {
         let execution = {
             let mut execs = self.executions.write();
             Self::find_and_update(&mut execs, execution_id, |exec| exec.set_failed(&error_str))
+        };
+
+        if let Some(exec) = execution {
+            let patch = hook_execution_patch::replace(&exec);
+            self.msg_store.push_patch(patch);
+        }
+    }
+
+    /// Mark an execution as skipped.
+    /// Used when a handler determines it should not run (e.g., preconditions not met).
+    /// Broadcasts the update via MsgStore.
+    pub fn skip_execution(&self, execution_id: Uuid) {
+        let execution = {
+            let mut execs = self.executions.write();
+            Self::find_and_update(&mut execs, execution_id, |exec| exec.set_skipped())
         };
 
         if let Some(exec) = execution {
@@ -332,6 +355,17 @@ mod tests {
         assert_eq!(exec.error, Some("Something went wrong".to_string()));
     }
 
+    #[test]
+    fn test_set_skipped() {
+        let mut exec = HookExecution::new(Uuid::new_v4(), "test", HookPoint::PostAgentComplete);
+
+        exec.set_skipped();
+
+        assert_eq!(exec.status, HookExecutionStatus::Skipped);
+        assert!(exec.completed_at.is_some());
+        assert!(exec.error.is_none());
+    }
+
     fn create_test_store() -> HookExecutionStore {
         let msg_store = Arc::new(MsgStore::new());
         HookExecutionStore::new(msg_store)
@@ -386,6 +420,24 @@ mod tests {
         assert_eq!(execs.len(), 1);
         assert_eq!(execs[0].status, HookExecutionStatus::Failed);
         assert_eq!(execs[0].error, Some("Test error".to_string()));
+    }
+
+    #[test]
+    fn test_store_skip_execution() {
+        let store = create_test_store();
+        let task_id = Uuid::new_v4();
+
+        // Use a tracked handler name
+        let exec_id = store
+            .start_execution(task_id, "feedback_collection", HookPoint::PostAgentComplete)
+            .expect("feedback_collection should be tracked");
+        store.skip_execution(exec_id);
+
+        let execs = store.get_for_task(task_id);
+        assert_eq!(execs.len(), 1);
+        assert_eq!(execs[0].status, HookExecutionStatus::Skipped);
+        assert!(execs[0].completed_at.is_some());
+        assert!(execs[0].error.is_none());
     }
 
     #[test]
