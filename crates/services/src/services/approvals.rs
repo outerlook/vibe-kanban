@@ -29,8 +29,9 @@ use uuid::Uuid;
 
 #[derive(Debug)]
 struct PendingApproval {
-    entry_index: usize,
-    entry: NormalizedEntry,
+    /// Index and entry of the matching tool use. May be None if the entry was
+    /// not found at creation time (race condition with async log normalization).
+    entry_info: Option<(usize, NormalizedEntry)>,
     execution_process_id: Uuid,
     tool_name: String,
     tool_call_id: String,
@@ -135,11 +136,13 @@ impl Approvals {
             }
         }
 
-        if let Some(store) = self.msg_store_by_id(&request.execution_process_id).await {
-            // Find the matching tool use entry by name and input
-            let matching_tool = find_matching_tool_use(store.clone(), &request.tool_call_id);
-
-            if let Some((idx, matching_tool)) = matching_tool {
+        // Try to find the matching tool use entry and update its status in MsgStore.
+        // Due to race conditions between control protocol and log normalization, the
+        // entry may not exist yet. In that case, we still insert into pending with
+        // entry_info=None to ensure the waiter doesn't immediately resolve.
+        let entry_info = if let Some(store) = self.msg_store_by_id(&request.execution_process_id).await
+        {
+            if let Some((idx, matching_tool)) = find_matching_tool_use(store.clone(), &request.tool_call_id) {
                 let pending_status = match &request.request_type {
                     ApprovalRequestType::ToolApproval { .. } => ToolStatus::PendingApproval {
                         approval_id: req_id.clone(),
@@ -155,42 +158,48 @@ impl Approvals {
                         }
                     }
                 };
-                let approval_entry = matching_tool
-                    .with_tool_status(pending_status)
-                    .ok_or(ApprovalError::NoToolUseEntry)?;
-                store.push_patch(ConversationPatch::replace(idx, approval_entry));
-
-                let tool_name = request.tool_name().unwrap_or("unknown").to_string();
-                self.pending.insert(
-                    req_id.clone(),
-                    PendingApproval {
-                        entry_index: idx,
-                        entry: matching_tool,
-                        execution_process_id: request.execution_process_id,
-                        tool_name: tool_name.clone(),
-                        tool_call_id: request.tool_call_id.clone(),
-                        response_tx: tx,
-                    },
-                );
-                tracing::debug!(
-                    "Created approval {} for tool '{}' at entry index {}",
-                    req_id,
-                    tool_name,
-                    idx
-                );
+                if let Some(approval_entry) = matching_tool.with_tool_status(pending_status) {
+                    store.push_patch(ConversationPatch::replace(idx, approval_entry));
+                }
+                Some((idx, matching_tool))
             } else {
-                tracing::warn!(
-                    "No matching tool use entry found for approval request: tool='{}', execution_process_id={}",
+                tracing::debug!(
+                    "No matching tool use entry found yet for approval request: tool='{}', tool_call_id='{}', execution_process_id={}. Entry will be matched on respond.",
                     request.tool_name().unwrap_or("unknown"),
+                    request.tool_call_id,
                     request.execution_process_id
                 );
+                None
             }
         } else {
             tracing::warn!(
                 "No msg_store found for execution_process_id: {}",
                 request.execution_process_id
             );
+            None
+        };
+
+        let tool_name = request.tool_name().unwrap_or("unknown").to_string();
+        if let Some((idx, _)) = &entry_info {
+            tracing::debug!(
+                "Created approval {} for tool '{}' at entry index {}",
+                req_id,
+                tool_name,
+                idx
+            );
         }
+
+        // Always insert into pending to ensure the waiter doesn't immediately resolve
+        self.pending.insert(
+            req_id.clone(),
+            PendingApproval {
+                entry_info,
+                execution_process_id: request.execution_process_id,
+                tool_name,
+                tool_call_id: request.tool_call_id.clone(),
+                response_tx: tx,
+            },
+        );
 
         // Only spawn timeout watcher if there's a timeout configured
         if let Some(timeout_at) = request.timeout_at {
@@ -221,16 +230,32 @@ impl Approvals {
             self.completed.insert(id.to_string(), final_status.clone());
             let _ = p.response_tx.send(final_status.clone());
 
+            // Update MsgStore with the response status
             if let Some(store) = self.msg_store_by_id(&p.execution_process_id).await {
-                let status = ToolStatus::from_approval_status(&final_status).ok_or(
-                    ApprovalError::Custom(anyhow::anyhow!("Invalid approval status")),
-                )?;
-                let updated_entry = p
-                    .entry
-                    .with_tool_status(status)
-                    .ok_or(ApprovalError::NoToolUseEntry)?;
+                // Get entry info, either from when we created the pending approval or by
+                // searching now (handles race condition where entry wasn't available yet)
+                let entry_info = p.entry_info.or_else(|| {
+                    tracing::debug!(
+                        "Entry info was None at creation, searching for tool_call_id='{}' now",
+                        p.tool_call_id
+                    );
+                    find_matching_tool_use(store.clone(), &p.tool_call_id)
+                });
 
-                store.push_patch(ConversationPatch::replace(p.entry_index, updated_entry));
+                if let Some((idx, entry)) = entry_info {
+                    let status = ToolStatus::from_approval_status(&final_status).ok_or(
+                        ApprovalError::Custom(anyhow::anyhow!("Invalid approval status")),
+                    )?;
+                    if let Some(updated_entry) = entry.with_tool_status(status) {
+                        store.push_patch(ConversationPatch::replace(idx, updated_entry));
+                    }
+                } else {
+                    tracing::warn!(
+                        "Could not find matching tool use entry for approval response: tool='{}', tool_call_id='{}'",
+                        p.tool_name,
+                        p.tool_call_id
+                    );
+                }
             } else {
                 tracing::warn!(
                     "No msg_store found for execution_process_id: {}",
@@ -362,17 +387,19 @@ impl Approvals {
                 };
 
                 if let Some(store) = store {
-                    if let Some(updated_entry) = pending_approval
-                        .entry
-                        .with_tool_status(ToolStatus::TimedOut)
-                    {
-                        store.push_patch(ConversationPatch::replace(
-                            pending_approval.entry_index,
-                            updated_entry,
-                        ));
+                    // Get entry info, either from when we created the pending approval or by
+                    // searching now (handles race condition where entry wasn't available yet)
+                    let entry_info = pending_approval.entry_info.or_else(|| {
+                        find_matching_tool_use(store.clone(), &pending_approval.tool_call_id)
+                    });
+
+                    if let Some((idx, entry)) = entry_info {
+                        if let Some(updated_entry) = entry.with_tool_status(ToolStatus::TimedOut) {
+                            store.push_patch(ConversationPatch::replace(idx, updated_entry));
+                        }
                     } else {
                         tracing::warn!(
-                            "Timed out approval '{}' but couldn't update tool status (no tool-use entry).",
+                            "Timed out approval '{}' but couldn't find matching tool use entry.",
                             id
                         );
                     }
