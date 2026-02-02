@@ -491,6 +491,7 @@ mod tests {
             sound_file: SoundFile::Rooster,
             error_sound_file: SoundFile::ErrorBuzzer,
             custom_sound_path: Some(filename),
+            frontend_sounds_enabled: false,
         };
 
         let resolved = NotificationService::resolve_sound_path(&config)
@@ -511,6 +512,7 @@ mod tests {
             sound_file: SoundFile::Rooster,
             error_sound_file: SoundFile::ErrorBuzzer,
             custom_sound_path: Some(filename),
+            frontend_sounds_enabled: false,
         };
 
         let resolved = NotificationService::resolve_sound_path(&config)

@@ -578,7 +578,12 @@ review_attention_executor_profile: ExecutorProfileId | null,
  */
 autopilot_enabled: boolean, };
 
-export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, error_sound_file: SoundFile, custom_sound_path: string | null, };
+export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, error_sound_file: SoundFile, custom_sound_path: string | null, 
+/**
+ * When true, the frontend handles sound playback instead of the backend.
+ * This is useful for remote access where backend sound playback is not desired.
+ */
+frontend_sounds_enabled: boolean, };
 
 export enum ThemeMode { LIGHT = "LIGHT", DARK = "DARK", SYSTEM = "SYSTEM" }
 
