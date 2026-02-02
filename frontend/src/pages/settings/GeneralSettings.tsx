@@ -37,6 +37,7 @@ import ExecutorProfileSelector from '@/components/settings/ExecutorProfileSelect
 import { CustomEditorsList } from '@/components/settings/CustomEditorsList';
 import { ServerModeSettings } from '@/components/settings/ServerModeSettings';
 import { soundsApi } from '@/lib/api';
+import { playSound } from '@/lib/soundUtils';
 import { SettingsSection } from '@/components/settings/SettingsSection';
 import { SettingsField } from '@/components/settings/SettingsField';
 import { Text } from '@/components/ui/text';
@@ -157,15 +158,6 @@ export function GeneralSettings() {
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [hasUnsavedChanges]);
-
-  const playSound = async (identifier: string) => {
-    const audio = new Audio(`/api/sounds/${identifier}`);
-    try {
-      await audio.play();
-    } catch (err) {
-      console.error('Failed to play sound:', err);
-    }
-  };
 
   // Get the current sound identifier based on draft state
   const getCurrentSoundIdentifier = (): string | null => {
