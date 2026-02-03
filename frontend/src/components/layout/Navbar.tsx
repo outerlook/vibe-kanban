@@ -224,9 +224,10 @@ export function Navbar() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className={`h-9 w-9 ${isTasksRoute ? 'bg-accent' : ''}`}
+                    className={`h-9 w-9 ${isTasksRoute ? 'text-primary' : 'text-muted-foreground'}`}
                     asChild
                     aria-label="Tasks"
+                    aria-current={isTasksRoute ? 'page' : undefined}
                   >
                     <Link to={paths.projectTasks(projectId)}>
                       <KanbanSquare className="h-4 w-4" />
@@ -235,9 +236,10 @@ export function Navbar() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className={`h-9 w-9 ${isConversationsRoute ? 'bg-accent' : ''}`}
+                    className={`h-9 w-9 ${isConversationsRoute ? 'text-primary' : 'text-muted-foreground'}`}
                     asChild
                     aria-label="Conversations"
+                    aria-current={isConversationsRoute ? 'page' : undefined}
                   >
                     <Link to={paths.projectConversations(projectId)}>
                       <MessageCircle className="h-4 w-4" />
@@ -246,9 +248,10 @@ export function Navbar() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className={`h-9 w-9 ${isGanttRoute ? 'bg-accent' : ''}`}
+                    className={`h-9 w-9 ${isGanttRoute ? 'text-primary' : 'text-muted-foreground'}`}
                     asChild
                     aria-label="Gantt view"
+                    aria-current={isGanttRoute ? 'page' : undefined}
                   >
                     <Link to={paths.projectGantt(projectId)}>
                       <BarChart3 className="h-4 w-4" />
@@ -257,9 +260,10 @@ export function Navbar() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className={`h-9 w-9 ${isPrsRoute ? 'bg-accent' : ''}`}
+                    className={`h-9 w-9 ${isPrsRoute ? 'text-primary' : 'text-muted-foreground'}`}
                     asChild
                     aria-label="Pull requests"
+                    aria-current={isPrsRoute ? 'page' : undefined}
                   >
                     <Link to={paths.projectPrs(projectId)}>
                       <GitPullRequest className="h-4 w-4" />
