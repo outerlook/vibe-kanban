@@ -10,3 +10,8 @@ export {
   type PrFiltersProps,
 } from './PrFilters';
 export { PrThreadItem, type PrThreadItemProps } from './PrThreadItem';
+export {
+  PrDetailPanel,
+  PrDetailPanelSkeleton,
+  type PrDetailPanelProps,
+} from './PrDetailPanel';
