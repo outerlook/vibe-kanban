@@ -10,21 +10,13 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Plus } from 'lucide-react';
 import { useTaskGroups, useAssignTasksToGroup } from '@/hooks/useTaskGroups';
 import { useTaskSelection } from '@/contexts/TaskSelectionContext';
 import { TaskGroupFormDialog } from './TaskGroupFormDialog';
+import GroupSelector from '@/components/tasks/GroupSelector';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
-
-const CREATE_NEW_VALUE = '__create_new__';
 
 export interface BulkAssignGroupDialogProps {
   projectId: string;
@@ -59,12 +51,8 @@ const BulkAssignGroupDialogImpl = NiceModal.create<BulkAssignGroupDialogProps>(
 
     const canSubmit = !!selectedGroupId && !isLoading && !isLoadingGroups;
 
-    const handleSelectChange = async (value: string) => {
-      if (value === CREATE_NEW_VALUE) {
-        await TaskGroupFormDialog.show({ mode: 'create', projectId });
-        return;
-      }
-      setSelectedGroupId(value);
+    const handleGroupSelect = (groupId: string | null) => {
+      setSelectedGroupId(groupId);
       setError(null);
     };
 
@@ -120,34 +108,29 @@ const BulkAssignGroupDialogImpl = NiceModal.create<BulkAssignGroupDialogProps>(
                   {t('bulkAssignGroupDialog.loadingGroups')}
                 </div>
               ) : (
-                <Select
-                  value={selectedGroupId ?? ''}
-                  onValueChange={handleSelectChange}
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={t('bulkAssignGroupDialog.selectPlaceholder')}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {groups.map((group) => (
-                      <SelectItem key={group.id} value={group.id}>
-                        {group.name}
-                        {group.base_branch && (
-                          <span className="text-muted-foreground ml-2">
-                            ({group.base_branch})
-                          </span>
-                        )}
-                      </SelectItem>
-                    ))}
-                    <SelectItem value={CREATE_NEW_VALUE}>
-                      <span className="flex items-center gap-2">
-                        <Plus className="h-4 w-4" />
-                        {t('bulkAssignGroupDialog.createNew')}
-                      </span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="flex gap-2">
+                  <GroupSelector
+                    groups={groups}
+                    selectedGroupId={selectedGroupId}
+                    onGroupSelect={handleGroupSelect}
+                    placeholder={t('bulkAssignGroupDialog.selectPlaceholder')}
+                    disabled={isLoading}
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-9 w-9 shrink-0"
+                    onClick={() =>
+                      TaskGroupFormDialog.show({ mode: 'create', projectId })
+                    }
+                    disabled={isLoading}
+                    aria-label={t('bulkAssignGroupDialog.createNew')}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
               )}
               {!hasGroups && !isLoadingGroups && (
                 <p className="text-xs text-muted-foreground">
