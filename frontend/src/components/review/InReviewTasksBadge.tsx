@@ -11,7 +11,6 @@ import { useProjects } from '@/hooks/useProjects';
 import { tasksApi } from '@/lib/api';
 import { InReviewTasksList } from './InReviewTasksList';
 import { cn } from '@/lib/utils';
-import type { TaskWithAttemptStatus } from 'shared/types';
 
 interface InReviewTasksBadgeProps {
   className?: string;
@@ -57,8 +56,6 @@ export function InReviewTasksBadge({ className }: InReviewTasksBadgeProps) {
     staleTime: 30_000,
   });
 
-  const typedTasks: (TaskWithAttemptStatus & { projectName?: string })[] = tasks;
-
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
@@ -88,7 +85,7 @@ export function InReviewTasksBadge({ className }: InReviewTasksBadgeProps) {
         sideOffset={8}
       >
         <InReviewTasksList
-          tasks={typedTasks}
+          tasks={tasks}
           isLoading={isLoading}
           onClose={() => setOpen(false)}
         />

@@ -3,8 +3,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { InReviewTaskItem } from './InReviewTaskItem';
 import type { TaskWithAttemptStatus } from 'shared/types';
 
+type TaskWithProject = TaskWithAttemptStatus & { projectName?: string };
+
 interface InReviewTasksListProps {
-  tasks: (TaskWithAttemptStatus & { projectName?: string })[];
+  tasks: TaskWithProject[];
   isLoading: boolean;
   onClose?: () => void;
 }
@@ -12,10 +14,9 @@ interface InReviewTasksListProps {
 function LoadingSkeleton() {
   return (
     <div className="flex flex-col">
-      {[...Array(4)].map((_, i) => (
-        <div key={i} className="flex items-center gap-2 px-3 py-2 border-b">
-          <Skeleton variant="text" className="flex-1" height={16} />
-          <Skeleton variant="rectangular" width={60} height={20} />
+      {[1, 2, 3, 4].map((i) => (
+        <div key={i} className="px-3 py-2 border-b">
+          <Skeleton variant="text" height={16} />
         </div>
       ))}
     </div>
@@ -31,10 +32,8 @@ function EmptyState() {
   );
 }
 
-function groupTasksByProject(
-  tasks: (TaskWithAttemptStatus & { projectName?: string })[]
-) {
-  const groups = new Map<string, typeof tasks>();
+function groupTasksByProject(tasks: TaskWithProject[]) {
+  const groups = new Map<string, TaskWithProject[]>();
 
   for (const task of tasks) {
     const projectName = task.projectName ?? 'Unknown Project';
