@@ -11,6 +11,7 @@
 //! - `mock_execution_controller`: MockExecutionController for capturing execution triggers
 //! - `entity_builder_tests`: Tests for the `EntityGraphBuilder` fluent API
 //! - `test_diamond_deps`: Tests for diamond dependency graph scenarios
+//! - `test_manual_status_update`: Tests for autopilot triggering via manual API status updates
 //! - `test_merge_to_autopilot`: Tests for dependency triggering when tasks complete
 //! - `test_multi_level_deps`: Tests for multi-level dependency chain propagation
 //! - `test_review_to_merge`: Tests for review-to-merge flow
@@ -29,6 +30,9 @@ mod entity_builder_tests;
 
 #[cfg(test)]
 mod test_diamond_deps;
+
+#[cfg(test)]
+mod test_manual_status_update;
 
 #[cfg(test)]
 mod test_merge_to_autopilot;

@@ -26,6 +26,7 @@ use executors::profile::ExecutorProfileId;
 use serde::{Deserialize, Serialize};
 use services::services::{
     container::{ContainerService, StartWorkspaceResult},
+    domain_events::DomainEvent,
     share::ShareError,
     workspace_manager::WorkspaceManager,
 };
@@ -462,6 +463,9 @@ pub async fn update_task(
         .await?;
     }
 
+    // Capture previous status for event dispatch
+    let previous_status = existing_task.status.clone();
+
     // Use existing values if not provided in update
     let title = payload.title.unwrap_or(existing_task.title);
     let description = match payload.description {
@@ -481,7 +485,7 @@ pub async fn update_task(
         existing_task.project_id,
         title,
         description,
-        status,
+        status.clone(),
         parent_workspace_id,
         task_group_id,
     )
@@ -490,6 +494,18 @@ pub async fn update_task(
     if let Some(image_ids) = &payload.image_ids {
         TaskImage::delete_by_task_id(&deployment.db().pool, task.id).await?;
         TaskImage::associate_many_dedup(&deployment.db().pool, task.id, image_ids).await?;
+    }
+
+    // Dispatch TaskStatusChanged event if status changed
+    // This triggers handlers like AutopilotHandler, ReviewAttentionHandler, etc.
+    if status != previous_status {
+        deployment
+            .container()
+            .dispatch_event(DomainEvent::TaskStatusChanged {
+                task: task.clone(),
+                previous_status,
+            })
+            .await;
     }
 
     // If task has been shared, broadcast update
