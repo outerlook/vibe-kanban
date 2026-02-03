@@ -22,6 +22,34 @@ export function formatTokenCount(n: bigint | number | null | undefined): string 
 }
 
 /**
+ * Format an ISO date string as a short date (e.g., "Jan 15, 2025").
+ * Returns the original string on parse failure.
+ */
+export function formatShortDate(dateStr: string): string {
+  try {
+    return new Date(dateStr).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
+/**
+ * Format an ISO date string as a full date-time (e.g., "1/15/2025, 10:30:00 AM").
+ * Returns the original string on parse failure.
+ */
+export function formatDateTime(dateStr: string): string {
+  try {
+    return new Date(dateStr).toLocaleString();
+  } catch {
+    return dateStr;
+  }
+}
+
+/**
  * Format an ISO date string as a human-readable relative time (e.g., "5 minutes ago").
  * Uses Intl.RelativeTimeFormat when available for localized output.
  */

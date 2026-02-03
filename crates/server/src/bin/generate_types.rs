@@ -146,6 +146,8 @@ fn generate_types_content() -> String {
         services::services::pr_cache::ProjectPrsResponse::decl(),
         server::routes::projects::PrUnresolvedCount::decl(),
         server::routes::projects::PrUnresolvedCountsResponse::decl(),
+        server::routes::projects::PrThreadsResponse::decl(),
+        server::routes::projects::GetPrThreadsError::decl(),
         server::routes::projects::MatchingTaskGroup::decl(),
         server::routes::projects::WorktreeInfo::decl(),
         server::routes::projects::ProjectWorktreesResponse::decl(),
