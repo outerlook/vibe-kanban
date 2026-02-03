@@ -28,6 +28,7 @@ pub mod oauth;
 pub mod organizations;
 pub mod projects;
 pub mod repo;
+pub mod review_attention;
 pub mod scratch;
 pub mod server_logs;
 pub mod sessions;
@@ -57,6 +58,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(conversations::router(&deployment))
         .merge(execution_processes::router(&deployment))
         .merge(feedback::router(&deployment))
+        .merge(review_attention::router(&deployment))
         .merge(gantt::router(&deployment))
         .merge(tags::router(&deployment))
         .merge(oauth::router())
