@@ -135,6 +135,7 @@ import {
   PrWithComments,
   PrUnresolvedCountsResponse,
   FeedbackResponse,
+  ReviewAttention,
   SkillsData,
   SavedAccount,
   SaveAccountRequest,
@@ -2166,6 +2167,15 @@ export const feedbackApi = {
     const url = `/api/feedback/recent${queryString ? `?${queryString}` : ''}`;
     const response = await makeRequest(url);
     return handleApiResponse<FeedbackResponse[]>(response);
+  },
+};
+
+// Review Attention API
+export const reviewAttentionApi = {
+  /** Get the latest review attention for a task */
+  getLatestByTaskId: async (taskId: string): Promise<ReviewAttention | null> => {
+    const response = await makeRequest(`/api/review-attention/task/${taskId}`);
+    return handleApiResponse<ReviewAttention | null>(response);
   },
 };
 
