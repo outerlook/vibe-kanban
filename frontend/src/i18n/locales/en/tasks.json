@@ -25,7 +25,12 @@
     "searchPlaceholder": "Search tasks...",
     "clearFilters": "Clear filters",
     "viewSettings": "View settings",
-    "compactView": "Compact view"
+    "compactView": "Compact view",
+    "hideBlocked": "Hide blocked"
+  },
+  "groupSelector": {
+    "searchPlaceholder": "Search groups...",
+    "empty": "No groups found"
   },
   "rebase": {
     "common": {
