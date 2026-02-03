@@ -28,6 +28,7 @@ import WYSIWYGEditor from '@/components/ui/wysiwyg';
 import type { LocalImageMetadata } from '@/components/ui/wysiwyg/context/task-attempt-context';
 import BranchSelector from '@/components/tasks/BranchSelector';
 import RepoBranchSelector from '@/components/tasks/RepoBranchSelector';
+import GroupSelector from '@/components/tasks/GroupSelector';
 import { DependencySection } from '@/components/tasks/DependencySection';
 import { ExecutorProfileSelector } from '@/components/settings';
 import { useUserSystem } from '@/components/ConfigProvider';
@@ -522,29 +523,14 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                     {t('taskFormDialog.groupLabel')}
                   </Label>
                   <div className="flex items-center gap-2">
-                    <Select
-                      value={field.state.value ?? '__none__'}
-                      onValueChange={(value) =>
-                        field.handleChange(value === '__none__' ? null : value)
-                      }
+                    <GroupSelector
+                      groups={taskGroups}
+                      selectedGroupId={field.state.value}
+                      onGroupSelect={(id) => field.handleChange(id)}
+                      allowNone={true}
                       disabled={isSubmitting}
-                    >
-                      <SelectTrigger className="flex-1">
-                        <SelectValue
-                          placeholder={t('taskFormDialog.groupPlaceholder')}
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">
-                          {t('taskFormDialog.noGroup')}
-                        </SelectItem>
-                        {taskGroups.map((group) => (
-                          <SelectItem key={group.id} value={group.id}>
-                            {group.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      className="flex-1"
+                    />
                     <Button
                       type="button"
                       variant="outline"
