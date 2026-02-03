@@ -926,8 +926,15 @@ function DisplayConversationEntry({
     );
   }
 
+  const isAssistantMessage = entryType.type === 'assistant_message';
+
   return (
-    <div className="px-4 py-2 text-sm">
+    <div
+      className={cn(
+        'px-4 py-2 text-sm',
+        isAssistantMessage && 'border-l-2 border-muted-foreground/20'
+      )}
+    >
       <div className={getContentClassName(entryType)}>
         {shouldRenderMarkdown(entryType) ? (
           <WYSIWYGEditor

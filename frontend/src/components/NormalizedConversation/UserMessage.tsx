@@ -56,7 +56,7 @@ const UserMessage = ({
 
   return (
     <div className={`py-2 ${greyed ? 'opacity-50 pointer-events-none' : ''}`}>
-      <div className="bg-muted/50 border-l-2 border-primary/30 px-4 py-2 text-sm rounded-r-md">
+      <div className="bg-muted/50 border-l-4 border-primary/50 px-4 py-2 text-sm rounded-r-md">
         <div className="py-3">
           {showRetryEditor && taskAttempt ? (
             <RetryEditorInline
