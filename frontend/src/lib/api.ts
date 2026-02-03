@@ -134,6 +134,7 @@ import {
   RepoPrs,
   PrWithComments,
   PrUnresolvedCountsResponse,
+  PrThreadsResponse,
   FeedbackResponse,
   ReviewAttention,
   SkillsData,
@@ -234,7 +235,7 @@ export async function refreshApiBaseUrl(): Promise<string> {
 }
 
 // Re-export PR types from shared for convenience
-export type { ProjectPrsResponse, RepoPrs, PrWithComments, PrUnresolvedCountsResponse };
+export type { ProjectPrsResponse, RepoPrs, PrWithComments, PrUnresolvedCountsResponse, PrThreadsResponse };
 
 const makeRequest = async (url: string, options: RequestInit = {}) => {
   const baseUrl = await getApiBaseUrl();
@@ -528,6 +529,17 @@ export const projectsApi = {
       `/api/projects/${projectId}/prs/unresolved-counts`
     );
     return handleApiResponse<PrUnresolvedCountsResponse>(response);
+  },
+
+  getPrThreads: async (
+    projectId: string,
+    repoId: string,
+    prNumber: number
+  ): Promise<PrThreadsResponse> => {
+    const response = await makeRequest(
+      `/api/projects/${projectId}/prs/${repoId}/${prNumber}/threads`
+    );
+    return handleApiResponse<PrThreadsResponse>(response);
   },
 
   getMergeQueueCount: async (
