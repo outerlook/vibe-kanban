@@ -332,6 +332,10 @@ export type PrUnresolvedCount = { repo_id: string, pr_number: bigint, unresolved
 
 export type PrUnresolvedCountsResponse = { counts: Array<PrUnresolvedCount>, };
 
+export type PrThreadsResponse = { threads: Array<UnifiedPrComment>, };
+
+export type GetPrThreadsError = { "type": "github_not_configured" } | { "type": "repo_not_found" } | { "type": "pr_not_found" } | { "type": "github_auth_failed" };
+
 export type MatchingTaskGroup = { id: string, name: string, };
 
 export type WorktreeInfo = { path: string, branch: string | null, is_main: boolean, matching_groups: Array<MatchingTaskGroup>, };

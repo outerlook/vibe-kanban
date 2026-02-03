@@ -25,6 +25,7 @@ use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use services::services::{
     file_search_cache::SearchQuery,
+    github::{GitHubService, GitHubServiceError, UnifiedPrComment},
     github_client::GitHubClient,
     pr_cache::{PrWithComments, ProjectPrsResponse, RepoPrs},
     project::ProjectServiceError,
@@ -873,6 +874,95 @@ pub async fn get_merge_queue_count(
     )))
 }
 
+/// Response for GET /api/projects/:id/prs/:repoId/:prNumber/threads
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct PrThreadsResponse {
+    pub threads: Vec<UnifiedPrComment>,
+}
+
+/// Error type for GET /api/projects/:id/prs/:repoId/:prNumber/threads
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[ts(tag = "type", rename_all = "snake_case")]
+pub enum GetPrThreadsError {
+    GithubNotConfigured,
+    RepoNotFound,
+    PrNotFound,
+    GithubAuthFailed,
+}
+
+/// GET /api/projects/:id/prs/:repoId/:prNumber/threads - Get PR review threads
+///
+/// Fetches both general and inline review comments for a specific PR.
+pub async fn get_pr_threads(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+    Path((_project_id, repo_id, pr_number)): Path<(Uuid, Uuid, i64)>,
+) -> Result<ResponseJson<ApiResponse<PrThreadsResponse, GetPrThreadsError>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    // Look up the repo by ID within this project
+    let project_repo = match ProjectRepo::find_by_project_and_repo(pool, project.id, repo_id).await?
+    {
+        Some(pr) => pr,
+        None => {
+            return Ok(ResponseJson(ApiResponse::error_with_data(
+                GetPrThreadsError::RepoNotFound,
+            )));
+        }
+    };
+
+    let repo = match Repo::find_by_id(pool, project_repo.repo_id).await? {
+        Some(r) => r,
+        None => {
+            return Ok(ResponseJson(ApiResponse::error_with_data(
+                GetPrThreadsError::RepoNotFound,
+            )));
+        }
+    };
+
+    // Get GitHub repo info from the local repo path
+    let repo_info = deployment.git().get_github_repo_info(&repo.path)?;
+
+    // Create GitHub service (uses gh CLI)
+    let github_service = match GitHubService::new() {
+        Ok(svc) => svc,
+        Err(_) => {
+            return Ok(ResponseJson(ApiResponse::error_with_data(
+                GetPrThreadsError::GithubNotConfigured,
+            )));
+        }
+    };
+
+    // Fetch comments from GitHub
+    match github_service.get_pr_comments(&repo_info, pr_number).await {
+        Ok(comments) => Ok(ResponseJson(ApiResponse::success(PrThreadsResponse {
+            threads: comments,
+        }))),
+        Err(e) => {
+            tracing::error!(
+                "Failed to fetch PR threads for project {}, repo {}, PR #{}: {}",
+                project.id,
+                repo_id,
+                pr_number,
+                e
+            );
+            match &e {
+                GitHubServiceError::GhCliNotInstalled(_) => Ok(ResponseJson(
+                    ApiResponse::error_with_data(GetPrThreadsError::GithubNotConfigured),
+                )),
+                GitHubServiceError::AuthFailed(_) => Ok(ResponseJson(ApiResponse::error_with_data(
+                    GetPrThreadsError::GithubAuthFailed,
+                ))),
+                GitHubServiceError::RepoNotFoundOrNoAccess(_) => Ok(ResponseJson(
+                    ApiResponse::error_with_data(GetPrThreadsError::RepoNotFound),
+                )),
+                _ => Err(ApiError::GitHubService(e)),
+            }
+        }
+    }
+}
+
 /// GET /api/projects/:id/workspaces - Get all workspaces for a project's tasks
 pub async fn get_project_workspaces(
     Extension(project): Extension<Project>,
@@ -986,6 +1076,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             "/prs/unresolved-counts",
             get(get_project_prs_unresolved_counts),
         )
+        .route("/prs/{repo_id}/{pr_number}/threads", get(get_pr_threads))
         .route("/merge-queue-count", get(get_merge_queue_count))
         .route("/workspaces", get(get_project_workspaces))
         .route("/worktrees", get(get_project_worktrees))
