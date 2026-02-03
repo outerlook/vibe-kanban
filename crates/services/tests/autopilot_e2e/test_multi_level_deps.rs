@@ -3,120 +3,14 @@
 //! These tests verify that the autopilot flow correctly propagates through
 //! multi-level dependency chains, where C depends on B, and B depends on A.
 
-use std::sync::Arc;
-
 use db::models::{execution_queue::ExecutionQueue, task::TaskStatus};
-use services::services::{
-    config::Config,
-    domain_events::{AutopilotHandler, DispatcherBuilder, DomainEvent, HandlerContext},
+use services::services::domain_events::{AutopilotHandler, DispatcherBuilder, DomainEvent};
+
+use super::fixtures::{
+    autopilot_config, dispatch_task_done, get_task_is_blocked, make_task_for_event,
+    test_handler_context, update_task_needs_attention, update_task_status, EntityGraphBuilder,
+    TestDb,
 };
-use tokio::sync::RwLock;
-use utils::msg_store::MsgStore;
-
-use super::fixtures::{autopilot_config, EntityGraphBuilder, TestDb};
-
-/// Creates a HandlerContext for testing with the given config.
-fn test_handler_context(pool: sqlx::SqlitePool, config: Arc<RwLock<Config>>) -> HandlerContext {
-    let db = db::DBService { pool };
-    let msg_store = Arc::new(MsgStore::default());
-    HandlerContext::new(db, config, msg_store, None)
-}
-
-/// Helper to update task status directly in the database.
-async fn update_task_status(pool: &sqlx::SqlitePool, task_id: uuid::Uuid, status: TaskStatus) {
-    let status_str = match status {
-        TaskStatus::Todo => "todo",
-        TaskStatus::InProgress => "inprogress",
-        TaskStatus::InReview => "inreview",
-        TaskStatus::Done => "done",
-        TaskStatus::Cancelled => "cancelled",
-    };
-    sqlx::query("UPDATE tasks SET status = ? WHERE id = ?")
-        .bind(status_str)
-        .bind(task_id)
-        .execute(pool)
-        .await
-        .expect("Failed to update task status");
-}
-
-/// Helper to update task needs_attention flag directly in the database.
-async fn update_task_needs_attention(
-    pool: &sqlx::SqlitePool,
-    task_id: uuid::Uuid,
-    needs_attention: bool,
-) {
-    sqlx::query("UPDATE tasks SET needs_attention = ? WHERE id = ?")
-        .bind(needs_attention)
-        .bind(task_id)
-        .execute(pool)
-        .await
-        .expect("Failed to update task needs_attention");
-}
-
-/// Helper to get is_blocked value for a task.
-async fn get_task_is_blocked(pool: &sqlx::SqlitePool, task_id: uuid::Uuid) -> bool {
-    sqlx::query_scalar("SELECT is_blocked FROM tasks WHERE id = ?")
-        .bind(task_id)
-        .fetch_one(pool)
-        .await
-        .expect("Failed to fetch is_blocked")
-}
-
-/// Creates a Task struct for dispatching events.
-fn make_task_for_event(
-    task_id: uuid::Uuid,
-    project_id: uuid::Uuid,
-    title: &str,
-    status: TaskStatus,
-) -> db::models::task::Task {
-    db::models::task::Task {
-        id: task_id,
-        project_id,
-        title: title.to_string(),
-        description: None,
-        status,
-        parent_workspace_id: None,
-        shared_task_id: None,
-        task_group_id: None,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
-        is_blocked: false,
-        has_in_progress_attempt: false,
-        last_attempt_failed: false,
-        is_queued: false,
-        last_executor: String::new(),
-        needs_attention: None,
-    }
-}
-
-/// Dispatches TaskStatusChanged event and waits for handler completion.
-async fn dispatch_task_done(
-    pool: &sqlx::SqlitePool,
-    task_id: uuid::Uuid,
-    project_id: uuid::Uuid,
-    title: &str,
-    previous_status: TaskStatus,
-) {
-    let config = autopilot_config();
-    let ctx = test_handler_context(pool.clone(), config);
-
-    let dispatcher = DispatcherBuilder::new()
-        .with_handler(AutopilotHandler::new())
-        .with_context(ctx)
-        .build();
-
-    let task = make_task_for_event(task_id, project_id, title, TaskStatus::Done);
-
-    dispatcher
-        .dispatch(DomainEvent::TaskStatusChanged {
-            task,
-            previous_status,
-        })
-        .await;
-
-    // Give spawned handler time to complete (AutopilotHandler is Spawned mode)
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-}
 
 /// Test three-level dependency chain: A → B → C
 ///

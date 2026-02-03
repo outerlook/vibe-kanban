@@ -21,6 +21,7 @@ use uuid::Uuid;
 
 /// Response configuration for mocked execution completions.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct MockExecutionResponse {
     /// Whether the execution needs user attention (for ReviewAttention triggers).
     pub needs_attention: Option<bool>,
@@ -113,6 +114,7 @@ impl MockExecutionController {
     }
 
     /// Sets the mock response for review attention triggers for a specific task.
+    #[allow(dead_code)]
     pub fn set_review_response(&self, task_id: Uuid, needs_attention: bool) {
         let mut responses = self.responses.lock().unwrap();
         responses.insert(
@@ -131,6 +133,7 @@ impl MockExecutionController {
     }
 
     /// Marks an execution as completed in the database.
+    #[allow(dead_code)]
     pub async fn complete_execution(&self, exec_id: Uuid) -> Result<(), anyhow::Error> {
         let now = Utc::now();
         sqlx::query(

@@ -5,8 +5,6 @@
 
 #[path = "autopilot_e2e_fixtures/mod.rs"]
 mod mock_controller;
-#[allow(dead_code)]
-mod autopilot_e2e_git_fixtures;
 
 use mock_controller::MockExecutionController;
 use services::services::domain_events::ExecutionTrigger;
