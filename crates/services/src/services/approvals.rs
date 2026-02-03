@@ -101,12 +101,6 @@ impl Approvals {
         map.remove(execution_process_id);
     }
 
-    /// Get a protocol peer by execution process ID
-    async fn protocol_peer_by_id(&self, execution_process_id: &Uuid) -> Option<ProtocolPeer> {
-        let map = self.protocol_peers.read().await;
-        map.get(execution_process_id).cloned()
-    }
-
     /// Get the protocol peers map for external access
     pub fn protocol_peers(&self) -> &Arc<RwLock<HashMap<Uuid, ProtocolPeer>>> {
         &self.protocol_peers
@@ -270,28 +264,13 @@ impl Approvals {
                 needs_follow_up: false, // Executor alive, tool_result sent directly
             };
 
-            // If this is an Answered status with answers, send tool_result to Claude AND save to DB
+            // If this is an Answered status with answers, save to DB
+            // Note: The answer is delivered to Claude via PermissionResult::Allow { updated_input }
+            // in the canUseTool callback (client.rs), not via send_tool_result here.
             if let ApprovalStatus::Answered { ref answers } = final_status {
-                // Save to DB
                 let answers_json = serde_json::to_string(answers).unwrap_or_default();
                 if let Err(e) = UserQuestion::update_answer(&self.db, id, &answers_json).await {
                     tracing::error!("Failed to save user question answer to DB: {}", e);
-                }
-
-                // Send to Claude
-                if let Some(peer) = self.protocol_peer_by_id(&p.execution_process_id).await {
-                    let answers_value = serde_json::to_value(answers).unwrap_or_default();
-                    if let Err(e) = peer
-                        .send_tool_result(tool_ctx.tool_call_id.clone(), answers_value, false)
-                        .await
-                    {
-                        tracing::error!("Failed to send tool_result for answered question: {}", e);
-                    }
-                } else {
-                    tracing::warn!(
-                        "No protocol_peer found for execution_process_id: {}, cannot send tool_result",
-                        p.execution_process_id
-                    );
                 }
             }
 
