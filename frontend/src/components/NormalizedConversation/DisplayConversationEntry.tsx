@@ -935,6 +935,12 @@ function DisplayConversationEntry({
         isAssistantMessage && 'border-l-2 border-muted-foreground/20'
       )}
     >
+      {isAssistantMessage && (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+          <Bot className="h-3 w-3" />
+          <span>{t('conversation.role.agent')}</span>
+        </div>
+      )}
       <div className={getContentClassName(entryType)}>
         {shouldRenderMarkdown(entryType) ? (
           <WYSIWYGEditor
