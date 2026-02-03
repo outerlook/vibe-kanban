@@ -5,246 +5,21 @@
 //! - `test_fifo_merge_queue_ordering`: Verifies entries are merged in enqueue order
 //! - `test_conflict_skips_to_next`: Verifies conflicts don't block other tasks
 
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::path::Path;
 
 use db::models::{
     merge::Merge,
     task::{Task, TaskStatus},
-    workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
 use git2::Repository;
-use services::services::{
-    config::Config,
-    git::GitService,
-    merge_queue_processor::MergeQueueProcessor,
-    merge_queue_store::MergeQueueStore,
+
+use super::fixtures::{
+    git_fixtures::{
+        MergeTestContext, TestRepo, add_and_commit, create_repo, create_workspace_repo,
+        update_workspace_container_ref,
+    },
+    EntityGraphBuilder,
 };
-use sqlx::SqlitePool;
-use tempfile::TempDir;
-use tokio::sync::RwLock;
-use utils::msg_store::MsgStore;
-use uuid::Uuid;
-
-use super::fixtures::{autopilot_config, EntityGraphBuilder, TestDb};
-
-/// A test git repository with worktree support.
-pub struct TestRepo {
-    pub path: PathBuf,
-    pub name: String,
-    _dir: TempDir,
-}
-
-impl TestRepo {
-    /// Creates a new test repository with the given name.
-    pub fn new(name: &str) -> Self {
-        let dir = TempDir::new().expect("Failed to create temp dir");
-        let path = dir.path().join(name);
-
-        let repo = Repository::init(&path).expect("Failed to init git repo");
-
-        // Configure git user
-        {
-            let mut config = repo.config().expect("Failed to get repo config");
-            config
-                .set_str("user.name", "Test User")
-                .expect("Failed to set user.name");
-            config
-                .set_str("user.email", "test@example.com")
-                .expect("Failed to set user.email");
-        }
-
-        // Create initial commit
-        let sig = repo.signature().expect("Failed to get signature");
-        let readme_path = path.join("README.md");
-        std::fs::write(&readme_path, "# Test Repository\n").expect("Failed to write README.md");
-
-        let mut index = repo.index().expect("Failed to get index");
-        index
-            .add_path(Path::new("README.md"))
-            .expect("Failed to add README.md to index");
-        index.write().expect("Failed to write index");
-
-        let tree_id = index.write_tree().expect("Failed to write tree");
-        let tree = repo.find_tree(tree_id).expect("Failed to find tree");
-
-        repo.commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])
-            .expect("Failed to create initial commit");
-
-        repo.set_head("refs/heads/master")
-            .expect("Failed to set HEAD");
-
-        let mut master = repo
-            .find_branch("master", git2::BranchType::Local)
-            .expect("Failed to find master branch");
-        master.rename("main", false).expect("Failed to rename to main");
-
-        repo.set_head("refs/heads/main")
-            .expect("Failed to set HEAD to main");
-
-        Self {
-            path,
-            name: name.to_string(),
-            _dir: dir,
-        }
-    }
-
-    /// Creates a new branch at HEAD.
-    pub fn create_branch(&self, branch: &str) {
-        let repo = Repository::open(&self.path).expect("Failed to open repository");
-        let head = repo
-            .head()
-            .expect("Failed to get HEAD")
-            .peel_to_commit()
-            .expect("Failed to peel to commit");
-        repo.branch(branch, &head, false)
-            .expect("Failed to create branch");
-    }
-
-    /// Creates a git worktree for the given branch.
-    pub fn create_worktree(&self, branch: &str) -> PathBuf {
-        let repo = Repository::open(&self.path).expect("Failed to open repository");
-
-        if repo.find_branch(branch, git2::BranchType::Local).is_err() {
-            self.create_branch(branch);
-        }
-
-        let branch_ref = repo
-            .find_branch(branch, git2::BranchType::Local)
-            .expect("Failed to find branch")
-            .into_reference();
-
-        let worktree_path = self
-            .path
-            .parent()
-            .expect("Repo should have parent")
-            .join(format!("{}-worktree-{}", self.name, branch));
-
-        repo.worktree(
-            branch,
-            &worktree_path,
-            Some(&git2::WorktreeAddOptions::new().reference(Some(&branch_ref))),
-        )
-        .expect("Failed to create worktree");
-
-        worktree_path
-    }
-}
-
-/// Test context containing all the pieces needed for merge queue tests.
-struct TestContext {
-    pool: SqlitePool,
-    git: GitService,
-    merge_queue_store: MergeQueueStore,
-    config: Arc<RwLock<Config>>,
-    _test_db: TestDb,
-}
-
-impl TestContext {
-    async fn new() -> Self {
-        Self::with_config(autopilot_config()).await
-    }
-
-    async fn with_config(config: Arc<RwLock<Config>>) -> Self {
-        let test_db = TestDb::new().await;
-        let pool = test_db.pool().clone();
-        let git = GitService::new();
-        let msg_store = Arc::new(MsgStore::new());
-        let merge_queue_store = MergeQueueStore::new(msg_store);
-
-        Self {
-            pool,
-            git,
-            merge_queue_store,
-            config,
-            _test_db: test_db,
-        }
-    }
-
-    fn processor(&self) -> MergeQueueProcessor {
-        MergeQueueProcessor::new(
-            self.pool.clone(),
-            self.git.clone(),
-            self.merge_queue_store.clone(),
-            self.config.clone(),
-        )
-    }
-}
-
-/// Creates a repo in the database pointing to the test repository.
-async fn create_repo(pool: &SqlitePool, path: &Path, name: &str) -> Uuid {
-    let id = Uuid::new_v4();
-    let path_str = path.to_string_lossy().to_string();
-    let now = chrono::Utc::now();
-
-    sqlx::query(
-        "INSERT INTO repos (id, path, name, display_name, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)",
-    )
-    .bind(id)
-    .bind(&path_str)
-    .bind(name)
-    .bind(name)
-    .bind(now)
-    .bind(now)
-    .execute(pool)
-    .await
-    .expect("Failed to create repo");
-
-    id
-}
-
-/// Updates a workspace's container_ref to point to a worktree directory.
-async fn update_workspace_container_ref(pool: &SqlitePool, workspace_id: Uuid, container_ref: &str) {
-    sqlx::query("UPDATE workspaces SET container_ref = ? WHERE id = ?")
-        .bind(container_ref)
-        .bind(workspace_id)
-        .execute(pool)
-        .await
-        .expect("Failed to update workspace container_ref");
-}
-
-/// Creates a WorkspaceRepo linking workspace to repo with target branch.
-async fn create_workspace_repo(
-    pool: &SqlitePool,
-    workspace_id: Uuid,
-    repo_id: Uuid,
-    target_branch: &str,
-) {
-    WorkspaceRepo::create_many(
-        pool,
-        workspace_id,
-        &[CreateWorkspaceRepo {
-            repo_id,
-            target_branch: target_branch.to_string(),
-        }],
-    )
-    .await
-    .expect("Failed to create workspace repo");
-}
-
-/// Helper to add a file and commit in a worktree.
-fn add_and_commit(worktree_path: &Path, filename: &str, content: &str, message: &str) {
-    let repo = Repository::open(worktree_path).expect("Failed to open repo");
-    let file_path = worktree_path.join(filename);
-    std::fs::write(&file_path, content).expect("Failed to write file");
-
-    let mut index = repo.index().expect("Failed to get index");
-    index
-        .add_path(Path::new(filename))
-        .expect("Failed to add file");
-    index.write().expect("Failed to write index");
-
-    let tree_id = index.write_tree().expect("Failed to write tree");
-    let tree = repo.find_tree(tree_id).expect("Failed to find tree");
-    let sig = repo.signature().expect("Failed to get signature");
-    let parent = repo.head().unwrap().peel_to_commit().unwrap();
-
-    repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent])
-        .expect("Failed to commit");
-}
 
 /// Test that merge queue processes entries in FIFO order (oldest first).
 ///
@@ -254,7 +29,7 @@ fn add_and_commit(worktree_path: &Path, filename: &str, content: &str, message: 
 /// 3. Assert: Merge records created in A, B, C order (check timestamps)
 #[tokio::test]
 async fn test_fifo_merge_queue_ordering() {
-    let ctx = TestContext::new().await;
+    let ctx = MergeTestContext::new().await;
 
     // Create 3 separate test repos for clean isolation
     let test_repo_a = TestRepo::new("repo-a");
@@ -448,7 +223,7 @@ async fn test_fifo_merge_queue_ordering() {
 /// 5. Assert: A's task still InReview (not Done)
 #[tokio::test]
 async fn test_conflict_skips_to_next() {
-    let ctx = TestContext::new().await;
+    let ctx = MergeTestContext::new().await;
 
     // Create 3 separate test repos for clean isolation
     let test_repo_a = TestRepo::new("conflict-repo-a");
