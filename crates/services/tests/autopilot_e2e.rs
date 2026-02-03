@@ -3,11 +3,12 @@
 //! These tests verify the complete autopilot flow from task status changes
 //! through handler execution to execution completion.
 
-mod autopilot_e2e_fixtures;
+#[path = "autopilot_e2e_fixtures/mod.rs"]
+mod mock_controller;
 #[allow(dead_code)]
 mod autopilot_e2e_git_fixtures;
 
-use autopilot_e2e_fixtures::MockExecutionController;
+use mock_controller::MockExecutionController;
 use services::services::domain_events::ExecutionTrigger;
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 use tempfile::NamedTempFile;
@@ -116,9 +117,9 @@ async fn test_mock_controller_captures_triggers() {
             task_id: t_id,
             execution_process_id: ep_id,
         } => {
-            assert_eq!(*ws_id, workspace_id);
-            assert_eq!(*t_id, task_id);
-            assert_eq!(*ep_id, source_exec_id);
+            assert_eq!(ws_id, &workspace_id);
+            assert_eq!(t_id, &task_id);
+            assert_eq!(ep_id, &source_exec_id);
         }
         _ => panic!("Expected FeedbackCollection trigger"),
     }
