@@ -158,13 +158,7 @@ function GroupSelector({
     const item = items[highlightedIndex];
     if (!item) return;
 
-    if (item.type === 'all') {
-      handleSelect(null);
-    } else if (item.type === 'none') {
-      handleSelect(null);
-    } else {
-      handleSelect(item.group.id);
-    }
+    handleSelect(item.type === 'group' ? item.group.id : null);
   }, [highlightedIndex, items, handleSelect]);
 
   return (
