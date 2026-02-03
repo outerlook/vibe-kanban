@@ -31,10 +31,34 @@ pub async fn find_unblocked_dependents(
     // Get all tasks that depend on this task
     let dependent_tasks = TaskDependency::find_blocking(pool, task_id).await?;
 
-    // Filter to only unblocked Todo tasks
+    // Filter to only unblocked Todo tasks that aren't already running or queued
     let unblocked: Vec<Task> = dependent_tasks
         .into_iter()
-        .filter(|task| !task.is_blocked && task.status == TaskStatus::Todo)
+        .filter(|task| {
+            if task.is_blocked {
+                return false;
+            }
+            if task.status != TaskStatus::Todo {
+                return false;
+            }
+            if task.has_in_progress_attempt {
+                debug!(
+                    task_id = %task.id,
+                    task_title = %task.title,
+                    "Skipping task: already has in-progress attempt"
+                );
+                return false;
+            }
+            if task.is_queued {
+                debug!(
+                    task_id = %task.id,
+                    task_title = %task.title,
+                    "Skipping task: already queued for execution"
+                );
+                return false;
+            }
+            true
+        })
         .collect();
 
     if !unblocked.is_empty() {
