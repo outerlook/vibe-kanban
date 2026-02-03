@@ -57,13 +57,15 @@ pub struct Workspace {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Workspace with its latest session (if any)
+/// Workspace with its latest session (if any) and queue info
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct WorkspaceWithSession {
     #[serde(flatten)]
     #[ts(flatten)]
     pub workspace: Workspace,
     pub session: Option<Session>,
+    /// Executor name if workspace is queued for execution (populated from execution_queue)
+    pub queued_executor: Option<String>,
 }
 
 /// GitHub PR creation parameters
@@ -464,12 +466,13 @@ impl Workspace {
 }
 
 impl WorkspaceWithSession {
-    /// Fetch workspaces with their latest session. Optionally filtered by task_id. Newest first.
+    /// Fetch workspaces with their latest session and queue info. Optionally filtered by task_id. Newest first.
     pub async fn fetch_with_latest_sessions(
         pool: &SqlitePool,
         task_id: Option<Uuid>,
     ) -> Result<Vec<Self>, WorkspaceError> {
         // Use CTE with window function for O(1) per workspace instead of correlated subquery
+        // Also join with execution_queue to get the queued executor if workspace is waiting
         let rows = sqlx::query!(
             r#"
             WITH latest_sessions AS (
@@ -495,9 +498,11 @@ impl WorkspaceWithSession {
                 s.workspace_id AS "s_workspace_id: Uuid",
                 s.executor AS "s_executor: String",
                 s.created_at AS "s_created_at: DateTime<Utc>",
-                s.updated_at AS "s_updated_at: DateTime<Utc>"
+                s.updated_at AS "s_updated_at: DateTime<Utc>",
+                eq.executor_profile_id AS "eq_executor_profile_id: String"
             FROM workspaces w
             LEFT JOIN latest_sessions s ON s.workspace_id = w.id AND s.rn = 1
+            LEFT JOIN execution_queue eq ON eq.workspace_id = w.id
             WHERE ($1 IS NULL OR w.task_id = $1)
             ORDER BY w.created_at DESC
             "#,
@@ -529,7 +534,18 @@ impl WorkspaceWithSession {
                     updated_at: row.s_updated_at.unwrap(),
                 });
 
-                WorkspaceWithSession { workspace, session }
+                // Parse the queued executor from the JSON executor_profile_id
+                let queued_executor = row.eq_executor_profile_id.and_then(|json_str| {
+                    serde_json::from_str::<serde_json::Value>(&json_str)
+                        .ok()
+                        .and_then(|v| v.get("executor").and_then(|e| e.as_str()).map(String::from))
+                });
+
+                WorkspaceWithSession {
+                    workspace,
+                    session,
+                    queued_executor,
+                }
             })
             .collect();
 

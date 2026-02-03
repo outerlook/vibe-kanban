@@ -5,6 +5,7 @@ use std::{
 
 use db::models::{
     execution_process::ExecutionProcess,
+    execution_queue::ExecutionQueue,
     gantt::GanttTask,
     notification::Notification,
     project::{Project, ProjectWithTaskCounts},
@@ -1113,8 +1114,16 @@ impl EventService {
                                                 .ok()
                                                 .flatten();
 
+                                                // Get queued executor if workspace is in queue
+                                                let queued_executor =
+                                                    ExecutionQueue::find_by_workspace(&db_pool, workspace.id)
+                                                        .await
+                                                        .ok()
+                                                        .flatten()
+                                                        .map(|eq| eq.executor_profile_id.0.executor.to_string());
+
                                                 let workspace_with_session =
-                                                    WorkspaceWithSession { workspace, session };
+                                                    WorkspaceWithSession { workspace, session, queued_executor };
                                                 let patch = json_patch::Patch(vec![
                                                     json_patch::PatchOperation::Add(
                                                         json_patch::AddOperation {
@@ -1143,8 +1152,16 @@ impl EventService {
                                                 .ok()
                                                 .flatten();
 
+                                                // Get queued executor if workspace is in queue
+                                                let queued_executor =
+                                                    ExecutionQueue::find_by_workspace(&db_pool, workspace.id)
+                                                        .await
+                                                        .ok()
+                                                        .flatten()
+                                                        .map(|eq| eq.executor_profile_id.0.executor.to_string());
+
                                                 let workspace_with_session =
-                                                    WorkspaceWithSession { workspace, session };
+                                                    WorkspaceWithSession { workspace, session, queued_executor };
                                                 let patch = json_patch::Patch(vec![
                                                     json_patch::PatchOperation::Replace(
                                                         json_patch::ReplaceOperation {

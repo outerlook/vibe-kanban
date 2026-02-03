@@ -76,7 +76,8 @@ const TaskPanel = ({ task }: TaskPanelProps) => {
     {
       id: 'executor',
       header: '',
-      accessor: (attempt) => attempt.session?.executor || 'Base Agent',
+      accessor: (attempt) =>
+        attempt.session?.executor || attempt.queued_executor || 'Unknown',
       className: 'pr-4',
     },
     {

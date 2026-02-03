@@ -288,6 +288,15 @@ impl LocalContainerService {
 
                             Ok(review_exec.id)
                         }
+                        ExecutionTrigger::ProcessQueue => {
+                            // Process the execution queue to start any waiting workspaces
+                            container.process_queue().await.map_err(|e| {
+                                anyhow!("Failed to process execution queue: {}", e)
+                            })?;
+
+                            // Return a nil UUID since no specific execution was started
+                            Ok(Uuid::nil())
+                        }
                     }
                 }
                 .boxed()

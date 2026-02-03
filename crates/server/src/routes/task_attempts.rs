@@ -128,8 +128,21 @@ pub async fn get_task_attempt_with_session(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<WorkspaceWithSession>>, ApiError> {
-    let session = Session::find_latest_by_workspace_id(&deployment.db().pool, workspace.id).await?;
-    let workspace_with_session = WorkspaceWithSession { workspace, session };
+    let pool = &deployment.db().pool;
+    let session = Session::find_latest_by_workspace_id(pool, workspace.id).await?;
+
+    // Get queued executor if workspace is in queue
+    let queued_executor = ExecutionQueue::find_by_workspace(pool, workspace.id)
+        .await
+        .ok()
+        .flatten()
+        .map(|eq| eq.executor_profile_id.0.executor.to_string());
+
+    let workspace_with_session = WorkspaceWithSession {
+        workspace,
+        session,
+        queued_executor,
+    };
     Ok(ResponseJson(ApiResponse::success(workspace_with_session)))
 }
 

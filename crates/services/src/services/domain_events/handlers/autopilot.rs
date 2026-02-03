@@ -22,7 +22,9 @@ use uuid::Uuid;
 
 use crate::services::{
     autopilot,
-    domain_events::{DomainEvent, EventHandler, ExecutionMode, HandlerContext, HandlerError},
+    domain_events::{
+        DomainEvent, EventHandler, ExecutionMode, ExecutionTrigger, HandlerContext, HandlerError,
+    },
 };
 
 /// Handler that auto-queues unblocked dependent tasks when autopilot is enabled.
@@ -353,6 +355,16 @@ impl EventHandler for AutopilotHandler {
                 enqueued_count = enqueued_count,
                 "Auto-dequeued unblocked dependent tasks"
             );
+
+            // Trigger queue processing to start the newly queued workspaces
+            if let Some(ref trigger_callback) = ctx.execution_trigger {
+                if let Err(e) = trigger_callback(ExecutionTrigger::ProcessQueue).await {
+                    warn!(
+                        error = %e,
+                        "Failed to trigger queue processing after auto-dequeue"
+                    );
+                }
+            }
         }
 
         Ok(())

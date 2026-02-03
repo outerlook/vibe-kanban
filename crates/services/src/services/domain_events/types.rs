@@ -88,6 +88,11 @@ pub enum ExecutionTrigger {
         task_id: Uuid,
         execution_process_id: Uuid,
     },
+
+    /// Trigger processing of the execution queue.
+    /// Used when new items are added to the queue (e.g., by autopilot)
+    /// to ensure they are processed if capacity is available.
+    ProcessQueue,
 }
 
 /// Callback type for triggering executions from handlers.
