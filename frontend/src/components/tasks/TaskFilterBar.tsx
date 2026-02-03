@@ -5,18 +5,10 @@ import { useTaskFilters } from '@/hooks/useTaskFilters';
 import { useTaskGroupsContext } from '@/contexts/TaskGroupsContext';
 import { useSearch } from '@/contexts/SearchContext';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { KanbanViewSettingsMenu } from './KanbanViewSettingsMenu';
-
-const ALL_GROUPS_VALUE = '__all__';
+import GroupSelector from '@/components/tasks/GroupSelector';
 
 export function TaskFilterBar() {
   const { t } = useTranslation('tasks');
@@ -73,8 +65,8 @@ export function TaskFilterBar() {
   );
 
   const handleGroupChange = useCallback(
-    (value: string) => {
-      setGroupId(value === ALL_GROUPS_VALUE ? null : value);
+    (groupId: string | null) => {
+      setGroupId(groupId);
     },
     [setGroupId]
   );
@@ -89,24 +81,13 @@ export function TaskFilterBar() {
   return (
     <div className="flex flex-wrap items-center gap-3 py-2">
       {/* Group Dropdown */}
-      <Select
-        value={filters.groupId ?? ALL_GROUPS_VALUE}
-        onValueChange={handleGroupChange}
-      >
-        <SelectTrigger className="w-[180px] h-9 rounded-md bg-background">
-          <SelectValue placeholder={t('taskFormDialog.groupPlaceholder', 'Select group...')} />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ALL_GROUPS_VALUE}>
-            {t('taskFilterBar.allGroups', 'All Groups')}
-          </SelectItem>
-          {groups.map((group) => (
-            <SelectItem key={group.id} value={group.id}>
-              {group.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <GroupSelector
+        groups={groups}
+        selectedGroupId={filters.groupId}
+        onGroupSelect={handleGroupChange}
+        allowAll
+        className="w-[180px] h-9"
+      />
 
       {/* Search Input */}
       <div className="relative flex-1 min-w-[200px] max-w-[300px]">
