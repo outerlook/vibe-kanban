@@ -130,16 +130,21 @@ export function GroupCard({
   }, [closeContextMenu, deleteMutation, group, projectId]);
 
   const handleNewConversation = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
+    (e?: React.MouseEvent) => {
+      e?.stopPropagation();
       if (groupWorktree) {
         NewConversationDialog.show({
           projectId,
           defaultWorktreePath: groupWorktree.path,
         });
+      } else if (group.base_branch) {
+        NewConversationDialog.show({
+          projectId,
+          defaultBaseBranch: group.base_branch,
+        });
       }
     },
-    [groupWorktree, projectId]
+    [groupWorktree, group.base_branch, projectId]
   );
 
   return (
@@ -230,7 +235,7 @@ export function GroupCard({
             )}
           </div>
 
-          {groupWorktree && (
+          {(groupWorktree || group.base_branch) && (
             <Button
               variant="ghost"
               size="sm"
@@ -258,6 +263,12 @@ export function GroupCard({
           }}
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
+          {(groupWorktree || group.base_branch) && (
+            <DropdownMenuItem onClick={() => { closeContextMenu(); handleNewConversation(); }}>
+              <MessageSquare className="h-4 w-4" />
+              {t('groupCard.newConversation')}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={handleMergeInto}>
             <GitMerge className="h-4 w-4" />
             {t('groupCard.contextMenu.mergeInto')}

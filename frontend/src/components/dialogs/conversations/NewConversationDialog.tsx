@@ -32,15 +32,17 @@ import { Home, GitBranch } from 'lucide-react';
 export interface NewConversationDialogProps {
   projectId: string;
   defaultWorktreePath?: string;
+  defaultBaseBranch?: string;
 }
 
 const MAIN_REPO_VALUE = '__main__';
+const BRANCH_ONLY_PREFIX = '__branch__:';
 
 const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
   (props) => {
     const modal = useModal();
     const { t } = useTranslation(['common']);
-    const { projectId, defaultWorktreePath } = props;
+    const { projectId, defaultWorktreePath, defaultBaseBranch } = props;
     const { profiles, config } = useUserSystem();
 
     const [title, setTitle] = useState('');
@@ -48,8 +50,15 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
     const [error, setError] = useState<string | null>(null);
     const [selectedProfile, setSelectedProfile] =
       useState<ExecutorProfileId | null>(null);
+
+    // Determine initial selection: worktree path, branch-only, or main
+    const getInitialSelection = () => {
+      if (defaultWorktreePath) return defaultWorktreePath;
+      if (defaultBaseBranch) return `${BRANCH_ONLY_PREFIX}${defaultBaseBranch}`;
+      return MAIN_REPO_VALUE;
+    };
     const [selectedWorktree, setSelectedWorktree] = useState<string>(
-      defaultWorktreePath ?? MAIN_REPO_VALUE
+      getInitialSelection()
     );
 
     const { data: worktreesData } = useWorktrees(projectId);
@@ -61,7 +70,8 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
       () => worktrees.filter((w) => !w.is_main),
       [worktrees]
     );
-    const hasWorktrees = nonMainWorktrees.length > 0;
+    // Show selector if there are worktrees OR if a defaultBaseBranch is provided
+    const hasWorktrees = nonMainWorktrees.length > 0 || !!defaultBaseBranch;
 
     const createMutation = useCreateConversation();
     const isLoading = createMutation.isPending;
@@ -76,9 +86,15 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
         setInitialMessage('');
         setError(null);
         setSelectedProfile(null);
-        setSelectedWorktree(defaultWorktreePath ?? MAIN_REPO_VALUE);
+        if (defaultWorktreePath) {
+          setSelectedWorktree(defaultWorktreePath);
+        } else if (defaultBaseBranch) {
+          setSelectedWorktree(`${BRANCH_ONLY_PREFIX}${defaultBaseBranch}`);
+        } else {
+          setSelectedWorktree(MAIN_REPO_VALUE);
+        }
       }
-    }, [modal.visible, defaultWorktreePath]);
+    }, [modal.visible, defaultWorktreePath, defaultBaseBranch]);
 
     const canSubmit = !!title.trim() && !!initialMessage.trim() && !isLoading;
 
@@ -107,10 +123,21 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
       setError(null);
 
       try {
-        const selectedWorktreeInfo =
-          selectedWorktree !== MAIN_REPO_VALUE
-            ? worktrees.find((w) => w.path === selectedWorktree)
-            : null;
+        // Determine worktree path and branch based on selection
+        let worktreePath: string | null = null;
+        let worktreeBranch: string | null = null;
+
+        if (selectedWorktree.startsWith(BRANCH_ONLY_PREFIX)) {
+          // Branch-only mode: no worktree path, just the branch name
+          worktreeBranch = selectedWorktree.slice(BRANCH_ONLY_PREFIX.length);
+        } else if (selectedWorktree !== MAIN_REPO_VALUE) {
+          // Regular worktree selection
+          const selectedWorktreeInfo = worktrees.find(
+            (w) => w.path === selectedWorktree
+          );
+          worktreePath = selectedWorktreeInfo?.path ?? null;
+          worktreeBranch = selectedWorktreeInfo?.branch ?? null;
+        }
 
         const result = await createMutation.mutateAsync({
           projectId,
@@ -118,8 +145,8 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
             title: trimmedTitle,
             initial_message: trimmedMessage,
             executor_profile_id: effectiveProfile,
-            worktree_path: selectedWorktreeInfo?.path ?? null,
-            worktree_branch: selectedWorktreeInfo?.branch ?? null,
+            worktree_path: worktreePath,
+            worktree_branch: worktreeBranch,
           },
         });
 
@@ -249,6 +276,21 @@ const NewConversationDialogImpl = NiceModal.create<NewConversationDialogProps>(
                         </span>
                       </div>
                     </SelectItem>
+                    {defaultBaseBranch && (
+                      <SelectItem
+                        value={`${BRANCH_ONLY_PREFIX}${defaultBaseBranch}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <GitBranch className="h-4 w-4" />
+                          <span>{defaultBaseBranch}</span>
+                          <span className="text-muted-foreground text-xs ml-1">
+                            {t('conversations.branchOnly', {
+                              defaultValue: '(branch)',
+                            })}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    )}
                     {nonMainWorktrees.map((worktree) => (
                       <SelectItem key={worktree.path} value={worktree.path}>
                         <div className="flex items-center gap-2">
