@@ -1,18 +1,10 @@
 import { MessageSquare, Code, ExternalLink } from 'lucide-react';
 import type { UnifiedPrComment } from 'shared/types';
-import { cn } from '@/lib/utils';
+import { cn, formatDateTime } from '@/lib/utils';
 
 export interface PrThreadItemProps {
   thread: UnifiedPrComment;
   className?: string;
-}
-
-function formatDate(dateStr: string): string {
-  try {
-    return new Date(dateStr).toLocaleString();
-  } catch {
-    return dateStr;
-  }
 }
 
 /**
@@ -72,7 +64,7 @@ export function PrThreadItem({ thread, className }: PrThreadItemProps) {
           )}
         </div>
         <div className="flex items-center gap-1 text-xs text-muted-foreground flex-shrink-0">
-          <span>{formatDate(thread.created_at)}</span>
+          <span>{formatDateTime(thread.created_at)}</span>
           {thread.url && (
             <a
               href={thread.url}

@@ -22,7 +22,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { PrCard, PrCardSkeleton, type PrData } from './PrCard';
 import { StatusCountBadge } from '@/components/tasks/StatusCountBadge';
-import { IdeIcon, getIdeName } from '@/components/ide/IdeIcon';
+import { IdeIcon, getIdeName, CUSTOM_EDITOR_PREFIX } from '@/components/ide/IdeIcon';
 import { useCustomEditors, useOpenInEditor } from '@/hooks';
 import { cn } from '@/lib/utils';
 import { EditorType } from 'shared/types';
@@ -30,8 +30,6 @@ import type { BranchMergeStatus, TaskStatusCounts, TaskStatus } from 'shared/typ
 import { CreatePRFromGroupDialog } from '@/components/dialogs/tasks/CreatePRFromGroupDialog';
 import { useQueryClient } from '@tanstack/react-query';
 import { prKeys } from '@/hooks/useProjectPrs';
-
-const CUSTOM_EDITOR_PREFIX = 'custom:';
 
 const statusOrder: TaskStatus[] = [
   'inprogress',

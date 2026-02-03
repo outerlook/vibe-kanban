@@ -20,15 +20,14 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { PrThreadItem } from './PrThreadItem';
 import type { PrData } from './PrCard';
-import { IdeIcon, getIdeName } from '@/components/ide/IdeIcon';
+import { IdeIcon, getIdeName, CUSTOM_EDITOR_PREFIX } from '@/components/ide/IdeIcon';
 import { NewConversationDialog } from '@/components/dialogs/conversations/NewConversationDialog';
 import { usePrThreads } from '@/hooks/usePrThreads';
 import { useProjectWorkspaces } from '@/hooks/useProjectWorkspaces';
 import { useCustomEditors, useOpenInEditor } from '@/hooks';
 import { paths } from '@/lib/paths';
+import { formatShortDate } from '@/lib/utils';
 import { EditorType } from 'shared/types';
-
-const CUSTOM_EDITOR_PREFIX = 'custom:';
 
 export interface PrDetailPanelProps {
   projectId: string;
@@ -37,18 +36,6 @@ export interface PrDetailPanelProps {
   prData: PrData;
   onBack?: () => void;
   isMobile?: boolean;
-}
-
-function formatDate(dateStr: string): string {
-  try {
-    return new Date(dateStr).toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  } catch {
-    return dateStr;
-  }
 }
 
 function ThreadSkeleton() {
@@ -186,7 +173,7 @@ export function PrDetailPanel({
               <span className="mx-1">&larr;</span>
               {prData.headBranch}
             </span>
-            <span>{formatDate(prData.createdAt)}</span>
+            <span>{formatShortDate(prData.createdAt)}</span>
           </div>
         </div>
       </div>

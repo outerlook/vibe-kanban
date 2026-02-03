@@ -2,6 +2,9 @@ import { Code2 } from 'lucide-react';
 import { EditorType, ThemeMode } from 'shared/types';
 import { useTheme } from '@/components/ThemeProvider';
 
+/** Prefix used for custom editor IDs in dropdown values */
+export const CUSTOM_EDITOR_PREFIX = 'custom:';
+
 type IdeIconProps = {
   editorType?: EditorType | null;
   className?: string;

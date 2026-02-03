@@ -5,7 +5,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
+import { cn, formatShortDate } from '@/lib/utils';
 
 export interface PrData {
   id: string | number;
@@ -23,18 +23,6 @@ export interface PrCardProps {
   className?: string;
   onClick?: () => void;
   selected?: boolean;
-}
-
-function formatDate(dateStr: string): string {
-  try {
-    return new Date(dateStr).toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  } catch {
-    return dateStr;
-  }
 }
 
 export function PrCard({ pr, className, onClick, selected }: PrCardProps) {
@@ -92,7 +80,7 @@ export function PrCard({ pr, className, onClick, selected }: PrCardProps) {
         </span>
 
         {/* Created date */}
-        <span>{formatDate(pr.createdAt)}</span>
+        <span>{formatShortDate(pr.createdAt)}</span>
       </div>
 
       {/* Unresolved comments badge */}
