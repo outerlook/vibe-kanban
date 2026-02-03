@@ -37,7 +37,11 @@
     "args": "Args",
     "output": "Output",
     "result": "Result",
-    "deniedByUser": "{{toolName}} denied by user"
+    "deniedByUser": "{{toolName}} denied by user",
+    "role": {
+      "user": "You",
+      "agent": "Agent"
+    }
   },
   "folderPicker": {
     "legend": "Click folder names to navigate • Use action buttons to select",
