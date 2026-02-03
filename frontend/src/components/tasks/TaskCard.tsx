@@ -1,8 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { KanbanCard } from '@/components/ui/shadcn-io/kanban';
 import {
-  AlertTriangle,
-  Check,
   Circle,
   Clock,
   Filter,
@@ -37,6 +35,7 @@ import { HookStatusBadge } from './HookStatusBadge';
 import { TaskGroupFormDialog } from '@/components/dialogs';
 import { useIsCompactView } from '@/stores/useKanbanViewStore';
 import { useLongPress } from '@/hooks/useLongPress';
+import { AttentionTooltip } from './AttentionTooltip';
 
 interface TaskCardProps {
   task: TaskWithAttemptStatus;
@@ -220,13 +219,11 @@ function TaskCardComponent({
               {task.last_attempt_failed && (
                 <XCircle className="h-4 w-4 text-destructive" />
               )}
-              {task.needs_attention === true && (
-                <span title="Review attention needed">
-                  <AlertTriangle className="h-4 w-4 text-amber-500" />
-                </span>
-              )}
-              {task.needs_attention === false && (
-                <Check className="h-3.5 w-3.5 text-green-500" />
+              {task.needs_attention !== null && (
+                <AttentionTooltip
+                  taskId={task.id}
+                  needsAttention={task.needs_attention}
+                />
               )}
               {task.parent_workspace_id && (
                 <Button
