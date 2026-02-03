@@ -28,3 +28,6 @@ mod test_multi_level_deps;
 
 #[cfg(test)]
 mod test_review_to_merge;
+
+#[cfg(test)]
+mod test_concurrent_merge;
