@@ -17,4 +17,6 @@ export const paths = {
     `/projects/${projectId}/tasks/${taskId}/attempts/${attemptId}`,
   attemptFull: (projectId: string, taskId: string, attemptId: string) =>
     `/projects/${projectId}/tasks/${taskId}/attempts/${attemptId}/full`,
+  prDetail: (projectId: string, repoId: string, prNumber: number | bigint) =>
+    `/projects/${projectId}/prs?repo=${repoId}&pr=${prNumber}`,
 };

@@ -15,3 +15,9 @@ export {
   PrDetailPanelSkeleton,
   type PrDetailPanelProps,
 } from './PrDetailPanel';
+export {
+  PrPanel,
+  PrPanelSkeleton,
+  type PrPanelProps,
+  type PrPanelFilters,
+} from './PrPanel';
