@@ -9,3 +9,4 @@ export {
   PrFiltersSkeleton,
   type PrFiltersProps,
 } from './PrFilters';
+export { PrThreadItem, type PrThreadItemProps } from './PrThreadItem';
