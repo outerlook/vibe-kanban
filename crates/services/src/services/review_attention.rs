@@ -55,45 +55,47 @@ impl ReviewAttentionService {
     /// A prompt string requesting structured analysis
     pub fn generate_review_attention_prompt(task_description: &str, agent_summary: &str) -> String {
         format!(
-            r#"Please analyze whether your completed work requires human attention or review.
+            r#"Analyze whether the work summary indicates any problems that need human attention.
 
 ## Original Task
 {task_description}
 
-## Your Work Summary
+## Agent's Work Summary
 {agent_summary}
 
-## Analysis Instructions
-Evaluate your work and determine if a human needs to review it. Consider:
+## Your Role
+You are a simple reviewer checking ONLY the agent's own words. You do NOT review the actual code or changes - you only check if the agent's summary indicates problems.
 
-**Needs attention if ANY of these apply:**
-- Errors occurred during execution that weren't fully resolved
-- Work is incomplete or partially done
-- You encountered blockers or made significant assumptions
-- Tests are failing or were skipped
-- You're uncertain about the correctness of your implementation
-- Security-sensitive changes were made
-- Breaking changes or API modifications were introduced
-- You had to deviate significantly from the task requirements
-- Configuration or environment issues remain unresolved
+## Needs attention if the agent's summary mentions ANY of:
+- Errors or failures that weren't resolved
+- Work that is incomplete or partially done
+- Blockers encountered
+- Tests failing
+- Uncertainty about correctness
+- Deviations from what the task asked
 
-**Does NOT need attention if:**
-- Task was completed successfully with all requirements met
-- All tests pass (if applicable)
-- No errors or warnings remain
-- Implementation follows established patterns
-- Changes are straightforward and low-risk
+## Does NOT need attention if:
+- The agent says the work was completed successfully
+- The summary aligns with what the task requested
+- No problems or concerns are mentioned by the agent
 
-Respond with a JSON object:
+## IMPORTANT - Do NOT flag attention for:
+- Normal configuration requirements (env vars, parameters to set)
+- Suggestions for future improvements or additional testing
+- Standard deployment steps
+- Your own hypothetical concerns about the code
+- Things the agent did NOT mention as problems
+
+Your job is simple: Did the agent indicate something went wrong? If yes, flag it. If not, don't invent problems.
+
+Respond with JSON:
 
 ```json
 {{
-  "needs_attention": true,
-  "reasoning": "Brief explanation of why attention is or isn't needed"
+  "needs_attention": <true if agent indicated problems, false otherwise>,
+  "reasoning": "<brief explanation based on what the agent said>"
 }}
-```
-
-Be honest and conservative - when in doubt, flag for attention."#
+```"#
         )
     }
 
