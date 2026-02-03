@@ -21,6 +21,8 @@ export interface PrData {
 export interface PrCardProps {
   pr: PrData;
   className?: string;
+  onClick?: () => void;
+  selected?: boolean;
 }
 
 function formatDate(dateStr: string): string {
@@ -35,7 +37,7 @@ function formatDate(dateStr: string): string {
   }
 }
 
-export function PrCard({ pr, className }: PrCardProps) {
+export function PrCard({ pr, className, onClick, selected }: PrCardProps) {
   const isCountLoading = pr.unresolvedComments === null;
   const hasUnresolved =
     pr.unresolvedComments !== null && pr.unresolvedComments > 0;
@@ -44,8 +46,11 @@ export function PrCard({ pr, className }: PrCardProps) {
     <div
       className={cn(
         'p-3 bg-muted/50 rounded-md border border-border hover:border-muted-foreground transition-colors',
+        onClick && 'cursor-pointer',
+        selected && 'ring-2 ring-primary bg-primary/5',
         className
       )}
+      onClick={onClick}
     >
       {/* Header with title and external link */}
       <div className="flex items-start justify-between gap-2">
@@ -57,6 +62,7 @@ export function PrCard({ pr, className }: PrCardProps) {
             rel="noopener noreferrer"
             className="text-sm font-medium hover:underline truncate"
             title={pr.title}
+            onClick={(e) => e.stopPropagation()}
           >
             {pr.title}
           </a>
@@ -67,6 +73,7 @@ export function PrCard({ pr, className }: PrCardProps) {
           rel="noopener noreferrer"
           className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
           aria-label="Open in GitHub"
+          onClick={(e) => e.stopPropagation()}
         >
           <ExternalLink className="w-3.5 h-3.5" />
         </a>
