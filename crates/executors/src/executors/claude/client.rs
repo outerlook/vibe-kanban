@@ -239,17 +239,55 @@ impl ClaudeAgentClient {
     }
 
     /// Build the updated_input with answers embedded for the tool result.
+    /// Claude SDK expects answers as a map: { question_text: selected_label }
     fn build_answered_input(
         original_input: &serde_json::Value,
         answers: &[QuestionAnswer],
     ) -> serde_json::Value {
         let mut updated = original_input.clone();
-        if let Some(obj) = updated.as_object_mut() {
-            obj.insert(
-                "answers".to_string(),
-                serde_json::to_value(answers).unwrap_or(serde_json::Value::Null),
-            );
+
+        // Get the questions array to resolve indices to text
+        let questions = original_input.get("questions").and_then(|q| q.as_array());
+
+        if let (Some(obj), Some(questions)) = (updated.as_object_mut(), questions) {
+            let mut answers_map = serde_json::Map::new();
+
+            for answer in answers {
+                if let Some(question) = questions.get(answer.question_index) {
+                    let question_text = question
+                        .get("question")
+                        .and_then(|q| q.as_str())
+                        .unwrap_or("");
+
+                    // Build the answer value from selected option labels
+                    let mut labels = Vec::new();
+                    if let Some(options) = question.get("options").and_then(|o| o.as_array()) {
+                        for &idx in &answer.selected_indices {
+                            if let Some(opt) = options.get(idx) {
+                                if let Some(label) = opt.get("label").and_then(|l| l.as_str()) {
+                                    labels.push(label.to_string());
+                                }
+                            }
+                        }
+                    }
+
+                    // Add other_text if provided
+                    if let Some(ref other) = answer.other_text {
+                        if !other.is_empty() {
+                            labels.push(format!("Other: {}", other));
+                        }
+                    }
+
+                    answers_map.insert(
+                        question_text.to_string(),
+                        serde_json::Value::String(labels.join(", ")),
+                    );
+                }
+            }
+
+            obj.insert("answers".to_string(), serde_json::Value::Object(answers_map));
         }
+
         updated
     }
 
@@ -383,13 +421,21 @@ mod tests {
     fn test_build_answered_input() {
         let original = serde_json::json!({
             "questions": [
-                {"question": "Choose one", "multiSelect": false, "options": []}
+                {
+                    "question": "How should I format the output?",
+                    "multiSelect": false,
+                    "options": [
+                        {"label": "Detailed"},
+                        {"label": "Summary"},
+                        {"label": "Minimal"}
+                    ]
+                }
             ]
         });
 
         let answers = vec![QuestionAnswer {
             question_index: 0,
-            selected_indices: vec![1],
+            selected_indices: vec![1], // "Summary"
             other_text: None,
         }];
 
@@ -398,12 +444,124 @@ mod tests {
         assert!(updated.get("questions").is_some());
         assert!(updated.get("answers").is_some());
 
+        // Claude SDK expects: { "question_text": "selected_label" }
         let answers_value = updated.get("answers").unwrap();
-        let parsed_answers: Vec<QuestionAnswer> =
-            serde_json::from_value(answers_value.clone()).unwrap();
-        assert_eq!(parsed_answers.len(), 1);
-        assert_eq!(parsed_answers[0].question_index, 0);
-        assert_eq!(parsed_answers[0].selected_indices, vec![1]);
+        assert!(answers_value.is_object());
+        let answers_map = answers_value.as_object().unwrap();
+        assert_eq!(answers_map.len(), 1);
+        assert_eq!(
+            answers_map.get("How should I format the output?"),
+            Some(&serde_json::Value::String("Summary".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_build_answered_input_multi_select() {
+        let original = serde_json::json!({
+            "questions": [
+                {
+                    "question": "Which sections?",
+                    "multiSelect": true,
+                    "options": [
+                        {"label": "Introduction"},
+                        {"label": "Methods"},
+                        {"label": "Results"},
+                        {"label": "Conclusion"}
+                    ]
+                }
+            ]
+        });
+
+        let answers = vec![QuestionAnswer {
+            question_index: 0,
+            selected_indices: vec![0, 3], // "Introduction" and "Conclusion"
+            other_text: None,
+        }];
+
+        let updated = ClaudeAgentClient::build_answered_input(&original, &answers);
+
+        let answers_value = updated.get("answers").unwrap();
+        let answers_map = answers_value.as_object().unwrap();
+        assert_eq!(
+            answers_map.get("Which sections?"),
+            Some(&serde_json::Value::String("Introduction, Conclusion".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_build_answered_input_with_other_text() {
+        let original = serde_json::json!({
+            "questions": [
+                {
+                    "question": "Select your preference",
+                    "multiSelect": false,
+                    "options": [
+                        {"label": "Option A"},
+                        {"label": "Option B"}
+                    ]
+                }
+            ]
+        });
+
+        let answers = vec![QuestionAnswer {
+            question_index: 0,
+            selected_indices: vec![],
+            other_text: Some("Custom preference".to_string()),
+        }];
+
+        let updated = ClaudeAgentClient::build_answered_input(&original, &answers);
+
+        let answers_value = updated.get("answers").unwrap();
+        let answers_map = answers_value.as_object().unwrap();
+        assert_eq!(
+            answers_map.get("Select your preference"),
+            Some(&serde_json::Value::String("Other: Custom preference".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_build_answered_input_multiple_questions() {
+        let original = serde_json::json!({
+            "questions": [
+                {
+                    "question": "First question?",
+                    "multiSelect": false,
+                    "options": [{"label": "Yes"}, {"label": "No"}]
+                },
+                {
+                    "question": "Second question?",
+                    "multiSelect": false,
+                    "options": [{"label": "Red"}, {"label": "Blue"}]
+                }
+            ]
+        });
+
+        let answers = vec![
+            QuestionAnswer {
+                question_index: 0,
+                selected_indices: vec![0], // "Yes"
+                other_text: None,
+            },
+            QuestionAnswer {
+                question_index: 1,
+                selected_indices: vec![1], // "Blue"
+                other_text: None,
+            },
+        ];
+
+        let updated = ClaudeAgentClient::build_answered_input(&original, &answers);
+
+        let answers_value = updated.get("answers").unwrap();
+        let answers_map = answers_value.as_object().unwrap();
+        assert_eq!(answers_map.len(), 2);
+        assert_eq!(
+            answers_map.get("First question?"),
+            Some(&serde_json::Value::String("Yes".to_string()))
+        );
+        assert_eq!(
+            answers_map.get("Second question?"),
+            Some(&serde_json::Value::String("Blue".to_string()))
+        );
     }
 
     #[tokio::test]
