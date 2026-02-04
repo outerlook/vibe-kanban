@@ -8,7 +8,7 @@ use db::models::{merge::PullRequestInfo, project_repo::ProjectRepo, repo::Repo};
 use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use services::services::{
-    git::GitBranch,
+    git::{GitBranch, GitCliError, GitServiceError},
     github::{CreatePrRequest, GitHubService, GitHubServiceError},
 };
 use ts_rs::TS;
@@ -75,6 +75,38 @@ pub struct BatchBranchMergeStatus {
 
 #[derive(Debug, Deserialize, TS)]
 #[ts(export)]
+pub struct CheckBranchSyncStatusRequest {
+    pub branch_name: String,
+    pub project_id: Uuid,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct BranchSyncStatus {
+    pub branch_name: String,
+    /// Commits local has that remote doesn't (needs push)
+    pub remote_ahead: Option<usize>,
+    /// Commits remote has that local doesn't (needs pull)
+    pub remote_behind: Option<usize>,
+    /// Error message if branch has no remote tracking
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[ts(export)]
+pub struct BatchCheckBranchSyncStatusRequest {
+    pub branches: Vec<String>,
+    pub project_id: Uuid,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct BatchBranchSyncStatus {
+    pub statuses: std::collections::HashMap<String, BranchSyncStatus>,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[ts(export)]
 pub struct CreateRepoPrRequest {
     pub head_branch: String,
     pub base_branch: String,
@@ -83,12 +115,29 @@ pub struct CreateRepoPrRequest {
     pub draft: Option<bool>,
 }
 
+#[derive(Debug, Deserialize, TS)]
+#[ts(export)]
+pub struct PushBranchRequest {
+    pub branch_name: String,
+    #[serde(default)]
+    pub force: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(tag = "type", rename_all = "snake_case")]
 pub enum CreateRepoPrError {
     GithubCliNotInstalled,
     GithubCliNotLoggedIn,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[ts(export, tag = "type", rename_all = "snake_case")]
+pub enum PushBranchError {
+    ForcePushRequired,
+    NoRemoteTracking,
+    AuthFailed,
 }
 
 pub async fn register_repo(
@@ -314,6 +363,101 @@ pub async fn batch_check_branch_merge_status(
     })))
 }
 
+/// Get sync status for a single branch (ahead/behind remote)
+fn get_branch_sync_status(
+    git: &services::services::git::GitService,
+    repo_path: &std::path::Path,
+    branch_name: &str,
+) -> BranchSyncStatus {
+    // Try to get local and remote OIDs
+    let local_oid = match git.get_branch_oid(repo_path, branch_name) {
+        Ok(oid) => oid,
+        Err(_) => {
+            return BranchSyncStatus {
+                branch_name: branch_name.to_string(),
+                remote_ahead: None,
+                remote_behind: None,
+                error: Some(format!("Branch '{}' not found", branch_name)),
+            };
+        }
+    };
+
+    // Try to get the remote tracking branch OID
+    // Convention: origin/<branch_name> is the remote tracking branch
+    let remote_branch = format!("origin/{}", branch_name);
+    let remote_oid = match git.get_branch_oid(repo_path, &remote_branch) {
+        Ok(oid) => oid,
+        Err(_) => {
+            return BranchSyncStatus {
+                branch_name: branch_name.to_string(),
+                remote_ahead: None,
+                remote_behind: None,
+                error: Some("No remote tracking branch".to_string()),
+            };
+        }
+    };
+
+    // Calculate ahead/behind using gix
+    match git.ahead_behind_commits_by_oid(repo_path, &local_oid, &remote_oid) {
+        Ok((ahead, behind)) => BranchSyncStatus {
+            branch_name: branch_name.to_string(),
+            remote_ahead: Some(ahead),
+            remote_behind: Some(behind),
+            error: None,
+        },
+        Err(e) => {
+            tracing::warn!(
+                branch = %branch_name,
+                error = %e,
+                "Failed to calculate ahead/behind"
+            );
+            BranchSyncStatus {
+                branch_name: branch_name.to_string(),
+                remote_ahead: None,
+                remote_behind: None,
+                error: Some(format!("Failed to calculate sync status: {}", e)),
+            }
+        }
+    }
+}
+
+pub async fn check_branch_sync_status(
+    State(deployment): State<DeploymentImpl>,
+    Path(repo_id): Path<Uuid>,
+    ResponseJson(payload): ResponseJson<CheckBranchSyncStatusRequest>,
+) -> Result<ResponseJson<ApiResponse<BranchSyncStatus>>, ApiError> {
+    let repo = deployment
+        .repo()
+        .get_by_id(&deployment.db().pool, repo_id)
+        .await?;
+
+    let status = get_branch_sync_status(deployment.git(), &repo.path, &payload.branch_name);
+
+    Ok(ResponseJson(ApiResponse::success(status)))
+}
+
+pub async fn batch_check_branch_sync_status(
+    State(deployment): State<DeploymentImpl>,
+    Path(repo_id): Path<Uuid>,
+    ResponseJson(payload): ResponseJson<BatchCheckBranchSyncStatusRequest>,
+) -> Result<ResponseJson<ApiResponse<BatchBranchSyncStatus>>, ApiError> {
+    let repo = deployment
+        .repo()
+        .get_by_id(&deployment.db().pool, repo_id)
+        .await?;
+
+    let mut statuses = std::collections::HashMap::new();
+
+    for branch_name in payload.branches {
+        let status = get_branch_sync_status(deployment.git(), &repo.path, &branch_name);
+        statuses.insert(branch_name, status);
+    }
+
+    Ok(ResponseJson(ApiResponse::success(BatchBranchSyncStatus {
+        statuses,
+    })))
+}
+
 pub async fn create_repo_pr(
     State(deployment): State<DeploymentImpl>,
     Path(repo_id): Path<Uuid>,
@@ -359,6 +503,42 @@ pub async fn create_repo_pr(
     }
 }
 
+pub async fn push_branch(
+    State(deployment): State<DeploymentImpl>,
+    Path(repo_id): Path<Uuid>,
+    ResponseJson(payload): ResponseJson<PushBranchRequest>,
+) -> Result<ResponseJson<ApiResponse<(), PushBranchError>>, ApiError> {
+    let repo = deployment
+        .repo()
+        .get_by_id(&deployment.db().pool, repo_id)
+        .await?;
+
+    let result = deployment
+        .git()
+        .push_to_github(&repo.path, &payload.branch_name, payload.force);
+
+    match result {
+        Ok(_) => Ok(ResponseJson(ApiResponse::success(()))),
+        Err(GitServiceError::GitCLI(GitCliError::PushRejected(_))) => Ok(ResponseJson(
+            ApiResponse::error_with_data(PushBranchError::ForcePushRequired),
+        )),
+        Err(GitServiceError::GitCLI(GitCliError::AuthFailed(_))) => Ok(ResponseJson(
+            ApiResponse::error_with_data(PushBranchError::AuthFailed),
+        )),
+        Err(e) => {
+            // Check if the error message indicates no remote tracking
+            let error_str = e.to_string().to_lowercase();
+            if error_str.contains("no remote") || error_str.contains("remote has no url") {
+                Ok(ResponseJson(ApiResponse::error_with_data(
+                    PushBranchError::NoRemoteTracking,
+                )))
+            } else {
+                Err(ApiError::GitService(e))
+            }
+        }
+    }
+}
+
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/repos", post(register_repo))
@@ -375,6 +555,15 @@ pub fn router() -> Router<DeploymentImpl> {
         .route(
             "/repos/{repo_id}/branches/batch-check-merge-status",
             post(batch_check_branch_merge_status),
+        )
+        .route("/repos/{repo_id}/branches/push", post(push_branch))
+        .route(
+            "/repos/{repo_id}/branches/check-sync-status",
+            post(check_branch_sync_status),
+        )
+        .route(
+            "/repos/{repo_id}/branches/batch-check-sync-status",
+            post(batch_check_branch_sync_status),
         )
         .route("/repos/{repo_id}/prs", post(create_repo_pr))
 }

@@ -43,6 +43,7 @@ export {
 } from './useMergeQueue';
 export { useGenerateCommitMessage } from './useGenerateCommitMessage';
 export { usePush } from './usePush';
+export { usePushBranch } from './usePushBranch';
 export { useAttemptConflicts } from './useAttemptConflicts';
 export { useNavigateWithSearch } from './useNavigateWithSearch';
 export { useGitOperations } from './useGitOperations';
@@ -75,6 +76,7 @@ export {
 export type { UseTaskGroupMutationsOptions } from './useTaskGroups';
 export { taskGroupStatsKeys, useTaskGroupStats } from './useTaskGroupStats';
 export { branchMergeStatusKeys, useBranchMergeStatus, useBatchBranchMergeStatus } from './useBranchMergeStatus';
+export { branchSyncStatusKeys, useBranchSyncStatus, useBatchBranchSyncStatus } from './useBranchSyncStatus';
 export { useGanttTasks } from './useGanttTasks';
 export {
   useTaskFilters,

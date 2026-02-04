@@ -142,3 +142,19 @@ export {
   FolderPickerDialog,
   type FolderPickerDialogProps,
 } from './shared/FolderPickerDialog';
+
+// Git dialogs
+export {
+  ForcePushDialog,
+  type ForcePushDialogProps,
+} from './git/ForcePushDialog';
+export {
+  PushBranchDialog,
+  type PushBranchDialogProps,
+  type PushBranchDialogResult,
+} from './git/PushBranchDialog';
+export {
+  ForcePushBranchDialog,
+  type ForcePushBranchDialogProps,
+  type ForcePushBranchDialogResult,
+} from './git/ForcePushBranchDialog';

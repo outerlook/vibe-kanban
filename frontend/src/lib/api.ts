@@ -6,7 +6,11 @@ import {
   ApprovalStatus,
   ApiResponse,
   BatchBranchMergeStatus,
+  BatchBranchSyncStatus,
+  BatchCheckBranchSyncStatusRequest,
   BranchMergeStatus,
+  BranchSyncStatus,
+  CheckBranchSyncStatusRequest,
   Config,
   CreateFollowUpAttempt,
   EditorType,
@@ -141,6 +145,8 @@ import {
   SavedAccount,
   SaveAccountRequest,
   UpdateNameRequest,
+  PushBranchRequest,
+  PushBranchError,
 } from 'shared/types';
 import type { WorkspaceWithSession } from 'shared/types';
 
@@ -1291,6 +1297,34 @@ export const repoApi = {
     return handleApiResponse<BatchBranchMergeStatus>(response);
   },
 
+  checkBranchSyncStatus: async (
+    repoId: string,
+    request: CheckBranchSyncStatusRequest
+  ): Promise<BranchSyncStatus> => {
+    const response = await makeRequest(
+      `/api/repos/${repoId}/branches/check-sync-status`,
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
+    return handleApiResponse<BranchSyncStatus>(response);
+  },
+
+  batchCheckBranchSyncStatus: async (
+    repoId: string,
+    request: BatchCheckBranchSyncStatusRequest
+  ): Promise<BatchBranchSyncStatus> => {
+    const response = await makeRequest(
+      `/api/repos/${repoId}/branches/batch-check-sync-status`,
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
+    return handleApiResponse<BatchBranchSyncStatus>(response);
+  },
+
   init: async (data: {
     parent_path: string;
     folder_name: string;
@@ -1322,6 +1356,17 @@ export const repoApi = {
       body: JSON.stringify(data),
     });
     return handleApiResponseAsResult<PullRequestInfo, CreateRepoPrError>(response);
+  },
+
+  pushBranch: async (
+    repoId: string,
+    request: PushBranchRequest
+  ): Promise<Result<void, PushBranchError>> => {
+    const response = await makeRequest(`/api/repos/${repoId}/branches/push`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+    return handleApiResponseAsResult<void, PushBranchError>(response);
   },
 };
 

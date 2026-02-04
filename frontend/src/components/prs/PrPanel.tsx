@@ -2,11 +2,15 @@ import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels';
+import { useQueryClient } from '@tanstack/react-query';
 import { GitPullRequest } from 'lucide-react';
 import { BranchSection, BranchSectionSkeleton, type PrData } from './index';
 import { PrDetailPanel } from './PrDetailPanel';
+import { PushBranchDialog, type PushBranchDialogResult } from '@/components/dialogs/git/PushBranchDialog';
+import { ForcePushBranchDialog } from '@/components/dialogs/git/ForcePushBranchDialog';
 import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { useBatchBranchSyncStatus, branchSyncStatusKeys } from '@/hooks';
 import { paths } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import type { ProjectPrsResponse, PrWithComments } from '@/lib/api';
@@ -84,6 +88,7 @@ export function PrPanel({
 }: PrPanelProps) {
   const { t } = useTranslation(['prs', 'common']);
   const navigate = useNavigateWithSearch();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const isDesktop = useMediaQuery('(min-width: 1024px)');
   const isMobile = isMobileProp ?? !isDesktop;
@@ -91,6 +96,7 @@ export function PrPanel({
   const [panelSizes] = useState<SplitSizes>(() =>
     loadSizes(STORAGE_KEY, DEFAULT_LIST_DETAIL)
   );
+  const [pushingBranch, setPushingBranch] = useState<string | null>(null);
 
   // Read selection from URL query params
   const selectedRepoId = searchParams.get('repo');
@@ -200,6 +206,23 @@ export function PrPanel({
     return { groupedByBranch: grouped, branchMetadata: metadata, selectedPrData: foundPrData };
   }, [prsResponse, taskGroups, workspaces, filters, selectedRepoId, selectedPrNumber]);
 
+  // Get first repo ID for sync status (single-repo projects for now)
+  const primaryRepoId = prsResponse?.repos?.[0]?.repo_id;
+
+  // Collect all branch names for batch sync status query
+  const branchNames = useMemo(
+    () => Array.from(groupedByBranch.keys()),
+    [groupedByBranch]
+  );
+
+  // Fetch sync status for all visible branches
+  const { data: syncStatusData } = useBatchBranchSyncStatus(
+    primaryRepoId,
+    projectId,
+    branchNames,
+    { enabled: branchNames.length > 0 }
+  );
+
   const handleSelectPr = useCallback(
     (repoId: string, prNumber: number | bigint) => {
       navigate({ search: `?repo=${repoId}&pr=${prNumber}` });
@@ -210,6 +233,36 @@ export function PrPanel({
   const handleBackToList = useCallback(() => {
     navigate(paths.projectPrs(projectId));
   }, [navigate, projectId]);
+
+  // Handle push for a specific branch
+  const handlePush = useCallback(
+    async (branchName: string, repoId: string, commitsAhead?: number) => {
+      setPushingBranch(branchName);
+      try {
+        const result: PushBranchDialogResult = await PushBranchDialog.show({
+          repoId,
+          branchName,
+          commitsAhead,
+        });
+
+        if (result === 'force_push_required') {
+          // Show force push dialog
+          await ForcePushBranchDialog.show({
+            repoId,
+            branchName,
+          });
+        }
+
+        // Invalidate sync status to refresh badges
+        queryClient.invalidateQueries({
+          queryKey: branchSyncStatusKeys.batch(repoId, projectId, branchNames),
+        });
+      } finally {
+        setPushingBranch(null);
+      }
+    },
+    [queryClient, projectId, branchNames]
+  );
 
   // Render the PR list with BranchSection components
   const prList = (
@@ -229,6 +282,8 @@ export function PrPanel({
       ) : (
         Array.from(groupedByBranch.entries()).map(([branchName, prs]) => {
           const meta = branchMetadata.get(branchName);
+          const syncStatus = syncStatusData?.statuses?.[branchName];
+          const repoId = meta?.repoId;
           return (
             <BranchSection
               key={branchName}
@@ -240,9 +295,9 @@ export function PrPanel({
                   // repoId is a UUID with hyphens, so split from the last hyphen
                   const idStr = pr.id.toString();
                   const lastDash = idStr.lastIndexOf('-');
-                  const repoId = idStr.slice(0, lastDash);
+                  const extractedRepoId = idStr.slice(0, lastDash);
                   const prNumber = idStr.slice(lastDash + 1);
-                  handleSelectPr(repoId, Number(prNumber));
+                  handleSelectPr(extractedRepoId, Number(prNumber));
                 },
                 selected:
                   selectedRepoId !== null &&
@@ -258,11 +313,23 @@ export function PrPanel({
                   cancelled: BigInt(0),
                 }
               }
-              repoId={meta?.repoId}
+              repoId={repoId}
               projectId={projectId}
               workspaceId={meta?.workspaceId}
               groupName={meta?.groupName}
               groupDescription={meta?.groupDescription}
+              syncStatus={syncStatus}
+              onPush={
+                repoId
+                  ? () =>
+                      handlePush(
+                        branchName,
+                        repoId,
+                        syncStatus?.remote_ahead ?? undefined
+                      )
+                  : undefined
+              }
+              isPushing={pushingBranch === branchName}
             />
           );
         })

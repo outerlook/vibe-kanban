@@ -362,9 +362,33 @@ export type BatchCheckBranchMergeStatusRequest = { branches: Array<string>, proj
 
 export type BatchBranchMergeStatus = { statuses: { [key in string]?: BranchMergeStatus }, };
 
+export type CheckBranchSyncStatusRequest = { branch_name: string, project_id: string, };
+
+export type BranchSyncStatus = { branch_name: string, 
+/**
+ * Commits local has that remote doesn't (needs push)
+ */
+remote_ahead: number | null, 
+/**
+ * Commits remote has that local doesn't (needs pull)
+ */
+remote_behind: number | null, 
+/**
+ * Error message if branch has no remote tracking
+ */
+error: string | null, };
+
+export type BatchCheckBranchSyncStatusRequest = { branches: Array<string>, project_id: string, };
+
+export type BatchBranchSyncStatus = { statuses: { [key in string]?: BranchSyncStatus }, };
+
 export type CreateRepoPrRequest = { head_branch: string, base_branch: string, title: string, body: string | null, draft: boolean | null, };
 
 export type CreateRepoPrError = { "type": "github_cli_not_installed" } | { "type": "github_cli_not_logged_in" };
+
+export type PushBranchRequest = { branch_name: string, force: boolean, };
+
+export type PushBranchError = { "type": "force_push_required" } | { "type": "no_remote_tracking" } | { "type": "auth_failed" };
 
 export type TagSearchParams = { search: string | null, };
 
