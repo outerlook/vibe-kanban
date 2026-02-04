@@ -46,6 +46,7 @@ use db::{
         },
         execution_process_normalized_entry::ExecutionProcessNormalizedEntry,
         execution_process_repo_state::ExecutionProcessRepoState,
+        merge::Merge,
         project_repo::ProjectRepo,
         repo::Repo,
         review_attention::{CreateReviewAttention, ReviewAttention},
@@ -2256,6 +2257,27 @@ impl LocalContainerService {
                         // Enqueue each repo for merge
                         let project_id = task.project_id;
                         for workspace_repo in &workspace_repos {
+                            // Check if this workspace/repo combo has already been merged
+                            let existing_merges = Merge::find_by_workspace_and_repo_id(
+                                &db_clone.pool,
+                                workspace_id,
+                                workspace_repo.repo_id,
+                            )
+                            .await;
+                            if let Ok(merges) = existing_merges {
+                                let already_merged =
+                                    merges.iter().any(|m| matches!(m, Merge::Direct(_)));
+                                if already_merged {
+                                    tracing::info!(
+                                        task_id = %task_id,
+                                        workspace_id = %workspace_id,
+                                        repo_id = %workspace_repo.repo_id,
+                                        "Autopilot: workspace already merged for this repo, skipping"
+                                    );
+                                    continue;
+                                }
+                            }
+
                             // Load the repo for AI commit message generation
                             let repo = match Repo::find_by_id(
                                 &db_clone.pool,
