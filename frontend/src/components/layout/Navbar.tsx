@@ -47,6 +47,7 @@ import { oauthApi } from '@/lib/api';
 import { ProjectSwitcher } from '@/components/layout/ProjectSwitcher';
 import { ClaudeAccountSwitcher } from '@/components/layout/ClaudeAccountSwitcher';
 import { NotificationBell, ProjectNotificationBadge } from '@/components/notifications';
+import { InReviewTasksBadge } from '@/components/review';
 
 const INTERNAL_NAV = [{ label: 'Projects', icon: FolderOpen, to: '/projects' }];
 
@@ -291,6 +292,7 @@ export function Navbar() {
 
             <div className="flex items-center gap-1">
               <ClaudeAccountSwitcher />
+              <InReviewTasksBadge />
               <NotificationBell />
               <Button
                 variant="ghost"
