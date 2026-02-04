@@ -244,12 +244,28 @@ impl MergeQueueProcessor {
         let task_branch = &workspace.branch;
         let base_branch = &workspace_repo.target_branch;
 
+        // Check if there are commits to merge before proceeding
+        let (ahead, _) = self
+            .git
+            .get_branch_status(repo_path, task_branch, base_branch)?;
+        if ahead == 0 {
+            info!(
+                workspace_id = %workspace.id,
+                %task_branch,
+                %base_branch,
+                "Nothing to merge (0 commits ahead), removing from queue"
+            );
+            self.merge_queue_store.remove(entry.workspace_id);
+            return Ok("skipped:nothing_to_merge".to_string());
+        }
+
         info!(
             workspace_id = %workspace.id,
             repo_path = %repo_path.display(),
             worktree_path = %worktree_path.display(),
             task_branch = %task_branch,
             base_branch = %base_branch,
+            commits_ahead = ahead,
             "Executing merge for workspace"
         );
 
