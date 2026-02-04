@@ -102,6 +102,10 @@ impl MockExecutionController {
                         let session_id = find_or_create_session_for_task(&pool, *task_id).await?;
                         (session_id, ExecutionProcessRunReason::InternalAgent)
                     }
+                    ExecutionTrigger::ProcessQueue => {
+                        // ProcessQueue doesn't start a specific execution, return nil UUID
+                        return Ok(Uuid::nil());
+                    }
                 };
 
                 // Create execution process record

@@ -265,6 +265,9 @@ fn create_mock_trigger_callback(capture: Arc<Mutex<TriggerCapture>>) -> Executio
                     cap.review_attention_triggers
                         .push((task_id, execution_process_id));
                 }
+                ExecutionTrigger::ProcessQueue => {
+                    // ProcessQueue doesn't capture anything specific
+                }
             }
             Ok(Uuid::new_v4())
         }
