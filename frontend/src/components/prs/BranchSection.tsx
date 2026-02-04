@@ -9,6 +9,7 @@ import {
   GitBranch,
   Code2,
   GitPullRequestCreateArrow,
+  ArrowUpFromLine,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,13 +21,19 @@ import {
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { PrCard, PrCardSkeleton, type PrData } from './PrCard';
 import { StatusCountBadge } from '@/components/tasks/StatusCountBadge';
 import { IdeIcon, getIdeName, CUSTOM_EDITOR_PREFIX } from '@/components/ide/IdeIcon';
 import { useCustomEditors, useOpenInEditor } from '@/hooks';
 import { cn } from '@/lib/utils';
 import { EditorType } from 'shared/types';
-import type { BranchMergeStatus, TaskStatusCounts, TaskStatus } from 'shared/types';
+import type { BranchMergeStatus, BranchSyncStatus, TaskStatusCounts, TaskStatus } from 'shared/types';
 import { CreatePRFromGroupDialog } from '@/components/dialogs/tasks/CreatePRFromGroupDialog';
 import { useQueryClient } from '@tanstack/react-query';
 import { prKeys } from '@/hooks/useProjectPrs';
@@ -38,6 +45,71 @@ const statusOrder: TaskStatus[] = [
   'done',
   'cancelled',
 ];
+
+interface SyncStatusBadgesProps {
+  syncStatus: BranchSyncStatus;
+  t: (key: string, defaultValue: string) => string;
+}
+
+function SyncStatusBadges({ syncStatus, t }: SyncStatusBadgesProps) {
+  const { remote_ahead, remote_behind, error } = syncStatus;
+  const hasAhead = remote_ahead !== null && remote_ahead > 0;
+  const hasBehind = remote_behind !== null && remote_behind > 0;
+
+  if (error) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="outline" className="text-xs text-destructive border-destructive/50">
+              <AlertTriangle className="h-3 w-3" />
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{error}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
+  if (!hasAhead && !hasBehind) {
+    return null;
+  }
+
+  return (
+    <span className="flex items-center gap-1">
+      {hasAhead && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline" className="text-xs text-amber-600 dark:text-amber-400 border-amber-500/50 bg-amber-500/10">
+                {remote_ahead}↑
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{t('branchSection.syncStatus.ahead', '{{count}} to push').replace('{{count}}', String(remote_ahead))}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
+      {hasBehind && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline" className="text-xs text-blue-600 dark:text-blue-400 border-blue-500/50 bg-blue-500/10">
+                {remote_behind}↓
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{t('branchSection.syncStatus.behind', '{{count}} to pull').replace('{{count}}', String(remote_behind))}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
+    </span>
+  );
+}
 
 export interface BranchSectionProps {
   branchName: string;
@@ -56,6 +128,12 @@ export interface BranchSectionProps {
   mergeStatus?: BranchMergeStatus;
   /** Whether merge status is being loaded */
   isMergeStatusLoading?: boolean;
+  /** Branch sync status with remote (ahead/behind counts) */
+  syncStatus?: BranchSyncStatus;
+  /** Callback when push button is clicked */
+  onPush?: () => void;
+  /** Whether a push operation is in progress */
+  isPushing?: boolean;
 }
 
 export function BranchSection({
@@ -71,6 +149,9 @@ export function BranchSection({
   groupDescription,
   mergeStatus,
   isMergeStatusLoading = false,
+  syncStatus,
+  onPush,
+  isPushing = false,
 }: BranchSectionProps) {
   const { t } = useTranslation('prs');
   const queryClient = useQueryClient();
@@ -188,6 +269,11 @@ export function BranchSection({
             </span>
           )}
 
+          {/* Sync status badges */}
+          {syncStatus && (
+            <SyncStatusBadges syncStatus={syncStatus} t={t} />
+          )}
+
           {/* Task status counts */}
           <span className="flex items-center gap-1 ml-auto">
             {statusOrder.map((status) => (
@@ -216,6 +302,30 @@ export function BranchSection({
               <GitPullRequestCreateArrow className="h-4 w-4" />
             </Button>
           )}
+
+          {/* Push button - shown when there are commits to push */}
+          {syncStatus &&
+            syncStatus.remote_ahead !== null &&
+            syncStatus.remote_ahead > 0 &&
+            onPush && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 ml-1"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPush();
+                }}
+                disabled={isPushing}
+                title={t('branchSection.push', 'Push to remote')}
+              >
+                {isPushing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ArrowUpFromLine className="h-4 w-4" />
+                )}
+              </Button>
+            )}
         </div>
 
         {/* Collapsible content */}
