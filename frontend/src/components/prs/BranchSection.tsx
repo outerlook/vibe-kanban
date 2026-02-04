@@ -41,7 +41,7 @@ const statusOrder: TaskStatus[] = [
 
 export interface BranchSectionProps {
   branchName: string;
-  prs: PrData[];
+  prs: (PrData & { onClick?: () => void; selected?: boolean })[];
   taskCounts: TaskStatusCounts;
   repoId?: string;
   projectId?: string;
@@ -222,7 +222,12 @@ export function BranchSection({
         {isOpen && (
           <div className="px-3 pb-3 space-y-2">
             {prs.map((pr) => (
-              <PrCard key={pr.id} pr={pr} />
+              <PrCard
+                key={pr.id}
+                pr={pr}
+                onClick={pr.onClick}
+                selected={pr.selected}
+              />
             ))}
           </div>
         )}
