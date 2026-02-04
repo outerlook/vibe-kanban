@@ -43,6 +43,7 @@ export {
 } from './useMergeQueue';
 export { useGenerateCommitMessage } from './useGenerateCommitMessage';
 export { usePush } from './usePush';
+export { usePushBranch } from './usePushBranch';
 export { useAttemptConflicts } from './useAttemptConflicts';
 export { useNavigateWithSearch } from './useNavigateWithSearch';
 export { useGitOperations } from './useGitOperations';

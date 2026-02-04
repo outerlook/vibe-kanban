@@ -145,6 +145,8 @@ import {
   SavedAccount,
   SaveAccountRequest,
   UpdateNameRequest,
+  PushBranchRequest,
+  PushBranchError,
 } from 'shared/types';
 import type { WorkspaceWithSession } from 'shared/types';
 
@@ -1354,6 +1356,17 @@ export const repoApi = {
       body: JSON.stringify(data),
     });
     return handleApiResponseAsResult<PullRequestInfo, CreateRepoPrError>(response);
+  },
+
+  pushBranch: async (
+    repoId: string,
+    request: PushBranchRequest
+  ): Promise<Result<void, PushBranchError>> => {
+    const response = await makeRequest(`/api/repos/${repoId}/push-branch`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+    return handleApiResponseAsResult<void, PushBranchError>(response);
   },
 };
 
