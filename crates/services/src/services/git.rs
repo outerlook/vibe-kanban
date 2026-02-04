@@ -1241,6 +1241,14 @@ impl GitService {
 
         // Write the merged tree back to the repository
         let tree_id = index.write_tree_to(repo)?;
+
+        // Safety net: reject merges that would create empty commits (tree unchanged)
+        if tree_id == base_commit.tree_id() {
+            return Err(GitServiceError::NothingToMerge(
+                "Merge would create empty commit (tree unchanged)".to_string(),
+            ));
+        }
+
         let tree = repo.find_tree(tree_id)?;
 
         // Create a squash commit: use merged tree with base_commit as sole parent
