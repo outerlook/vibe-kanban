@@ -1,14 +1,43 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import { GitPullRequest } from 'lucide-react';
 import { BranchSection, BranchSectionSkeleton, type PrData } from './index';
 import { PrDetailPanel } from './PrDetailPanel';
 import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { paths } from '@/lib/paths';
+import { cn } from '@/lib/utils';
 import type { ProjectPrsResponse, PrWithComments } from '@/lib/api';
 import type { TaskGroupWithStats, Workspace, TaskStatusCounts } from 'shared/types';
+
+type SplitSizes = [number, number];
+
+const MIN_PANEL_SIZE = 20;
+const DEFAULT_LIST_DETAIL: SplitSizes = [40, 60];
+const STORAGE_KEY = 'prLayout.desktop.v1.listDetail';
+
+function loadSizes(key: string, fallback: SplitSizes): SplitSizes {
+  try {
+    const saved = localStorage.getItem(key);
+    if (!saved) return fallback;
+    const parsed = JSON.parse(saved);
+    if (Array.isArray(parsed) && parsed.length === 2)
+      return parsed as SplitSizes;
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveSizes(key: string, sizes: SplitSizes): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(sizes));
+  } catch {
+    // Ignore errors
+  }
+}
 
 function toPrData(pr: PrWithComments, repoId: string): PrData {
   return {
@@ -58,6 +87,10 @@ export function PrPanel({
   const [searchParams] = useSearchParams();
   const isDesktop = useMediaQuery('(min-width: 1024px)');
   const isMobile = isMobileProp ?? !isDesktop;
+  const [isListCollapsed, setIsListCollapsed] = useState(false);
+  const [panelSizes] = useState<SplitSizes>(() =>
+    loadSizes(STORAGE_KEY, DEFAULT_LIST_DETAIL)
+  );
 
   // Read selection from URL query params
   const selectedRepoId = searchParams.get('repo');
@@ -268,51 +301,99 @@ export function PrPanel({
     );
   }
 
-  // Desktop layout: side-by-side
-  return (
-    <div className="flex h-full border rounded-lg overflow-hidden bg-background">
-      {/* Sidebar with PR list */}
-      <div className="w-80 border-r flex-shrink-0 flex flex-col">
+  // Desktop layout: click-to-open pattern
+  // Show only list by default, side-by-side when a PR is selected
+  if (!hasSelection) {
+    return (
+      <div className="flex h-full border rounded-lg overflow-hidden bg-background">
         {prList}
       </div>
+    );
+  }
 
-      {/* Main content area - detail panel */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {hasSelection && selectedPrData && selectedRepoId ? (
-          <PrDetailPanel
-            projectId={projectId}
-            repoId={selectedRepoId}
-            prNumber={Number(selectedPrNumber)}
-            prData={selectedPrData}
-          />
-        ) : (
-          emptyDetailState
-        )}
-      </div>
+  // Desktop with selection: resizable side-by-side layout
+  return (
+    <div className="flex h-full border rounded-lg overflow-hidden bg-background">
+      <PanelGroup
+        direction="horizontal"
+        className="h-full min-h-0"
+        onLayout={(layout) => {
+          if (layout.length === 2) {
+            saveSizes(STORAGE_KEY, [layout[0], layout[1]]);
+          }
+        }}
+      >
+        <Panel
+          id="pr-list"
+          order={1}
+          defaultSize={panelSizes[0]}
+          minSize={MIN_PANEL_SIZE}
+          collapsible
+          collapsedSize={0}
+          onCollapse={() => setIsListCollapsed(true)}
+          onExpand={() => setIsListCollapsed(false)}
+          className="min-w-0 min-h-0 overflow-hidden flex flex-col"
+          role="region"
+          aria-label="Pull request list"
+        >
+          {prList}
+        </Panel>
+
+        <PanelResizeHandle
+          id="handle-list-detail"
+          className={cn(
+            'relative z-30 bg-border cursor-col-resize group touch-none',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+            'focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+            'transition-all',
+            isListCollapsed ? 'w-6' : 'w-1'
+          )}
+          aria-label="Resize panels"
+          role="separator"
+          aria-orientation="vertical"
+        >
+          <div className="pointer-events-none absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border" />
+          <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 bg-muted/90 border border-border rounded-full px-1.5 py-3 opacity-70 group-hover:opacity-100 group-focus:opacity-100 transition-opacity shadow-sm">
+            <span className="w-1 h-1 rounded-full bg-muted-foreground" />
+            <span className="w-1 h-1 rounded-full bg-muted-foreground" />
+            <span className="w-1 h-1 rounded-full bg-muted-foreground" />
+          </div>
+        </PanelResizeHandle>
+
+        <Panel
+          id="pr-detail"
+          order={2}
+          defaultSize={panelSizes[1]}
+          minSize={MIN_PANEL_SIZE}
+          collapsible={false}
+          className="min-w-0 min-h-0 overflow-hidden flex flex-col"
+          role="region"
+          aria-label="Pull request details"
+        >
+          {selectedPrData && selectedRepoId ? (
+            <PrDetailPanel
+              projectId={projectId}
+              repoId={selectedRepoId}
+              prNumber={Number(selectedPrNumber)}
+              prData={selectedPrData}
+            />
+          ) : (
+            emptyDetailState
+          )}
+        </Panel>
+      </PanelGroup>
     </div>
   );
 }
 
 export function PrPanelSkeleton({ isMobile = false }: { isMobile?: boolean }) {
-  if (isMobile) {
-    return (
-      <div className="flex h-full flex-col border rounded-lg overflow-hidden bg-background">
-        <div className="p-4 space-y-4">
-          <BranchSectionSkeleton animationDelay={0} />
-          <BranchSectionSkeleton animationDelay={100} />
-        </div>
-      </div>
-    );
-  }
-
+  // Both mobile and desktop show full-width list skeleton (click-to-open pattern)
+  void isMobile; // unused but kept for API consistency
   return (
-    <div className="flex h-full border rounded-lg overflow-hidden bg-background">
-      <div className="w-80 border-r flex-shrink-0 p-4 space-y-4">
+    <div className="flex h-full flex-col border rounded-lg overflow-hidden bg-background">
+      <div className="p-4 space-y-4">
         <BranchSectionSkeleton animationDelay={0} />
         <BranchSectionSkeleton animationDelay={100} />
-      </div>
-      <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        <GitPullRequest className="h-12 w-12 opacity-50" />
       </div>
     </div>
   );

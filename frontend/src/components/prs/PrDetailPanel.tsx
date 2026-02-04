@@ -266,7 +266,12 @@ export function PrDetailPanel({
         {!isThreadsLoading && !threadsError && hasThreads && (
           <div className="space-y-3">
             {threads.map((thread) => (
-              <PrThreadItem key={thread.id} thread={thread} />
+              <PrThreadItem
+                key={thread.id}
+                thread={thread}
+                projectId={projectId}
+                headBranch={prData.headBranch}
+              />
             ))}
           </div>
         )}

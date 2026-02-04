@@ -1,9 +1,21 @@
-import { MessageSquare, Code, ExternalLink } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { MessageSquare, Code, ExternalLink, MessageSquarePlus } from 'lucide-react';
 import type { UnifiedPrComment } from 'shared/types';
 import { cn, formatDateTime } from '@/lib/utils';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
+import { NewConversationDialog } from '@/components/dialogs/conversations/NewConversationDialog';
+import { paths } from '@/lib/paths';
 
 export interface PrThreadItemProps {
   thread: UnifiedPrComment;
+  projectId: string;
+  headBranch: string;
   className?: string;
 }
 
@@ -41,9 +53,44 @@ function DiffHunk({ diffHunk }: { diffHunk: string }) {
  * Handles both general conversation comments and inline code review comments
  * with appropriate styling for each type.
  */
-export function PrThreadItem({ thread, className }: PrThreadItemProps) {
+export function PrThreadItem({
+  thread,
+  projectId,
+  headBranch,
+  className,
+}: PrThreadItemProps) {
+  const { t } = useTranslation(['prs']);
+  const navigate = useNavigate();
   const isReview = thread.comment_type === 'review';
   const Icon = isReview ? Code : MessageSquare;
+
+  const [contextMenu, setContextMenu] = useState({
+    open: false,
+    x: 0,
+    y: 0,
+  });
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ open: true, x: e.clientX, y: e.clientY });
+  }, []);
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu({ open: false, x: 0, y: 0 });
+  }, []);
+
+  const handleNewConversation = useCallback(async () => {
+    closeContextMenu();
+    const result = await NewConversationDialog.show({
+      projectId,
+      defaultBaseBranch: headBranch,
+    });
+
+    if (result) {
+      navigate(paths.conversation(projectId, result.id));
+    }
+  }, [projectId, headBranch, navigate, closeContextMenu]);
 
   return (
     <div
@@ -51,6 +98,7 @@ export function PrThreadItem({ thread, className }: PrThreadItemProps) {
         'p-3 bg-muted/50 rounded-md border border-border overflow-hidden',
         className
       )}
+      onContextMenu={handleContextMenu}
     >
       {/* Header */}
       <div className="flex items-center justify-between gap-2 mb-2">
@@ -95,6 +143,28 @@ export function PrThreadItem({ thread, className }: PrThreadItemProps) {
       <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words mt-2">
         {thread.body}
       </p>
+
+      {/* Context Menu */}
+      <DropdownMenu
+        open={contextMenu.open}
+        onOpenChange={(open) => {
+          if (!open) closeContextMenu();
+        }}
+      >
+        <DropdownMenuContent
+          style={{
+            position: 'fixed',
+            left: contextMenu.x,
+            top: contextMenu.y,
+          }}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
+          <DropdownMenuItem onClick={handleNewConversation}>
+            <MessageSquarePlus className="h-4 w-4" />
+            {t('prs:newConversation', { defaultValue: 'New Conversation' })}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
