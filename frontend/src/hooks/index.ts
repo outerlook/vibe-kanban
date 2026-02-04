@@ -75,6 +75,7 @@ export {
 export type { UseTaskGroupMutationsOptions } from './useTaskGroups';
 export { taskGroupStatsKeys, useTaskGroupStats } from './useTaskGroupStats';
 export { branchMergeStatusKeys, useBranchMergeStatus, useBatchBranchMergeStatus } from './useBranchMergeStatus';
+export { branchSyncStatusKeys, useBranchSyncStatus, useBatchBranchSyncStatus } from './useBranchSyncStatus';
 export { useGanttTasks } from './useGanttTasks';
 export {
   useTaskFilters,

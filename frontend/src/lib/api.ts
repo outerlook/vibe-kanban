@@ -6,7 +6,11 @@ import {
   ApprovalStatus,
   ApiResponse,
   BatchBranchMergeStatus,
+  BatchBranchSyncStatus,
+  BatchCheckBranchSyncStatusRequest,
   BranchMergeStatus,
+  BranchSyncStatus,
+  CheckBranchSyncStatusRequest,
   Config,
   CreateFollowUpAttempt,
   EditorType,
@@ -1289,6 +1293,34 @@ export const repoApi = {
       }
     );
     return handleApiResponse<BatchBranchMergeStatus>(response);
+  },
+
+  checkBranchSyncStatus: async (
+    repoId: string,
+    request: CheckBranchSyncStatusRequest
+  ): Promise<BranchSyncStatus> => {
+    const response = await makeRequest(
+      `/api/repos/${repoId}/branches/check-sync-status`,
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
+    return handleApiResponse<BranchSyncStatus>(response);
+  },
+
+  batchCheckBranchSyncStatus: async (
+    repoId: string,
+    request: BatchCheckBranchSyncStatusRequest
+  ): Promise<BatchBranchSyncStatus> => {
+    const response = await makeRequest(
+      `/api/repos/${repoId}/branches/batch-check-sync-status`,
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
+    return handleApiResponse<BatchBranchSyncStatus>(response);
   },
 
   init: async (data: {
