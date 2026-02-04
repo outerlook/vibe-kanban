@@ -268,7 +268,17 @@ export function PrPanel({
     );
   }
 
-  // Desktop layout: side-by-side
+  // Desktop layout: click-to-open pattern
+  // Show only list by default, side-by-side when a PR is selected
+  if (!hasSelection) {
+    return (
+      <div className="flex h-full border rounded-lg overflow-hidden bg-background">
+        {prList}
+      </div>
+    );
+  }
+
+  // Desktop with selection: side-by-side layout
   return (
     <div className="flex h-full border rounded-lg overflow-hidden bg-background">
       {/* Sidebar with PR list */}
@@ -278,7 +288,7 @@ export function PrPanel({
 
       {/* Main content area - detail panel */}
       <div className="flex-1 flex flex-col min-w-0">
-        {hasSelection && selectedPrData && selectedRepoId ? (
+        {selectedPrData && selectedRepoId ? (
           <PrDetailPanel
             projectId={projectId}
             repoId={selectedRepoId}
@@ -294,25 +304,13 @@ export function PrPanel({
 }
 
 export function PrPanelSkeleton({ isMobile = false }: { isMobile?: boolean }) {
-  if (isMobile) {
-    return (
-      <div className="flex h-full flex-col border rounded-lg overflow-hidden bg-background">
-        <div className="p-4 space-y-4">
-          <BranchSectionSkeleton animationDelay={0} />
-          <BranchSectionSkeleton animationDelay={100} />
-        </div>
-      </div>
-    );
-  }
-
+  // Both mobile and desktop show full-width list skeleton (click-to-open pattern)
+  void isMobile; // unused but kept for API consistency
   return (
-    <div className="flex h-full border rounded-lg overflow-hidden bg-background">
-      <div className="w-80 border-r flex-shrink-0 p-4 space-y-4">
+    <div className="flex h-full flex-col border rounded-lg overflow-hidden bg-background">
+      <div className="p-4 space-y-4">
         <BranchSectionSkeleton animationDelay={0} />
         <BranchSectionSkeleton animationDelay={100} />
-      </div>
-      <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        <GitPullRequest className="h-12 w-12 opacity-50" />
       </div>
     </div>
   );
