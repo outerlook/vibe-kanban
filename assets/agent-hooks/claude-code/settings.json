@@ -8,7 +8,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/langfuse-hook.py\" 2>/dev/null || true"
+            "command": "uvx --with langfuse --python 3.12 python \"$CLAUDE_PROJECT_DIR/.claude/langfuse-hook.py\" 2>/dev/null || true"
           }
         ]
       }
