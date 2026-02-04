@@ -747,10 +747,16 @@ impl GitService {
         let task_repo = self.open_repo(task_worktree_path)?;
         let base_repo = self.open_repo(base_worktree_path)?;
 
-        // Check if base branch is ahead of task branch - this indicates the base has moved
-        // ahead since the task was created, which should block the merge
-        let (_, task_behind) =
+        // Check branch relationship: task_ahead = commits on task not on base,
+        // task_behind = commits on base not on task
+        let (task_ahead, task_behind) =
             self.get_branch_status(base_worktree_path, task_branch_name, base_branch_name)?;
+
+        if task_ahead == 0 {
+            return Err(GitServiceError::NothingToMerge(format!(
+                "Task branch '{task_branch_name}' has no commits ahead of base branch '{base_branch_name}'",
+            )));
+        }
 
         if task_behind > 0 {
             return Err(GitServiceError::BranchesDiverged(format!(
@@ -2248,6 +2254,42 @@ mod tests {
         assert!(
             matches!(result, Err(GitServiceError::BranchNotFound(_))),
             "Should return BranchNotFound error for non-existent target branch"
+        );
+    }
+
+    /// Test merge_changes returns NothingToMerge when task branch has no commits ahead
+    #[test]
+    fn test_merge_changes_nothing_to_merge() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        // Create a task branch at the same commit as main (no commits ahead)
+        Command::new("git")
+            .args(["checkout", "-b", "task-branch"])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to create task branch");
+
+        // Go back to main
+        Command::new("git")
+            .args(["checkout", "main"])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to checkout main");
+
+        let git_service = GitService::new();
+        let result = git_service.merge_changes(
+            repo_path,
+            repo_path,
+            "task-branch",
+            "main",
+            "Merge task branch",
+        );
+
+        assert!(
+            matches!(result, Err(GitServiceError::NothingToMerge(_))),
+            "Should return NothingToMerge when task branch has no commits ahead of base"
         );
     }
 }
