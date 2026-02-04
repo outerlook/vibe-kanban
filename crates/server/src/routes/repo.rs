@@ -8,7 +8,7 @@ use db::models::{merge::PullRequestInfo, project_repo::ProjectRepo, repo::Repo};
 use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use services::services::{
-    git::GitBranch,
+    git::{GitBranch, GitCliError, GitServiceError},
     github::{CreatePrRequest, GitHubService, GitHubServiceError},
 };
 use ts_rs::TS;
@@ -83,12 +83,29 @@ pub struct CreateRepoPrRequest {
     pub draft: Option<bool>,
 }
 
+#[derive(Debug, Deserialize, TS)]
+#[ts(export)]
+pub struct PushBranchRequest {
+    pub branch_name: String,
+    #[serde(default)]
+    pub force: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(tag = "type", rename_all = "snake_case")]
 pub enum CreateRepoPrError {
     GithubCliNotInstalled,
     GithubCliNotLoggedIn,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[ts(export, tag = "type", rename_all = "snake_case")]
+pub enum PushBranchError {
+    ForcePushRequired,
+    NoRemoteTracking,
+    AuthFailed,
 }
 
 pub async fn register_repo(
@@ -359,6 +376,42 @@ pub async fn create_repo_pr(
     }
 }
 
+pub async fn push_branch(
+    State(deployment): State<DeploymentImpl>,
+    Path(repo_id): Path<Uuid>,
+    ResponseJson(payload): ResponseJson<PushBranchRequest>,
+) -> Result<ResponseJson<ApiResponse<(), PushBranchError>>, ApiError> {
+    let repo = deployment
+        .repo()
+        .get_by_id(&deployment.db().pool, repo_id)
+        .await?;
+
+    let result = deployment
+        .git()
+        .push_to_github(&repo.path, &payload.branch_name, payload.force);
+
+    match result {
+        Ok(_) => Ok(ResponseJson(ApiResponse::success(()))),
+        Err(GitServiceError::GitCLI(GitCliError::PushRejected(_))) => Ok(ResponseJson(
+            ApiResponse::error_with_data(PushBranchError::ForcePushRequired),
+        )),
+        Err(GitServiceError::GitCLI(GitCliError::AuthFailed(_))) => Ok(ResponseJson(
+            ApiResponse::error_with_data(PushBranchError::AuthFailed),
+        )),
+        Err(e) => {
+            // Check if the error message indicates no remote tracking
+            let error_str = e.to_string().to_lowercase();
+            if error_str.contains("no remote") || error_str.contains("remote has no url") {
+                Ok(ResponseJson(ApiResponse::error_with_data(
+                    PushBranchError::NoRemoteTracking,
+                )))
+            } else {
+                Err(ApiError::GitService(e))
+            }
+        }
+    }
+}
+
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/repos", post(register_repo))
@@ -376,5 +429,6 @@ pub fn router() -> Router<DeploymentImpl> {
             "/repos/{repo_id}/branches/batch-check-merge-status",
             post(batch_check_branch_merge_status),
         )
+        .route("/repos/{repo_id}/branches/push", post(push_branch))
         .route("/repos/{repo_id}/prs", post(create_repo_pr))
 }

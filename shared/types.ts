@@ -366,6 +366,10 @@ export type CreateRepoPrRequest = { head_branch: string, base_branch: string, ti
 
 export type CreateRepoPrError = { "type": "github_cli_not_installed" } | { "type": "github_cli_not_logged_in" };
 
+export type PushBranchRequest = { branch_name: string, force: boolean, };
+
+export type PushBranchError = { "type": "force_push_required" } | { "type": "no_remote_tracking" } | { "type": "auth_failed" };
+
 export type TagSearchParams = { search: string | null, };
 
 export type TokenResponse = { access_token: string, expires_at: string | null, };
