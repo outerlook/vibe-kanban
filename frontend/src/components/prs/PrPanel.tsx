@@ -237,8 +237,11 @@ export function PrPanel({
                 ...pr,
                 onClick: () => {
                   // Extract repoId and prNumber from pr.id which is `${repoId}-${prNumber}`
-                  const [repoId, ...prNumberParts] = pr.id.toString().split('-');
-                  const prNumber = prNumberParts.join('-');
+                  // repoId is a UUID with hyphens, so split from the last hyphen
+                  const idStr = pr.id.toString();
+                  const lastDash = idStr.lastIndexOf('-');
+                  const repoId = idStr.slice(0, lastDash);
+                  const prNumber = idStr.slice(lastDash + 1);
                   handleSelectPr(repoId, Number(prNumber));
                 },
                 selected:
