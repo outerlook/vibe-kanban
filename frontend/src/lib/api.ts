@@ -1362,7 +1362,7 @@ export const repoApi = {
     repoId: string,
     request: PushBranchRequest
   ): Promise<Result<void, PushBranchError>> => {
-    const response = await makeRequest(`/api/repos/${repoId}/push-branch`, {
+    const response = await makeRequest(`/api/repos/${repoId}/branches/push`, {
       method: 'POST',
       body: JSON.stringify(request),
     });

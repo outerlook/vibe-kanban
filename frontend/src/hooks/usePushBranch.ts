@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { repoApi } from '@/lib/api';
+import { branchSyncStatusKeys } from './useBranchSyncStatus';
 import type { PushBranchError } from 'shared/types';
 
 export interface PushBranchParams {
@@ -38,7 +39,7 @@ export function usePushBranch(
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['branch-sync-status'] });
+      queryClient.invalidateQueries({ queryKey: branchSyncStatusKeys.all });
       onSuccess?.();
     },
     onError: (err) => {

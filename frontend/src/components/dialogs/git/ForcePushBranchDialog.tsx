@@ -125,8 +125,6 @@ function getErrorMessage(errorData?: PushBranchError): string {
       return 'Branch has no remote tracking configured';
     case 'auth_failed':
       return 'Authentication failed. Please check your credentials.';
-    case 'force_push_required':
-      return 'Push rejected. Please try again.';
     default:
       return 'Force push failed';
   }
