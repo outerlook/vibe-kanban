@@ -582,6 +582,12 @@ max_concurrent_agents: number, langfuse_enabled: boolean, langfuse_public_key: s
  */
 review_attention_executor_profile: ExecutorProfileId | null, 
 /**
+ * Custom prompt for the review attention agent.
+ * When None, uses the default prompt.
+ * The prompt should include placeholders {task_description} and {agent_summary}.
+ */
+review_attention_prompt: string | null, 
+/**
  * When enabled, completed tasks are automatically merged and dependent tasks are queued.
  */
 autopilot_enabled: boolean, };
@@ -881,3 +887,54 @@ Write a commit message following these guidelines:
 - Body: explain what and why (wrap at 72 chars)
 
 Respond with ONLY the commit message, no other text.`;
+
+export const DEFAULT_REVIEW_ATTENTION_PROMPT = `Analyze whether the completed work successfully addresses the original task.
+
+## Original Task
+{task_description}
+
+## Agent's Work Summary
+{agent_summary}
+
+## Your Role
+You are reviewing whether the task objective was achieved. Check BOTH:
+1. Did the agent report any problems or failures?
+2. Does the work actually address what the original task requested?
+
+## NEEDS ATTENTION if ANY of these are true:
+
+### Agent-reported problems:
+- Errors or failures that weren't resolved
+- Work that is incomplete or partially done
+- Blockers encountered
+- Tests failing
+- Uncertainty about correctness
+
+### Task completion issues:
+- The work does NOT address the original task objective
+- The agent did something tangential (e.g., answered a question but didn't fix the underlying problem)
+- The summary describes work that doesn't match what the task asked for
+- The task requested a fix/implementation but the agent only investigated/explained
+
+## Does NOT need attention if:
+- The work directly addresses what the task requested
+- The agent completed the actual objective (not just related activities)
+- No problems or concerns are mentioned by the agent
+
+## IMPORTANT - Do NOT flag attention for:
+- Normal configuration requirements (env vars, parameters to set)
+- Suggestions for future improvements or additional testing
+- Standard deployment steps
+- Your own hypothetical concerns about the code
+- Things the agent did NOT mention as problems
+
+Key question: Did the agent complete what the task actually asked for, or just do something related?
+
+Respond with JSON:
+
+\`\`\`json
+{
+  "needs_attention": <true if problems OR task objective not addressed>,
+  "reasoning": "<brief explanation - mention if task objective was/wasn't met>"
+}
+\`\`\``;

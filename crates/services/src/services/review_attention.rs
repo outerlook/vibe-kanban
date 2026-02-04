@@ -12,6 +12,59 @@ use executors::{
 use serde::Deserialize;
 use thiserror::Error;
 
+/// Default prompt template for review attention analysis.
+/// Uses `{task_description}` and `{agent_summary}` as placeholders.
+pub const DEFAULT_REVIEW_ATTENTION_PROMPT: &str = r#"Analyze whether the completed work successfully addresses the original task.
+
+## Original Task
+{task_description}
+
+## Agent's Work Summary
+{agent_summary}
+
+## Your Role
+You are reviewing whether the task objective was achieved. Check BOTH:
+1. Did the agent report any problems or failures?
+2. Does the work actually address what the original task requested?
+
+## NEEDS ATTENTION if ANY of these are true:
+
+### Agent-reported problems:
+- Errors or failures that weren't resolved
+- Work that is incomplete or partially done
+- Blockers encountered
+- Tests failing
+- Uncertainty about correctness
+
+### Task completion issues:
+- The work does NOT address the original task objective
+- The agent did something tangential (e.g., answered a question but didn't fix the underlying problem)
+- The summary describes work that doesn't match what the task asked for
+- The task requested a fix/implementation but the agent only investigated/explained
+
+## Does NOT need attention if:
+- The work directly addresses what the task requested
+- The agent completed the actual objective (not just related activities)
+- No problems or concerns are mentioned by the agent
+
+## IMPORTANT - Do NOT flag attention for:
+- Normal configuration requirements (env vars, parameters to set)
+- Suggestions for future improvements or additional testing
+- Standard deployment steps
+- Your own hypothetical concerns about the code
+- Things the agent did NOT mention as problems
+
+Key question: Did the agent complete what the task actually asked for, or just do something related?
+
+Respond with JSON:
+
+```json
+{
+  "needs_attention": <true if problems OR task objective not addressed>,
+  "reasoning": "<brief explanation - mention if task objective was/wasn't met>"
+}
+```"#;
+
 /// Errors that can occur during review attention operations.
 #[derive(Debug, Error)]
 pub enum ReviewAttentionError {
@@ -54,48 +107,10 @@ impl ReviewAttentionService {
     /// # Returns
     /// A prompt string requesting structured analysis
     pub fn generate_review_attention_prompt(task_description: &str, agent_summary: &str) -> String {
-        format!(
-            r#"Analyze whether the work summary indicates any problems that need human attention.
-
-## Original Task
-{task_description}
-
-## Agent's Work Summary
-{agent_summary}
-
-## Your Role
-You are a simple reviewer checking ONLY the agent's own words. You do NOT review the actual code or changes - you only check if the agent's summary indicates problems.
-
-## Needs attention if the agent's summary mentions ANY of:
-- Errors or failures that weren't resolved
-- Work that is incomplete or partially done
-- Blockers encountered
-- Tests failing
-- Uncertainty about correctness
-- Deviations from what the task asked
-
-## Does NOT need attention if:
-- The agent says the work was completed successfully
-- The summary aligns with what the task requested
-- No problems or concerns are mentioned by the agent
-
-## IMPORTANT - Do NOT flag attention for:
-- Normal configuration requirements (env vars, parameters to set)
-- Suggestions for future improvements or additional testing
-- Standard deployment steps
-- Your own hypothetical concerns about the code
-- Things the agent did NOT mention as problems
-
-Your job is simple: Did the agent indicate something went wrong? If yes, flag it. If not, don't invent problems.
-
-Respond with JSON:
-
-```json
-{{
-  "needs_attention": <true if agent indicated problems, false otherwise>,
-  "reasoning": "<brief explanation based on what the agent said>"
-}}
-```"#
+        Self::generate_prompt_from_template(
+            DEFAULT_REVIEW_ATTENTION_PROMPT,
+            task_description,
+            agent_summary,
         )
     }
 
@@ -219,6 +234,8 @@ Respond with JSON:
     /// * `working_dir` - Optional working directory for the agent
     /// * `task_description` - The original task description
     /// * `agent_summary` - The agent's summary of completed work
+    /// * `custom_prompt` - Optional custom prompt template. If provided, should contain
+    ///   `{task_description}` and `{agent_summary}` placeholders that will be substituted.
     ///
     /// # Returns
     /// An `ExecutorAction` configured to send the review attention prompt
@@ -228,9 +245,19 @@ Respond with JSON:
         working_dir: Option<String>,
         task_description: &str,
         agent_summary: &str,
+        custom_prompt: Option<&str>,
     ) -> ExecutorAction {
+        let prompt = match custom_prompt {
+            Some(template) => Self::generate_prompt_from_template(
+                template,
+                task_description,
+                agent_summary,
+            ),
+            None => Self::generate_review_attention_prompt(task_description, agent_summary),
+        };
+
         let follow_up = CodingAgentFollowUpRequest {
-            prompt: Self::generate_review_attention_prompt(task_description, agent_summary),
+            prompt,
             session_id,
             executor_profile_id,
             working_dir,
@@ -240,6 +267,19 @@ Respond with JSON:
             ExecutorActionType::CodingAgentFollowUpRequest(follow_up),
             None,
         )
+    }
+
+    /// Generate a prompt by substituting placeholders in a custom template.
+    ///
+    /// Substitutes `{task_description}` and `{agent_summary}` with the actual values.
+    fn generate_prompt_from_template(
+        template: &str,
+        task_description: &str,
+        agent_summary: &str,
+    ) -> String {
+        template
+            .replace("{task_description}", task_description)
+            .replace("{agent_summary}", agent_summary)
     }
 }
 
@@ -265,6 +305,11 @@ mod tests {
         assert!(prompt.contains("incomplete"));
         assert!(prompt.contains("Tests"));
         assert!(prompt.contains("JSON"));
+
+        // Check that task completion verification is included
+        assert!(prompt.contains("task objective"));
+        assert!(prompt.contains("does NOT address the original task"));
+        assert!(prompt.contains("tangential"));
     }
 
     #[test]
@@ -453,6 +498,7 @@ Let me know if you need more details."#;
             working_dir.clone(),
             task_description,
             agent_summary,
+            None, // Use default prompt
         );
 
         // Verify the action is a follow-up request
@@ -474,6 +520,41 @@ Let me know if you need more details."#;
     }
 
     #[test]
+    fn test_create_review_attention_action_with_custom_prompt() {
+        let session_id = "test-session-custom".to_string();
+        let profile_id = ExecutorProfileId {
+            executor: executors::executors::BaseCodingAgent::ClaudeCode,
+            variant: None,
+        };
+        let task_description = "Implement feature X";
+        let agent_summary = "Added feature X with tests";
+
+        let custom_prompt =
+            "Task: {task_description}\nSummary: {agent_summary}\nPlease review.";
+
+        let action = ReviewAttentionService::create_review_attention_action(
+            session_id.clone(),
+            profile_id.clone(),
+            None,
+            task_description,
+            agent_summary,
+            Some(custom_prompt),
+        );
+
+        match action.typ {
+            ExecutorActionType::CodingAgentFollowUpRequest(ref req) => {
+                // Verify custom prompt was used with substitutions
+                assert!(req.prompt.contains("Task: Implement feature X"));
+                assert!(req.prompt.contains("Summary: Added feature X with tests"));
+                assert!(req.prompt.contains("Please review."));
+                // Should NOT contain the default prompt markers
+                assert!(!req.prompt.contains("## Your Role"));
+            }
+            _ => panic!("Expected CodingAgentFollowUpRequest"),
+        }
+    }
+
+    #[test]
     fn test_create_review_attention_action_without_working_dir() {
         let session_id = "test-session-789".to_string();
         let profile_id = ExecutorProfileId {
@@ -487,6 +568,7 @@ Let me know if you need more details."#;
             None,
             "Task",
             "Summary",
+            None,
         );
 
         match action.typ {

@@ -64,6 +64,10 @@
         "executor": {
           "label": "Review agent",
           "helper": "Which agent to use for analyzing completed tasks."
+        },
+        "customPrompt": {
+          "label": "Use custom review prompt",
+          "helper": "The prompt is used to instruct the AI what to check when reviewing completed tasks. Use {task_description} and {agent_summary} as placeholders."
         }
       },
       "editor": {

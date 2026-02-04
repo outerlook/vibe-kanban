@@ -18,17 +18,17 @@ pub enum ConfigError {
     ValidationError(String),
 }
 
-pub type Config = versions::v14::Config;
-pub type NotificationConfig = versions::v14::NotificationConfig;
-pub type EditorConfig = versions::v14::EditorConfig;
-pub type ThemeMode = versions::v14::ThemeMode;
-pub type SoundFile = versions::v14::SoundFile;
+pub type Config = versions::v15::Config;
+pub type NotificationConfig = versions::v15::NotificationConfig;
+pub type EditorConfig = versions::v15::EditorConfig;
+pub type ThemeMode = versions::v15::ThemeMode;
+pub type SoundFile = versions::v15::SoundFile;
 pub use versions::v2::EffectiveSound;
-pub type EditorType = versions::v14::EditorType;
-pub type GitHubConfig = versions::v14::GitHubConfig;
-pub type UiLanguage = versions::v14::UiLanguage;
-pub type ShowcaseState = versions::v14::ShowcaseState;
-pub type BackupConfig = versions::v14::BackupConfig;
+pub type EditorType = versions::v15::EditorType;
+pub type GitHubConfig = versions::v15::GitHubConfig;
+pub type UiLanguage = versions::v15::UiLanguage;
+pub type ShowcaseState = versions::v15::ShowcaseState;
+pub type BackupConfig = versions::v15::BackupConfig;
 
 /// Will always return config, trying old schemas or eventually returning default
 pub async fn load_config_from_file(config_path: &PathBuf) -> Config {

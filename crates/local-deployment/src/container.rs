@@ -1853,9 +1853,12 @@ impl LocalContainerService {
         agent_session_id: &str,
     ) -> Result<ExecutionProcess, ContainerError> {
         // Check if review attention is enabled in config
-        let review_attention_profile = {
+        let (review_attention_profile, review_attention_prompt) = {
             let config = self.config.read().await;
-            config.review_attention_executor_profile.clone()
+            (
+                config.review_attention_executor_profile.clone(),
+                config.review_attention_prompt.clone(),
+            )
         };
 
         let Some(executor_profile_id) = review_attention_profile else {
@@ -1904,6 +1907,7 @@ impl LocalContainerService {
             working_dir,
             &task_description,
             &summary,
+            review_attention_prompt.as_deref(),
         );
 
         // Start the execution with InternalAgent run reason and "review_attention" purpose

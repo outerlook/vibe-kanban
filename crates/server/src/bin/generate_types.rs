@@ -4,6 +4,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, generate::SchemaSettings};
 use server::routes::task_attempts::pr::{
     DEFAULT_COMMIT_MESSAGE_PROMPT, DEFAULT_PR_DESCRIPTION_PROMPT,
 };
+use services::services::review_attention::DEFAULT_REVIEW_ATTENTION_PROMPT;
 use ts_rs::TS;
 
 fn generate_types_content() -> String {
@@ -331,9 +332,12 @@ fn generate_types_content() -> String {
     let commit_prompt_escaped = DEFAULT_COMMIT_MESSAGE_PROMPT
         .replace('\\', "\\\\")
         .replace('`', "\\`");
+    let review_attention_prompt_escaped = DEFAULT_REVIEW_ATTENTION_PROMPT
+        .replace('\\', "\\\\")
+        .replace('`', "\\`");
     let constants = format!(
-        "export const DEFAULT_PR_DESCRIPTION_PROMPT = `{}`;\n\nexport const DEFAULT_COMMIT_MESSAGE_PROMPT = `{}`;",
-        pr_prompt_escaped, commit_prompt_escaped
+        "export const DEFAULT_PR_DESCRIPTION_PROMPT = `{}`;\n\nexport const DEFAULT_COMMIT_MESSAGE_PROMPT = `{}`;\n\nexport const DEFAULT_REVIEW_ATTENTION_PROMPT = `{}`;",
+        pr_prompt_escaped, commit_prompt_escaped, review_attention_prompt_escaped
     );
 
     format!("{HEADER}\n\n{body}\n\n{constants}")
