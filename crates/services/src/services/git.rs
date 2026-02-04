@@ -37,6 +37,8 @@ pub enum GitServiceError {
     WorktreeDirty(String, String),
     #[error("Rebase in progress; resolve or abort it before retrying")]
     RebaseInProgress,
+    #[error("Nothing to merge: {0}")]
+    NothingToMerge(String),
 }
 /// Service for managing Git operations in task execution workflows
 #[derive(Clone)]
