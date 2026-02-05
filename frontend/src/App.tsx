@@ -101,6 +101,11 @@ const PrOverview = lazy(() =>
     default: module.PrOverview,
   }))
 );
+const ProjectGroups = lazy(() =>
+  import('@/pages/ProjectGroups').then((module) => ({
+    default: module.ProjectGroups,
+  }))
+);
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
@@ -241,6 +246,10 @@ function AppContent() {
                   <Route
                     path="/projects/:projectId/gantt/:taskId/attempts/:attemptId"
                     element={<GanttView />}
+                  />
+                  <Route
+                    path="/projects/:projectId/groups"
+                    element={<ProjectGroups />}
                   />
                   <Route
                     path="/projects/:projectId/prs"
