@@ -66,6 +66,7 @@ pub struct SearchTasksRequest {
     pub project_id: Uuid,
     pub query: String,
     pub status: Option<TaskStatus>,
+    pub task_group_id: Option<Uuid>,
     pub limit: Option<i32>,
     /// Use hybrid search (vector + FTS). Defaults to true.
     pub hybrid: Option<bool>,
@@ -168,6 +169,7 @@ pub async fn search_tasks(
                     &query_embedding,
                     &request.query,
                     request.status.clone(),
+                    request.task_group_id,
                     limit,
                 )
                 .await?;
@@ -203,6 +205,7 @@ pub async fn search_tasks(
         project.id,
         &request.query,
         request.status.clone(),
+        request.task_group_id,
         limit,
     )
     .await?;

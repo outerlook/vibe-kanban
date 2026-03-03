@@ -530,6 +530,8 @@ pub struct SearchSimilarTasksRequest {
         description = "Optional status filter: 'todo', 'inprogress', 'inreview', 'done', 'cancelled'"
     )]
     pub status: Option<String>,
+    #[schemars(description = "Optional task group ID to filter search results by group")]
+    pub task_group_id: Option<Uuid>,
     #[schemars(description = "Maximum number of results to return (default: 10, max: 50)")]
     pub limit: Option<i32>,
     #[schemars(
@@ -1898,6 +1900,7 @@ impl TaskServer {
             project_id,
             query,
             status,
+            task_group_id,
             limit,
             hybrid,
         }): Parameters<SearchSimilarTasksRequest>,
@@ -1928,6 +1931,7 @@ impl TaskServer {
             "projectId": project_id,
             "query": query_trimmed,
             "status": status_filter,
+            "taskGroupId": task_group_id,
             "limit": limit.unwrap_or(10).clamp(1, 50),
             "hybrid": hybrid.unwrap_or(true),
         });
