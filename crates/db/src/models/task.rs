@@ -249,21 +249,25 @@ impl Task {
         project_id: Uuid,
         query: Option<String>,
         status: Option<TaskStatus>,
+        task_group_id: Option<Uuid>,
         order_by: TaskOrderBy,
         limit: i64,
         offset: i64,
     ) -> Result<(Vec<TaskWithAttemptStatus>, i64), sqlx::Error> {
         let search_pattern = query.as_ref().map(|q| format!("%{}%", q));
+        let task_group_id_str = task_group_id.map(|id| id.to_string());
 
         let total = sqlx::query!(
             r#"SELECT COUNT(*) as "count!: i64"
                FROM tasks t
                WHERE t.project_id = $1
                  AND ($2 IS NULL OR t.status = $2)
-                 AND ($3 IS NULL OR t.title LIKE $3 OR t.description LIKE $3)"#,
+                 AND ($3 IS NULL OR t.title LIKE $3 OR t.description LIKE $3)
+                 AND ($4 IS NULL OR t.task_group_id = $4)"#,
             project_id,
             status,
-            search_pattern
+            search_pattern,
+            task_group_id_str
         )
         .fetch_one(pool)
         .await?
@@ -294,6 +298,7 @@ impl Task {
             WHERE t.project_id = ?1
               AND (?2 IS NULL OR t.status = ?2)
               AND (?5 IS NULL OR t.title LIKE ?5 OR t.description LIKE ?5)
+              AND (?6 IS NULL OR t.task_group_id = ?6)
             ORDER BY {}
             LIMIT ?3 OFFSET ?4"#,
             order_by.to_sql()
@@ -305,6 +310,7 @@ impl Task {
             .bind(limit)
             .bind(offset)
             .bind(search_pattern)
+            .bind(task_group_id_str)
             .fetch_all(pool)
             .await?;
 
@@ -625,6 +631,7 @@ impl Task {
         project_id: Uuid,
         query: &str,
         status: Option<TaskStatus>,
+        task_group_id: Option<Uuid>,
         limit: i64,
     ) -> Result<Vec<(TaskWithAttemptStatus, f64)>, sqlx::Error> {
         let trimmed_query = query.trim();
@@ -681,12 +688,14 @@ JOIN tasks t ON t.rowid = tasks_fts.rowid
 WHERE tasks_fts MATCH ?1
   AND t.project_id = ?2
   AND (?3 IS NULL OR t.status = ?3)
+  AND (?4 IS NULL OR t.task_group_id = ?4)
 ORDER BY rank_score DESC
-LIMIT ?4"#,
+LIMIT ?5"#,
         )
         .bind(&escaped_query)
         .bind(project_id)
         .bind(status_str)
+        .bind(task_group_id.map(|id| id.to_string()))
         .bind(limit)
         .fetch_all(pool)
         .await?;
@@ -738,6 +747,7 @@ LIMIT ?4"#,
         query_embedding: &[f32],
         keyword_query: &str,
         status: Option<TaskStatus>,
+        task_group_id: Option<Uuid>,
         limit: i64,
     ) -> Result<Vec<(TaskWithAttemptStatus, f64)>, sqlx::Error> {
         use super::embedding::{EMBEDDING_DIMENSION, TaskEmbedding};
@@ -846,8 +856,9 @@ LIMIT ?4"#,
             WHERE t.project_id = ?2
                 AND (vs.score IS NOT NULL OR fs.score IS NOT NULL)
                 AND (?4 IS NULL OR t.status = ?4)
+                AND (?5 IS NULL OR t.task_group_id = ?5)
             ORDER BY hybrid_score DESC
-            LIMIT ?5"#
+            LIMIT ?6"#
         } else {
             // Vector-only search (no keyword query)
             r#"WITH vector_scores AS (
@@ -883,9 +894,12 @@ LIMIT ?4"#,
             JOIN vector_scores vs ON vs.task_rowid = t.rowid
             WHERE t.project_id = ?2
                 AND (?4 IS NULL OR t.status = ?4)
+                AND (?5 IS NULL OR t.task_group_id = ?5)
             ORDER BY hybrid_score DESC
-            LIMIT ?5"#
+            LIMIT ?6"#
         };
+
+        let task_group_id_str = task_group_id.map(|id| id.to_string());
 
         let records: Vec<HybridSearchRow> = if let Some(ref fts_query) = escaped_query {
             sqlx::query_as(sql)
@@ -893,6 +907,7 @@ LIMIT ?4"#,
                 .bind(project_id)
                 .bind(fts_query)
                 .bind(&status_str)
+                .bind(&task_group_id_str)
                 .bind(limit)
                 .fetch_all(pool)
                 .await?
@@ -902,6 +917,7 @@ LIMIT ?4"#,
                 .bind(project_id)
                 .bind::<Option<String>>(None) // placeholder for ?3
                 .bind(&status_str)
+                .bind(&task_group_id_str)
                 .bind(limit)
                 .fetch_all(pool)
                 .await?
@@ -1174,7 +1190,8 @@ mod tests {
         // Test with wrong dimension (too short)
         let wrong_embedding: Vec<f32> = vec![0.0; 100];
         let result =
-            Task::search_hybrid(&pool, project_id, &wrong_embedding, "test query", None, 10).await;
+            Task::search_hybrid(&pool, project_id, &wrong_embedding, "test query", None, None, 10)
+                .await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -1183,7 +1200,8 @@ mod tests {
         // Test with wrong dimension (too long)
         let wrong_embedding: Vec<f32> = vec![0.0; 500];
         let result =
-            Task::search_hybrid(&pool, project_id, &wrong_embedding, "test query", None, 10).await;
+            Task::search_hybrid(&pool, project_id, &wrong_embedding, "test query", None, None, 10)
+                .await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
