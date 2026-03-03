@@ -249,21 +249,25 @@ impl Task {
         project_id: Uuid,
         query: Option<String>,
         status: Option<TaskStatus>,
+        task_group_id: Option<Uuid>,
         order_by: TaskOrderBy,
         limit: i64,
         offset: i64,
     ) -> Result<(Vec<TaskWithAttemptStatus>, i64), sqlx::Error> {
         let search_pattern = query.as_ref().map(|q| format!("%{}%", q));
+        let task_group_id_str = task_group_id.map(|id| id.to_string());
 
         let total = sqlx::query!(
             r#"SELECT COUNT(*) as "count!: i64"
                FROM tasks t
                WHERE t.project_id = $1
                  AND ($2 IS NULL OR t.status = $2)
-                 AND ($3 IS NULL OR t.title LIKE $3 OR t.description LIKE $3)"#,
+                 AND ($3 IS NULL OR t.title LIKE $3 OR t.description LIKE $3)
+                 AND ($4 IS NULL OR t.task_group_id = $4)"#,
             project_id,
             status,
-            search_pattern
+            search_pattern,
+            task_group_id_str
         )
         .fetch_one(pool)
         .await?
@@ -294,6 +298,7 @@ impl Task {
             WHERE t.project_id = ?1
               AND (?2 IS NULL OR t.status = ?2)
               AND (?5 IS NULL OR t.title LIKE ?5 OR t.description LIKE ?5)
+              AND (?6 IS NULL OR t.task_group_id = ?6)
             ORDER BY {}
             LIMIT ?3 OFFSET ?4"#,
             order_by.to_sql()
@@ -305,6 +310,7 @@ impl Task {
             .bind(limit)
             .bind(offset)
             .bind(search_pattern)
+            .bind(task_group_id_str)
             .fetch_all(pool)
             .await?;
 

@@ -47,6 +47,7 @@ pub struct ListTasksQuery {
     pub limit: Option<i32>,
     pub offset: Option<i32>,
     pub status: Option<TaskStatus>,
+    pub task_group_id: Option<Uuid>,
     pub order_by: Option<String>,
 }
 
@@ -120,6 +121,7 @@ pub async fn get_tasks(
         query.project_id,
         query.query,
         query.status,
+        query.task_group_id,
         order_by,
         limit,
         offset,

@@ -146,6 +146,8 @@ pub struct ListTasksRequest {
         description = "Optional status filter: 'todo', 'inprogress', 'inreview', 'done', 'cancelled'"
     )]
     pub status: Option<String>,
+    #[schemars(description = "Optional task group ID to filter tasks by group")]
+    pub task_group_id: Option<Uuid>,
     #[schemars(description = "Maximum number of tasks to return (default: 50)")]
     pub limit: Option<i32>,
 }
@@ -235,6 +237,7 @@ pub struct ListTasksResponse {
 pub struct ListTasksFilters {
     pub query: Option<String>,
     pub status: Option<String>,
+    pub task_group_id: Option<String>,
     pub limit: i32,
 }
 
@@ -1328,6 +1331,7 @@ impl TaskServer {
             project_id,
             query,
             status,
+            task_group_id,
             limit,
         }): Parameters<ListTasksRequest>,
     ) -> Result<CallToolResult, ErrorData> {
@@ -1356,6 +1360,9 @@ impl TaskServer {
         if let Some(ref search_query) = query {
             url.push_str(&format!("&query={}", search_query));
         }
+        if let Some(ref group_id) = task_group_id {
+            url.push_str(&format!("&task_group_id={}", group_id));
+        }
 
         let page: PaginatedTasksResponse =
             match self.send_json(self.client.get(self.url(&url))).await {
@@ -1376,6 +1383,7 @@ impl TaskServer {
             applied_filters: ListTasksFilters {
                 query: query.clone(),
                 status: status.clone(),
+                task_group_id: task_group_id.map(|id| id.to_string()),
                 limit: task_limit,
             },
         };
