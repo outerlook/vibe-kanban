@@ -23,6 +23,7 @@ import {
   GitPullRequest,
   Zap,
   KanbanSquare,
+  Layers,
 } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { openTaskForm } from '@/lib/openTaskForm';
@@ -98,6 +99,7 @@ export function Navbar() {
   );
   const isGanttRoute = /^\/projects\/[^/]+\/gantt/.test(location.pathname);
   const isPrsRoute = /^\/projects\/[^/]+\/prs/.test(location.pathname);
+  const isGroupsRoute = /^\/projects\/[^/]+\/groups/.test(location.pathname);
   const showSharedTasks = searchParams.get('shared') !== 'off';
   const shouldShowSharedToggle =
     isTasksRoute && project?.remote_project_id != null;
@@ -232,6 +234,18 @@ export function Navbar() {
                   >
                     <Link to={paths.projectTasks(projectId)}>
                       <KanbanSquare className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={`h-9 w-9 ${isGroupsRoute ? 'text-primary' : 'text-muted-foreground'}`}
+                    asChild
+                    aria-label="Groups"
+                    aria-current={isGroupsRoute ? 'page' : undefined}
+                  >
+                    <Link to={paths.projectGroups(projectId)}>
+                      <Layers className="h-4 w-4" />
                     </Link>
                   </Button>
                   <Button
