@@ -260,6 +260,10 @@ pub struct UpdateTaskRequest {
         description = "Task group ID to assign this task to. Pass null to remove from group."
     )]
     pub task_group_id: Option<Uuid>,
+    #[schemars(
+        description = "Set to true to force-update a task that is not in 'todo' status. If not set and the task is not 'todo', the update will be rejected."
+    )]
+    pub force: Option<bool>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -1472,7 +1476,7 @@ impl TaskServer {
     }
 
     #[tool(
-        description = "Update an existing task/ticket's title, description, or status. `project_id` and `task_id` are required! `title`, `description`, and `status` are optional."
+        description = "Update an existing task/ticket's title, description, or status. `project_id` and `task_id` are required! `title`, `description`, and `status` are optional. If the task is not in 'todo' status, you must set `force=true` to update it, otherwise the update will be rejected."
     )]
     async fn update_task(
         &self,
@@ -1482,8 +1486,25 @@ impl TaskServer {
             description,
             status,
             task_group_id,
+            force,
         }): Parameters<UpdateTaskRequest>,
     ) -> Result<CallToolResult, ErrorData> {
+        // Guard: reject updates to non-todo tasks unless force=true
+        let task_url = self.url(&format!("/api/tasks/{}", task_id));
+        let current_task: Task = match self.send_json(self.client.get(&task_url)).await {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
+        if force != Some(true) && current_task.status != TaskStatus::Todo {
+            return Self::err(
+                format!(
+                    "Task is currently in '{}' status. To update it, either set force=true or create a new task to accommodate the required changes.",
+                    current_task.status
+                ),
+                None,
+            );
+        }
+
         let status = if let Some(ref status_str) = status {
             match TaskStatus::from_str(status_str) {
                 Ok(s) => Some(s),
