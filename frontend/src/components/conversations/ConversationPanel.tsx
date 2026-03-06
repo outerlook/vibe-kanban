@@ -24,6 +24,8 @@ import { useConversationQueueStatus } from '@/hooks/useConversationQueueStatus';
 import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
 import { paths } from '@/lib/paths';
 import type { ConversationSession, ExecutionProcessStatus } from 'shared/types';
+import { EntriesProvider } from '@/contexts/EntriesContext';
+import { CopyConversationButton } from '@/components/ui/CopyConversationButton';
 
 interface ConversationPanelProps {
   projectId: string;
@@ -164,6 +166,7 @@ export function ConversationPanel({ projectId, initialConversationId, isMobile =
       >
         <Pencil className="h-3.5 w-3.5" />
       </button>
+      <CopyConversationButton />
 
       <TooltipProvider>
         {selectedConversation.worktree_path ? (
@@ -232,10 +235,12 @@ export function ConversationPanel({ projectId, initialConversationId, isMobile =
   if (isMobile) {
     if (selectedConversation) {
       return (
-        <div className="flex h-full flex-col border rounded-lg overflow-hidden bg-background">
-          {conversationHeader}
-          {conversationContent}
-        </div>
+        <EntriesProvider key={selectedConversation.id}>
+          <div className="flex h-full flex-col border rounded-lg overflow-hidden bg-background">
+            {conversationHeader}
+            {conversationContent}
+          </div>
+        </EntriesProvider>
       );
     }
 
@@ -267,10 +272,10 @@ export function ConversationPanel({ projectId, initialConversationId, isMobile =
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0">
         {selectedConversation ? (
-          <>
+          <EntriesProvider key={selectedConversation.id}>
             {conversationHeader}
             {conversationContent}
-          </>
+          </EntriesProvider>
         ) : (
           emptyState
         )}

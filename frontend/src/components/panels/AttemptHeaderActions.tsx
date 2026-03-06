@@ -14,6 +14,7 @@ import { ActionsDropdown } from '../ui/actions-dropdown';
 import { usePostHog } from 'posthog-js/react';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { TaskStatusSelector } from '../tasks/TaskStatusSelector';
+import { CopyConversationButton } from '../ui/CopyConversationButton';
 
 interface AttemptHeaderActionsProps {
   onClose: () => void;
@@ -111,6 +112,7 @@ export const AttemptHeaderActions = ({
       <TaskStatusSelector task={task} />
       <div className="h-4 w-px bg-border" />
       <ActionsDropdown task={task} attempt={attempt} sharedTask={sharedTask} />
+      <CopyConversationButton />
       <Button variant="icon" aria-label="Close" onClick={onClose}>
         <X size={16} />
       </Button>

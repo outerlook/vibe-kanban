@@ -78,6 +78,7 @@ import {
 import { TaskSelectionProvider } from '@/contexts/TaskSelectionContext';
 import { TaskGroupsProvider } from '@/contexts/TaskGroupsContext';
 import { BulkActionsBar } from '@/components/tasks/BulkActionsBar';
+import { EntriesProvider } from '@/contexts/EntriesContext';
 
 import type { TaskWithAttemptStatus, TaskStatus } from 'shared/types';
 import { TASK_STATUSES, normalizeStatus } from '@/constants/taskStatuses';
@@ -941,15 +942,17 @@ export function ProjectTasks() {
                       : undefined
                   }
                 >
-                  <TasksLayout
-                    kanban={kanbanContent}
-                    attempt={attemptContent}
-                    aux={auxContent}
-                    isPanelOpen={isPanelOpen}
-                    mode={effectiveMode}
-                    isMobile={isMobile}
-                    rightHeader={rightHeader}
-                  />
+                  <EntriesProvider key={attempt?.id ?? 'no-attempt'}>
+                    <TasksLayout
+                      kanban={kanbanContent}
+                      attempt={attemptContent}
+                      aux={auxContent}
+                      isPanelOpen={isPanelOpen}
+                      mode={effectiveMode}
+                      isMobile={isMobile}
+                      rightHeader={rightHeader}
+                    />
+                  </EntriesProvider>
                 </ExecutionProcessesProvider>
               </ReviewProvider>
             </ClickedElementsProvider>

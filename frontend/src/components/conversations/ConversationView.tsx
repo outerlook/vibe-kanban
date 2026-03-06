@@ -2,7 +2,6 @@ import { useTranslation } from 'react-i18next';
 import { Loader } from '@/components/ui/loader';
 import { useConversation } from '@/hooks/useConversations';
 import VirtualizedList from '@/components/logs/VirtualizedList';
-import { EntriesProvider } from '@/contexts/EntriesContext';
 
 interface ConversationViewProps {
   conversationId: string;
@@ -39,12 +38,10 @@ export function ConversationView({ conversationId }: ConversationViewProps) {
   }
 
   return (
-    <EntriesProvider key={conversationId}>
-      <VirtualizedList
-        key={conversationId}
-        mode={{ type: 'conversation', conversationSessionId: conversationId }}
-      />
-    </EntriesProvider>
+    <VirtualizedList
+      key={conversationId}
+      mode={{ type: 'conversation', conversationSessionId: conversationId }}
+    />
   );
 }
 

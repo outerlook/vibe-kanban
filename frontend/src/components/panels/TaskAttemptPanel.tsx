@@ -2,7 +2,6 @@ import type { TaskWithAttemptStatus, WorkspaceWithSession } from 'shared/types';
 import VirtualizedList from '@/components/logs/VirtualizedList';
 import { TaskFollowUpSection } from '@/components/tasks/TaskFollowUpSection';
 import { FeedbackSection } from '@/components/feedback/FeedbackSection';
-import { EntriesProvider } from '@/contexts/EntriesContext';
 import { RetryUiProvider } from '@/contexts/RetryUiContext';
 import type { ReactNode } from 'react';
 
@@ -30,22 +29,20 @@ const TaskAttemptPanel = ({
   }
 
   return (
-    <EntriesProvider key={attempt.id}>
-      <RetryUiProvider attemptId={attempt.id}>
-        {children({
-          logs: (
-            <VirtualizedList
-              key={attempt.id}
-              mode={{ type: 'workspace', attempt, task }}
-            />
-          ),
-          followUp: (
-            <TaskFollowUpSection task={task} session={attempt.session} />
-          ),
-          feedback: <FeedbackSection workspaceId={attempt.id} />,
-        })}
-      </RetryUiProvider>
-    </EntriesProvider>
+    <RetryUiProvider attemptId={attempt.id}>
+      {children({
+        logs: (
+          <VirtualizedList
+            key={attempt.id}
+            mode={{ type: 'workspace', attempt, task }}
+          />
+        ),
+        followUp: (
+          <TaskFollowUpSection task={task} session={attempt.session} />
+        ),
+        feedback: <FeedbackSection workspaceId={attempt.id} />,
+      })}
+    </RetryUiProvider>
   );
 };
 
