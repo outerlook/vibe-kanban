@@ -97,11 +97,15 @@ function WYSIWYGEditor({
   const handleCopy = useCallback(async () => {
     if (!value) return;
     try {
-      await writeClipboardViaBridge(value);
+      const ok = await writeClipboardViaBridge(value);
+      if (!ok) {
+        console.warn('Copy to clipboard failed: all methods exhausted');
+        return;
+      }
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 400);
-    } catch {
-      // noop – bridge handles fallback
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.warn('Copy to clipboard failed:', err);
     }
   }, [value]);
 
@@ -264,8 +268,8 @@ function WYSIWYGEditor({
   if (disabled) {
     return (
       <div className="relative group">
-        <div className="sticky top-0 right-2 z-10 pointer-events-none h-0">
-          <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+        <div className="absolute top-1 right-1 z-10 pointer-events-none">
+          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
             {/* Copy button */}
             <Button
               type="button"

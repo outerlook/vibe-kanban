@@ -410,15 +410,44 @@ export function installVSCodeIframeKeyboardBridge() {
   document.addEventListener('keypress', onKeyPress, true);
 }
 
-/** Copy helper that prefers navigator.clipboard and falls back to the bridge. */
+/**
+ * Copy text to clipboard using the best available method:
+ * 1. navigator.clipboard (modern API, needs secure context + user activation)
+ * 2. Hidden textarea + execCommand('copy') (classic fallback, works in Tauri)
+ * 3. VS Code iframe bridge (only for VS Code webview iframe context)
+ */
 export async function writeClipboardViaBridge(text: string): Promise<boolean> {
+  // Try modern clipboard API first
   try {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {
-    parentClipboardWrite(text);
-    return false;
+    // ignore — will try fallback
   }
+
+  // Fallback: hidden textarea + execCommand('copy')
+  // This works in Tauri webviews and older browsers where navigator.clipboard is restricted
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '-9999px';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    if (ok) return true;
+  } catch {
+    // ignore — will try bridge
+  }
+
+  // Last resort: VS Code iframe bridge (only useful inside VS Code webview iframes)
+  if (inIframe()) {
+    parentClipboardWrite(text);
+  }
+  return false;
 }
 
 /** Paste helper that prefers navigator.clipboard and falls back to the bridge. */
