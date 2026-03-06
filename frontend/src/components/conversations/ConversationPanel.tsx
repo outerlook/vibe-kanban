@@ -25,7 +25,7 @@ import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
 import { paths } from '@/lib/paths';
 import type { ConversationSession, ExecutionProcessStatus } from 'shared/types';
 import { EntriesProvider } from '@/contexts/EntriesContext';
-import { CopyConversationButton } from '@/components/ui/CopyConversationButton';
+import { CopyConversationButton } from '@/components/ui/copy-conversation-button';
 
 interface ConversationPanelProps {
   projectId: string;

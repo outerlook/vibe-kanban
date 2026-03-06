@@ -14,7 +14,7 @@ import { ActionsDropdown } from '../ui/actions-dropdown';
 import { usePostHog } from 'posthog-js/react';
 import type { SharedTaskRecord } from '@/hooks/useProjectTasks';
 import { TaskStatusSelector } from '../tasks/TaskStatusSelector';
-import { CopyConversationButton } from '../ui/CopyConversationButton';
+import { CopyConversationButton } from '../ui/copy-conversation-button';
 
 interface AttemptHeaderActionsProps {
   onClose: () => void;
