@@ -255,8 +255,6 @@ impl Task {
         offset: i64,
     ) -> Result<(Vec<TaskWithAttemptStatus>, i64), sqlx::Error> {
         let search_pattern = query.as_ref().map(|q| format!("%{}%", q));
-        let task_group_id_str = task_group_id.map(|id| id.to_string());
-
         let total = sqlx::query!(
             r#"SELECT COUNT(*) as "count!: i64"
                FROM tasks t
@@ -267,7 +265,7 @@ impl Task {
             project_id,
             status,
             search_pattern,
-            task_group_id_str
+            task_group_id
         )
         .fetch_one(pool)
         .await?
@@ -310,7 +308,7 @@ impl Task {
             .bind(limit)
             .bind(offset)
             .bind(search_pattern)
-            .bind(task_group_id_str)
+            .bind(task_group_id)
             .fetch_all(pool)
             .await?;
 
@@ -695,7 +693,7 @@ LIMIT ?5"#,
         .bind(&escaped_query)
         .bind(project_id)
         .bind(status_str)
-        .bind(task_group_id.map(|id| id.to_string()))
+        .bind(task_group_id)
         .bind(limit)
         .fetch_all(pool)
         .await?;
@@ -899,15 +897,13 @@ LIMIT ?5"#,
             LIMIT ?6"#
         };
 
-        let task_group_id_str = task_group_id.map(|id| id.to_string());
-
         let records: Vec<HybridSearchRow> = if let Some(ref fts_query) = escaped_query {
             sqlx::query_as(sql)
                 .bind(&query_bytes)
                 .bind(project_id)
                 .bind(fts_query)
                 .bind(&status_str)
-                .bind(&task_group_id_str)
+                .bind(&task_group_id)
                 .bind(limit)
                 .fetch_all(pool)
                 .await?
@@ -917,7 +913,7 @@ LIMIT ?5"#,
                 .bind(project_id)
                 .bind::<Option<String>>(None) // placeholder for ?3
                 .bind(&status_str)
-                .bind(&task_group_id_str)
+                .bind(&task_group_id)
                 .bind(limit)
                 .fetch_all(pool)
                 .await?
