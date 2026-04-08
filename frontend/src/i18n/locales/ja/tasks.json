@@ -6,7 +6,9 @@
     "selectedCount_one": "{{count}}件のタスクを選択中",
     "selectedCount_other": "{{count}}件のタスクを選択中",
     "createAttempts": "アテンプトを作成",
-    "clearSelection": "クリア"
+    "clearSelection": "クリア",
+    "moveToStatus": "ステータスを変更",
+    "deleteTasks": "削除"
   },
   "filters": {
     "sharedToggleAria": "共有タスクを切り替える",
@@ -542,6 +544,37 @@
     },
     "buttons": {
       "retry": "リトライ"
+    }
+  },
+  "bulkMoveToStatusDialog": {
+    "title": "{{count}}件のタスクを移動",
+    "description": "選択したタスクの移動先ステータスを選択してください。",
+    "statusLabel": "ステータス",
+    "selectPlaceholder": "ステータスを選択",
+    "movingTo": "{{count}}件のタスクを{{status}}に移動します。",
+    "updating": "移動中...",
+    "update": "{{count}}件のタスクを移動",
+    "errors": {
+      "selectStatus": "続行するにはステータスを選択してください。",
+      "updateFailed": "タスクのステータス更新に失敗しました"
+    }
+  },
+  "deleteTaskDialog": {
+    "title": "タスクを削除",
+    "bulkTitle_one": "選択したタスクを削除",
+    "bulkTitle_other": "{{count}}件のタスクを削除",
+    "description": "「{{title}}」を削除してもよろしいですか？",
+    "bulkDescription_one": "選択したタスクを削除してもよろしいですか？",
+    "bulkDescription_other": "選択した{{count}}件のタスクを削除してもよろしいですか？",
+    "warningLabel": "警告:",
+    "warning": "この操作はタスクを完全に削除し、元に戻せません。",
+    "bulkWarning_one": "この操作は選択したタスクを完全に削除し、元に戻せません。",
+    "bulkWarning_other": "この操作は選択したタスクを完全に削除し、元に戻せません。",
+    "deleting": "削除中...",
+    "deleteAction": "タスクを削除",
+    "bulkDeleteAction": "タスクを削除",
+    "errors": {
+      "missingTarget": "削除するタスクが選択されていません。"
     }
   }
 }

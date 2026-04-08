@@ -6,7 +6,9 @@
     "selectedCount_one": "{{count}}개 작업 선택됨",
     "selectedCount_other": "{{count}}개 작업 선택됨",
     "createAttempts": "시도 생성",
-    "clearSelection": "지우기"
+    "clearSelection": "지우기",
+    "moveToStatus": "상태로 이동",
+    "deleteTasks": "삭제"
   },
   "filters": {
     "sharedToggleAria": "공유 작업 전환",
@@ -542,6 +544,37 @@
     },
     "buttons": {
       "retry": "재시도"
+    }
+  },
+  "bulkMoveToStatusDialog": {
+    "title": "{{count}}개 작업 이동",
+    "description": "선택한 작업의 대상 상태를 선택하세요.",
+    "statusLabel": "상태",
+    "selectPlaceholder": "상태 선택",
+    "movingTo": "{{count}}개 작업을 {{status}} 상태로 이동합니다.",
+    "updating": "이동 중...",
+    "update": "{{count}}개 작업 이동",
+    "errors": {
+      "selectStatus": "계속하려면 상태를 선택하세요.",
+      "updateFailed": "작업 상태를 업데이트하지 못했습니다"
+    }
+  },
+  "deleteTaskDialog": {
+    "title": "작업 삭제",
+    "bulkTitle_one": "선택한 작업 삭제",
+    "bulkTitle_other": "{{count}}개 작업 삭제",
+    "description": "\"{{title}}\" 작업을 삭제하시겠습니까?",
+    "bulkDescription_one": "선택한 작업을 삭제하시겠습니까?",
+    "bulkDescription_other": "선택한 {{count}}개 작업을 삭제하시겠습니까?",
+    "warningLabel": "경고:",
+    "warning": "이 작업은 해당 작업을 영구적으로 삭제하며 되돌릴 수 없습니다.",
+    "bulkWarning_one": "이 작업은 선택한 작업을 영구적으로 삭제하며 되돌릴 수 없습니다.",
+    "bulkWarning_other": "이 작업은 선택한 작업들을 영구적으로 삭제하며 되돌릴 수 없습니다.",
+    "deleting": "삭제 중...",
+    "deleteAction": "작업 삭제",
+    "bulkDeleteAction": "작업 삭제",
+    "errors": {
+      "missingTarget": "삭제할 작업이 선택되지 않았습니다."
     }
   }
 }

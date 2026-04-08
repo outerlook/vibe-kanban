@@ -14,7 +14,9 @@
     "createAttempts": "Create Attempts",
     "assignToGroup": "Assign to Group",
     "clearSelection": "Clear",
-    "mixedGroupsDisabled": "Selected tasks belong to different groups"
+    "mixedGroupsDisabled": "Selected tasks belong to different groups",
+    "moveToStatus": "Move to Status",
+    "deleteTasks": "Delete"
   },
   "filters": {
     "sharedToggleAria": "Toggle shared tasks",
@@ -659,6 +661,37 @@
     },
     "buttons": {
       "retry": "Retry"
+    }
+  },
+  "bulkMoveToStatusDialog": {
+    "title": "Move {{count}} tasks",
+    "description": "Choose a target status for the selected tasks.",
+    "statusLabel": "Status",
+    "selectPlaceholder": "Select a status",
+    "movingTo": "Move {{count}} tasks to {{status}}.",
+    "updating": "Moving...",
+    "update": "Move {{count}} tasks",
+    "errors": {
+      "selectStatus": "Select a status to continue.",
+      "updateFailed": "Failed to update task status"
+    }
+  },
+  "deleteTaskDialog": {
+    "title": "Delete Task",
+    "bulkTitle_one": "Delete selected task",
+    "bulkTitle_other": "Delete {{count}} tasks",
+    "description": "Are you sure you want to delete \"{{title}}\"?",
+    "bulkDescription_one": "Are you sure you want to delete the selected task?",
+    "bulkDescription_other": "Are you sure you want to delete these {{count}} selected tasks?",
+    "warningLabel": "Warning:",
+    "warning": "This action will permanently delete the task and cannot be undone.",
+    "bulkWarning_one": "This action will permanently delete the selected task and cannot be undone.",
+    "bulkWarning_other": "This action will permanently delete the selected tasks and cannot be undone.",
+    "deleting": "Deleting...",
+    "deleteAction": "Delete Task",
+    "bulkDeleteAction": "Delete Tasks",
+    "errors": {
+      "missingTarget": "No task was selected for deletion."
     }
   }
 }

@@ -106,6 +106,10 @@ export {
   type BulkAssignGroupDialogProps,
 } from './tasks/BulkAssignGroupDialog';
 export {
+  BulkMoveToStatusDialog,
+  type BulkMoveToStatusDialogProps,
+} from './tasks/BulkMoveToStatusDialog';
+export {
   MergeGroupDialog,
   type MergeGroupDialogProps,
 } from './tasks/MergeGroupDialog';

@@ -98,7 +98,11 @@ export function useTaskMutations(projectId?: string) {
       // Remove temp task and add real task
       if (context?.tempId && projectId) {
         removeTaskFromCache(queryClient, context.tempId, projectId, 'todo');
-        setTaskInCache(queryClient, createdTask as TaskWithAttemptStatus, projectId);
+        setTaskInCache(
+          queryClient,
+          createdTask as TaskWithAttemptStatus,
+          projectId
+        );
       }
 
       // Invalidate relationships if task has a parent
@@ -193,7 +197,12 @@ export function useTaskMutations(projectId?: string) {
 
       // Remove optimistic task from cache
       if (context?.tempId && projectId) {
-        removeTaskFromCache(queryClient, context.tempId, projectId, 'inprogress');
+        removeTaskFromCache(
+          queryClient,
+          context.tempId,
+          projectId,
+          'inprogress'
+        );
       }
     },
   });
@@ -331,7 +340,13 @@ export function useTaskMutations(projectId?: string) {
   });
 
   const bulkUpdateTaskStatus = useMutation({
-    mutationFn: ({ taskIds, status }: { taskIds: string[]; status: TaskStatus }) => {
+    mutationFn: ({
+      taskIds,
+      status,
+    }: {
+      taskIds: string[];
+      status: TaskStatus;
+    }) => {
       if (!projectId) {
         throw new Error('projectId is required for bulk task status updates');
       }
@@ -341,7 +356,10 @@ export function useTaskMutations(projectId?: string) {
         status,
       });
     },
-    onMutate: async ({ taskIds, status }): Promise<BulkUpdateTaskStatusContext | undefined> => {
+    onMutate: async ({
+      taskIds,
+      status,
+    }): Promise<BulkUpdateTaskStatusContext | undefined> => {
       if (!projectId) return undefined;
 
       await Promise.all(
@@ -397,6 +415,21 @@ export function useTaskMutations(projectId?: string) {
       if (!projectId) return;
 
       context?.previousTasks.forEach((task) => {
+        const currentTask = queryClient.getQueryData<Task>(
+          taskKeys.byId(task.id)
+        );
+
+        if (currentTask && currentTask.status !== task.status) {
+          moveTaskBetweenStatuses(
+            queryClient,
+            task as TaskWithAttemptStatus,
+            currentTask.status,
+            task.status,
+            projectId
+          );
+          return;
+        }
+
         setTaskInCache(queryClient, task as TaskWithAttemptStatus, projectId);
       });
     },
@@ -463,7 +496,8 @@ export function useTaskMutations(projectId?: string) {
       });
     },
     onSettled: (result, _error, taskIds) => {
-      const deletedTaskIds = result?.deletedTasks.map((task) => task.id) ?? taskIds;
+      const deletedTaskIds =
+        result?.deletedTasks.map((task) => task.id) ?? taskIds;
 
       deletedTaskIds.forEach((taskId) => {
         invalidateTaskQueries(queryClient, taskId, {

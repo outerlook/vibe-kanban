@@ -6,7 +6,9 @@
     "selectedCount_one": "{{count}} tarea seleccionada",
     "selectedCount_other": "{{count}} tareas seleccionadas",
     "createAttempts": "Crear intentos",
-    "clearSelection": "Limpiar"
+    "clearSelection": "Limpiar",
+    "moveToStatus": "Mover al estado",
+    "deleteTasks": "Eliminar"
   },
   "filters": {
     "sharedToggleAria": "Alternar tareas compartidas",
@@ -542,6 +544,37 @@
     },
     "buttons": {
       "retry": "Reintentar"
+    }
+  },
+  "bulkMoveToStatusDialog": {
+    "title": "Mover {{count}} tareas",
+    "description": "Elige un estado de destino para las tareas seleccionadas.",
+    "statusLabel": "Estado",
+    "selectPlaceholder": "Selecciona un estado",
+    "movingTo": "Mover {{count}} tareas a {{status}}.",
+    "updating": "Moviendo...",
+    "update": "Mover {{count}} tareas",
+    "errors": {
+      "selectStatus": "Selecciona un estado para continuar.",
+      "updateFailed": "No se pudo actualizar el estado de las tareas"
+    }
+  },
+  "deleteTaskDialog": {
+    "title": "Eliminar tarea",
+    "bulkTitle_one": "Eliminar tarea seleccionada",
+    "bulkTitle_other": "Eliminar {{count}} tareas",
+    "description": "¿Seguro que quieres eliminar \"{{title}}\"?",
+    "bulkDescription_one": "¿Seguro que quieres eliminar la tarea seleccionada?",
+    "bulkDescription_other": "¿Seguro que quieres eliminar estas {{count}} tareas seleccionadas?",
+    "warningLabel": "Advertencia:",
+    "warning": "Esta acción eliminará permanentemente la tarea y no se puede deshacer.",
+    "bulkWarning_one": "Esta acción eliminará permanentemente la tarea seleccionada y no se puede deshacer.",
+    "bulkWarning_other": "Esta acción eliminará permanentemente las tareas seleccionadas y no se puede deshacer.",
+    "deleting": "Eliminando...",
+    "deleteAction": "Eliminar tarea",
+    "bulkDeleteAction": "Eliminar tareas",
+    "errors": {
+      "missingTarget": "No se seleccionó ninguna tarea para eliminar."
     }
   }
 }
