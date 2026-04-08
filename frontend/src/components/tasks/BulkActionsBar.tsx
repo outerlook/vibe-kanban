@@ -70,11 +70,11 @@ export function BulkActionsBar() {
   };
 
   return createPortal(
-    <Card className="fixed bottom-8 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 px-4 py-3 shadow-lg border rounded-lg">
+    <Card className="fixed bottom-8 left-1/2 z-40 flex max-w-[calc(100vw-1rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-3 rounded-lg border px-4 py-3 shadow-lg">
       <span className="text-sm font-medium">
         {t('bulkActions.selectedCount', { count: selectedCount })}
       </span>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-center gap-2">
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>

@@ -6,9 +6,11 @@
     "selectedCount_one": "{{count}}개 작업 선택됨",
     "selectedCount_other": "{{count}}개 작업 선택됨",
     "createAttempts": "시도 생성",
+    "assignToGroup": "그룹에 할당",
     "clearSelection": "지우기",
     "moveToStatus": "상태로 이동",
-    "deleteTasks": "삭제"
+    "deleteTasks": "삭제",
+    "mixedGroupsDisabled": "선택한 작업이 서로 다른 그룹에 속해 있습니다"
   },
   "filters": {
     "sharedToggleAria": "공유 작업 전환",
@@ -574,7 +576,8 @@
     "deleteAction": "작업 삭제",
     "bulkDeleteAction": "작업 삭제",
     "errors": {
-      "missingTarget": "삭제할 작업이 선택되지 않았습니다."
+      "missingTarget": "삭제할 작업이 선택되지 않았습니다.",
+      "deleteFailed": "작업을 삭제하지 못했습니다"
     }
   }
 }

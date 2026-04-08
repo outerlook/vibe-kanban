@@ -691,7 +691,8 @@
     "deleteAction": "Delete Task",
     "bulkDeleteAction": "Delete Tasks",
     "errors": {
-      "missingTarget": "No task was selected for deletion."
+      "missingTarget": "No task was selected for deletion.",
+      "deleteFailed": "Failed to delete task"
     }
   }
 }

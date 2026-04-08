@@ -12,9 +12,11 @@
     "selectedCount_one": "已选择 {{count}} 个任务",
     "selectedCount_other": "已选择 {{count}} 个任务",
     "createAttempts": "创建尝试",
+    "assignToGroup": "分配到组",
     "clearSelection": "清除",
     "moveToStatus": "移动到状态",
-    "deleteTasks": "删除"
+    "deleteTasks": "删除",
+    "mixedGroupsDisabled": "所选任务属于不同的组"
   },
   "filters": {
     "sharedToggleAria": "切换共享任务",
@@ -574,7 +576,8 @@
     "deleteAction": "删除任务",
     "bulkDeleteAction": "删除任务",
     "errors": {
-      "missingTarget": "没有可删除的任务。"
+      "missingTarget": "没有可删除的任务。",
+      "deleteFailed": "删除任务失败"
     }
   }
 }

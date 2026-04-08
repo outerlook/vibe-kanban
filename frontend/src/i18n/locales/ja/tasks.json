@@ -6,9 +6,11 @@
     "selectedCount_one": "{{count}}件のタスクを選択中",
     "selectedCount_other": "{{count}}件のタスクを選択中",
     "createAttempts": "アテンプトを作成",
+    "assignToGroup": "グループに割り当て",
     "clearSelection": "クリア",
     "moveToStatus": "ステータスを変更",
-    "deleteTasks": "削除"
+    "deleteTasks": "削除",
+    "mixedGroupsDisabled": "選択したタスクは異なるグループに属しています"
   },
   "filters": {
     "sharedToggleAria": "共有タスクを切り替える",
@@ -574,7 +576,8 @@
     "deleteAction": "タスクを削除",
     "bulkDeleteAction": "タスクを削除",
     "errors": {
-      "missingTarget": "削除するタスクが選択されていません。"
+      "missingTarget": "削除するタスクが選択されていません。",
+      "deleteFailed": "タスクの削除に失敗しました"
     }
   }
 }

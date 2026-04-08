@@ -11,7 +11,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
 import { useTaskMutations } from '@/hooks';
-import { getErrorMessage } from '@/lib/modals';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
@@ -40,7 +39,7 @@ const DeleteTaskConfirmationDialogImpl =
 
         try {
           if (isBulkDelete) {
-            await bulkDeleteTasks.mutateAsync(taskIds);
+            await bulkDeleteTasks.mutateAsync({ taskIds });
           } else if (task) {
             await deleteTask.mutateAsync(task.id);
           } else {
@@ -50,13 +49,18 @@ const DeleteTaskConfirmationDialogImpl =
           modal.resolve();
           modal.hide();
         } catch (err: unknown) {
-          setError(getErrorMessage(err));
+          const errorMessage =
+            err instanceof Error
+              ? err.message
+              : t('deleteTaskDialog.errors.deleteFailed');
+          setError(errorMessage);
         } finally {
           setIsDeleting(false);
         }
       };
 
       const handleCancelDelete = () => {
+        if (isDeleting) return;
         modal.reject();
         modal.hide();
       };

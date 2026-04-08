@@ -6,9 +6,11 @@
     "selectedCount_one": "{{count}} tarea seleccionada",
     "selectedCount_other": "{{count}} tareas seleccionadas",
     "createAttempts": "Crear intentos",
+    "assignToGroup": "Asignar al grupo",
     "clearSelection": "Limpiar",
     "moveToStatus": "Mover al estado",
-    "deleteTasks": "Eliminar"
+    "deleteTasks": "Eliminar",
+    "mixedGroupsDisabled": "Las tareas seleccionadas pertenecen a diferentes grupos"
   },
   "filters": {
     "sharedToggleAria": "Alternar tareas compartidas",
@@ -574,7 +576,8 @@
     "deleteAction": "Eliminar tarea",
     "bulkDeleteAction": "Eliminar tareas",
     "errors": {
-      "missingTarget": "No se seleccionó ninguna tarea para eliminar."
+      "missingTarget": "No se seleccionó ninguna tarea para eliminar.",
+      "deleteFailed": "No se pudo eliminar la tarea"
     }
   }
 }

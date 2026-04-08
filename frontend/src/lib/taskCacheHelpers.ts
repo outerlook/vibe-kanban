@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
+import { TASK_STATUSES } from '@/constants/taskStatuses';
 import type {
   DeletedTaskSummary,
   TaskStatus,
@@ -86,6 +87,29 @@ export type StatusQueryData = {
     hasMore: boolean;
   };
 };
+
+export function findTaskInProjectCache(
+  queryClient: QueryClient,
+  projectId: string,
+  taskId: string
+): TaskWithAttemptStatus | undefined {
+  const cachedTask = queryClient.getQueryData<Task>(taskKeys.byId(taskId));
+  if (cachedTask) {
+    return cachedTask as TaskWithAttemptStatus;
+  }
+
+  for (const status of TASK_STATUSES) {
+    const statusData = queryClient.getQueryData<StatusQueryData>(
+      projectTasksKeys.byProjectAndStatus(projectId, status)
+    );
+    const task = statusData?.page.tasks.find((entry) => entry.id === taskId);
+    if (task) {
+      return task;
+    }
+  }
+
+  return undefined;
+}
 
 // ============================================================================
 // Cache Helper Functions

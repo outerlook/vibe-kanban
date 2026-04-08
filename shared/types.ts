@@ -122,15 +122,15 @@ export type SendMessageRequest = { content: string, variant: string | null, };
 
 export type MergeTaskGroupRequest = { target_group_id: string, };
 
-export type BulkDeleteTasksRequest = { taskIds: Array<string>, };
+export type BulkDeleteTasksRequest = { project_id: string, task_ids: Array<string>, };
 
-export type BulkDeleteTasksResponse = { deletedTasks: Array<DeletedTaskSummary>, };
+export type BulkDeleteTasksResponse = { deleted_tasks: Array<DeletedTaskSummary>, };
 
-export type BulkUpdateTaskStatusRequest = { taskIds: Array<string>, status: TaskStatus, };
+export type BulkUpdateTaskStatusRequest = { project_id: string, task_ids: Array<string>, status: TaskStatus, };
 
 export type BulkUpdateTaskStatusResponse = { tasks: Array<Task>, };
 
-export type DeletedTaskSummary = { id: string, projectId: string, status: TaskStatus, };
+export type DeletedTaskSummary = { id: string, project_id: string, status: TaskStatus, };
 
 export type CreateTask = { project_id: string, title: string, description: string | null, status: TaskStatus | null, parent_workspace_id: string | null, image_ids: Array<string> | null, shared_task_id: string | null, task_group_id: string | null, };
 

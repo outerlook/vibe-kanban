@@ -355,6 +355,35 @@ impl Task {
         query_builder.build_query_as::<Task>().fetch_all(pool).await
     }
 
+    pub async fn find_by_project_id_and_ids(
+        pool: &SqlitePool,
+        project_id: Uuid,
+        task_ids: &[Uuid],
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut query_builder: QueryBuilder<Sqlite> = QueryBuilder::new(
+            r#"SELECT id, project_id, title, description, status, parent_workspace_id,
+                      shared_task_id, task_group_id, created_at, updated_at, is_blocked,
+                      has_in_progress_attempt, last_attempt_failed, is_queued, last_executor,
+                      needs_attention
+               FROM tasks
+               WHERE project_id = "#,
+        );
+        query_builder.push_bind(project_id);
+        query_builder.push(" AND id IN (");
+
+        let mut separated = query_builder.separated(", ");
+        for id in task_ids {
+            separated.push_bind(id);
+        }
+        separated.push_unseparated(") ORDER BY created_at DESC");
+
+        query_builder.build_query_as::<Task>().fetch_all(pool).await
+    }
+
     pub async fn find_by_rowid(pool: &SqlitePool, rowid: i64) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
             Task,
@@ -492,6 +521,33 @@ impl Task {
         .execute(pool)
         .await?;
         Ok(())
+    }
+
+    pub async fn bulk_update_status(
+        pool: &SqlitePool,
+        project_id: Uuid,
+        task_ids: &[Uuid],
+        status: TaskStatus,
+    ) -> Result<u64, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let mut query_builder =
+            sqlx::QueryBuilder::new("UPDATE tasks SET status = ");
+        query_builder.push_bind(status);
+        query_builder.push(", updated_at = datetime('now', 'subsec') WHERE project_id = ");
+        query_builder.push_bind(project_id);
+        query_builder.push(" AND id IN (");
+
+        let mut separated = query_builder.separated(", ");
+        for id in task_ids {
+            separated.push_bind(id);
+        }
+        separated.push_unseparated(")");
+
+        let result = query_builder.build().execute(pool).await?;
+        Ok(result.rows_affected())
     }
 
     /// Update the needs_attention field for a task.

@@ -98,26 +98,12 @@ pub struct SearchTasksResponse {
 }
 
 #[derive(Debug, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct BulkUpdateTaskStatusRequest {
-    pub task_ids: Vec<Uuid>,
-    pub status: TaskStatus,
-}
-
-#[derive(Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct BulkUpdateTaskStatusResponse {
-    pub tasks: Vec<Task>,
-}
-
-#[derive(Debug, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
 pub struct BulkDeleteTasksRequest {
+    pub project_id: Uuid,
     pub task_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
 pub struct DeletedTaskSummary {
     pub id: Uuid,
     pub project_id: Uuid,
@@ -125,9 +111,33 @@ pub struct DeletedTaskSummary {
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
 pub struct BulkDeleteTasksResponse {
     pub deleted_tasks: Vec<DeletedTaskSummary>,
+}
+
+#[derive(Debug, Deserialize, TS)]
+pub struct BulkUpdateTaskStatusRequest {
+    pub project_id: Uuid,
+    pub task_ids: Vec<Uuid>,
+    pub status: TaskStatus,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct BulkUpdateTaskStatusResponse {
+    pub tasks: Vec<Task>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectBulkDeleteTasksRequest {
+    pub task_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectBulkUpdateTaskStatusRequest {
+    pub task_ids: Vec<Uuid>,
+    pub status: TaskStatus,
 }
 
 #[derive(Debug, Clone)]
@@ -866,12 +876,12 @@ pub async fn delete_task(
 }
 
 pub async fn bulk_update_task_status(
-    Extension(project): Extension<Project>,
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<BulkUpdateTaskStatusRequest>,
 ) -> Result<ResponseJson<ApiResponse<BulkUpdateTaskStatusResponse>>, ApiError> {
     let task_ids = validate_bulk_task_ids(&payload.task_ids)?;
-    let existing_tasks = load_project_tasks(&deployment.db().pool, project.id, &task_ids).await?;
+    let existing_tasks =
+        load_project_tasks(&deployment.db().pool, payload.project_id, &task_ids).await?;
     ensure_shared_tasks_auth(&existing_tasks, &deployment).await?;
 
     let previous_statuses: HashMap<Uuid, TaskStatus> = existing_tasks
@@ -905,14 +915,11 @@ pub async fn bulk_update_task_status(
     }
 
     Ok(ResponseJson(ApiResponse::success(
-        BulkUpdateTaskStatusResponse {
-            tasks: updated_tasks,
-        },
+        BulkUpdateTaskStatusResponse { tasks: updated_tasks },
     )))
 }
 
 pub async fn bulk_delete_tasks(
-    Extension(project): Extension<Project>,
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<BulkDeleteTasksRequest>,
 ) -> Result<
@@ -923,7 +930,7 @@ pub async fn bulk_delete_tasks(
     ApiError,
 > {
     let task_ids = validate_bulk_task_ids(&payload.task_ids)?;
-    let tasks = load_project_tasks(&deployment.db().pool, project.id, &task_ids).await?;
+    let tasks = load_project_tasks(&deployment.db().pool, payload.project_id, &task_ids).await?;
     ensure_shared_tasks_auth(&tasks, &deployment).await?;
 
     let mut deletion_plans = Vec::with_capacity(tasks.len());
@@ -992,18 +999,57 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/search", post(search_tasks))
         .route("/stream/ws", get(stream_tasks_ws))
         .route("/create-and-start", post(create_task_and_start))
+        .route("/bulk-delete", post(bulk_delete_tasks))
+        .route("/bulk-update-status", post(bulk_update_task_status))
         .nest("/{task_id}", task_id_router);
 
     // mount under /projects/:project_id/tasks
     Router::new().nest("/tasks", inner)
 }
 
+async fn project_bulk_update_task_status(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<ProjectBulkUpdateTaskStatusRequest>,
+) -> Result<ResponseJson<ApiResponse<BulkUpdateTaskStatusResponse>>, ApiError> {
+    bulk_update_task_status(
+        State(deployment),
+        Json(BulkUpdateTaskStatusRequest {
+            project_id: project.id,
+            task_ids: payload.task_ids,
+            status: payload.status,
+        }),
+    )
+    .await
+}
+
+async fn project_bulk_delete_tasks(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<ProjectBulkDeleteTasksRequest>,
+) -> Result<
+    (
+        StatusCode,
+        ResponseJson<ApiResponse<BulkDeleteTasksResponse>>,
+    ),
+    ApiError,
+> {
+    bulk_delete_tasks(
+        State(deployment),
+        Json(BulkDeleteTasksRequest {
+            project_id: project.id,
+            task_ids: payload.task_ids,
+        }),
+    )
+    .await
+}
+
 pub fn project_router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     Router::new().nest(
         "/tasks",
         Router::new()
-            .route("/bulk/status", post(bulk_update_task_status))
-            .route("/bulk/delete", post(bulk_delete_tasks)),
+            .route("/bulk/status", post(project_bulk_update_task_status))
+            .route("/bulk/delete", post(project_bulk_delete_tasks)),
     )
 }
 

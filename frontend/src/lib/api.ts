@@ -18,6 +18,10 @@ import {
   CreateGitHubPrRequest,
   CreateTask,
   CreateAndStartTaskRequest,
+  BulkDeleteTasksRequest,
+  BulkDeleteTasksResponse,
+  BulkUpdateTaskStatusRequest,
+  BulkUpdateTaskStatusResponse,
   CreateTaskAttemptBody,
   CreateTag,
   CreateTaskGroup,
@@ -71,10 +75,6 @@ import {
   ListCustomEditorsResponse,
   AvailabilityInfo,
   BaseCodingAgent,
-  BulkDeleteTasksRequest,
-  BulkDeleteTasksResponse,
-  BulkUpdateTaskStatusRequest,
-  BulkUpdateTaskStatusResponse,
   RunAgentSetupRequest,
   RunAgentSetupResponse,
   GhCliSetupError,
@@ -655,16 +655,12 @@ export const tasksApi = {
   },
 
   bulkUpdateStatus: async (
-    projectId: string,
     data: BulkUpdateTaskStatusRequest
   ): Promise<BulkUpdateTaskStatusResponse> => {
-    const response = await makeRequest(
-      `/api/projects/${projectId}/tasks/bulk/status`,
-      {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }
-    );
+    const response = await makeRequest('/api/tasks/bulk-update-status', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
     return handleApiResponse<BulkUpdateTaskStatusResponse>(response);
   },
 
@@ -676,16 +672,12 @@ export const tasksApi = {
   },
 
   bulkDelete: async (
-    projectId: string,
     data: BulkDeleteTasksRequest
   ): Promise<BulkDeleteTasksResponse> => {
-    const response = await makeRequest(
-      `/api/projects/${projectId}/tasks/bulk/delete`,
-      {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }
-    );
+    const response = await makeRequest('/api/tasks/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
     return handleApiResponse<BulkDeleteTasksResponse>(response);
   },
 

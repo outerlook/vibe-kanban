@@ -22,7 +22,7 @@ import {
 import { TASK_STATUSES } from '@/constants/taskStatuses';
 import { useTaskMutations } from '@/hooks';
 import { defineModal, getErrorMessage } from '@/lib/modals';
-import { statusBoardColors, getTaskStatusLabel } from '@/utils/statusLabels';
+import { getTaskStatusLabel, statusBoardColors } from '@/utils/statusLabels';
 import type { TaskStatus } from 'shared/types';
 
 export interface BulkMoveToStatusDialogProps {
@@ -85,6 +85,7 @@ const BulkMoveToStatusDialogImpl =
     };
 
     const handleCancel = () => {
+      if (isLoading) return;
       modal.reject();
       modal.hide();
     };
