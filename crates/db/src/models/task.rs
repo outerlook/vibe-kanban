@@ -42,6 +42,12 @@ impl TaskOrderBy {
     }
 }
 
+// Dynamic SQLite queries do not preserve enough column type information for
+// nullable UUID filters, so we bind the raw 16-byte BLOB representation directly.
+fn sqlite_uuid_blob(uuid: Option<Uuid>) -> Option<Vec<u8>> {
+    uuid.map(|uuid| uuid.as_bytes().to_vec())
+}
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct Task {
     pub id: Uuid,
@@ -255,6 +261,7 @@ impl Task {
         offset: i64,
     ) -> Result<(Vec<TaskWithAttemptStatus>, i64), sqlx::Error> {
         let search_pattern = query.as_ref().map(|q| format!("%{}%", q));
+        let task_group_id_blob = sqlite_uuid_blob(task_group_id);
         let total = sqlx::query!(
             r#"SELECT COUNT(*) as "count!: i64"
                FROM tasks t
@@ -308,7 +315,7 @@ impl Task {
             .bind(limit)
             .bind(offset)
             .bind(search_pattern)
-            .bind(task_group_id)
+            .bind(task_group_id_blob)
             .fetch_all(pool)
             .await?;
 
@@ -639,6 +646,7 @@ impl Task {
 
         let escaped_query = Self::escape_fts5_query(trimmed_query);
         let status_str = status.map(|s| s.to_string().to_lowercase());
+        let task_group_id_blob = sqlite_uuid_blob(task_group_id);
 
         #[derive(FromRow)]
         struct FtsSearchRow {
@@ -693,7 +701,7 @@ LIMIT ?5"#,
         .bind(&escaped_query)
         .bind(project_id)
         .bind(status_str)
-        .bind(task_group_id)
+        .bind(task_group_id_blob)
         .bind(limit)
         .fetch_all(pool)
         .await?;
@@ -767,6 +775,7 @@ LIMIT ?5"#,
 
         let query_bytes = TaskEmbedding::serialize_embedding(query_embedding);
         let status_str = status.map(|s| s.to_string().to_lowercase());
+        let task_group_id_blob = sqlite_uuid_blob(task_group_id);
 
         // Hybrid search query:
         // - vector_scores: cosine similarity converted to 0-1 (1 = most similar)
@@ -903,7 +912,7 @@ LIMIT ?5"#,
                 .bind(project_id)
                 .bind(fts_query)
                 .bind(&status_str)
-                .bind(&task_group_id)
+                .bind(&task_group_id_blob)
                 .bind(limit)
                 .fetch_all(pool)
                 .await?
@@ -913,7 +922,7 @@ LIMIT ?5"#,
                 .bind(project_id)
                 .bind::<Option<String>>(None) // placeholder for ?3
                 .bind(&status_str)
-                .bind(&task_group_id)
+                .bind(&task_group_id_blob)
                 .bind(limit)
                 .fetch_all(pool)
                 .await?
@@ -1118,8 +1127,115 @@ LIMIT ?5"#,
 
 #[cfg(test)]
 mod tests {
+    use sqlx::sqlite::SqlitePoolOptions;
+
     use super::*;
-    use crate::models::embedding::EMBEDDING_DIMENSION;
+    use crate::models::{
+        embedding::{EMBEDDING_DIMENSION, TaskEmbedding},
+        project::{CreateProject, Project},
+        task_group::TaskGroup,
+    };
+
+    async fn setup_task_query_test_pool() -> SqlitePool {
+        crate::init_sqlite_vec();
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+
+        pool
+    }
+
+    async fn seed_group_filter_tasks(pool: &SqlitePool) -> (Uuid, Uuid, Uuid, Uuid, Uuid) {
+        let project_id = Uuid::new_v4();
+        Project::create(
+            pool,
+            &CreateProject {
+                name: "Task group filter regression".to_string(),
+                repositories: Vec::new(),
+            },
+            project_id,
+        )
+        .await
+        .unwrap();
+
+        let target_group =
+            TaskGroup::create(pool, project_id, "Target group".to_string(), None, None)
+                .await
+                .unwrap();
+        let other_group =
+            TaskGroup::create(pool, project_id, "Other group".to_string(), None, None)
+                .await
+                .unwrap();
+
+        let grouped_task = Task::create(
+            pool,
+            &CreateTask {
+                project_id,
+                title: "shared keyword target".to_string(),
+                description: Some("regression needle".to_string()),
+                status: Some(TaskStatus::Todo),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: Some(target_group.id),
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        let other_group_task = Task::create(
+            pool,
+            &CreateTask {
+                project_id,
+                title: "shared keyword other".to_string(),
+                description: Some("regression needle".to_string()),
+                status: Some(TaskStatus::Todo),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: Some(other_group.id),
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        let ungrouped_task = Task::create(
+            pool,
+            &CreateTask {
+                project_id,
+                title: "shared keyword ungrouped".to_string(),
+                description: Some("regression needle".to_string()),
+                status: Some(TaskStatus::Todo),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: None,
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        (
+            project_id,
+            target_group.id,
+            grouped_task.id,
+            other_group_task.id,
+            ungrouped_task.id,
+        )
+    }
 
     #[test]
     fn test_escape_fts5_query_simple() {
@@ -1222,6 +1338,106 @@ mod tests {
     fn test_hybrid_search_embedding_dimension_constant() {
         // Ensure embedding dimension matches expected BGE-small-en-v1.5 size
         assert_eq!(EMBEDDING_DIMENSION, 384);
+    }
+
+    #[tokio::test]
+    async fn test_find_paginated_filters_by_nullable_task_group_id() {
+        let pool = setup_task_query_test_pool().await;
+        let (project_id, target_group_id, grouped_task_id, other_group_task_id, ungrouped_task_id) =
+            seed_group_filter_tasks(&pool).await;
+
+        let (all_tasks, all_total) = Task::find_paginated_by_project_id_with_attempt_status(
+            &pool,
+            project_id,
+            None,
+            None,
+            None,
+            TaskOrderBy::CreatedAtAsc,
+            10,
+            0,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(all_total, 3);
+        let all_ids: Vec<Uuid> = all_tasks.into_iter().map(|task| task.id).collect();
+        assert!(all_ids.contains(&grouped_task_id));
+        assert!(all_ids.contains(&other_group_task_id));
+        assert!(all_ids.contains(&ungrouped_task_id));
+
+        let (filtered_tasks, filtered_total) =
+            Task::find_paginated_by_project_id_with_attempt_status(
+                &pool,
+                project_id,
+                None,
+                None,
+                Some(target_group_id),
+                TaskOrderBy::CreatedAtAsc,
+                10,
+                0,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(filtered_total, 1);
+        assert_eq!(filtered_tasks.len(), 1);
+        assert_eq!(filtered_tasks[0].id, grouped_task_id);
+    }
+
+    #[tokio::test]
+    async fn test_search_fts_filters_by_nullable_task_group_id() {
+        let pool = setup_task_query_test_pool().await;
+        let (project_id, target_group_id, grouped_task_id, _, _) =
+            seed_group_filter_tasks(&pool).await;
+
+        let results = Task::search_fts(
+            &pool,
+            project_id,
+            "shared keyword",
+            None,
+            Some(target_group_id),
+            10,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0.id, grouped_task_id);
+    }
+
+    #[tokio::test]
+    async fn test_search_hybrid_filters_by_nullable_task_group_id() {
+        let pool = setup_task_query_test_pool().await;
+        TaskEmbedding::ensure_table_exists(&pool).await.unwrap();
+
+        let (project_id, target_group_id, grouped_task_id, other_group_task_id, ungrouped_task_id) =
+            seed_group_filter_tasks(&pool).await;
+
+        let embedding = vec![0.1; EMBEDDING_DIMENSION];
+        for task_id in [grouped_task_id, other_group_task_id, ungrouped_task_id] {
+            let rowid = TaskEmbedding::get_task_rowid(&pool, task_id)
+                .await
+                .unwrap()
+                .unwrap();
+            TaskEmbedding::upsert(&pool, rowid, &embedding)
+                .await
+                .unwrap();
+        }
+
+        let results = Task::search_hybrid(
+            &pool,
+            project_id,
+            &embedding,
+            "shared keyword",
+            None,
+            Some(target_group_id),
+            10,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0.id, grouped_task_id);
     }
 }
 
