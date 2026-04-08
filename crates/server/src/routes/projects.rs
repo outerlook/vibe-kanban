@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use anyhow;
 use axum::{
@@ -12,6 +12,8 @@ use axum::{
     response::{IntoResponse, Json as ResponseJson},
     routing::{get, post},
 };
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use chrono::{DateTime, Utc};
 use db::models::{
     project::{
         CreateProject, Project, ProjectError, ProjectWithTaskCounts, SearchResult, UpdateProject,
@@ -26,8 +28,11 @@ use serde::{Deserialize, Serialize};
 use services::services::{
     file_search_cache::SearchQuery,
     github::{GitHubService, GitHubServiceError, UnifiedPrComment},
-    github_client::GitHubClient,
-    pr_cache::{PrWithComments, ProjectPrsResponse, RepoPrs},
+    github_client::{GitHubClient, GitHubClientError, PullRequestSummary},
+    pr_cache::{
+        ProjectPrPage, ProjectPrPageCacheKey, ProjectPrPageResponse, ProjectPrSummary,
+        ProjectRepoPrPage,
+    },
     project::ProjectServiceError,
     remote_client::CreateRemoteProjectPayload,
 };
@@ -76,6 +81,183 @@ pub struct WorktreeInfo {
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct ProjectWorktreesResponse {
     pub worktrees: Vec<WorktreeInfo>,
+}
+
+const DEFAULT_PROJECT_PRS_LIMIT: usize = 25;
+const MAX_PROJECT_PRS_LIMIT: usize = 100;
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS, Default)]
+pub struct GetProjectPrPageQuery {
+    pub cursor: Option<String>,
+    pub limit: Option<usize>,
+    pub base_branch: Option<String>,
+    pub search: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+struct ProjectPrCursor {
+    pub updated_at: DateTime<Utc>,
+    pub repo_id: Uuid,
+    pub pr_number: u64,
+}
+
+#[derive(Debug, Clone)]
+struct NormalizedProjectPrPageQuery {
+    cache_key: ProjectPrPageCacheKey,
+    cursor: Option<ProjectPrCursor>,
+}
+
+#[derive(Debug, Clone)]
+struct ProjectPrRecord {
+    repo_id: Uuid,
+    repo_name: String,
+    display_name: String,
+    pr: PullRequestSummary,
+}
+
+impl GetProjectPrPageQuery {
+    fn normalize(self, project_id: Uuid) -> Result<NormalizedProjectPrPageQuery, ApiError> {
+        let limit = self
+            .limit
+            .unwrap_or(DEFAULT_PROJECT_PRS_LIMIT)
+            .clamp(1, MAX_PROJECT_PRS_LIMIT);
+        let base_branch = normalize_optional_filter(self.base_branch);
+        let search = normalize_optional_filter(self.search).map(|term| term.to_lowercase());
+        let cursor = self
+            .cursor
+            .as_deref()
+            .map(decode_project_pr_cursor)
+            .transpose()?;
+        let canonical_cursor = cursor.as_ref().map(encode_project_pr_cursor).transpose()?;
+
+        Ok(NormalizedProjectPrPageQuery {
+            cache_key: ProjectPrPageCacheKey {
+                project_id,
+                cursor: canonical_cursor,
+                limit,
+                base_branch,
+                search,
+            },
+            cursor,
+        })
+    }
+}
+
+fn normalize_optional_filter(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn encode_project_pr_cursor(cursor: &ProjectPrCursor) -> Result<String, ApiError> {
+    let payload = serde_json::to_vec(cursor)
+        .map_err(|e| ApiError::Internal(format!("Failed to encode PR cursor: {e}")))?;
+    Ok(URL_SAFE_NO_PAD.encode(payload))
+}
+
+fn decode_project_pr_cursor(cursor: &str) -> Result<ProjectPrCursor, ApiError> {
+    let payload = URL_SAFE_NO_PAD
+        .decode(cursor)
+        .map_err(|_| ApiError::BadRequest("Invalid PR cursor".to_string()))?;
+    serde_json::from_slice(&payload)
+        .map_err(|_| ApiError::BadRequest("Invalid PR cursor".to_string()))
+}
+
+fn compare_project_prs(left: &ProjectPrRecord, right: &ProjectPrRecord) -> std::cmp::Ordering {
+    right
+        .pr
+        .updated_at
+        .cmp(&left.pr.updated_at)
+        .then_with(|| left.repo_id.cmp(&right.repo_id))
+        .then_with(|| left.pr.number.cmp(&right.pr.number))
+}
+
+fn is_after_cursor(pr: &ProjectPrRecord, cursor: &ProjectPrCursor) -> bool {
+    pr.pr.updated_at < cursor.updated_at
+        || (pr.pr.updated_at == cursor.updated_at
+            && (pr.repo_id > cursor.repo_id
+                || (pr.repo_id == cursor.repo_id && pr.pr.number > cursor.pr_number)))
+}
+
+fn paginate_project_prs(
+    mut prs: Vec<ProjectPrRecord>,
+    cursor: Option<&ProjectPrCursor>,
+    limit: usize,
+) -> Result<ProjectPrPageResponse, ApiError> {
+    prs.sort_by(compare_project_prs);
+
+    let start_index = cursor
+        .and_then(|cursor| prs.iter().position(|pr| is_after_cursor(pr, cursor)))
+        .unwrap_or(0);
+
+    let page_slice = prs
+        .into_iter()
+        .skip(start_index)
+        .take(limit + 1)
+        .collect::<Vec<_>>();
+    let has_more = page_slice.len() > limit;
+    let page_items = if has_more {
+        page_slice[..limit].to_vec()
+    } else {
+        page_slice
+    };
+    let next_cursor = page_items
+        .last()
+        .filter(|_| has_more)
+        .map(|last| {
+            encode_project_pr_cursor(&ProjectPrCursor {
+                updated_at: last.pr.updated_at,
+                repo_id: last.repo_id,
+                pr_number: last.pr.number,
+            })
+        })
+        .transpose()?;
+
+    Ok(ProjectPrPageResponse {
+        repos: group_project_prs_by_repo(page_items),
+        page: ProjectPrPage {
+            limit,
+            next_cursor,
+            has_more,
+        },
+    })
+}
+
+fn group_project_prs_by_repo(prs: Vec<ProjectPrRecord>) -> Vec<ProjectRepoPrPage> {
+    let mut grouped = Vec::new();
+    let mut repo_indices = HashMap::new();
+
+    for record in prs {
+        let repo_index = if let Some(index) = repo_indices.get(&record.repo_id) {
+            *index
+        } else {
+            let index = grouped.len();
+            grouped.push(ProjectRepoPrPage {
+                repo_id: record.repo_id,
+                repo_name: record.repo_name.clone(),
+                display_name: record.display_name.clone(),
+                pull_requests: Vec::new(),
+            });
+            repo_indices.insert(record.repo_id, index);
+            index
+        };
+
+        grouped[repo_index].pull_requests.push(ProjectPrSummary {
+            pr: record.pr,
+            unresolved_count: None,
+        });
+    }
+
+    grouped
+}
+
+fn map_github_client_error(context: &str, error: GitHubClientError) -> ApiError {
+    ApiError::Internal(format!("{context}: {error}"))
 }
 
 pub async fn get_projects(
@@ -590,41 +772,45 @@ pub async fn update_project_repository(
     }
 }
 
-/// GET /api/projects/:id/prs - Get open PRs across all repos, filtered by task group base branches.
+/// GET /api/projects/:id/prs - Get one filtered PR overview page for the project.
 ///
-/// Uses server-side caching with 2-minute TTL to reduce GitHub API calls.
+/// Each request returns a single page plus cursor metadata and is cached per page identity.
 pub async fn get_project_prs(
     Extension(project): Extension<Project>,
     State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<ProjectPrsResponse>>, ApiError> {
+    Query(query): Query<GetProjectPrPageQuery>,
+) -> Result<ResponseJson<ApiResponse<ProjectPrPageResponse>>, ApiError> {
+    let request = query.normalize(project.id)?;
+
     // Check cache first
-    if let Some(cached) = deployment.pr_cache().get(project.id).await {
-        tracing::debug!("Cache hit for project {} PRs", project.id);
+    if let Some(cached) = deployment.pr_cache().get(&request.cache_key).await {
+        tracing::debug!("Cache hit for project {} PR overview page", project.id);
         return Ok(ResponseJson(ApiResponse::success(cached)));
     }
 
     tracing::debug!(
-        "Cache miss for project {} PRs, fetching from GitHub",
+        "Cache miss for project {} PR overview page, fetching from GitHub",
         project.id
     );
 
     // Fetch fresh data from GitHub
-    let response = fetch_project_prs_from_github(&project, &deployment).await?;
+    let response = fetch_project_pr_page_from_github(&project, &deployment, &request).await?;
 
     // Store in cache
     deployment
         .pr_cache()
-        .insert(project.id, response.clone())
+        .insert(request.cache_key, response.clone())
         .await;
 
     Ok(ResponseJson(ApiResponse::success(response)))
 }
 
-/// Fetch PR data from GitHub API (internal helper for cache miss)
-async fn fetch_project_prs_from_github(
+/// Fetch one PR overview page from the GitHub API after a cache miss.
+async fn fetch_project_pr_page_from_github(
     project: &Project,
     deployment: &DeploymentImpl,
-) -> Result<ProjectPrsResponse, ApiError> {
+    request: &NormalizedProjectPrPageQuery,
+) -> Result<ProjectPrPageResponse, ApiError> {
     let pool = &deployment.db().pool;
 
     // Load GitHub token from settings
@@ -640,7 +826,27 @@ async fn fetch_project_prs_from_github(
 
     // If no base branches, return empty response
     if base_branches.is_empty() {
-        return Ok(ProjectPrsResponse { repos: vec![] });
+        return Ok(ProjectPrPageResponse {
+            repos: vec![],
+            page: ProjectPrPage {
+                limit: request.cache_key.limit,
+                next_cursor: None,
+                has_more: false,
+            },
+        });
+    }
+
+    if let Some(base_branch) = request.cache_key.base_branch.as_deref()
+        && !base_branches.iter().any(|branch| branch == base_branch)
+    {
+        return Ok(ProjectPrPageResponse {
+            repos: vec![],
+            page: ProjectPrPage {
+                limit: request.cache_key.limit,
+                next_cursor: None,
+                has_more: false,
+            },
+        });
     }
 
     // Get project repositories
@@ -650,7 +856,7 @@ async fn fetch_project_prs_from_github(
         .await?;
 
     let git_service = deployment.git();
-    let mut repo_prs_list = Vec::new();
+    let mut all_prs = Vec::new();
 
     for repo in repositories {
         // Get GitHub repo info from remote URL
@@ -667,66 +873,45 @@ async fn fetch_project_prs_from_github(
             }
         };
 
-        // Fetch PRs for all head branches in parallel
-        let pr_futures = base_branches.iter().map(|head_branch| {
-            let head_ref = format!("{}:{}", repo_info.owner, head_branch);
-            let owner = repo_info.owner.clone();
-            let repo_name = repo_info.repo_name.clone();
-            let client = &github_client;
-            async move {
-                let result = client
-                    .list_open_prs_by_head(&owner, &repo_name, &head_ref)
-                    .await;
-                (head_branch.clone(), result)
-            }
+        let repo_prs = github_client
+            .list_open_prs(&repo_info.owner, &repo_info.repo_name)
+            .await
+            .map_err(|e| {
+                map_github_client_error(
+                    &format!(
+                        "Failed to fetch PRs for {}/{}",
+                        repo_info.owner, repo_info.repo_name
+                    ),
+                    e,
+                )
+            })?;
+
+        let filtered_repo_prs = repo_prs.into_iter().filter(|pr| {
+            let matches_base_branch = request
+                .cache_key
+                .base_branch
+                .as_deref()
+                .map(|branch| pr.base_branch == branch)
+                .unwrap_or_else(|| base_branches.iter().any(|branch| branch == &pr.base_branch));
+            let matches_search = request
+                .cache_key
+                .search
+                .as_deref()
+                .map(|search| pr.title.to_lowercase().contains(search))
+                .unwrap_or(true);
+
+            matches_base_branch && matches_search
         });
 
-        let pr_results = futures_util::future::join_all(pr_futures).await;
-
-        let mut all_prs = Vec::new();
-        for (head_branch, result) in pr_results {
-            match result {
-                Ok(prs) => {
-                    all_prs.extend(prs);
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to fetch PRs for {}/{} (head: {}): {}",
-                        repo_info.owner,
-                        repo_info.repo_name,
-                        head_branch,
-                        e
-                    );
-                }
-            }
-        }
-
-        // Skip repos with no PRs
-        if all_prs.is_empty() {
-            continue;
-        }
-
-        // Return PRs with null unresolved_count for progressive loading
-        // (counts are fetched separately via /prs/unresolved-counts)
-        let prs_with_comments: Vec<PrWithComments> = all_prs
-            .into_iter()
-            .map(|pr| PrWithComments {
-                pr,
-                unresolved_count: None,
-            })
-            .collect();
-
-        repo_prs_list.push(RepoPrs {
+        all_prs.extend(filtered_repo_prs.map(|pr| ProjectPrRecord {
             repo_id: repo.id,
             repo_name: repo.name.clone(),
             display_name: repo.display_name.clone(),
-            pull_requests: prs_with_comments,
-        });
+            pr,
+        }));
     }
 
-    Ok(ProjectPrsResponse {
-        repos: repo_prs_list,
-    })
+    paginate_project_prs(all_prs, request.cursor.as_ref(), request.cache_key.limit)
 }
 
 /// POST /api/projects/:id/prs/invalidate - Invalidate the PR cache for this project.
@@ -753,12 +938,30 @@ pub struct PrUnresolvedCountsResponse {
     pub counts: Vec<PrUnresolvedCount>,
 }
 
-/// GET /api/projects/:id/prs/unresolved-counts - Fetch unresolved comment counts for all PRs.
-/// This endpoint is designed to be called after /prs to progressively load the counts.
+/// GET /api/projects/:id/prs/unresolved-counts - Fetch unresolved comment counts for one loaded overview page.
+/// This endpoint only resolves counts for the cached page identity returned by `/prs`.
 pub async fn get_project_prs_unresolved_counts(
     Extension(project): Extension<Project>,
     State(deployment): State<DeploymentImpl>,
+    Query(query): Query<GetProjectPrPageQuery>,
 ) -> Result<ResponseJson<ApiResponse<PrUnresolvedCountsResponse>>, ApiError> {
+    let request = query.normalize(project.id)?;
+    let cached_page = deployment
+        .pr_cache()
+        .get(&request.cache_key)
+        .await
+        .ok_or_else(|| {
+            ApiError::BadRequest(
+                "PR page must be loaded from /prs before requesting unresolved counts".to_string(),
+            )
+        })?;
+
+    if cached_page.repos.is_empty() {
+        return Ok(ResponseJson(ApiResponse::success(
+            PrUnresolvedCountsResponse { counts: vec![] },
+        )));
+    }
+
     let pool = &deployment.db().pool;
 
     // Load GitHub token from settings
@@ -769,85 +972,61 @@ pub async fn get_project_prs_unresolved_counts(
     let github_client = GitHubClient::new(token)
         .map_err(|e| ApiError::Internal(format!("Failed to create GitHub client: {}", e)))?;
 
-    // Get unique base branches from task groups
-    let base_branches = TaskGroup::get_unique_base_branches(pool, project.id).await?;
-
-    // If no base branches, return empty response
-    if base_branches.is_empty() {
-        return Ok(ResponseJson(ApiResponse::success(
-            PrUnresolvedCountsResponse { counts: vec![] },
-        )));
-    }
-
-    // Get project repositories
     let repositories = deployment
         .project()
         .get_repositories(pool, project.id)
         .await?;
+    let repositories_by_id = repositories
+        .into_iter()
+        .map(|repo| (repo.id, repo))
+        .collect::<HashMap<_, _>>();
 
     let git_service = deployment.git();
     let mut all_counts = Vec::new();
 
-    for repo in repositories {
-        // Get GitHub repo info from remote URL
-        let repo_info = match git_service.get_github_repo_info(&repo.path) {
-            Ok(info) => info,
-            Err(e) => {
-                tracing::warn!(
-                    "Skipping repo {} ({}): failed to get GitHub info: {}",
-                    repo.name,
-                    repo.path.display(),
-                    e
-                );
-                continue;
-            }
-        };
+    for repo_page in cached_page.repos {
+        let repo = repositories_by_id.get(&repo_page.repo_id).ok_or_else(|| {
+            ApiError::Internal(format!(
+                "Cached PR page referenced unknown project repository {}",
+                repo_page.repo_id
+            ))
+        })?;
 
-        // Fetch PRs for all head branches in parallel to get PR numbers
-        let pr_futures = base_branches.iter().map(|head_branch| {
-            let head_ref = format!("{}:{}", repo_info.owner, head_branch);
-            let owner = repo_info.owner.clone();
-            let repo_name = repo_info.repo_name.clone();
-            let client = &github_client;
-            async move {
-                client
-                    .list_open_prs_by_head(&owner, &repo_name, &head_ref)
-                    .await
-            }
-        });
+        let repo_info = git_service.get_github_repo_info(&repo.path).map_err(|e| {
+            ApiError::Internal(format!(
+                "Failed to resolve GitHub repository info for {} ({}): {}",
+                repo.name,
+                repo.path.display(),
+                e
+            ))
+        })?;
 
-        let pr_results = futures_util::future::join_all(pr_futures).await;
-
-        let mut pr_numbers: Vec<u64> = Vec::new();
-        for result in pr_results {
-            if let Ok(prs) = result {
-                pr_numbers.extend(prs.iter().map(|pr| pr.number));
-            }
-        }
+        let pr_numbers = repo_page
+            .pull_requests
+            .iter()
+            .map(|pr| pr.pr.number)
+            .collect::<Vec<_>>();
 
         if pr_numbers.is_empty() {
             continue;
         }
 
-        // Batch fetch unresolved counts for all PRs in this repo
         let unresolved_counts = github_client
             .get_unresolved_thread_counts_batch(&repo_info.owner, &repo_info.repo_name, &pr_numbers)
             .await
-            .unwrap_or_else(|e| {
-                tracing::warn!(
-                    "Failed to batch fetch unresolved threads for {}/{}: {}",
-                    repo_info.owner,
-                    repo_info.repo_name,
-                    e
-                );
-                // Return 0 for all PRs on failure
-                pr_numbers.iter().map(|&num| (num, 0)).collect()
-            });
+            .map_err(|e| {
+                map_github_client_error(
+                    &format!(
+                        "Failed to fetch unresolved thread counts for {}/{}",
+                        repo_info.owner, repo_info.repo_name
+                    ),
+                    e,
+                )
+            })?;
 
-        // Add counts for this repo
         for (pr_number, count) in unresolved_counts {
             all_counts.push(PrUnresolvedCount {
-                repo_id: repo.id,
+                repo_id: repo_page.repo_id,
                 pr_number,
                 unresolved_count: count,
             });
@@ -1103,4 +1282,139 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         "/remote-projects/{remote_project_id}",
         get(get_remote_project_by_id),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::TimeZone;
+    use serde_json::json;
+
+    use super::*;
+
+    fn sample_pr_record(
+        repo_id: Uuid,
+        repo_name: &str,
+        display_name: &str,
+        pr_number: u64,
+        updated_at: DateTime<Utc>,
+        title: &str,
+    ) -> ProjectPrRecord {
+        ProjectPrRecord {
+            repo_id,
+            repo_name: repo_name.to_string(),
+            display_name: display_name.to_string(),
+            pr: PullRequestSummary {
+                number: pr_number,
+                title: title.to_string(),
+                url: format!("https://example.com/pr/{pr_number}"),
+                author: "octocat".to_string(),
+                head_branch: format!("feature-{pr_number}"),
+                base_branch: "main".to_string(),
+                created_at: updated_at,
+                updated_at,
+            },
+        }
+    }
+
+    #[test]
+    fn normalizes_project_pr_query_for_cache_identity() {
+        let project_id = Uuid::new_v4();
+        let normalized = GetProjectPrPageQuery {
+            cursor: None,
+            limit: Some(500),
+            base_branch: Some(" main ".to_string()),
+            search: Some(" Fix Login ".to_string()),
+        }
+        .normalize(project_id)
+        .unwrap();
+
+        assert_eq!(normalized.cache_key.project_id, project_id);
+        assert_eq!(normalized.cache_key.limit, MAX_PROJECT_PRS_LIMIT);
+        assert_eq!(normalized.cache_key.base_branch.as_deref(), Some("main"));
+        assert_eq!(normalized.cache_key.search.as_deref(), Some("fix login"));
+        assert!(normalized.cursor.is_none());
+    }
+
+    #[test]
+    fn rejects_invalid_project_pr_cursor() {
+        let error = GetProjectPrPageQuery {
+            cursor: Some("not-a-cursor".to_string()),
+            limit: None,
+            base_branch: None,
+            search: None,
+        }
+        .normalize(Uuid::new_v4())
+        .unwrap_err();
+
+        assert!(matches!(error, ApiError::BadRequest(message) if message == "Invalid PR cursor"));
+    }
+
+    #[test]
+    fn paginates_pull_requests_with_stable_cursor() {
+        let first_repo = Uuid::new_v4();
+        let second_repo = Uuid::new_v4();
+        let newer = Utc.with_ymd_and_hms(2026, 1, 4, 12, 0, 0).unwrap();
+        let middle = Utc.with_ymd_and_hms(2026, 1, 3, 12, 0, 0).unwrap();
+        let older = Utc.with_ymd_and_hms(2026, 1, 2, 12, 0, 0).unwrap();
+
+        let prs = vec![
+            sample_pr_record(first_repo, "repo-a", "Repo A", 11, middle, "Middle"),
+            sample_pr_record(second_repo, "repo-b", "Repo B", 12, older, "Older"),
+            sample_pr_record(first_repo, "repo-a", "Repo A", 10, newer, "Newest"),
+        ];
+
+        let first_page = paginate_project_prs(prs.clone(), None, 2).unwrap();
+        assert!(first_page.page.has_more);
+        assert_eq!(first_page.repos.len(), 1);
+        assert_eq!(first_page.repos[0].pull_requests.len(), 2);
+        assert_eq!(first_page.repos[0].pull_requests[0].pr.number, 10);
+        assert_eq!(first_page.repos[0].pull_requests[1].pr.number, 11);
+
+        let cursor =
+            decode_project_pr_cursor(first_page.page.next_cursor.as_deref().unwrap()).unwrap();
+        let second_page = paginate_project_prs(prs, Some(&cursor), 2).unwrap();
+
+        assert!(!second_page.page.has_more);
+        assert_eq!(second_page.repos.len(), 1);
+        assert_eq!(second_page.repos[0].repo_id, second_repo);
+        assert_eq!(second_page.repos[0].pull_requests[0].pr.number, 12);
+    }
+
+    #[test]
+    fn serializes_paginated_pr_response_shape() {
+        let repo_id = Uuid::new_v4();
+        let response = ProjectPrPageResponse {
+            repos: vec![ProjectRepoPrPage {
+                repo_id,
+                repo_name: "repo-a".to_string(),
+                display_name: "Repo A".to_string(),
+                pull_requests: vec![ProjectPrSummary {
+                    pr: PullRequestSummary {
+                        number: 42,
+                        title: "Fix login".to_string(),
+                        url: "https://example.com/pr/42".to_string(),
+                        author: "octocat".to_string(),
+                        head_branch: "feature/fix-login".to_string(),
+                        base_branch: "main".to_string(),
+                        created_at: Utc.with_ymd_and_hms(2026, 1, 1, 12, 0, 0).unwrap(),
+                        updated_at: Utc.with_ymd_and_hms(2026, 1, 2, 12, 0, 0).unwrap(),
+                    },
+                    unresolved_count: None,
+                }],
+            }],
+            page: ProjectPrPage {
+                limit: 25,
+                next_cursor: Some("cursor".to_string()),
+                has_more: true,
+            },
+        };
+
+        let json = serde_json::to_value(response).unwrap();
+        assert_eq!(
+            json["page"],
+            json!({ "limit": 25, "next_cursor": "cursor", "has_more": true })
+        );
+        assert_eq!(json["repos"][0]["repo_id"], json!(repo_id));
+        assert_eq!(json["repos"][0]["pull_requests"][0]["number"], json!(42));
+    }
 }

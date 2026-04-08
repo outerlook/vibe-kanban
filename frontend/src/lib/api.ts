@@ -137,10 +137,11 @@ import {
   ConversationMessagesPage,
   ConversationWithMessages,
   SendMessageResponse,
-  ProjectPrsResponse,
+  GetProjectPrPageQuery,
+  ProjectPrPageResponse,
   ProjectWorktreesResponse,
-  RepoPrs,
-  PrWithComments,
+  ProjectRepoPrPage,
+  ProjectPrSummary,
   PrUnresolvedCountsResponse,
   PrThreadsResponse,
   FeedbackResponse,
@@ -245,7 +246,14 @@ export async function refreshApiBaseUrl(): Promise<string> {
 }
 
 // Re-export PR types from shared for convenience
-export type { ProjectPrsResponse, RepoPrs, PrWithComments, PrUnresolvedCountsResponse, PrThreadsResponse };
+export type {
+  GetProjectPrPageQuery,
+  ProjectPrPageResponse,
+  ProjectRepoPrPage,
+  ProjectPrSummary,
+  PrUnresolvedCountsResponse,
+  PrThreadsResponse,
+};
 
 const makeRequest = async (url: string, options: RequestInit = {}) => {
   const baseUrl = await getApiBaseUrl();
@@ -527,16 +535,34 @@ export const projectsApi = {
     return handleApiResponse<ProjectRepo>(response);
   },
 
-  getPullRequests: async (projectId: string): Promise<ProjectPrsResponse> => {
-    const response = await makeRequest(`/api/projects/${projectId}/prs`);
-    return handleApiResponse<ProjectPrsResponse>(response);
+  getProjectPrPage: async (
+    projectId: string,
+    params?: GetProjectPrPageQuery
+  ): Promise<ProjectPrPageResponse> => {
+    const search = new URLSearchParams();
+    if (params?.cursor) search.set('cursor', params.cursor);
+    if (params?.limit) search.set('limit', String(params.limit));
+    if (params?.base_branch) search.set('base_branch', params.base_branch);
+    if (params?.search) search.set('search', params.search);
+
+    const response = await makeRequest(
+      `/api/projects/${projectId}/prs${search.size > 0 ? `?${search}` : ''}`
+    );
+    return handleApiResponse<ProjectPrPageResponse>(response);
   },
 
   getPullRequestUnresolvedCounts: async (
-    projectId: string
+    projectId: string,
+    params?: GetProjectPrPageQuery
   ): Promise<PrUnresolvedCountsResponse> => {
+    const search = new URLSearchParams();
+    if (params?.cursor) search.set('cursor', params.cursor);
+    if (params?.limit) search.set('limit', String(params.limit));
+    if (params?.base_branch) search.set('base_branch', params.base_branch);
+    if (params?.search) search.set('search', params.search);
+
     const response = await makeRequest(
-      `/api/projects/${projectId}/prs/unresolved-counts`
+      `/api/projects/${projectId}/prs/unresolved-counts${search.size > 0 ? `?${search}` : ''}`
     );
     return handleApiResponse<PrUnresolvedCountsResponse>(response);
   },

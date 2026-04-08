@@ -108,27 +108,33 @@ impl GitHubClient {
         &self.inner
     }
 
-    /// List open pull requests filtered by base branch.
-    ///
-    /// Fetches all pages of results for repos with many PRs.
-    pub async fn list_open_prs_by_base(
+    async fn list_open_prs_internal(
         &self,
         owner: &str,
         repo: &str,
-        base_branch: &str,
+        base_branch: Option<&str>,
+        head_ref: Option<&str>,
     ) -> Result<Vec<PullRequestSummary>, GitHubClientError> {
         let mut all_prs = Vec::new();
         let mut page_num = 1u32;
 
         loop {
-            let page = self
-                .inner
-                .pulls(owner, repo)
+            let pulls = self.inner.pulls(owner, repo);
+            let mut request = pulls
                 .list()
                 .state(params::State::Open)
-                .base(base_branch)
                 .per_page(100)
-                .page(page_num)
+                .page(page_num);
+
+            if let Some(base_branch) = base_branch {
+                request = request.base(base_branch);
+            }
+
+            if let Some(head_ref) = head_ref {
+                request = request.head(head_ref);
+            }
+
+            let page = request
                 .send()
                 .await
                 .map_err(|e| GitHubClientError::ApiError(e.to_string()))?;
@@ -155,14 +161,36 @@ impl GitHubClient {
                 all_prs.push(summary);
             }
 
-            // Check if there are more pages
             if page.next.is_none() {
                 break;
             }
+
             page_num += 1;
         }
 
         Ok(all_prs)
+    }
+
+    /// List all open pull requests for a repository.
+    pub async fn list_open_prs(
+        &self,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Vec<PullRequestSummary>, GitHubClientError> {
+        self.list_open_prs_internal(owner, repo, None, None).await
+    }
+
+    /// List open pull requests filtered by base branch.
+    ///
+    /// Fetches all pages of results for repos with many PRs.
+    pub async fn list_open_prs_by_base(
+        &self,
+        owner: &str,
+        repo: &str,
+        base_branch: &str,
+    ) -> Result<Vec<PullRequestSummary>, GitHubClientError> {
+        self.list_open_prs_internal(owner, repo, Some(base_branch), None)
+            .await
     }
 
     /// List open pull requests filtered by head branch.
@@ -175,52 +203,8 @@ impl GitHubClient {
         repo: &str,
         head_ref: &str,
     ) -> Result<Vec<PullRequestSummary>, GitHubClientError> {
-        let mut all_prs = Vec::new();
-        let mut page_num = 1u32;
-
-        loop {
-            let page = self
-                .inner
-                .pulls(owner, repo)
-                .list()
-                .state(params::State::Open)
-                .head(head_ref)
-                .per_page(100)
-                .page(page_num)
-                .send()
-                .await
-                .map_err(|e| GitHubClientError::ApiError(e.to_string()))?;
-
-            let items = page.items;
-            if items.is_empty() {
-                break;
-            }
-
-            for pr in items {
-                let summary = PullRequestSummary {
-                    number: pr.number,
-                    title: pr.title.unwrap_or_default(),
-                    url: pr.html_url.map(|u| u.to_string()).unwrap_or_default(),
-                    author: pr
-                        .user
-                        .map(|u| u.login)
-                        .unwrap_or_else(|| "unknown".to_string()),
-                    head_branch: pr.head.ref_field,
-                    base_branch: pr.base.ref_field,
-                    created_at: pr.created_at.unwrap_or_default(),
-                    updated_at: pr.updated_at.unwrap_or_default(),
-                };
-                all_prs.push(summary);
-            }
-
-            // Check if there are more pages
-            if page.next.is_none() {
-                break;
-            }
-            page_num += 1;
-        }
-
-        Ok(all_prs)
+        self.list_open_prs_internal(owner, repo, None, Some(head_ref))
+            .await
     }
 
     /// Get the count of unresolved review threads for a pull request.

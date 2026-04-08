@@ -1,6 +1,12 @@
-import { useState, useMemo, ReactNode } from 'react';
+import { useMemo, ReactNode, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { RefreshCw, GitPullRequest, Settings, FolderGit2 } from 'lucide-react';
+import {
+  RefreshCw,
+  GitPullRequest,
+  Settings,
+  FolderGit2,
+  Loader2,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
@@ -10,7 +16,8 @@ import {
   PrPanelSkeleton,
 } from '@/components/prs';
 import { useProject } from '@/contexts/ProjectContext';
-import { useProjectPrs, prKeys } from '@/hooks/useProjectPrs';
+import { useProjectPrPages, prKeys } from '@/hooks/useProjectPrPages';
+import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import { useProjectWorkspaces } from '@/hooks/useProjectWorkspaces';
 import { useTaskGroupStats } from '@/hooks/useTaskGroupStats';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -59,14 +66,27 @@ export function PrOverview() {
   const isMobile = !isDesktop;
 
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const { debounced: updateSearchQuery, cancel: cancelSearchQuery } =
+    useDebouncedCallback((value: string) => {
+      setSearchQuery(value.trim());
+    }, 250);
 
   const {
     data: prsResponse,
     isLoading: prsLoading,
+    isFetching: prsFetching,
+    isLoadingMore,
+    hasMore,
+    loadMore,
+    loadedCount,
     error: prsError,
     refetch,
-  } = useProjectPrs(projectId);
+  } = useProjectPrPages(projectId, {
+    baseBranch: selectedBranch,
+    search: searchQuery,
+  });
 
   const { data: taskGroups, isLoading: taskGroupsLoading } =
     useTaskGroupStats(projectId);
@@ -74,59 +94,56 @@ export function PrOverview() {
   const { data: workspaces, isLoading: workspacesLoading } =
     useProjectWorkspaces(projectId);
 
-  // Progressive loading states - show structure early
   const hasTaskGroups = !taskGroupsLoading && taskGroups !== undefined;
   const hasPrData = !prsLoading && prsResponse !== undefined;
   const hasAllData = hasPrData && !workspacesLoading;
 
-  // Get unique base branches from task groups that have base_branch set
   const baseBranches = useMemo(() => {
     if (!taskGroups) return [];
     return [
       ...new Set(
         taskGroups
-          .map((g) => g.base_branch)
-          .filter((b): b is string => b !== null)
+          .map((group) => group.base_branch)
+          .filter((branch): branch is string => branch !== null)
       ),
     ].sort();
   }, [taskGroups]);
 
-  // Count total PRs for display
-  const totalPrCount = useMemo(() => {
-    if (!prsResponse?.repos) return 0;
-    return prsResponse.repos.reduce(
-      (sum, repo) => sum + repo.pull_requests.length,
-      0
-    );
-  }, [prsResponse]);
-
-  // Count filtered PRs
-  const filteredPrCount = useMemo(() => {
-    if (!prsResponse?.repos) return 0;
-    let count = 0;
-    for (const repo of prsResponse.repos) {
-      for (const pr of repo.pull_requests) {
-        if (selectedBranch && pr.base_branch !== selectedBranch) continue;
-        if (searchQuery && !pr.title.toLowerCase().includes(searchQuery.toLowerCase())) continue;
-        count += 1;
-      }
-    }
-    return count;
-  }, [prsResponse, selectedBranch, searchQuery]);
-
   const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: prKeys.byProject(projectId) });
+    cancelSearchQuery();
+    queryClient.invalidateQueries({ queryKey: prKeys.project(projectId) });
     refetch();
   };
 
-  // Check if error is due to GitHub not configured (400 status)
+  const handleSearchChange = (value: string) => {
+    setSearchInput(value);
+
+    if (value.trim().length === 0) {
+      cancelSearchQuery();
+      setSearchQuery('');
+      return;
+    }
+
+    updateSearchQuery(value);
+  };
+
+  const summaryLabel = useMemo(() => {
+    if (!hasAllData) {
+      return undefined;
+    }
+
+    if (hasMore) {
+      return `${loadedCount} loaded so far`;
+    }
+
+    return `${loadedCount} total matching`;
+  }, [hasAllData, hasMore, loadedCount]);
+
   const isGitHubNotConfigured =
     prsError instanceof ApiError && prsError.status === 400;
 
-  // Check if there are no task groups with base branches
   const hasNoBaseBranches = !taskGroupsLoading && baseBranches.length === 0;
 
-  // Initial loading state - only show when project context is loading
   if (projectLoading) {
     return (
       <div className="flex flex-col h-full p-6 space-y-6">
@@ -139,7 +156,6 @@ export function PrOverview() {
     );
   }
 
-  // GitHub not configured state
   if (isGitHubNotConfigured) {
     return (
       <div className="p-6 space-y-6">
@@ -163,7 +179,6 @@ export function PrOverview() {
     );
   }
 
-  // General error state
   if (prsError) {
     return (
       <div className="p-6 space-y-6">
@@ -180,7 +195,6 @@ export function PrOverview() {
     );
   }
 
-  // No task groups with base branches (only show after task groups load)
   if (hasTaskGroups && hasNoBaseBranches) {
     return (
       <div className="flex flex-col h-full p-6 space-y-6">
@@ -190,8 +204,8 @@ export function PrOverview() {
           <AlertTitle>No task groups with base branches</AlertTitle>
           <AlertDescription className="mt-2">
             <p>
-              Pull requests are tracked based on task group base branches.
-              Create a task group with a base branch to see related PRs here.
+              Pull requests are tracked based on task group base branches. Create
+              a task group with a base branch to see related PRs here.
             </p>
           </AlertDescription>
         </Alert>
@@ -203,41 +217,66 @@ export function PrOverview() {
     <div className="flex flex-col h-full p-6 space-y-6">
       <PageHeader
         onRefresh={handleRefresh}
+        disabled={prsFetching}
         subtitle={
-          hasAllData ? (
+          summaryLabel ? (
             <span className="text-sm text-muted-foreground">
-              ({filteredPrCount} of {totalPrCount})
+              ({summaryLabel})
             </span>
           ) : undefined
         }
       />
 
-      {/* Filters - show immediately with available branch data */}
       {taskGroupsLoading ? (
         <PrFiltersSkeleton />
       ) : (
         <PrFilters
           branches={baseBranches}
           selectedBranch={selectedBranch}
-          searchQuery={searchQuery}
+          searchQuery={searchInput}
           onBranchChange={setSelectedBranch}
-          onSearchChange={setSearchQuery}
+          onSearchChange={handleSearchChange}
         />
       )}
 
-      {/* PR Panel with side-by-side layout */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 flex flex-col gap-4">
         {!hasPrData || !projectId ? (
           <PrPanelSkeleton isMobile={isMobile} />
         ) : (
-          <PrPanel
-            projectId={projectId}
-            prsResponse={prsResponse}
-            taskGroups={taskGroups}
-            workspaces={workspaces}
-            filters={{ selectedBranch, searchQuery }}
-            isMobile={isMobile}
-          />
+          <>
+            <div className="flex-1 min-h-0">
+              <PrPanel
+                projectId={projectId}
+                prsResponse={prsResponse}
+                taskGroups={taskGroups}
+                workspaces={workspaces}
+                hasActiveFilters={Boolean(selectedBranch || searchQuery)}
+                isMobile={isMobile}
+              />
+            </div>
+
+            {(loadedCount > 0 || hasMore) && (
+              <div className="flex flex-col items-center gap-2 border rounded-lg py-4 px-4 bg-background">
+                {hasMore && (
+                  <Button
+                    onClick={loadMore}
+                    disabled={isLoadingMore}
+                    variant="secondary"
+                  >
+                    {isLoadingMore && (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    )}
+                    Load more
+                  </Button>
+                )}
+                <div className="text-xs text-muted-foreground">
+                  {hasMore
+                    ? `Loaded ${loadedCount} matching pull requests so far`
+                    : `Showing all ${loadedCount} matching pull requests`}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
