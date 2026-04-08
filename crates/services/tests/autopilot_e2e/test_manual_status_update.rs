@@ -85,8 +85,12 @@ async fn test_manual_status_update_to_done_triggers_autopilot() {
         .with_context(ctx)
         .build();
 
-    let task_a =
-        make_task_for_event(task_a_id, project_id, "Task A - Manually Completed", TaskStatus::Done);
+    let task_a = make_task_for_event(
+        task_a_id,
+        project_id,
+        "Task A - Manually Completed",
+        TaskStatus::Done,
+    );
 
     dispatcher
         .dispatch(DomainEvent::TaskStatusChanged {
@@ -240,8 +244,12 @@ async fn test_same_status_update_no_event() {
     // Dispatch Done→Done (same status)
     // Note: The update_task API would NOT dispatch this since status == previous_status
     // This test documents the expected behavior from the API level
-    let task_a =
-        make_task_for_event(task_a_id, project_id, "Task A - Already Done", TaskStatus::Done);
+    let task_a = make_task_for_event(
+        task_a_id,
+        project_id,
+        "Task A - Already Done",
+        TaskStatus::Done,
+    );
 
     dispatcher
         .dispatch(DomainEvent::TaskStatusChanged {

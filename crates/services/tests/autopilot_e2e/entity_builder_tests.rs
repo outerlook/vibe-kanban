@@ -39,24 +39,22 @@ async fn test_entity_builder_creates_full_graph() {
     assert!(project_exists, "Project should exist in database");
 
     // Verify task exists and is linked to project
-    let task_project_id: Uuid =
-        sqlx::query_scalar("SELECT project_id FROM tasks WHERE id = ?")
-            .bind(task_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let task_project_id: Uuid = sqlx::query_scalar("SELECT project_id FROM tasks WHERE id = ?")
+        .bind(task_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(
         task_project_id, project_id,
         "Task should be linked to project"
     );
 
     // Verify workspace exists and is linked to task
-    let workspace_task_id: Uuid =
-        sqlx::query_scalar("SELECT task_id FROM workspaces WHERE id = ?")
-            .bind(workspace_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let workspace_task_id: Uuid = sqlx::query_scalar("SELECT task_id FROM workspaces WHERE id = ?")
+        .bind(workspace_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(
         workspace_task_id, task_id,
         "Workspace should be linked to task"
@@ -87,13 +85,12 @@ async fn test_entity_builder_creates_full_graph() {
     );
 
     // Verify execution is completed and is a coding agent
-    let (status, run_reason): (String, String) = sqlx::query_as(
-        "SELECT status, run_reason FROM execution_processes WHERE id = ?",
-    )
-    .bind(execution_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let (status, run_reason): (String, String) =
+        sqlx::query_as("SELECT status, run_reason FROM execution_processes WHERE id = ?")
+            .bind(execution_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(status, "completed", "Execution should be completed");
     assert_eq!(
         run_reason, "codingagent",
@@ -116,9 +113,7 @@ async fn test_entity_builder_creates_multiple_tasks_same_project() {
     let task1_id = task1_ctx.task_id();
 
     // Create second task using and_task
-    let task2_ctx = task1_ctx
-        .and_task("Task 2", TaskStatus::InProgress)
-        .await;
+    let task2_ctx = task1_ctx.and_task("Task 2", TaskStatus::InProgress).await;
 
     let task2_id = task2_ctx.task_id();
 
@@ -131,12 +126,11 @@ async fn test_entity_builder_creates_multiple_tasks_same_project() {
     let task3_id = task3_ctx.task_id();
 
     // Verify all tasks exist and belong to the same project
-    let task_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE project_id = ?")
-            .bind(project_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let task_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE project_id = ?")
+        .bind(project_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(task_count, 3, "Should have 3 tasks in project");
 
     // Verify task IDs are distinct
@@ -193,13 +187,15 @@ async fn test_entity_builder_default_project_name() {
         .await;
 
     // Verify project was created with default name
-    let project_name: String =
-        sqlx::query_scalar("SELECT name FROM projects WHERE id = ?")
-            .bind(ctx.project_id())
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(project_name, "Test Project", "Should use default project name");
+    let project_name: String = sqlx::query_scalar("SELECT name FROM projects WHERE id = ?")
+        .bind(ctx.project_id())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        project_name, "Test Project",
+        "Should use default project name"
+    );
 }
 
 #[tokio::test]

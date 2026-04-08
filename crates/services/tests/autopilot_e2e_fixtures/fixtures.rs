@@ -174,12 +174,11 @@ async fn find_or_create_session_for_workspace(
     workspace_id: Uuid,
 ) -> Result<Uuid, anyhow::Error> {
     // Try to find existing session
-    let existing: Option<(Uuid,)> = sqlx::query_as(
-        r#"SELECT id FROM sessions WHERE workspace_id = ? LIMIT 1"#,
-    )
-    .bind(workspace_id)
-    .fetch_optional(pool)
-    .await?;
+    let existing: Option<(Uuid,)> =
+        sqlx::query_as(r#"SELECT id FROM sessions WHERE workspace_id = ? LIMIT 1"#)
+            .bind(workspace_id)
+            .fetch_optional(pool)
+            .await?;
 
     if let Some((session_id,)) = existing {
         return Ok(session_id);
@@ -187,14 +186,12 @@ async fn find_or_create_session_for_workspace(
 
     // Create new session
     let session_id = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO sessions (id, workspace_id, executor) VALUES (?, ?, ?)",
-    )
-    .bind(session_id)
-    .bind(workspace_id)
-    .bind("mock_executor")
-    .execute(pool)
-    .await?;
+    sqlx::query("INSERT INTO sessions (id, workspace_id, executor) VALUES (?, ?, ?)")
+        .bind(session_id)
+        .bind(workspace_id)
+        .bind("mock_executor")
+        .execute(pool)
+        .await?;
 
     Ok(session_id)
 }
@@ -221,12 +218,11 @@ async fn find_or_create_session_for_task(
     }
 
     // Need to find or create a workspace first
-    let workspace_row: Option<(Uuid,)> = sqlx::query_as(
-        r#"SELECT id FROM workspaces WHERE task_id = ? LIMIT 1"#,
-    )
-    .bind(task_id)
-    .fetch_optional(pool)
-    .await?;
+    let workspace_row: Option<(Uuid,)> =
+        sqlx::query_as(r#"SELECT id FROM workspaces WHERE task_id = ? LIMIT 1"#)
+            .bind(task_id)
+            .fetch_optional(pool)
+            .await?;
 
     let workspace_id = workspace_row
         .map(|(id,)| id)

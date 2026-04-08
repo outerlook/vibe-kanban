@@ -285,7 +285,10 @@ impl ClaudeAgentClient {
                 }
             }
 
-            obj.insert("answers".to_string(), serde_json::Value::Object(answers_map));
+            obj.insert(
+                "answers".to_string(),
+                serde_json::Value::Object(answers_map),
+            );
         }
 
         updated
@@ -484,7 +487,9 @@ mod tests {
         let answers_map = answers_value.as_object().unwrap();
         assert_eq!(
             answers_map.get("Which sections?"),
-            Some(&serde_json::Value::String("Introduction, Conclusion".to_string()))
+            Some(&serde_json::Value::String(
+                "Introduction, Conclusion".to_string()
+            ))
         );
     }
 
@@ -515,7 +520,9 @@ mod tests {
         let answers_map = answers_value.as_object().unwrap();
         assert_eq!(
             answers_map.get("Select your preference"),
-            Some(&serde_json::Value::String("Other: Custom preference".to_string()))
+            Some(&serde_json::Value::String(
+                "Other: Custom preference".to_string()
+            ))
         );
     }
 

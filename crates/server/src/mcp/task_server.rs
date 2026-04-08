@@ -820,6 +820,30 @@ struct ApiResponseEnvelope<T> {
     message: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiSearchResponse {
+    matches: Vec<ApiTaskMatch>,
+    #[allow(dead_code)]
+    count: usize,
+    search_method: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiTaskMatch {
+    id: Uuid,
+    title: String,
+    description: Option<String>,
+    status: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+    has_in_progress_attempt: bool,
+    last_attempt_failed: bool,
+    task_group_id: Option<Uuid>,
+    similarity_score: f64,
+}
+
 impl TaskServer {
     fn success<T: Serialize>(data: &T) -> Result<CallToolResult, ErrorData> {
         Ok(CallToolResult::success(vec![Content::text(
@@ -1959,31 +1983,6 @@ impl TaskServer {
 
         let url = self.url("/api/tasks/search");
 
-        // Response structure from the API
-        #[derive(Debug, Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct ApiSearchResponse {
-            matches: Vec<ApiTaskMatch>,
-            #[allow(dead_code)]
-            count: usize,
-            search_method: String,
-        }
-
-        #[derive(Debug, Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct ApiTaskMatch {
-            id: Uuid,
-            title: String,
-            description: Option<String>,
-            status: String,
-            created_at: chrono::DateTime<chrono::Utc>,
-            updated_at: chrono::DateTime<chrono::Utc>,
-            has_in_progress_attempt: bool,
-            last_attempt_failed: bool,
-            task_group_id: Option<Uuid>,
-            similarity_score: f64,
-        }
-
         let api_response: ApiSearchResponse =
             match self.send_json(self.client.post(&url).json(&payload)).await {
                 Ok(r) => r,
@@ -2095,5 +2094,58 @@ impl ServerHandler for TaskServer {
             },
             instructions: Some(instruction),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+
+    use super::*;
+    use crate::routes::tasks::{SearchTasksResponse, TaskMatchWithScore};
+
+    #[test]
+    fn api_search_response_decodes_non_empty_route_payload() {
+        let task_id = Uuid::new_v4();
+        let task_group_id = Uuid::new_v4();
+        let payload = serde_json::json!({
+            "success": true,
+            "data": serde_json::to_value(SearchTasksResponse {
+                matches: vec![TaskMatchWithScore {
+                    id: task_id,
+                    project_id: Uuid::new_v4(),
+                    title: "Semantic search result".to_string(),
+                    description: Some("A non-empty match should decode".to_string()),
+                    status: TaskStatus::Todo,
+                    parent_workspace_id: Some(Uuid::new_v4()),
+                    shared_task_id: Some(Uuid::new_v4()),
+                    task_group_id: Some(task_group_id),
+                    created_at: Utc::now(),
+                    updated_at: Utc::now(),
+                    is_blocked: false,
+                    has_in_progress_attempt: true,
+                    last_attempt_failed: false,
+                    is_queued: false,
+                    last_executor: "claude-code".to_string(),
+                    needs_attention: Some(false),
+                    similarity_score: 0.77,
+                }],
+                count: 1,
+                search_method: "hybrid".to_string(),
+            })
+            .unwrap(),
+            "message": null,
+        });
+
+        let envelope: ApiResponseEnvelope<ApiSearchResponse> =
+            serde_json::from_value(payload).unwrap();
+        let response = envelope.data.unwrap();
+        let first_match = response.matches.into_iter().next().unwrap();
+
+        assert_eq!(response.search_method, "hybrid");
+        assert_eq!(first_match.id, task_id);
+        assert_eq!(first_match.task_group_id, Some(task_group_id));
+        assert!(first_match.has_in_progress_attempt);
+        assert_eq!(first_match.similarity_score, 0.77);
     }
 }

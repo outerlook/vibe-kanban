@@ -134,9 +134,12 @@ impl Approvals {
         // Due to race conditions between control protocol and log normalization, the
         // entry may not exist yet. In that case, we still insert into pending with
         // entry_info=None to ensure the waiter doesn't immediately resolve.
-        let entry_info = if let Some(store) = self.msg_store_by_id(&request.execution_process_id).await
+        let entry_info = if let Some(store) =
+            self.msg_store_by_id(&request.execution_process_id).await
         {
-            if let Some((idx, matching_tool)) = find_matching_tool_use(store.clone(), &request.tool_call_id) {
+            if let Some((idx, matching_tool)) =
+                find_matching_tool_use(store.clone(), &request.tool_call_id)
+            {
                 let pending_status = match &request.request_type {
                     ApprovalRequestType::ToolApproval { .. } => ToolStatus::PendingApproval {
                         approval_id: req_id.clone(),

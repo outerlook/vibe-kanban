@@ -7,7 +7,7 @@ pub use v13::{
     UiLanguage,
 };
 
-use crate::services::config::versions::{v13, v2};
+use crate::services::config::versions::{v2, v13};
 
 fn default_git_branch_prefix() -> String {
     "vk".to_string()

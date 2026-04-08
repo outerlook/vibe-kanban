@@ -143,36 +143,33 @@ async fn test_mock_controller_creates_db_records() {
     let exec_id = callback(trigger).await.unwrap();
 
     // Verify session was created
-    let session_count: (i32,) = sqlx::query_as(
-        r#"SELECT COUNT(*) FROM sessions WHERE workspace_id = ?"#,
-    )
-    .bind(workspace_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let session_count: (i32,) =
+        sqlx::query_as(r#"SELECT COUNT(*) FROM sessions WHERE workspace_id = ?"#)
+            .bind(workspace_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(session_count.0, 1);
 
     // Verify execution process was created
-    let exec_status: (String,) = sqlx::query_as(
-        r#"SELECT status FROM execution_processes WHERE id = ?"#,
-    )
-    .bind(exec_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let exec_status: (String,) =
+        sqlx::query_as(r#"SELECT status FROM execution_processes WHERE id = ?"#)
+            .bind(exec_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(exec_status.0, "running");
 
     // Complete the execution
     controller.complete_execution(exec_id).await.unwrap();
 
     // Verify status changed
-    let exec_status: (String,) = sqlx::query_as(
-        r#"SELECT status FROM execution_processes WHERE id = ?"#,
-    )
-    .bind(exec_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let exec_status: (String,) =
+        sqlx::query_as(r#"SELECT status FROM execution_processes WHERE id = ?"#)
+            .bind(exec_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(exec_status.0, "completed");
 }
 

@@ -9,12 +9,12 @@ use crate::DeploymentImpl;
 pub mod account_info;
 pub mod approvals;
 
-mod ws_helpers;
 pub mod claude_accounts;
 pub mod config;
 pub mod containers;
 pub mod conversations;
 pub mod filesystem;
+mod ws_helpers;
 // pub mod github;
 pub mod events;
 pub mod execution_processes;

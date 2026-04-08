@@ -26,7 +26,10 @@ pub enum DomainEvent {
     },
 
     /// An execution process completed (success or failure).
-    ExecutionCompleted { process: ExecutionProcess, task_id: Uuid },
+    ExecutionCompleted {
+        process: ExecutionProcess,
+        task_id: Uuid,
+    },
 
     /// A workspace was created.
     WorkspaceCreated { workspace: Workspace },
@@ -111,5 +114,4 @@ pub type ExecutionTriggerCallback =
 /// This callback allows services to dispatch domain events without direct access
 /// to the `DomainEventDispatcher`. Used by services like `PrMonitorService` and
 /// `MergeQueueProcessor` that need to dispatch events from outside the container.
-pub type EventDispatchCallback =
-    Arc<dyn Fn(DomainEvent) -> BoxFuture<'static, ()> + Send + Sync>;
+pub type EventDispatchCallback = Arc<dyn Fn(DomainEvent) -> BoxFuture<'static, ()> + Send + Sync>;

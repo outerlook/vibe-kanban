@@ -7,9 +7,8 @@ use db::models::{execution_queue::ExecutionQueue, task::TaskStatus};
 use services::services::domain_events::{AutopilotHandler, DispatcherBuilder, DomainEvent};
 
 use super::fixtures::{
-    autopilot_config, dispatch_task_done, get_task_is_blocked, make_task_for_event,
-    test_handler_context, update_task_needs_attention, update_task_status, EntityGraphBuilder,
-    TestDb,
+    EntityGraphBuilder, TestDb, autopilot_config, dispatch_task_done, get_task_is_blocked,
+    make_task_for_event, test_handler_context, update_task_needs_attention, update_task_status,
 };
 
 /// Test three-level dependency chain: A → B → C
@@ -268,7 +267,12 @@ async fn test_chain_stops_if_middle_needs_attention() {
         .with_context(ctx)
         .build();
 
-    let task_b = make_task_for_event(task_b_id, project_id, "Task B - Middle", TaskStatus::InReview);
+    let task_b = make_task_for_event(
+        task_b_id,
+        project_id,
+        "Task B - Middle",
+        TaskStatus::InReview,
+    );
 
     dispatcher
         .dispatch(DomainEvent::TaskStatusChanged {

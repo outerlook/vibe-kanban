@@ -22,9 +22,8 @@ pub async fn forward_stream_to_ws(
 
     // Spawn a task to drain (and ignore) any client->server messages so pings/pongs work.
     // We use AbortHandle to cancel this task when the sender loop exits.
-    let drain_handle = tokio::spawn(async move {
-        while let Some(Ok(_)) = receiver.next().await {}
-    });
+    let drain_handle =
+        tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
 
     // Forward server messages
     let result = loop {
@@ -61,9 +60,8 @@ pub async fn forward_ws_messages(
     let (mut sender, mut receiver) = socket.split();
 
     // Spawn a task to drain client messages
-    let drain_handle = tokio::spawn(async move {
-        while let Some(Ok(_)) = receiver.next().await {}
-    });
+    let drain_handle =
+        tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
 
     // Forward server messages
     let result = loop {

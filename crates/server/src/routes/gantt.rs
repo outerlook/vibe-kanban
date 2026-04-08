@@ -16,8 +16,8 @@ use utils::response::ApiResponse;
 use uuid::Uuid;
 
 use crate::{
-    routes::ws_helpers::forward_stream_to_ws, DeploymentImpl, error::ApiError,
-    middleware::load_project_middleware,
+    DeploymentImpl, error::ApiError, middleware::load_project_middleware,
+    routes::ws_helpers::forward_stream_to_ws,
 };
 
 #[derive(Debug, Deserialize)]

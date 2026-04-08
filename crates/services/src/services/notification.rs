@@ -51,7 +51,6 @@ impl NotificationService {
         }
     }
 
-
     /// Internal method to send notifications with a given config
     async fn send_notification(config: &NotificationConfig, title: &str, message: &str) {
         if config.sound_enabled {

@@ -14,12 +14,11 @@ use git2::Repository;
 use services::services::review_attention::ReviewAttentionService;
 
 use super::fixtures::{
-    autopilot_disabled_config,
+    EntityGraphBuilder, autopilot_disabled_config,
     git_fixtures::{
         MergeTestContext, TestRepo, add_and_commit, create_repo, create_workspace_repo,
         update_workspace_container_ref,
     },
-    EntityGraphBuilder,
 };
 
 #[tokio::test]
@@ -45,7 +44,11 @@ async fn test_review_needs_attention_false_enqueues_merge() {
 
     // Create worktree for task branch and link it to workspace
     let worktree_path = test_repo.create_worktree("task-branch");
-    let worktree_parent = worktree_path.parent().unwrap().to_string_lossy().to_string();
+    let worktree_parent = worktree_path
+        .parent()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
     update_workspace_container_ref(&ctx.pool, workspace_id, &worktree_parent).await;
 
     // Link workspace to repo with target branch = main
@@ -249,9 +252,7 @@ async fn test_merge_conflict_removes_from_queue_continues() {
         .expect("write readme");
 
         let mut index = repo.index().expect("get index");
-        index
-            .add_path(Path::new("README.md"))
-            .expect("add readme");
+        index.add_path(Path::new("README.md")).expect("add readme");
         index.write().expect("write index");
 
         let tree_id = index.write_tree().expect("write tree");
@@ -358,7 +359,11 @@ async fn test_autopilot_disabled_skips_merge() {
 
     // Create worktree
     let worktree_path = test_repo.create_worktree("disabled-branch");
-    let worktree_parent = worktree_path.parent().unwrap().to_string_lossy().to_string();
+    let worktree_parent = worktree_path
+        .parent()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
     update_workspace_container_ref(&ctx.pool, workspace_id, &worktree_parent).await;
 
     create_workspace_repo(&ctx.pool, workspace_id, repo_id, "main").await;
@@ -386,7 +391,10 @@ async fn test_autopilot_disabled_skips_merge() {
     // With autopilot disabled, no merge enqueue should happen
     // This simulates what the handler would check before enqueueing
     let autopilot_enabled = ctx.config.read().await.autopilot_enabled;
-    assert!(!autopilot_enabled, "Autopilot should be disabled for this test");
+    assert!(
+        !autopilot_enabled,
+        "Autopilot should be disabled for this test"
+    );
 
     // Verify: No merge enqueue happens (we simulate the handler decision)
     // In real flow, the handler checks autopilot_enabled before enqueueing
