@@ -4,14 +4,17 @@ import { tasksApi } from '@/lib/api';
 import { paths } from '@/lib/paths';
 import { invalidateTaskQueries } from '@/lib/queryInvalidation';
 import {
+  applyTaskUpdatesToCache,
   taskKeys,
   projectTasksKeys,
   setTaskInCache,
   removeTaskFromCache,
+  removeTasksFromCache,
   moveTaskBetweenStatuses,
   type StatusQueryData,
 } from '@/lib/taskCacheHelpers';
 import type {
+  DeletedTaskSummary,
   CreateTask,
   CreateAndStartTaskRequest,
   Task,
@@ -32,6 +35,15 @@ type DeleteTaskContext = {
   previousTask: Task | undefined;
   previousStatusData: StatusQueryData | undefined;
   taskStatus: TaskStatus | undefined;
+};
+
+type BulkUpdateTaskStatusContext = {
+  previousTasks: Task[];
+  previousStatuses: Map<string, TaskStatus>;
+};
+
+type BulkDeleteTaskContext = {
+  previousTasks: Task[];
 };
 
 type CreateTaskContext = {
@@ -318,6 +330,150 @@ export function useTaskMutations(projectId?: string) {
     },
   });
 
+  const bulkUpdateTaskStatus = useMutation({
+    mutationFn: ({ taskIds, status }: { taskIds: string[]; status: TaskStatus }) => {
+      if (!projectId) {
+        throw new Error('projectId is required for bulk task status updates');
+      }
+
+      return tasksApi.bulkUpdateStatus(projectId, {
+        taskIds,
+        status,
+      });
+    },
+    onMutate: async ({ taskIds, status }): Promise<BulkUpdateTaskStatusContext | undefined> => {
+      if (!projectId) return undefined;
+
+      await Promise.all(
+        taskIds.map((taskId) =>
+          queryClient.cancelQueries({ queryKey: taskKeys.byId(taskId) })
+        )
+      );
+
+      const previousTasks = taskIds
+        .map((taskId) => queryClient.getQueryData<Task>(taskKeys.byId(taskId)))
+        .filter((task): task is Task => Boolean(task));
+
+      const previousStatuses = new Map(
+        previousTasks.map((task) => [task.id, task.status])
+      );
+
+      previousTasks.forEach((task) => {
+        const optimisticTask = {
+          ...task,
+          status,
+          updated_at: new Date().toISOString(),
+        } as TaskWithAttemptStatus;
+
+        if (task.status !== status) {
+          moveTaskBetweenStatuses(
+            queryClient,
+            optimisticTask,
+            task.status,
+            status,
+            projectId
+          );
+          return;
+        }
+
+        setTaskInCache(queryClient, optimisticTask, projectId);
+      });
+
+      return { previousTasks, previousStatuses };
+    },
+    onSuccess: (result, _variables, context) => {
+      if (!projectId) return;
+
+      applyTaskUpdatesToCache(
+        queryClient,
+        result.tasks,
+        context?.previousStatuses ?? new Map(),
+        projectId
+      );
+    },
+    onError: (err, _variables, context) => {
+      console.error('Failed to bulk update task status:', err);
+
+      if (!projectId) return;
+
+      context?.previousTasks.forEach((task) => {
+        setTaskInCache(queryClient, task as TaskWithAttemptStatus, projectId);
+      });
+    },
+    onSettled: (result, _error, variables) => {
+      const taskIds = result?.tasks.map((task) => task.id) ?? variables.taskIds;
+
+      taskIds.forEach((taskId) => {
+        invalidateTaskQueries(queryClient, taskId, {
+          includeDependencies: true,
+        });
+      });
+    },
+  });
+
+  const bulkDeleteTasks = useMutation({
+    mutationFn: (taskIds: string[]) => {
+      if (!projectId) {
+        throw new Error('projectId is required for bulk task deletion');
+      }
+
+      return tasksApi.bulkDelete(projectId, {
+        taskIds,
+      });
+    },
+    onMutate: async (taskIds): Promise<BulkDeleteTaskContext | undefined> => {
+      if (!projectId) return undefined;
+
+      await Promise.all(
+        taskIds.map((taskId) =>
+          queryClient.cancelQueries({ queryKey: taskKeys.byId(taskId) })
+        )
+      );
+
+      const previousTasks = taskIds
+        .map((taskId) => queryClient.getQueryData<Task>(taskKeys.byId(taskId)))
+        .filter((task): task is Task => Boolean(task));
+
+      removeTasksFromCache(
+        queryClient,
+        previousTasks.map(
+          (task) =>
+            ({
+              id: task.id,
+              projectId: task.project_id,
+              status: task.status,
+            }) satisfies DeletedTaskSummary
+        ),
+        projectId
+      );
+
+      return { previousTasks };
+    },
+    onSuccess: (result) => {
+      if (!projectId) return;
+      removeTasksFromCache(queryClient, result.deletedTasks, projectId);
+    },
+    onError: (err, _taskIds, context) => {
+      console.error('Failed to bulk delete tasks:', err);
+
+      if (!projectId) return;
+
+      context?.previousTasks.forEach((task) => {
+        setTaskInCache(queryClient, task as TaskWithAttemptStatus, projectId);
+      });
+    },
+    onSettled: (result, _error, taskIds) => {
+      const deletedTaskIds = result?.deletedTasks.map((task) => task.id) ?? taskIds;
+
+      deletedTaskIds.forEach((taskId) => {
+        invalidateTaskQueries(queryClient, taskId, {
+          includeDependencies: true,
+          includeRelationships: true,
+        });
+      });
+    },
+  });
+
   const shareTask = useMutation({
     mutationFn: (taskId: string) => tasksApi.share(taskId),
     // Task cache update is handled by WebSocket stream
@@ -347,6 +503,8 @@ export function useTaskMutations(projectId?: string) {
     createAndStart,
     updateTask,
     deleteTask,
+    bulkUpdateTaskStatus,
+    bulkDeleteTasks,
     shareTask,
     stopShareTask: unshareSharedTask,
     linkSharedTaskToLocal,

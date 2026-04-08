@@ -1,5 +1,10 @@
 import type { QueryClient } from '@tanstack/react-query';
-import type { TaskStatus, TaskWithAttemptStatus, Task } from 'shared/types';
+import type {
+  DeletedTaskSummary,
+  TaskStatus,
+  TaskWithAttemptStatus,
+  Task,
+} from 'shared/types';
 
 // ============================================================================
 // Query Keys - Consolidated from multiple locations
@@ -242,6 +247,16 @@ export function removeTaskFromCache(
   queryClient.removeQueries({ queryKey: taskKeys.byId(taskId) });
 }
 
+export function removeTasksFromCache(
+  queryClient: QueryClient,
+  deletedTasks: DeletedTaskSummary[],
+  projectId: string
+): void {
+  deletedTasks.forEach((task) => {
+    removeTaskFromCache(queryClient, task.id, projectId, task.status);
+  });
+}
+
 /**
  * Move a task between status lists in the cache.
  *
@@ -350,5 +365,30 @@ export function moveTaskBetweenStatuses(
       return oldTask; // Stale update, ignore
     }
     return task;
+  });
+}
+
+export function applyTaskUpdatesToCache(
+  queryClient: QueryClient,
+  tasks: Task[],
+  previousStatuses: Map<string, TaskStatus>,
+  projectId: string
+): void {
+  tasks.forEach((task) => {
+    const oldStatus = previousStatuses.get(task.id) ?? task.status;
+    const cachedTask = task as TaskWithAttemptStatus;
+
+    if (oldStatus !== task.status) {
+      moveTaskBetweenStatuses(
+        queryClient,
+        cachedTask,
+        oldStatus,
+        task.status,
+        projectId
+      );
+      return;
+    }
+
+    setTaskInCache(queryClient, cachedTask, projectId);
   });
 }

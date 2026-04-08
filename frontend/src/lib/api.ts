@@ -71,6 +71,10 @@ import {
   ListCustomEditorsResponse,
   AvailabilityInfo,
   BaseCodingAgent,
+  BulkDeleteTasksRequest,
+  BulkDeleteTasksResponse,
+  BulkUpdateTaskStatusRequest,
+  BulkUpdateTaskStatusResponse,
   RunAgentSetupRequest,
   RunAgentSetupResponse,
   GhCliSetupError,
@@ -650,11 +654,39 @@ export const tasksApi = {
     return handleApiResponse<Task>(response);
   },
 
+  bulkUpdateStatus: async (
+    projectId: string,
+    data: BulkUpdateTaskStatusRequest
+  ): Promise<BulkUpdateTaskStatusResponse> => {
+    const response = await makeRequest(
+      `/api/projects/${projectId}/tasks/bulk/status`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<BulkUpdateTaskStatusResponse>(response);
+  },
+
   delete: async (taskId: string): Promise<void> => {
     const response = await makeRequest(`/api/tasks/${taskId}`, {
       method: 'DELETE',
     });
     return handleApiResponse<void>(response);
+  },
+
+  bulkDelete: async (
+    projectId: string,
+    data: BulkDeleteTasksRequest
+  ): Promise<BulkDeleteTasksResponse> => {
+    const response = await makeRequest(
+      `/api/projects/${projectId}/tasks/bulk/delete`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<BulkDeleteTasksResponse>(response);
   },
 
   share: async (taskId: string): Promise<ShareTaskResponse> => {

@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{Executor, FromRow, Sqlite, SqlitePool, Type};
+use sqlx::{Executor, FromRow, QueryBuilder, Sqlite, SqlitePool, Type};
 use strum_macros::{Display, EnumString};
 use ts_rs::TS;
 use uuid::Uuid;
@@ -332,6 +332,29 @@ impl Task {
         .await
     }
 
+    pub async fn find_by_ids(pool: &SqlitePool, ids: &[Uuid]) -> Result<Vec<Self>, sqlx::Error> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut query_builder: QueryBuilder<Sqlite> = QueryBuilder::new(
+            r#"SELECT id, project_id, title, description, status, parent_workspace_id,
+                      shared_task_id, task_group_id, created_at, updated_at, is_blocked,
+                      has_in_progress_attempt, last_attempt_failed, is_queued, last_executor,
+                      needs_attention
+               FROM tasks
+               WHERE id IN ("#,
+        );
+
+        let mut separated = query_builder.separated(", ");
+        for id in ids {
+            separated.push_bind(id);
+        }
+        separated.push_unseparated(")");
+
+        query_builder.build_query_as::<Task>().fetch_all(pool).await
+    }
+
     pub async fn find_by_rowid(pool: &SqlitePool, rowid: i64) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
             Task,
@@ -409,21 +432,50 @@ impl Task {
         parent_workspace_id: Option<Uuid>,
         task_group_id: Option<Uuid>,
     ) -> Result<Self, sqlx::Error> {
-        sqlx::query_as!(
-            Task,
-            r#"UPDATE tasks
-               SET title = $3, description = $4, status = $5, parent_workspace_id = $6, task_group_id = $7
-               WHERE id = $1 AND project_id = $2
-               RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid", title, description, status as "status!: TaskStatus", parent_workspace_id as "parent_workspace_id: Uuid", shared_task_id as "shared_task_id: Uuid", task_group_id as "task_group_id: Uuid", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", is_blocked as "is_blocked!: bool", has_in_progress_attempt as "has_in_progress_attempt!: bool", last_attempt_failed as "last_attempt_failed!: bool", is_queued as "is_queued!: bool", last_executor as "last_executor!: String", needs_attention as "needs_attention: bool""#,
+        Self::update_with_executor(
+            pool,
             id,
             project_id,
             title,
             description,
             status,
             parent_workspace_id,
-            task_group_id
+            task_group_id,
         )
-        .fetch_one(pool)
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn update_with_executor<'e, E>(
+        executor: E,
+        id: Uuid,
+        project_id: Uuid,
+        title: String,
+        description: Option<String>,
+        status: TaskStatus,
+        parent_workspace_id: Option<Uuid>,
+        task_group_id: Option<Uuid>,
+    ) -> Result<Self, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query_as::<_, Task>(
+            r#"UPDATE tasks
+               SET title = $3, description = $4, status = $5, parent_workspace_id = $6, task_group_id = $7
+               WHERE id = $1 AND project_id = $2
+               RETURNING id, project_id, title, description, status, parent_workspace_id,
+                         shared_task_id, task_group_id, created_at, updated_at, is_blocked,
+                         has_in_progress_attempt, last_attempt_failed, is_queued, last_executor,
+                         needs_attention"#,
+        )
+        .bind(id)
+        .bind(project_id)
+        .bind(title)
+        .bind(description)
+        .bind(status)
+        .bind(parent_workspace_id)
+        .bind(task_group_id)
+        .fetch_one(executor)
         .await
     }
 
@@ -1185,9 +1237,16 @@ mod tests {
 
         // Test with wrong dimension (too short)
         let wrong_embedding: Vec<f32> = vec![0.0; 100];
-        let result =
-            Task::search_hybrid(&pool, project_id, &wrong_embedding, "test query", None, None, 10)
-                .await;
+        let result = Task::search_hybrid(
+            &pool,
+            project_id,
+            &wrong_embedding,
+            "test query",
+            None,
+            None,
+            10,
+        )
+        .await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -1195,9 +1254,16 @@ mod tests {
 
         // Test with wrong dimension (too long)
         let wrong_embedding: Vec<f32> = vec![0.0; 500];
-        let result =
-            Task::search_hybrid(&pool, project_id, &wrong_embedding, "test query", None, None, 10)
-                .await;
+        let result = Task::search_hybrid(
+            &pool,
+            project_id,
+            &wrong_embedding,
+            "test query",
+            None,
+            None,
+            10,
+        )
+        .await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
