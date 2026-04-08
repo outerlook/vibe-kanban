@@ -36,7 +36,7 @@ import { EditorType } from 'shared/types';
 import type { BranchMergeStatus, BranchSyncStatus, TaskStatusCounts, TaskStatus } from 'shared/types';
 import { CreatePRFromGroupDialog } from '@/components/dialogs/tasks/CreatePRFromGroupDialog';
 import { useQueryClient } from '@tanstack/react-query';
-import { prKeys } from '@/hooks/useProjectPrs';
+import { prKeys } from '@/hooks/useProjectPrPages';
 
 const statusOrder: TaskStatus[] = [
   'inprogress',

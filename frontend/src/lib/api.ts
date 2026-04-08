@@ -133,11 +133,11 @@ import {
   ConversationMessagesPage,
   ConversationWithMessages,
   SendMessageResponse,
-  GetProjectPrsQuery,
-  ProjectPrsResponse,
+  GetProjectPrPageQuery,
+  ProjectPrPageResponse,
   ProjectWorktreesResponse,
-  RepoPrs,
-  PrWithComments,
+  ProjectRepoPrPage,
+  ProjectPrSummary,
   PrUnresolvedCountsResponse,
   PrThreadsResponse,
   FeedbackResponse,
@@ -243,10 +243,10 @@ export async function refreshApiBaseUrl(): Promise<string> {
 
 // Re-export PR types from shared for convenience
 export type {
-  GetProjectPrsQuery,
-  ProjectPrsResponse,
-  RepoPrs,
-  PrWithComments,
+  GetProjectPrPageQuery,
+  ProjectPrPageResponse,
+  ProjectRepoPrPage,
+  ProjectPrSummary,
   PrUnresolvedCountsResponse,
   PrThreadsResponse,
 };
@@ -531,10 +531,10 @@ export const projectsApi = {
     return handleApiResponse<ProjectRepo>(response);
   },
 
-  getPullRequests: async (
+  getProjectPrPage: async (
     projectId: string,
-    params?: GetProjectPrsQuery
-  ): Promise<ProjectPrsResponse> => {
+    params?: GetProjectPrPageQuery
+  ): Promise<ProjectPrPageResponse> => {
     const search = new URLSearchParams();
     if (params?.cursor) search.set('cursor', params.cursor);
     if (params?.limit) search.set('limit', String(params.limit));
@@ -544,12 +544,12 @@ export const projectsApi = {
     const response = await makeRequest(
       `/api/projects/${projectId}/prs${search.size > 0 ? `?${search}` : ''}`
     );
-    return handleApiResponse<ProjectPrsResponse>(response);
+    return handleApiResponse<ProjectPrPageResponse>(response);
   },
 
   getPullRequestUnresolvedCounts: async (
     projectId: string,
-    params?: GetProjectPrsQuery
+    params?: GetProjectPrPageQuery
   ): Promise<PrUnresolvedCountsResponse> => {
     const search = new URLSearchParams();
     if (params?.cursor) search.set('cursor', params.cursor);

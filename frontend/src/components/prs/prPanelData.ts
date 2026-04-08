@@ -1,4 +1,4 @@
-import type { ProjectPrsResponse, PrWithComments } from '@/lib/api';
+import type { ProjectPrPageResponse, ProjectPrSummary } from '@/lib/api';
 import type {
   TaskGroupWithStats,
   TaskStatusCounts,
@@ -24,7 +24,7 @@ export function createEmptyTaskCounts(): TaskStatusCounts {
   };
 }
 
-export function toPrData(pr: PrWithComments, repoId: string): PrData {
+export function toPrData(pr: ProjectPrSummary, repoId: string): PrData {
   return {
     id: `${repoId}-${pr.number}`,
     title: pr.title,
@@ -55,7 +55,7 @@ export function buildPrPanelData({
   selectedRepoId,
   selectedPrNumber,
 }: {
-  prsResponse: ProjectPrsResponse | undefined;
+  prsResponse: ProjectPrPageResponse | undefined;
   taskGroups: TaskGroupWithStats[] | undefined;
   workspaces: Workspace[] | undefined;
   selectedRepoId: string | null;

@@ -326,15 +326,15 @@ export type CreateRemoteProjectRequest = { organization_id: string, name: string
 
 export type LinkToExistingRequest = { remote_project_id: string, };
 
-export type GetProjectPrsQuery = { cursor: string | null, limit: number | null, base_branch: string | null, search: string | null, };
+export type GetProjectPrPageQuery = { cursor: string | null, limit: number | null, base_branch: string | null, search: string | null, };
 
-export type PrWithComments = { unresolved_count: number | null, number: bigint, title: string, url: string, author: string, head_branch: string, base_branch: string, created_at: string, updated_at: string, };
+export type ProjectPrSummary = { unresolved_count: number | null, number: bigint, title: string, url: string, author: string, head_branch: string, base_branch: string, created_at: string, updated_at: string, };
 
-export type RepoPrs = { repo_id: string, repo_name: string, display_name: string, pull_requests: Array<PrWithComments>, };
+export type ProjectRepoPrPage = { repo_id: string, repo_name: string, display_name: string, pull_requests: Array<ProjectPrSummary>, };
 
-export type ProjectPrsPage = { limit: number, next_cursor: string | null, has_more: boolean, };
+export type ProjectPrPage = { limit: number, next_cursor: string | null, has_more: boolean, };
 
-export type ProjectPrsResponse = { repos: Array<RepoPrs>, page: ProjectPrsPage, };
+export type ProjectPrPageResponse = { repos: Array<ProjectRepoPrPage>, page: ProjectPrPage, };
 
 export type PrUnresolvedCount = { repo_id: string, pr_number: bigint, unresolved_count: number, };
 

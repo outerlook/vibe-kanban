@@ -4,13 +4,13 @@ import {
   countLoadedProjectPrs,
   mergeProjectPrPages,
 } from './projectPrs';
-import type { ProjectPrsResponse, PrUnresolvedCountsResponse } from './api';
+import type { ProjectPrPageResponse, PrUnresolvedCountsResponse } from './api';
 
 function createPage(
   prNumbers: bigint[],
   cursor: string | null,
   hasMore: boolean
-): ProjectPrsResponse {
+): ProjectPrPageResponse {
   return {
     repos: [
       {

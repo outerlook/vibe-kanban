@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { buildPrPanelData } from './prPanelData';
-import type { ProjectPrsResponse } from '@/lib/api';
+import type { ProjectPrPageResponse } from '@/lib/api';
 import type { TaskGroupWithStats, Workspace } from 'shared/types';
 
-const prsResponse: ProjectPrsResponse = {
+const prsResponse: ProjectPrPageResponse = {
   repos: [
     {
       repo_id: 'repo-1',

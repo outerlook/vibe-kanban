@@ -16,7 +16,7 @@ import {
   PrPanelSkeleton,
 } from '@/components/prs';
 import { useProject } from '@/contexts/ProjectContext';
-import { useProjectPrs, prKeys } from '@/hooks/useProjectPrs';
+import { useProjectPrPages, prKeys } from '@/hooks/useProjectPrPages';
 import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import { useProjectWorkspaces } from '@/hooks/useProjectWorkspaces';
 import { useTaskGroupStats } from '@/hooks/useTaskGroupStats';
@@ -83,7 +83,7 @@ export function PrOverview() {
     loadedCount,
     error: prsError,
     refetch,
-  } = useProjectPrs(projectId, {
+  } = useProjectPrPages(projectId, {
     baseBranch: selectedBranch,
     search: searchQuery,
   });
@@ -133,10 +133,10 @@ export function PrOverview() {
     }
 
     if (hasMore) {
-      return `${loadedCount} loaded`;
+      return `${loadedCount} loaded so far`;
     }
 
-    return `${loadedCount} matching`;
+    return `${loadedCount} total matching`;
   }, [hasAllData, hasMore, loadedCount]);
 
   const isGitHubNotConfigured =
@@ -271,8 +271,8 @@ export function PrOverview() {
                 )}
                 <div className="text-xs text-muted-foreground">
                   {hasMore
-                    ? `Loaded ${loadedCount} matching pull requests`
-                    : `Showing ${loadedCount} matching pull requests`}
+                    ? `Loaded ${loadedCount} matching pull requests so far`
+                    : `Showing all ${loadedCount} matching pull requests`}
                 </div>
               </div>
             )}

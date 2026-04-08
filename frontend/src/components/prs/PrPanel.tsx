@@ -20,7 +20,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useBatchBranchSyncStatus, branchSyncStatusKeys } from '@/hooks';
 import { paths } from '@/lib/paths';
 import { cn } from '@/lib/utils';
-import type { ProjectPrsResponse } from '@/lib/api';
+import type { ProjectPrPageResponse } from '@/lib/api';
 import type { TaskGroupWithStats, Workspace } from 'shared/types';
 
 type SplitSizes = [number, number];
@@ -52,7 +52,7 @@ function saveSizes(key: string, sizes: SplitSizes): void {
 
 export interface PrPanelProps {
   projectId: string;
-  prsResponse: ProjectPrsResponse | undefined;
+  prsResponse: ProjectPrPageResponse | undefined;
   taskGroups: TaskGroupWithStats[] | undefined;
   workspaces: Workspace[] | undefined;
   hasActiveFilters: boolean;

@@ -29,7 +29,10 @@ use services::services::{
     file_search_cache::SearchQuery,
     github::{GitHubService, GitHubServiceError, UnifiedPrComment},
     github_client::{GitHubClient, GitHubClientError, PullRequestSummary},
-    pr_cache::{PrWithComments, ProjectPrsCacheKey, ProjectPrsPage, ProjectPrsResponse, RepoPrs},
+    pr_cache::{
+        ProjectPrPage, ProjectPrPageCacheKey, ProjectPrPageResponse, ProjectPrSummary,
+        ProjectRepoPrPage,
+    },
     project::ProjectServiceError,
     remote_client::CreateRemoteProjectPayload,
 };
@@ -84,7 +87,7 @@ const DEFAULT_PROJECT_PRS_LIMIT: usize = 25;
 const MAX_PROJECT_PRS_LIMIT: usize = 100;
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS, Default)]
-pub struct GetProjectPrsQuery {
+pub struct GetProjectPrPageQuery {
     pub cursor: Option<String>,
     pub limit: Option<usize>,
     pub base_branch: Option<String>,
@@ -99,8 +102,8 @@ struct ProjectPrCursor {
 }
 
 #[derive(Debug, Clone)]
-struct NormalizedProjectPrsQuery {
-    cache_key: ProjectPrsCacheKey,
+struct NormalizedProjectPrPageQuery {
+    cache_key: ProjectPrPageCacheKey,
     cursor: Option<ProjectPrCursor>,
 }
 
@@ -112,8 +115,8 @@ struct ProjectPrRecord {
     pr: PullRequestSummary,
 }
 
-impl GetProjectPrsQuery {
-    fn normalize(self, project_id: Uuid) -> Result<NormalizedProjectPrsQuery, ApiError> {
+impl GetProjectPrPageQuery {
+    fn normalize(self, project_id: Uuid) -> Result<NormalizedProjectPrPageQuery, ApiError> {
         let limit = self
             .limit
             .unwrap_or(DEFAULT_PROJECT_PRS_LIMIT)
@@ -127,8 +130,8 @@ impl GetProjectPrsQuery {
             .transpose()?;
         let canonical_cursor = cursor.as_ref().map(encode_project_pr_cursor).transpose()?;
 
-        Ok(NormalizedProjectPrsQuery {
-            cache_key: ProjectPrsCacheKey {
+        Ok(NormalizedProjectPrPageQuery {
+            cache_key: ProjectPrPageCacheKey {
                 project_id,
                 cursor: canonical_cursor,
                 limit,
@@ -185,7 +188,7 @@ fn paginate_project_prs(
     mut prs: Vec<ProjectPrRecord>,
     cursor: Option<&ProjectPrCursor>,
     limit: usize,
-) -> Result<ProjectPrsResponse, ApiError> {
+) -> Result<ProjectPrPageResponse, ApiError> {
     prs.sort_by(compare_project_prs);
 
     let start_index = cursor
@@ -215,9 +218,9 @@ fn paginate_project_prs(
         })
         .transpose()?;
 
-    Ok(ProjectPrsResponse {
+    Ok(ProjectPrPageResponse {
         repos: group_project_prs_by_repo(page_items),
-        page: ProjectPrsPage {
+        page: ProjectPrPage {
             limit,
             next_cursor,
             has_more,
@@ -225,7 +228,7 @@ fn paginate_project_prs(
     })
 }
 
-fn group_project_prs_by_repo(prs: Vec<ProjectPrRecord>) -> Vec<RepoPrs> {
+fn group_project_prs_by_repo(prs: Vec<ProjectPrRecord>) -> Vec<ProjectRepoPrPage> {
     let mut grouped = Vec::new();
     let mut repo_indices = HashMap::new();
 
@@ -234,7 +237,7 @@ fn group_project_prs_by_repo(prs: Vec<ProjectPrRecord>) -> Vec<RepoPrs> {
             *index
         } else {
             let index = grouped.len();
-            grouped.push(RepoPrs {
+            grouped.push(ProjectRepoPrPage {
                 repo_id: record.repo_id,
                 repo_name: record.repo_name.clone(),
                 display_name: record.display_name.clone(),
@@ -244,7 +247,7 @@ fn group_project_prs_by_repo(prs: Vec<ProjectPrRecord>) -> Vec<RepoPrs> {
             index
         };
 
-        grouped[repo_index].pull_requests.push(PrWithComments {
+        grouped[repo_index].pull_requests.push(ProjectPrSummary {
             pr: record.pr,
             unresolved_count: None,
         });
@@ -769,29 +772,29 @@ pub async fn update_project_repository(
     }
 }
 
-/// GET /api/projects/:id/prs - Get open PRs across all repos, filtered by task group base branches.
+/// GET /api/projects/:id/prs - Get one filtered PR overview page for the project.
 ///
-/// Uses server-side caching with 2-minute TTL to reduce GitHub API calls.
+/// Each request returns a single page plus cursor metadata and is cached per page identity.
 pub async fn get_project_prs(
     Extension(project): Extension<Project>,
     State(deployment): State<DeploymentImpl>,
-    Query(query): Query<GetProjectPrsQuery>,
-) -> Result<ResponseJson<ApiResponse<ProjectPrsResponse>>, ApiError> {
+    Query(query): Query<GetProjectPrPageQuery>,
+) -> Result<ResponseJson<ApiResponse<ProjectPrPageResponse>>, ApiError> {
     let request = query.normalize(project.id)?;
 
     // Check cache first
     if let Some(cached) = deployment.pr_cache().get(&request.cache_key).await {
-        tracing::debug!("Cache hit for project {} PRs", project.id);
+        tracing::debug!("Cache hit for project {} PR overview page", project.id);
         return Ok(ResponseJson(ApiResponse::success(cached)));
     }
 
     tracing::debug!(
-        "Cache miss for project {} PRs, fetching from GitHub",
+        "Cache miss for project {} PR overview page, fetching from GitHub",
         project.id
     );
 
     // Fetch fresh data from GitHub
-    let response = fetch_project_prs_from_github(&project, &deployment, &request).await?;
+    let response = fetch_project_pr_page_from_github(&project, &deployment, &request).await?;
 
     // Store in cache
     deployment
@@ -802,12 +805,12 @@ pub async fn get_project_prs(
     Ok(ResponseJson(ApiResponse::success(response)))
 }
 
-/// Fetch PR data from GitHub API (internal helper for cache miss)
-async fn fetch_project_prs_from_github(
+/// Fetch one PR overview page from the GitHub API after a cache miss.
+async fn fetch_project_pr_page_from_github(
     project: &Project,
     deployment: &DeploymentImpl,
-    request: &NormalizedProjectPrsQuery,
-) -> Result<ProjectPrsResponse, ApiError> {
+    request: &NormalizedProjectPrPageQuery,
+) -> Result<ProjectPrPageResponse, ApiError> {
     let pool = &deployment.db().pool;
 
     // Load GitHub token from settings
@@ -823,9 +826,9 @@ async fn fetch_project_prs_from_github(
 
     // If no base branches, return empty response
     if base_branches.is_empty() {
-        return Ok(ProjectPrsResponse {
+        return Ok(ProjectPrPageResponse {
             repos: vec![],
-            page: ProjectPrsPage {
+            page: ProjectPrPage {
                 limit: request.cache_key.limit,
                 next_cursor: None,
                 has_more: false,
@@ -836,9 +839,9 @@ async fn fetch_project_prs_from_github(
     if let Some(base_branch) = request.cache_key.base_branch.as_deref()
         && !base_branches.iter().any(|branch| branch == base_branch)
     {
-        return Ok(ProjectPrsResponse {
+        return Ok(ProjectPrPageResponse {
             repos: vec![],
-            page: ProjectPrsPage {
+            page: ProjectPrPage {
                 limit: request.cache_key.limit,
                 next_cursor: None,
                 has_more: false,
@@ -935,12 +938,12 @@ pub struct PrUnresolvedCountsResponse {
     pub counts: Vec<PrUnresolvedCount>,
 }
 
-/// GET /api/projects/:id/prs/unresolved-counts - Fetch unresolved comment counts for a loaded PR page.
-/// This endpoint only resolves counts for the cached PR page identity from `/prs`.
+/// GET /api/projects/:id/prs/unresolved-counts - Fetch unresolved comment counts for one loaded overview page.
+/// This endpoint only resolves counts for the cached page identity returned by `/prs`.
 pub async fn get_project_prs_unresolved_counts(
     Extension(project): Extension<Project>,
     State(deployment): State<DeploymentImpl>,
-    Query(query): Query<GetProjectPrsQuery>,
+    Query(query): Query<GetProjectPrPageQuery>,
 ) -> Result<ResponseJson<ApiResponse<PrUnresolvedCountsResponse>>, ApiError> {
     let request = query.normalize(project.id)?;
     let cached_page = deployment
@@ -1315,7 +1318,7 @@ mod tests {
     #[test]
     fn normalizes_project_pr_query_for_cache_identity() {
         let project_id = Uuid::new_v4();
-        let normalized = GetProjectPrsQuery {
+        let normalized = GetProjectPrPageQuery {
             cursor: None,
             limit: Some(500),
             base_branch: Some(" main ".to_string()),
@@ -1333,7 +1336,7 @@ mod tests {
 
     #[test]
     fn rejects_invalid_project_pr_cursor() {
-        let error = GetProjectPrsQuery {
+        let error = GetProjectPrPageQuery {
             cursor: Some("not-a-cursor".to_string()),
             limit: None,
             base_branch: None,
@@ -1379,12 +1382,12 @@ mod tests {
     #[test]
     fn serializes_paginated_pr_response_shape() {
         let repo_id = Uuid::new_v4();
-        let response = ProjectPrsResponse {
-            repos: vec![RepoPrs {
+        let response = ProjectPrPageResponse {
+            repos: vec![ProjectRepoPrPage {
                 repo_id,
                 repo_name: "repo-a".to_string(),
                 display_name: "Repo A".to_string(),
-                pull_requests: vec![PrWithComments {
+                pull_requests: vec![ProjectPrSummary {
                     pr: PullRequestSummary {
                         number: 42,
                         title: "Fix login".to_string(),
@@ -1398,7 +1401,7 @@ mod tests {
                     unresolved_count: None,
                 }],
             }],
-            page: ProjectPrsPage {
+            page: ProjectPrPage {
                 limit: 25,
                 next_cursor: Some("cursor".to_string()),
                 has_more: true,

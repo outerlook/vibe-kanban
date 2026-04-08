@@ -1,8 +1,8 @@
 import type {
-  GetProjectPrsQuery,
-  ProjectPrsResponse,
+  GetProjectPrPageQuery,
+  ProjectPrPageResponse,
   PrUnresolvedCountsResponse,
-  RepoPrs,
+  ProjectRepoPrPage,
 } from './api';
 
 export interface ProjectPrFilters {
@@ -11,7 +11,7 @@ export interface ProjectPrFilters {
 }
 
 export interface ProjectPrPageData {
-  response: ProjectPrsResponse;
+  response: ProjectPrPageResponse;
   counts?: PrUnresolvedCountsResponse;
 }
 
@@ -25,7 +25,7 @@ export function buildProjectPrQuery({
   cursor?: string | null;
   limit?: number;
   filters?: ProjectPrFilters;
-} = {}): GetProjectPrsQuery {
+} = {}): GetProjectPrPageQuery {
   const trimmedSearch = filters?.search.trim() ?? '';
 
   return {
@@ -38,12 +38,12 @@ export function buildProjectPrQuery({
 
 export function mergeProjectPrPages(
   pages: ProjectPrPageData[]
-): ProjectPrsResponse | undefined {
+): ProjectPrPageResponse | undefined {
   if (pages.length === 0) {
     return undefined;
   }
 
-  const reposById = new Map<string, RepoPrs>();
+  const reposById = new Map<string, ProjectRepoPrPage>();
 
   for (const page of pages) {
     const countsByRepo = new Map<string, Map<bigint, number>>();
@@ -86,7 +86,7 @@ export function mergeProjectPrPages(
   };
 }
 
-export function countLoadedProjectPrs(response?: ProjectPrsResponse): number {
+export function countLoadedProjectPrs(response?: ProjectPrPageResponse): number {
   if (!response) {
     return 0;
   }

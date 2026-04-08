@@ -2,7 +2,7 @@ import { useInfiniteQuery, useQueries } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import {
   projectsApi,
-  ProjectPrsResponse,
+  ProjectPrPageResponse,
   PrUnresolvedCountsResponse,
 } from '@/lib/api';
 import {
@@ -17,7 +17,7 @@ export const prKeys = {
   all: ['pullRequests'] as const,
   project: (projectId: string | undefined) =>
     ['pullRequests', 'project', projectId] as const,
-  list: (
+  pages: (
     projectId: string | undefined,
     params: {
       base_branch: string | null;
@@ -29,12 +29,12 @@ export const prKeys = {
       'pullRequests',
       'project',
       projectId,
-      'list',
+      'pages',
       params.base_branch,
       params.search,
       params.limit,
     ] as const,
-  unresolvedCounts: (
+  pageUnresolvedCounts: (
     projectId: string | undefined,
     params: {
       cursor: string | null;
@@ -47,7 +47,7 @@ export const prKeys = {
       'pullRequests',
       'project',
       projectId,
-      'unresolvedCounts',
+      'pageUnresolvedCounts',
       params.cursor,
       params.base_branch,
       params.search,
@@ -62,7 +62,7 @@ type Options = {
   limit?: number;
 };
 
-export function useProjectPrs(
+export function useProjectPrPages(
   projectId?: string,
   filters?: Partial<ProjectPrFilters>,
   opts?: Options
@@ -80,11 +80,11 @@ export function useProjectPrs(
     [filters?.baseBranch, filters?.search, opts?.limit]
   );
 
-  const prsQuery = useInfiniteQuery<ProjectPrsResponse, Error>({
-    queryKey: prKeys.list(projectId, baseQuery),
+  const prsQuery = useInfiniteQuery<ProjectPrPageResponse, Error>({
+    queryKey: prKeys.pages(projectId, baseQuery),
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) =>
-      projectsApi.getPullRequests(projectId!, {
+      projectsApi.getProjectPrPage(projectId!, {
         ...baseQuery,
         cursor: pageParam as string | null,
       }),
@@ -107,7 +107,7 @@ export function useProjectPrs(
             };
 
             return {
-              queryKey: prKeys.unresolvedCounts(projectId, pageQuery),
+              queryKey: prKeys.pageUnresolvedCounts(projectId, pageQuery),
               queryFn: () =>
                 projectsApi.getPullRequestUnresolvedCounts(projectId!, pageQuery),
               enabled: page.repos.some((repo) => repo.pull_requests.length > 0),
@@ -119,7 +119,7 @@ export function useProjectPrs(
         : [],
   });
 
-  const data = useMemo<ProjectPrsResponse | undefined>(() => {
+  const data = useMemo<ProjectPrPageResponse | undefined>(() => {
     const pages = prsQuery.data?.pages;
 
     if (!pages) {

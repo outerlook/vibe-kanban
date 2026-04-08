@@ -14,34 +14,34 @@ use super::github_client::PullRequestSummary;
 /// Default cache TTL in seconds (2 minutes)
 const DEFAULT_TTL_SECS: u64 = 120;
 
-/// A pull request with its optional unresolved review thread count.
-/// The count may be null if it's being loaded progressively.
+/// A single PR entry returned for a paginated overview page.
+/// The unresolved count may be null until that same page's counts are loaded.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-pub struct PrWithComments {
+pub struct ProjectPrSummary {
     #[serde(flatten)]
     pub pr: PullRequestSummary,
     pub unresolved_count: Option<usize>,
 }
 
-/// PRs grouped by repository.
+/// PR entries for one repository within a paginated overview page.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-pub struct RepoPrs {
+pub struct ProjectRepoPrPage {
     pub repo_id: Uuid,
     pub repo_name: String,
     pub display_name: String,
-    pub pull_requests: Vec<PrWithComments>,
+    pub pull_requests: Vec<ProjectPrSummary>,
 }
 
-/// Cached response for project PRs
+/// Cached response for one project PR overview page.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-pub struct ProjectPrsResponse {
-    pub repos: Vec<RepoPrs>,
-    pub page: ProjectPrsPage,
+pub struct ProjectPrPageResponse {
+    pub repos: Vec<ProjectRepoPrPage>,
+    pub page: ProjectPrPage,
 }
 
 /// Pagination metadata for a PR overview page.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-pub struct ProjectPrsPage {
+pub struct ProjectPrPage {
     pub limit: usize,
     pub next_cursor: Option<String>,
     pub has_more: bool,
@@ -49,7 +49,7 @@ pub struct ProjectPrsPage {
 
 /// Cache key for a specific project PR page request.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ProjectPrsCacheKey {
+pub struct ProjectPrPageCacheKey {
     pub project_id: Uuid,
     pub cursor: Option<String>,
     pub limit: usize,
@@ -61,8 +61,8 @@ pub struct ProjectPrsCacheKey {
 ///
 /// Uses moka's async cache with TTL-based expiration.
 pub struct PrCache {
-    cache: Cache<ProjectPrsCacheKey, ProjectPrsResponse>,
-    keys_by_project: RwLock<HashMap<Uuid, HashSet<ProjectPrsCacheKey>>>,
+    cache: Cache<ProjectPrPageCacheKey, ProjectPrPageResponse>,
+    keys_by_project: RwLock<HashMap<Uuid, HashSet<ProjectPrPageCacheKey>>>,
 }
 
 impl PrCache {
@@ -84,13 +84,13 @@ impl PrCache {
         }
     }
 
-    /// Get cached PR data for a project
-    pub async fn get(&self, key: &ProjectPrsCacheKey) -> Option<ProjectPrsResponse> {
+    /// Get cached PR data for a specific overview page.
+    pub async fn get(&self, key: &ProjectPrPageCacheKey) -> Option<ProjectPrPageResponse> {
         self.cache.get(key).await
     }
 
-    /// Store PR data in cache
-    pub async fn insert(&self, key: ProjectPrsCacheKey, response: ProjectPrsResponse) {
+    /// Store PR data for a specific overview page.
+    pub async fn insert(&self, key: ProjectPrPageCacheKey, response: ProjectPrPageResponse) {
         self.cache.insert(key.clone(), response).await;
         self.keys_by_project
             .write()
@@ -100,7 +100,7 @@ impl PrCache {
             .insert(key);
     }
 
-    /// Invalidate cache for a specific project
+    /// Invalidate all cached overview pages for a specific project.
     pub async fn invalidate(&self, project_id: Uuid) {
         let keys = self.keys_by_project.write().await.remove(&project_id);
         if let Some(keys) = keys {
@@ -110,8 +110,8 @@ impl PrCache {
         }
     }
 
-    /// Check if project data is cached
-    pub async fn contains(&self, key: &ProjectPrsCacheKey) -> bool {
+    /// Check if a specific overview page is cached.
+    pub async fn contains(&self, key: &ProjectPrPageCacheKey) -> bool {
         self.cache.contains_key(key)
     }
 }
@@ -130,16 +130,16 @@ mod tests {
     async fn test_cache_insert_and_get() {
         let cache = PrCache::new();
         let project_id = Uuid::new_v4();
-        let key = ProjectPrsCacheKey {
+        let key = ProjectPrPageCacheKey {
             project_id,
             cursor: None,
             limit: 25,
             base_branch: None,
             search: None,
         };
-        let response = ProjectPrsResponse {
+        let response = ProjectPrPageResponse {
             repos: vec![],
-            page: ProjectPrsPage {
+            page: ProjectPrPage {
                 limit: 25,
                 next_cursor: None,
                 has_more: false,
@@ -159,23 +159,23 @@ mod tests {
         let cache = PrCache::new();
         let project_id = Uuid::new_v4();
         let other_project_id = Uuid::new_v4();
-        let key = ProjectPrsCacheKey {
+        let key = ProjectPrPageCacheKey {
             project_id,
             cursor: None,
             limit: 25,
             base_branch: None,
             search: None,
         };
-        let other_key = ProjectPrsCacheKey {
+        let other_key = ProjectPrPageCacheKey {
             project_id: other_project_id,
             cursor: Some("cursor".to_string()),
             limit: 10,
             base_branch: Some("main".to_string()),
             search: Some("bugfix".to_string()),
         };
-        let response = ProjectPrsResponse {
+        let response = ProjectPrPageResponse {
             repos: vec![],
-            page: ProjectPrsPage {
+            page: ProjectPrPage {
                 limit: 25,
                 next_cursor: None,
                 has_more: false,
@@ -196,23 +196,23 @@ mod tests {
     async fn test_cache_keys_include_request_identity() {
         let cache = PrCache::new();
         let project_id = Uuid::new_v4();
-        let first_key = ProjectPrsCacheKey {
+        let first_key = ProjectPrPageCacheKey {
             project_id,
             cursor: None,
             limit: 25,
             base_branch: None,
             search: None,
         };
-        let second_key = ProjectPrsCacheKey {
+        let second_key = ProjectPrPageCacheKey {
             project_id,
             cursor: Some("next-page".to_string()),
             limit: 25,
             base_branch: None,
             search: None,
         };
-        let response = ProjectPrsResponse {
+        let response = ProjectPrPageResponse {
             repos: vec![],
-            page: ProjectPrsPage {
+            page: ProjectPrPage {
                 limit: 25,
                 next_cursor: Some("next-page".to_string()),
                 has_more: true,
@@ -229,16 +229,16 @@ mod tests {
     async fn test_cache_ttl_expiration() {
         let cache = PrCache::with_ttl(Duration::from_millis(50));
         let project_id = Uuid::new_v4();
-        let key = ProjectPrsCacheKey {
+        let key = ProjectPrPageCacheKey {
             project_id,
             cursor: None,
             limit: 25,
             base_branch: None,
             search: None,
         };
-        let response = ProjectPrsResponse {
+        let response = ProjectPrPageResponse {
             repos: vec![],
-            page: ProjectPrsPage {
+            page: ProjectPrPage {
                 limit: 25,
                 next_cursor: None,
                 has_more: false,
