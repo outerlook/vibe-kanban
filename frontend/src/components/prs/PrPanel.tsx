@@ -4,17 +4,24 @@ import { useTranslation } from 'react-i18next';
 import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import { useQueryClient } from '@tanstack/react-query';
 import { GitPullRequest } from 'lucide-react';
-import { BranchSection, BranchSectionSkeleton, type PrData } from './index';
+import { BranchSection, BranchSectionSkeleton } from './index';
 import { PrDetailPanel } from './PrDetailPanel';
-import { PushBranchDialog, type PushBranchDialogResult } from '@/components/dialogs/git/PushBranchDialog';
+import {
+  buildPrPanelData,
+  createEmptyTaskCounts,
+} from './prPanelData';
+import {
+  PushBranchDialog,
+  type PushBranchDialogResult,
+} from '@/components/dialogs/git/PushBranchDialog';
 import { ForcePushBranchDialog } from '@/components/dialogs/git/ForcePushBranchDialog';
 import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useBatchBranchSyncStatus, branchSyncStatusKeys } from '@/hooks';
 import { paths } from '@/lib/paths';
 import { cn } from '@/lib/utils';
-import type { ProjectPrsResponse, PrWithComments } from '@/lib/api';
-import type { TaskGroupWithStats, Workspace, TaskStatusCounts } from 'shared/types';
+import type { ProjectPrsResponse } from '@/lib/api';
+import type { TaskGroupWithStats, Workspace } from 'shared/types';
 
 type SplitSizes = [number, number];
 
@@ -43,47 +50,21 @@ function saveSizes(key: string, sizes: SplitSizes): void {
   }
 }
 
-function toPrData(pr: PrWithComments, repoId: string): PrData {
-  return {
-    id: `${repoId}-${pr.number}`,
-    title: pr.title,
-    url: pr.url,
-    author: pr.author,
-    baseBranch: pr.base_branch,
-    headBranch: pr.head_branch,
-    unresolvedComments: pr.unresolved_count,
-    createdAt: pr.created_at,
-  };
-}
-
-export interface PrPanelFilters {
-  selectedBranch: string | null;
-  searchQuery: string;
-}
-
 export interface PrPanelProps {
   projectId: string;
   prsResponse: ProjectPrsResponse | undefined;
   taskGroups: TaskGroupWithStats[] | undefined;
   workspaces: Workspace[] | undefined;
-  filters: PrPanelFilters;
+  hasActiveFilters: boolean;
   isMobile?: boolean;
 }
-
-type BranchMetadata = {
-  taskCounts: TaskStatusCounts;
-  repoId?: string;
-  workspaceId?: string;
-  groupName?: string;
-  groupDescription?: string | null;
-};
 
 export function PrPanel({
   projectId,
   prsResponse,
   taskGroups,
   workspaces,
-  filters,
+  hasActiveFilters,
   isMobile: isMobileProp,
 }: PrPanelProps) {
   const { t } = useTranslation(['prs', 'common']);
@@ -98,124 +79,28 @@ export function PrPanel({
   );
   const [pushingBranch, setPushingBranch] = useState<string | null>(null);
 
-  // Read selection from URL query params
   const selectedRepoId = searchParams.get('repo');
   const selectedPrNumber = searchParams.get('pr');
   const hasSelection = selectedRepoId !== null && selectedPrNumber !== null;
 
-  // Group PRs by head branch and build metadata
-  const { groupedByBranch, branchMetadata, selectedPrData } = useMemo(() => {
-    const grouped = new Map<string, PrData[]>();
-    const metadata = new Map<string, BranchMetadata>();
-    let foundPrData: PrData | undefined;
+  const { groupedByBranch, branchMetadata, selectedPrData } = useMemo(
+    () =>
+      buildPrPanelData({
+        prsResponse,
+        taskGroups,
+        workspaces,
+        selectedRepoId,
+        selectedPrNumber,
+      }),
+    [prsResponse, taskGroups, workspaces, selectedRepoId, selectedPrNumber]
+  );
 
-    // First, collect all branches from task groups that have base_branch
-    if (taskGroups) {
-      for (const group of taskGroups) {
-        if (!group.base_branch) continue;
-
-        const branchName = group.base_branch;
-        if (metadata.has(branchName)) continue;
-
-        const workspace = workspaces?.find((w) => w.branch === branchName);
-        const repoId = prsResponse?.repos?.[0]?.repo_id;
-
-        metadata.set(branchName, {
-          taskCounts: { ...group.task_counts },
-          repoId,
-          workspaceId: workspace?.id,
-          groupName: group.name,
-          groupDescription: group.description,
-        });
-
-        grouped.set(branchName, []);
-      }
-    }
-
-    // Then, process PRs
-    if (prsResponse?.repos) {
-      for (const repo of prsResponse.repos) {
-        for (const pr of repo.pull_requests) {
-          // Filter by base branch
-          if (filters.selectedBranch && pr.base_branch !== filters.selectedBranch) {
-            continue;
-          }
-          // Filter by search query
-          if (
-            filters.searchQuery &&
-            !pr.title.toLowerCase().includes(filters.searchQuery.toLowerCase())
-          ) {
-            continue;
-          }
-
-          const branchName = pr.head_branch;
-          const prData = toPrData(pr, repo.repo_id);
-
-          // Check if this is the selected PR
-          if (
-            selectedRepoId === repo.repo_id &&
-            selectedPrNumber === String(pr.number)
-          ) {
-            foundPrData = prData;
-          }
-
-          // Group PRs by head branch
-          const existing = grouped.get(branchName) ?? [];
-          existing.push(prData);
-          grouped.set(branchName, existing);
-
-          // Update or initialize metadata
-          if (!metadata.has(branchName)) {
-            const matchingGroups =
-              taskGroups?.filter((g) => g.base_branch === branchName) ?? [];
-            const aggregatedCounts: TaskStatusCounts = {
-              todo: BigInt(0),
-              inprogress: BigInt(0),
-              inreview: BigInt(0),
-              done: BigInt(0),
-              cancelled: BigInt(0),
-            };
-            for (const group of matchingGroups) {
-              aggregatedCounts.todo += group.task_counts.todo;
-              aggregatedCounts.inprogress += group.task_counts.inprogress;
-              aggregatedCounts.inreview += group.task_counts.inreview;
-              aggregatedCounts.done += group.task_counts.done;
-              aggregatedCounts.cancelled += group.task_counts.cancelled;
-            }
-
-            const workspace = workspaces?.find((w) => w.branch === branchName);
-            const firstGroup = matchingGroups[0];
-
-            metadata.set(branchName, {
-              taskCounts: aggregatedCounts,
-              repoId: repo.repo_id,
-              workspaceId: workspace?.id,
-              groupName: firstGroup?.name,
-              groupDescription: firstGroup?.description,
-            });
-          } else {
-            const existingMeta = metadata.get(branchName)!;
-            if (!existingMeta.repoId) {
-              existingMeta.repoId = repo.repo_id;
-            }
-          }
-        }
-      }
-    }
-
-    return { groupedByBranch: grouped, branchMetadata: metadata, selectedPrData: foundPrData };
-  }, [prsResponse, taskGroups, workspaces, filters, selectedRepoId, selectedPrNumber]);
-
-  // Get first repo ID for sync status (single-repo projects for now)
   const primaryRepoId = prsResponse?.repos?.[0]?.repo_id;
-
-  // Collect all branch names for batch sync status query
   const branchNames = useMemo(
     () => Array.from(groupedByBranch.keys()),
     [groupedByBranch]
   );
 
-  // Fetch sync status for all visible branches
   const { data: syncStatusData } = useBatchBranchSyncStatus(
     primaryRepoId,
     projectId,
@@ -234,7 +119,6 @@ export function PrPanel({
     navigate(paths.projectPrs(projectId));
   }, [navigate, projectId]);
 
-  // Handle push for a specific branch
   const handlePush = useCallback(
     async (branchName: string, repoId: string, commitsAhead?: number) => {
       setPushingBranch(branchName);
@@ -246,14 +130,12 @@ export function PrPanel({
         });
 
         if (result === 'force_push_required') {
-          // Show force push dialog
           await ForcePushBranchDialog.show({
             repoId,
             branchName,
           });
         }
 
-        // Invalidate sync status to refresh badges
         queryClient.invalidateQueries({
           queryKey: branchSyncStatusKeys.batch(repoId, projectId, branchNames),
         });
@@ -264,7 +146,6 @@ export function PrPanel({
     [queryClient, projectId, branchNames]
   );
 
-  // Render the PR list with BranchSection components
   const prList = (
     <div className="flex-1 overflow-y-auto p-4 space-y-4">
       {groupedByBranch.size === 0 ? (
@@ -274,9 +155,14 @@ export function PrPanel({
             {t('prs:noPrsFound', { defaultValue: 'No pull requests found' })}
           </p>
           <p className="text-sm mt-1">
-            {filters.selectedBranch || filters.searchQuery
-              ? t('prs:tryAdjustingFilters', { defaultValue: 'Try adjusting your filters' })
-              : t('prs:noOpenPrs', { defaultValue: 'No open PRs for the configured base branches' })}
+            {hasActiveFilters
+              ? t('prs:tryAdjustingFilters', {
+                  defaultValue: 'Try adjusting your filters',
+                })
+              : t('prs:noOpenPrs', {
+                  defaultValue:
+                    'No open PRs for the currently loaded branches',
+                })}
           </p>
         </div>
       ) : (
@@ -291,8 +177,6 @@ export function PrPanel({
               prs={prs.map((pr) => ({
                 ...pr,
                 onClick: () => {
-                  // Extract repoId and prNumber from pr.id which is `${repoId}-${prNumber}`
-                  // repoId is a UUID with hyphens, so split from the last hyphen
                   const idStr = pr.id.toString();
                   const lastDash = idStr.lastIndexOf('-');
                   const extractedRepoId = idStr.slice(0, lastDash);
@@ -304,15 +188,7 @@ export function PrPanel({
                   selectedPrNumber !== null &&
                   pr.id === `${selectedRepoId}-${selectedPrNumber}`,
               }))}
-              taskCounts={
-                meta?.taskCounts ?? {
-                  todo: BigInt(0),
-                  inprogress: BigInt(0),
-                  inreview: BigInt(0),
-                  done: BigInt(0),
-                  cancelled: BigInt(0),
-                }
-              }
+              taskCounts={meta?.taskCounts ?? createEmptyTaskCounts()}
               repoId={repoId}
               projectId={projectId}
               workspaceId={meta?.workspaceId}
@@ -337,17 +213,17 @@ export function PrPanel({
     </div>
   );
 
-  // Empty state for detail panel
   const emptyDetailState = (
     <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
       <GitPullRequest className="h-12 w-12 mb-4 opacity-50" />
       <p>
-        {t('prs:selectPr', { defaultValue: 'Select a pull request to view details' })}
+        {t('prs:selectPr', {
+          defaultValue: 'Select a pull request to view details',
+        })}
       </p>
     </div>
   );
 
-  // Mobile layout: show either list or detail (full-screen)
   if (isMobile) {
     if (hasSelection && selectedPrData && selectedRepoId) {
       return (
@@ -371,8 +247,6 @@ export function PrPanel({
     );
   }
 
-  // Desktop layout: click-to-open pattern
-  // Show only list by default, side-by-side when a PR is selected
   if (!hasSelection) {
     return (
       <div className="flex h-full border rounded-lg overflow-hidden bg-background">
@@ -381,7 +255,6 @@ export function PrPanel({
     );
   }
 
-  // Desktop with selection: resizable side-by-side layout
   return (
     <div className="flex h-full border rounded-lg overflow-hidden bg-background">
       <PanelGroup
@@ -457,8 +330,7 @@ export function PrPanel({
 }
 
 export function PrPanelSkeleton({ isMobile = false }: { isMobile?: boolean }) {
-  // Both mobile and desktop show full-width list skeleton (click-to-open pattern)
-  void isMobile; // unused but kept for API consistency
+  void isMobile;
   return (
     <div className="flex h-full flex-col border rounded-lg overflow-hidden bg-background">
       <div className="p-4 space-y-4">

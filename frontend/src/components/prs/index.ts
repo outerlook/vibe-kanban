@@ -19,5 +19,4 @@ export {
   PrPanel,
   PrPanelSkeleton,
   type PrPanelProps,
-  type PrPanelFilters,
 } from './PrPanel';

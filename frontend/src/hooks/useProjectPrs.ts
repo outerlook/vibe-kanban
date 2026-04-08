@@ -1,94 +1,154 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo } from 'react';
+import { useInfiniteQuery, useQueries } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import {
   projectsApi,
   ProjectPrsResponse,
   PrUnresolvedCountsResponse,
 } from '@/lib/api';
+import {
+  buildProjectPrQuery,
+  countLoadedProjectPrs,
+  mergeProjectPrPages,
+  PROJECT_PRS_PAGE_SIZE,
+  type ProjectPrFilters,
+} from '@/lib/projectPrs';
 
 export const prKeys = {
   all: ['pullRequests'] as const,
-  byProject: (projectId: string | undefined) =>
+  project: (projectId: string | undefined) =>
     ['pullRequests', 'project', projectId] as const,
-  unresolvedCounts: (projectId: string | undefined) =>
-    ['pullRequests', 'project', projectId, 'unresolvedCounts'] as const,
+  list: (
+    projectId: string | undefined,
+    params: {
+      base_branch: string | null;
+      search: string | null;
+      limit: number | null;
+    }
+  ) =>
+    [
+      'pullRequests',
+      'project',
+      projectId,
+      'list',
+      params.base_branch,
+      params.search,
+      params.limit,
+    ] as const,
+  unresolvedCounts: (
+    projectId: string | undefined,
+    params: {
+      cursor: string | null;
+      base_branch: string | null;
+      search: string | null;
+      limit: number | null;
+    }
+  ) =>
+    [
+      'pullRequests',
+      'project',
+      projectId,
+      'unresolvedCounts',
+      params.cursor,
+      params.base_branch,
+      params.search,
+      params.limit,
+    ] as const,
 };
 
 type Options = {
   enabled?: boolean;
   refetchInterval?: number | false;
   staleTime?: number;
+  limit?: number;
 };
 
-export function useProjectPrs(projectId?: string, opts?: Options) {
+export function useProjectPrs(
+  projectId?: string,
+  filters?: Partial<ProjectPrFilters>,
+  opts?: Options
+) {
   const enabled = (opts?.enabled ?? true) && !!projectId;
-  const queryClient = useQueryClient();
+  const baseQuery = useMemo(
+    () =>
+      buildProjectPrQuery({
+        limit: opts?.limit ?? PROJECT_PRS_PAGE_SIZE,
+        filters: {
+          baseBranch: filters?.baseBranch ?? null,
+          search: filters?.search ?? '',
+        },
+      }),
+    [filters?.baseBranch, filters?.search, opts?.limit]
+  );
 
-  // Query 1: Fetch PRs (fast) - returns PRs with null unresolved_count
-  const prsQuery = useQuery<ProjectPrsResponse>({
-    queryKey: prKeys.byProject(projectId),
-    queryFn: () => projectsApi.getPullRequests(projectId!),
+  const prsQuery = useInfiniteQuery<ProjectPrsResponse, Error>({
+    queryKey: prKeys.list(projectId, baseQuery),
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      projectsApi.getPullRequests(projectId!, {
+        ...baseQuery,
+        cursor: pageParam as string | null,
+      }),
+    getNextPageParam: (lastPage) => lastPage.page.next_cursor,
     enabled,
     staleTime: opts?.staleTime ?? 30_000,
     refetchInterval: opts?.refetchInterval ?? 60_000,
     retry: 2,
   });
 
-  // Query 2: Fetch unresolved counts (slower) - only after PRs are loaded
-  const countsQuery = useQuery<PrUnresolvedCountsResponse>({
-    queryKey: prKeys.unresolvedCounts(projectId),
-    queryFn: () => projectsApi.getPullRequestUnresolvedCounts(projectId!),
-    enabled: enabled && prsQuery.isSuccess,
-    staleTime: opts?.staleTime ?? 30_000,
-    refetchInterval: opts?.refetchInterval ?? 60_000,
-    retry: 2,
+  const countsQueries = useQueries({
+    queries:
+      enabled && prsQuery.data
+        ? prsQuery.data.pages.map((page, index) => {
+            const cursor =
+              (prsQuery.data?.pageParams[index] as string | null) ?? null;
+            const pageQuery = {
+              ...baseQuery,
+              cursor,
+            };
+
+            return {
+              queryKey: prKeys.unresolvedCounts(projectId, pageQuery),
+              queryFn: () =>
+                projectsApi.getPullRequestUnresolvedCounts(projectId!, pageQuery),
+              enabled: page.repos.some((repo) => repo.pull_requests.length > 0),
+              staleTime: opts?.staleTime ?? 30_000,
+              refetchInterval: opts?.refetchInterval ?? 60_000,
+              retry: 2,
+            };
+          })
+        : [],
   });
 
-  // Invalidate counts when PRs are refetched
-  useEffect(() => {
-    if (prsQuery.dataUpdatedAt && projectId) {
-      queryClient.invalidateQueries({
-        queryKey: prKeys.unresolvedCounts(projectId),
-      });
-    }
-  }, [prsQuery.dataUpdatedAt, projectId, queryClient]);
-
-  // Merge PRs with their unresolved counts
   const data = useMemo<ProjectPrsResponse | undefined>(() => {
-    if (!prsQuery.data) return undefined;
+    const pages = prsQuery.data?.pages;
 
-    // If we don't have counts yet, return PRs as-is (with null counts)
-    if (!countsQuery.data) return prsQuery.data;
-
-    // Build a lookup map for counts: repoId -> prNumber -> count
-    const countsMap = new Map<string, Map<bigint, number>>();
-    for (const count of countsQuery.data.counts) {
-      let repoMap = countsMap.get(count.repo_id);
-      if (!repoMap) {
-        repoMap = new Map();
-        countsMap.set(count.repo_id, repoMap);
-      }
-      repoMap.set(count.pr_number, count.unresolved_count);
+    if (!pages) {
+      return undefined;
     }
 
-    // Merge counts into PRs
-    return {
-      repos: prsQuery.data.repos.map((repo) => ({
-        ...repo,
-        pull_requests: repo.pull_requests.map((pr) => {
-          const repoMap = countsMap.get(repo.repo_id);
-          const count = repoMap?.get(pr.number);
-          return {
-            ...pr,
-            unresolved_count: count ?? pr.unresolved_count,
-          };
-        }),
-      })),
-    };
-  }, [prsQuery.data, countsQuery.data]);
+    return mergeProjectPrPages(
+      pages.map((page, index) => ({
+        response: page,
+        counts: countsQueries[index]?.data as
+          | PrUnresolvedCountsResponse
+          | undefined,
+      }))
+    );
+  }, [prsQuery.data, countsQueries]);
+
+  const countsError = countsQueries.find((query) => query.error)?.error;
 
   return {
     ...prsQuery,
     data,
+    error: prsQuery.error ?? countsError ?? null,
+    hasMore: prsQuery.hasNextPage ?? false,
+    isLoadingMore: prsQuery.isFetchingNextPage,
+    loadMore: () => {
+      if (prsQuery.hasNextPage && !prsQuery.isFetchingNextPage) {
+        void prsQuery.fetchNextPage();
+      }
+    },
+    loadedCount: countLoadedProjectPrs(data),
   };
 }

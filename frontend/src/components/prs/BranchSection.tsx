@@ -219,7 +219,7 @@ export function BranchSection({
         projectId,
       });
 
-      queryClient.invalidateQueries({ queryKey: prKeys.byProject(projectId) });
+      queryClient.invalidateQueries({ queryKey: prKeys.project(projectId) });
     },
     [repoId, projectId, groupName, groupDescription, branchName, queryClient]
   );
