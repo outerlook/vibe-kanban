@@ -1082,6 +1082,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/merge-queue-count", get(get_merge_queue_count))
         .route("/workspaces", get(get_project_workspaces))
         .route("/worktrees", get(get_project_worktrees))
+        .merge(crate::routes::tasks::project_router(deployment))
         .layer(from_fn_with_state(
             deployment.clone(),
             load_project_middleware,

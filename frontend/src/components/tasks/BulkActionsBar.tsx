@@ -11,8 +11,13 @@ import {
 import { useTaskSelection } from '@/contexts/TaskSelectionContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { useCanBulkCreateAttempts } from '@/hooks';
-import { BulkCreateAttemptsDialog, BulkAssignGroupDialog } from '@/components/dialogs';
-import { Layers, X } from 'lucide-react';
+import {
+  BulkCreateAttemptsDialog,
+  BulkAssignGroupDialog,
+  BulkMoveToStatusDialog,
+  DeleteTaskConfirmationDialog,
+} from '@/components/dialogs';
+import { ArrowRightLeft, Layers, Trash2, X } from 'lucide-react';
 
 export function BulkActionsBar() {
   const { t } = useTranslation('tasks');
@@ -36,12 +41,40 @@ export function BulkActionsBar() {
     BulkAssignGroupDialog.show({ projectId, taskIds: getSelectedIds() });
   };
 
+  const handleMoveToStatus = async () => {
+    if (!projectId) return;
+
+    try {
+      await BulkMoveToStatusDialog.show({
+        projectId,
+        taskIds: getSelectedIds(),
+      });
+      clearSelection();
+    } catch {
+      // Dialog closed without completing the action.
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!projectId) return;
+
+    try {
+      await DeleteTaskConfirmationDialog.show({
+        projectId,
+        taskIds: getSelectedIds(),
+      });
+      clearSelection();
+    } catch {
+      // Dialog closed without completing the action.
+    }
+  };
+
   return createPortal(
-    <Card className="fixed bottom-8 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 px-4 py-3 shadow-lg border rounded-lg">
+    <Card className="fixed bottom-8 left-1/2 z-40 flex max-w-[calc(100vw-1rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-3 rounded-lg border px-4 py-3 shadow-lg">
       <span className="text-sm font-medium">
         {t('bulkActions.selectedCount', { count: selectedCount })}
       </span>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-center gap-2">
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -66,6 +99,14 @@ export function BulkActionsBar() {
         <Button variant="secondary" size="sm" onClick={handleAssignToGroup}>
           <Layers className="h-4 w-4 mr-1" />
           {t('bulkActions.assignToGroup')}
+        </Button>
+        <Button variant="secondary" size="sm" onClick={handleMoveToStatus}>
+          <ArrowRightLeft className="h-4 w-4 mr-1" />
+          {t('bulkActions.moveToStatus')}
+        </Button>
+        <Button variant="destructive" size="sm" onClick={handleBulkDelete}>
+          <Trash2 className="h-4 w-4 mr-1" />
+          {t('bulkActions.deleteTasks')}
         </Button>
         <Button
           variant="ghost"

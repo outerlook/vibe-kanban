@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
 use anyhow;
 use axum::{
@@ -133,6 +136,66 @@ pub struct SearchTasksResponse {
     pub count: usize,
     /// The search method used: "hybrid", "vector", or "keyword"
     pub search_method: String,
+}
+
+#[derive(Debug, Deserialize, TS)]
+pub struct BulkDeleteTasksRequest {
+    pub project_id: Uuid,
+    pub task_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct DeletedTaskSummary {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub status: TaskStatus,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct BulkDeleteTasksResponse {
+    pub deleted_tasks: Vec<DeletedTaskSummary>,
+}
+
+#[derive(Debug, Deserialize, TS)]
+pub struct BulkUpdateTaskStatusRequest {
+    pub project_id: Uuid,
+    pub task_ids: Vec<Uuid>,
+    pub status: TaskStatus,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct BulkUpdateTaskStatusResponse {
+    pub tasks: Vec<Task>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectBulkDeleteTasksRequest {
+    pub task_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectBulkUpdateTaskStatusRequest {
+    pub task_ids: Vec<Uuid>,
+    pub status: TaskStatus,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedTaskUpdate {
+    title: String,
+    description: Option<String>,
+    status: TaskStatus,
+    parent_workspace_id: Option<Uuid>,
+    task_group_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone)]
+struct TaskDeletionPlan {
+    task: Task,
+    attempts: Vec<Workspace>,
+    repositories: Vec<Repo>,
+    workspace_dirs: Vec<PathBuf>,
 }
 
 pub async fn get_tasks(
@@ -575,68 +638,17 @@ pub async fn update_task(
 ) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
     ensure_shared_task_auth(&existing_task, &deployment).await?;
 
-    // Validate task_group_id if a new value is provided
-    if let Some(task_group_id) = payload.task_group_id {
-        validate_task_group_id(
-            &deployment.db().pool,
-            task_group_id,
-            existing_task.project_id,
-        )
-        .await?;
-    }
-
-    // Capture previous status for event dispatch
+    let image_ids = payload.image_ids.clone();
+    let resolved_update = resolve_task_update(&deployment, &existing_task, &payload).await?;
     let previous_status = existing_task.status.clone();
+    let task = persist_task_update(&deployment.db().pool, &existing_task, &resolved_update).await?;
 
-    // Use existing values if not provided in update
-    let title = payload.title.unwrap_or(existing_task.title);
-    let description = match payload.description {
-        Some(s) if s.trim().is_empty() => None, // Empty string = clear description
-        Some(s) => Some(s),                     // Non-empty string = update description
-        None => existing_task.description,      // Field omitted = keep existing
-    };
-    let status = payload.status.unwrap_or(existing_task.status);
-    let parent_workspace_id = payload
-        .parent_workspace_id
-        .or(existing_task.parent_workspace_id);
-    let task_group_id = payload.task_group_id.or(existing_task.task_group_id);
-
-    let task = Task::update(
-        &deployment.db().pool,
-        existing_task.id,
-        existing_task.project_id,
-        title,
-        description,
-        status.clone(),
-        parent_workspace_id,
-        task_group_id,
-    )
-    .await?;
-
-    if let Some(image_ids) = &payload.image_ids {
+    if let Some(image_ids) = &image_ids {
         TaskImage::delete_by_task_id(&deployment.db().pool, task.id).await?;
         TaskImage::associate_many_dedup(&deployment.db().pool, task.id, image_ids).await?;
     }
 
-    // Dispatch TaskStatusChanged event if status changed
-    // This triggers handlers like AutopilotHandler, ReviewAttentionHandler, etc.
-    if status != previous_status {
-        deployment
-            .container()
-            .dispatch_event(DomainEvent::TaskStatusChanged {
-                task: task.clone(),
-                previous_status,
-            })
-            .await;
-    }
-
-    // If task has been shared, broadcast update
-    if task.shared_task_id.is_some() {
-        let Ok(publisher) = deployment.share_publisher() else {
-            return Err(ShareError::MissingConfig("share publisher unavailable").into());
-        };
-        publisher.update_shared_task(&task).await?;
-    }
+    finalize_task_update(&deployment, &task, previous_status).await?;
 
     Ok(ResponseJson(ApiResponse::success(task)))
 }
@@ -656,107 +668,295 @@ async fn ensure_shared_task_auth(
     Ok(())
 }
 
-pub async fn delete_task(
-    Extension(task): Extension<Task>,
-    State(deployment): State<DeploymentImpl>,
-) -> Result<(StatusCode, ResponseJson<ApiResponse<()>>), ApiError> {
-    ensure_shared_task_auth(&task, &deployment).await?;
+async fn ensure_shared_tasks_auth(
+    tasks: &[Task],
+    deployment: &local_deployment::LocalDeployment,
+) -> Result<(), ApiError> {
+    if tasks.iter().all(|task| task.shared_task_id.is_none()) {
+        return Ok(());
+    }
 
-    // Validate no running execution processes
+    match deployment.get_login_status().await {
+        LoginStatus::LoggedIn { .. } => Ok(()),
+        LoginStatus::LoggedOut => Err(ShareError::MissingAuth.into()),
+    }
+}
+
+async fn resolve_task_update(
+    deployment: &DeploymentImpl,
+    existing_task: &Task,
+    payload: &UpdateTask,
+) -> Result<ResolvedTaskUpdate, ApiError> {
+    if let Some(task_group_id) = payload.task_group_id {
+        validate_task_group_id(
+            &deployment.db().pool,
+            task_group_id,
+            existing_task.project_id,
+        )
+        .await?;
+    }
+
+    Ok(ResolvedTaskUpdate {
+        title: payload
+            .title
+            .clone()
+            .unwrap_or_else(|| existing_task.title.clone()),
+        description: match &payload.description {
+            Some(s) if s.trim().is_empty() => None,
+            Some(s) => Some(s.clone()),
+            None => existing_task.description.clone(),
+        },
+        status: payload
+            .status
+            .clone()
+            .unwrap_or_else(|| existing_task.status.clone()),
+        parent_workspace_id: payload
+            .parent_workspace_id
+            .or(existing_task.parent_workspace_id),
+        task_group_id: payload.task_group_id.or(existing_task.task_group_id),
+    })
+}
+
+async fn persist_task_update<'e, E>(
+    executor: E,
+    existing_task: &Task,
+    resolved_update: &ResolvedTaskUpdate,
+) -> Result<Task, ApiError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    Ok(Task::update_with_executor(
+        executor,
+        existing_task.id,
+        existing_task.project_id,
+        resolved_update.title.clone(),
+        resolved_update.description.clone(),
+        resolved_update.status.clone(),
+        resolved_update.parent_workspace_id,
+        resolved_update.task_group_id,
+    )
+    .await?)
+}
+
+async fn finalize_task_update(
+    deployment: &DeploymentImpl,
+    task: &Task,
+    previous_status: TaskStatus,
+) -> Result<(), ApiError> {
+    if task.status != previous_status {
+        deployment
+            .container()
+            .dispatch_event(DomainEvent::TaskStatusChanged {
+                task: task.clone(),
+                previous_status,
+            })
+            .await;
+    }
+
+    if task.shared_task_id.is_some() {
+        let Ok(publisher) = deployment.share_publisher() else {
+            return Err(ShareError::MissingConfig("share publisher unavailable").into());
+        };
+        publisher.update_shared_task(task).await?;
+    }
+
+    Ok(())
+}
+
+fn validate_bulk_task_ids(task_ids: &[Uuid]) -> Result<Vec<Uuid>, ApiError> {
+    if task_ids.is_empty() {
+        return Err(ApiError::BadRequest(
+            "taskIds must contain at least one task".to_string(),
+        ));
+    }
+
+    let mut seen = HashSet::new();
+    let mut unique_ids = Vec::with_capacity(task_ids.len());
+
+    for task_id in task_ids {
+        if !seen.insert(*task_id) {
+            return Err(ApiError::BadRequest("taskIds must be unique".to_string()));
+        }
+        unique_ids.push(*task_id);
+    }
+
+    Ok(unique_ids)
+}
+
+async fn load_project_tasks(
+    pool: &sqlx::SqlitePool,
+    project_id: Uuid,
+    task_ids: &[Uuid],
+) -> Result<Vec<Task>, ApiError> {
+    let tasks = Task::find_by_ids(pool, task_ids).await?;
+    let tasks_by_id: HashMap<Uuid, Task> = tasks.into_iter().map(|task| (task.id, task)).collect();
+
+    let mut resolved_tasks = Vec::with_capacity(task_ids.len());
+    let mut invalid_task_ids = Vec::new();
+
+    for task_id in task_ids {
+        match tasks_by_id.get(task_id) {
+            Some(task) if task.project_id == project_id => resolved_tasks.push(task.clone()),
+            _ => invalid_task_ids.push(task_id.to_string()),
+        }
+    }
+
+    if !invalid_task_ids.is_empty() {
+        return Err(ApiError::BadRequest(format!(
+            "Tasks do not belong to project {}: {}",
+            project_id,
+            invalid_task_ids.join(", ")
+        )));
+    }
+
+    Ok(resolved_tasks)
+}
+
+async fn build_task_deletion_plan(
+    deployment: &DeploymentImpl,
+    task: Task,
+) -> Result<TaskDeletionPlan, ApiError> {
     if deployment
         .container()
         .has_running_processes(task.id)
         .await?
     {
-        return Err(ApiError::Conflict("Task has running execution processes. Please wait for them to complete or stop them first.".to_string()));
+        return Err(ApiError::Conflict(
+            "Task has running execution processes. Please wait for them to complete or stop them first."
+                .to_string(),
+        ));
     }
 
     let pool = &deployment.db().pool;
-
-    // Gather task attempts data needed for background cleanup
     let attempts = Workspace::fetch_all(pool, Some(task.id))
         .await
         .map_err(|e| {
             tracing::error!("Failed to fetch task attempts for task {}: {}", task.id, e);
             ApiError::Workspace(e)
         })?;
-
     let repositories = WorkspaceRepo::find_unique_repos_for_task(pool, task.id).await?;
-
-    // Collect workspace directories that need cleanup
-    let workspace_dirs: Vec<PathBuf> = attempts
+    let workspace_dirs = attempts
         .iter()
         .filter_map(|attempt| attempt.container_ref.as_ref().map(PathBuf::from))
         .collect();
 
-    if let Some(shared_task_id) = task.shared_task_id {
-        let Ok(publisher) = deployment.share_publisher() else {
-            return Err(ShareError::MissingConfig("share publisher unavailable").into());
-        };
-        publisher.delete_shared_task(shared_task_id).await?;
+    Ok(TaskDeletionPlan {
+        task,
+        attempts,
+        repositories,
+        workspace_dirs,
+    })
+}
+
+async fn publish_task_deletions(
+    deployment: &DeploymentImpl,
+    deletion_plans: &[TaskDeletionPlan],
+) -> Result<(), ApiError> {
+    if deletion_plans
+        .iter()
+        .all(|plan| plan.task.shared_task_id.is_none())
+    {
+        return Ok(());
     }
 
-    // Use a transaction to ensure atomicity: either all operations succeed or all are rolled back
+    let Ok(publisher) = deployment.share_publisher() else {
+        return Err(ShareError::MissingConfig("share publisher unavailable").into());
+    };
+
+    for plan in deletion_plans {
+        if let Some(shared_task_id) = plan.task.shared_task_id {
+            publisher.delete_shared_task(shared_task_id).await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn execute_task_deletions(
+    pool: &sqlx::SqlitePool,
+    deletion_plans: &[TaskDeletionPlan],
+) -> Result<Vec<DeletedTaskSummary>, ApiError> {
     let mut tx = pool.begin().await?;
 
-    // Nullify parent_workspace_id for all child tasks before deletion
-    // This breaks parent-child relationships to avoid foreign key constraint violations
-    let mut total_children_affected = 0u64;
-    for attempt in &attempts {
-        let children_affected =
-            Task::nullify_children_by_workspace_id(&mut *tx, attempt.id).await?;
-        total_children_affected += children_affected;
+    for plan in deletion_plans {
+        let mut total_children_affected = 0u64;
+        for attempt in &plan.attempts {
+            let children_affected =
+                Task::nullify_children_by_workspace_id(&mut *tx, attempt.id).await?;
+            total_children_affected += children_affected;
+        }
+
+        let rows_affected = Task::delete(&mut *tx, plan.task.id).await?;
+        if rows_affected == 0 {
+            return Err(ApiError::Database(SqlxError::RowNotFound));
+        }
+
+        if total_children_affected > 0 {
+            tracing::info!(
+                "Nullified {} child task references before deleting task {}",
+                total_children_affected,
+                plan.task.id
+            );
+        }
     }
 
-    // Delete task from database (FK CASCADE will handle task_attempts and task_dependencies)
-    // Note: is_blocked of dependent tasks is updated automatically via database trigger
-    let rows_affected = Task::delete(&mut *tx, task.id).await?;
-
-    if rows_affected == 0 {
-        return Err(ApiError::Database(SqlxError::RowNotFound));
-    }
-
-    // Commit the transaction - if this fails, all changes are rolled back
     tx.commit().await?;
 
-    if total_children_affected > 0 {
-        tracing::info!(
-            "Nullified {} child task references before deleting task {}",
-            total_children_affected,
-            task.id
-        );
+    Ok(deletion_plans
+        .iter()
+        .map(|plan| DeletedTaskSummary {
+            id: plan.task.id,
+            project_id: plan.task.project_id,
+            status: plan.task.status.clone(),
+        })
+        .collect())
+}
+
+async fn track_deleted_tasks(deployment: &DeploymentImpl, deletion_plans: &[TaskDeletionPlan]) {
+    for plan in deletion_plans {
+        deployment
+            .track_if_analytics_allowed(
+                "task_deleted",
+                serde_json::json!({
+                    "task_id": plan.task.id.to_string(),
+                    "project_id": plan.task.project_id.to_string(),
+                    "attempt_count": plan.attempts.len(),
+                }),
+            )
+            .await;
     }
+}
 
-    deployment
-        .track_if_analytics_allowed(
-            "task_deleted",
-            serde_json::json!({
-                "task_id": task.id.to_string(),
-                "project_id": task.project_id.to_string(),
-                "attempt_count": attempts.len(),
-            }),
-        )
-        .await;
-
-    let task_id = task.id;
-    let pool = pool.clone();
+fn spawn_task_cleanup(pool: sqlx::SqlitePool, deletion_plans: Vec<TaskDeletionPlan>) {
     tokio::spawn(async move {
+        let total_workspaces: usize = deletion_plans
+            .iter()
+            .map(|plan| plan.workspace_dirs.len())
+            .sum();
+        let total_repos: usize = deletion_plans
+            .iter()
+            .map(|plan| plan.repositories.len())
+            .sum();
+
         tracing::info!(
-            "Starting background cleanup for task {} ({} workspaces, {} repos)",
-            task_id,
-            workspace_dirs.len(),
-            repositories.len()
+            "Starting background cleanup for {} deleted tasks ({} workspaces, {} repos)",
+            deletion_plans.len(),
+            total_workspaces,
+            total_repos
         );
 
-        for workspace_dir in &workspace_dirs {
-            if let Err(e) = WorkspaceManager::cleanup_workspace(workspace_dir, &repositories).await
-            {
-                tracing::error!(
-                    "Background workspace cleanup failed for task {} at {}: {}",
-                    task_id,
-                    workspace_dir.display(),
-                    e
-                );
+        for plan in &deletion_plans {
+            for workspace_dir in &plan.workspace_dirs {
+                if let Err(e) =
+                    WorkspaceManager::cleanup_workspace(workspace_dir, &plan.repositories).await
+                {
+                    tracing::error!(
+                        "Background workspace cleanup failed for task {} at {}: {}",
+                        plan.task.id,
+                        workspace_dir.display(),
+                        e
+                    );
+                }
             }
         }
 
@@ -770,11 +970,100 @@ pub async fn delete_task(
             _ => {}
         }
 
-        tracing::info!("Background cleanup completed for task {}", task_id);
+        tracing::info!("Background cleanup completed for deleted tasks");
     });
+}
+
+pub async fn delete_task(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<(StatusCode, ResponseJson<ApiResponse<()>>), ApiError> {
+    ensure_shared_task_auth(&task, &deployment).await?;
+
+    let deletion_plan = build_task_deletion_plan(&deployment, task).await?;
+    publish_task_deletions(&deployment, std::slice::from_ref(&deletion_plan)).await?;
+    execute_task_deletions(&deployment.db().pool, std::slice::from_ref(&deletion_plan)).await?;
+    track_deleted_tasks(&deployment, std::slice::from_ref(&deletion_plan)).await;
+    spawn_task_cleanup(deployment.db().pool.clone(), vec![deletion_plan]);
 
     // Return 202 Accepted to indicate deletion was scheduled
     Ok((StatusCode::ACCEPTED, ResponseJson(ApiResponse::success(()))))
+}
+
+pub async fn bulk_update_task_status(
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<BulkUpdateTaskStatusRequest>,
+) -> Result<ResponseJson<ApiResponse<BulkUpdateTaskStatusResponse>>, ApiError> {
+    let task_ids = validate_bulk_task_ids(&payload.task_ids)?;
+    let existing_tasks =
+        load_project_tasks(&deployment.db().pool, payload.project_id, &task_ids).await?;
+    ensure_shared_tasks_auth(&existing_tasks, &deployment).await?;
+
+    let previous_statuses: HashMap<Uuid, TaskStatus> = existing_tasks
+        .iter()
+        .map(|task| (task.id, task.status.clone()))
+        .collect();
+
+    let mut tx = deployment.db().pool.begin().await?;
+    let mut updated_tasks = Vec::with_capacity(existing_tasks.len());
+
+    for task in &existing_tasks {
+        let resolved_update = ResolvedTaskUpdate {
+            title: task.title.clone(),
+            description: task.description.clone(),
+            status: payload.status.clone(),
+            parent_workspace_id: task.parent_workspace_id,
+            task_group_id: task.task_group_id,
+        };
+
+        updated_tasks.push(persist_task_update(&mut *tx, task, &resolved_update).await?);
+    }
+
+    tx.commit().await?;
+
+    for task in &updated_tasks {
+        let previous_status = previous_statuses
+            .get(&task.id)
+            .cloned()
+            .ok_or(ApiError::Database(SqlxError::RowNotFound))?;
+        finalize_task_update(&deployment, task, previous_status).await?;
+    }
+
+    Ok(ResponseJson(ApiResponse::success(
+        BulkUpdateTaskStatusResponse { tasks: updated_tasks },
+    )))
+}
+
+pub async fn bulk_delete_tasks(
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<BulkDeleteTasksRequest>,
+) -> Result<
+    (
+        StatusCode,
+        ResponseJson<ApiResponse<BulkDeleteTasksResponse>>,
+    ),
+    ApiError,
+> {
+    let task_ids = validate_bulk_task_ids(&payload.task_ids)?;
+    let tasks = load_project_tasks(&deployment.db().pool, payload.project_id, &task_ids).await?;
+    ensure_shared_tasks_auth(&tasks, &deployment).await?;
+
+    let mut deletion_plans = Vec::with_capacity(tasks.len());
+    for task in tasks {
+        deletion_plans.push(build_task_deletion_plan(&deployment, task).await?);
+    }
+
+    publish_task_deletions(&deployment, &deletion_plans).await?;
+    let deleted_tasks = execute_task_deletions(&deployment.db().pool, &deletion_plans).await?;
+    track_deleted_tasks(&deployment, &deletion_plans).await;
+    spawn_task_cleanup(deployment.db().pool.clone(), deletion_plans);
+
+    Ok((
+        StatusCode::ACCEPTED,
+        ResponseJson(ApiResponse::success(BulkDeleteTasksResponse {
+            deleted_tasks,
+        })),
+    ))
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -825,8 +1114,415 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/search", post(search_tasks))
         .route("/stream/ws", get(stream_tasks_ws))
         .route("/create-and-start", post(create_task_and_start))
+        .route("/bulk-delete", post(bulk_delete_tasks))
+        .route("/bulk-update-status", post(bulk_update_task_status))
         .nest("/{task_id}", task_id_router);
 
     // mount under /projects/:project_id/tasks
     Router::new().nest("/tasks", inner)
+}
+
+async fn project_bulk_update_task_status(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<ProjectBulkUpdateTaskStatusRequest>,
+) -> Result<ResponseJson<ApiResponse<BulkUpdateTaskStatusResponse>>, ApiError> {
+    bulk_update_task_status(
+        State(deployment),
+        Json(BulkUpdateTaskStatusRequest {
+            project_id: project.id,
+            task_ids: payload.task_ids,
+            status: payload.status,
+        }),
+    )
+    .await
+}
+
+async fn project_bulk_delete_tasks(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<ProjectBulkDeleteTasksRequest>,
+) -> Result<
+    (
+        StatusCode,
+        ResponseJson<ApiResponse<BulkDeleteTasksResponse>>,
+    ),
+    ApiError,
+> {
+    bulk_delete_tasks(
+        State(deployment),
+        Json(BulkDeleteTasksRequest {
+            project_id: project.id,
+            task_ids: payload.task_ids,
+        }),
+    )
+    .await
+}
+
+pub fn project_router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
+    Router::new().nest(
+        "/tasks",
+        Router::new()
+            .route("/bulk/status", post(project_bulk_update_task_status))
+            .route("/bulk/delete", post(project_bulk_delete_tasks)),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{LazyLock, Mutex};
+
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+        middleware::from_fn_with_state,
+    };
+    use db::models::{
+        project::CreateProject,
+        session::{CreateSession, Session},
+        task::{CreateTask, TaskStatus},
+        workspace::{CreateWorkspace, Workspace},
+    };
+    use local_deployment::LocalDeployment;
+    use tower::ServiceExt;
+
+    use super::*;
+    use crate::middleware::load_project_middleware;
+
+    static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    fn bulk_tasks_test_router(deployment: DeploymentImpl) -> Router {
+        let project_routes = Router::new()
+            .nest(
+                "/{id}",
+                project_router(&deployment).layer(from_fn_with_state(
+                    deployment.clone(),
+                    load_project_middleware,
+                )),
+            );
+
+        Router::new().nest("/projects", project_routes).with_state(deployment)
+    }
+
+    async fn create_project(deployment: &DeploymentImpl, name: &str) -> Project {
+        Project::create(
+            &deployment.db().pool,
+            &CreateProject {
+                name: name.to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn create_task(
+        deployment: &DeploymentImpl,
+        project_id: Uuid,
+        title: &str,
+        status: TaskStatus,
+        parent_workspace_id: Option<Uuid>,
+    ) -> Task {
+        Task::create(
+            &deployment.db().pool,
+            &CreateTask {
+                project_id,
+                title: title.to_string(),
+                description: None,
+                status: Some(status),
+                parent_workspace_id,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: None,
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn create_workspace_for_task(
+        deployment: &DeploymentImpl,
+        task_id: Uuid,
+        branch: &str,
+    ) -> Workspace {
+        Workspace::create(
+            &deployment.db().pool,
+            &CreateWorkspace {
+                branch: branch.to_string(),
+                agent_working_dir: None,
+            },
+            Uuid::new_v4(),
+            task_id,
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn create_running_process_for_task(deployment: &DeploymentImpl, task_id: Uuid) {
+        let workspace = create_workspace_for_task(deployment, task_id, "bulk-delete-test").await;
+        let session = Session::create(
+            &deployment.db().pool,
+            &CreateSession {
+                executor: Some("test-executor".to_string()),
+            },
+            Uuid::new_v4(),
+            workspace.id,
+        )
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"INSERT INTO execution_processes (
+                    id, session_id, conversation_session_id, run_reason, executor_action,
+                    status, exit_code, dropped, input_tokens, output_tokens,
+                    started_at, completed_at, created_at, updated_at
+               ) VALUES (?, ?, NULL, 'codingagent', '{}', 'running', NULL, FALSE, NULL, NULL,
+                         datetime('now'), NULL, datetime('now'), datetime('now'))"#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(session.id)
+        .execute(&deployment.db().pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn bulk_status_rejects_cross_project_tasks_without_mutating() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let deployment = LocalDeployment::new().await.unwrap();
+        let project = create_project(&deployment, "bulk-status-main").await;
+        let other_project = create_project(&deployment, "bulk-status-other").await;
+        let first_task =
+            create_task(&deployment, project.id, "first", TaskStatus::Todo, None).await;
+        let foreign_task = create_task(
+            &deployment,
+            other_project.id,
+            "foreign",
+            TaskStatus::Todo,
+            None,
+        )
+        .await;
+        let app = bulk_tasks_test_router(deployment.clone());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/projects/{}/tasks/bulk/status", project.id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "taskIds": [first_task.id, foreign_task.id],
+                            "status": "inreview"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            Task::find_by_id(&deployment.db().pool, first_task.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            TaskStatus::Todo
+        );
+        assert_eq!(
+            Task::find_by_id(&deployment.db().pool, foreign_task.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            TaskStatus::Todo
+        );
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn bulk_status_dispatches_status_change_side_effects() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let deployment = LocalDeployment::new().await.unwrap();
+        let project = create_project(&deployment, "bulk-status-events").await;
+        let first_task =
+            create_task(&deployment, project.id, "first", TaskStatus::Todo, None).await;
+        let second_task =
+            create_task(&deployment, project.id, "second", TaskStatus::Todo, None).await;
+        let app = bulk_tasks_test_router(deployment.clone());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/projects/{}/tasks/bulk/status", project.id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "taskIds": [first_task.id, second_task.id],
+                            "status": "inreview"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let api_response: ApiResponse<BulkUpdateTaskStatusResponse> =
+            serde_json::from_slice(&body).unwrap();
+        let data = api_response.into_data().unwrap();
+        assert_eq!(data.tasks.len(), 2);
+        assert!(
+            data.tasks
+                .iter()
+                .all(|task| task.status == TaskStatus::InReview)
+        );
+
+        let first_hook_executions = deployment
+            .hook_execution_store()
+            .get_for_task(first_task.id);
+        let second_hook_executions = deployment
+            .hook_execution_store()
+            .get_for_task(second_task.id);
+
+        assert!(
+            first_hook_executions
+                .iter()
+                .any(|execution| execution.handler_name == "review_attention")
+        );
+        assert!(
+            second_hook_executions
+                .iter()
+                .any(|execution| execution.handler_name == "review_attention")
+        );
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn bulk_delete_rejects_if_any_task_has_running_processes() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let deployment = LocalDeployment::new().await.unwrap();
+        let project = create_project(&deployment, "bulk-delete-guard").await;
+        let deletable_task =
+            create_task(&deployment, project.id, "deletable", TaskStatus::Todo, None).await;
+        let blocked_task =
+            create_task(&deployment, project.id, "blocked", TaskStatus::Todo, None).await;
+        create_running_process_for_task(&deployment, blocked_task.id).await;
+        let app = bulk_tasks_test_router(deployment.clone());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/projects/{}/tasks/bulk/delete", project.id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "taskIds": [deletable_task.id, blocked_task.id]
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert!(
+            Task::find_by_id(&deployment.db().pool, deletable_task.id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            Task::find_by_id(&deployment.db().pool, blocked_task.id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn bulk_delete_clears_child_parent_links_and_returns_deleted_ids() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let deployment = LocalDeployment::new().await.unwrap();
+        let project = create_project(&deployment, "bulk-delete-side-effects").await;
+        let parent_task =
+            create_task(&deployment, project.id, "parent", TaskStatus::Todo, None).await;
+        let sibling_task =
+            create_task(&deployment, project.id, "sibling", TaskStatus::Todo, None).await;
+        let parent_workspace =
+            create_workspace_for_task(&deployment, parent_task.id, "parent-branch").await;
+        let child_task = create_task(
+            &deployment,
+            project.id,
+            "child",
+            TaskStatus::Todo,
+            Some(parent_workspace.id),
+        )
+        .await;
+        let app = bulk_tasks_test_router(deployment.clone());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/projects/{}/tasks/bulk/delete", project.id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "taskIds": [parent_task.id, sibling_task.id]
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let api_response: ApiResponse<BulkDeleteTasksResponse> =
+            serde_json::from_slice(&body).unwrap();
+        let data = api_response.into_data().unwrap();
+        assert_eq!(data.deleted_tasks.len(), 2);
+        assert!(
+            data.deleted_tasks
+                .iter()
+                .any(|task| task.id == parent_task.id)
+        );
+        assert!(
+            data.deleted_tasks
+                .iter()
+                .any(|task| task.id == sibling_task.id)
+        );
+
+        assert!(
+            Task::find_by_id(&deployment.db().pool, parent_task.id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            Task::find_by_id(&deployment.db().pool, sibling_task.id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        let refreshed_child = Task::find_by_id(&deployment.db().pool, child_task.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(refreshed_child.parent_workspace_id, None);
+    }
 }

@@ -18,6 +18,10 @@ import {
   CreateGitHubPrRequest,
   CreateTask,
   CreateAndStartTaskRequest,
+  BulkDeleteTasksRequest,
+  BulkDeleteTasksResponse,
+  BulkUpdateTaskStatusRequest,
+  BulkUpdateTaskStatusResponse,
   CreateTaskAttemptBody,
   CreateTag,
   CreateTaskGroup,
@@ -650,11 +654,31 @@ export const tasksApi = {
     return handleApiResponse<Task>(response);
   },
 
+  bulkUpdateStatus: async (
+    data: BulkUpdateTaskStatusRequest
+  ): Promise<BulkUpdateTaskStatusResponse> => {
+    const response = await makeRequest('/api/tasks/bulk-update-status', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<BulkUpdateTaskStatusResponse>(response);
+  },
+
   delete: async (taskId: string): Promise<void> => {
     const response = await makeRequest(`/api/tasks/${taskId}`, {
       method: 'DELETE',
     });
     return handleApiResponse<void>(response);
+  },
+
+  bulkDelete: async (
+    data: BulkDeleteTasksRequest
+  ): Promise<BulkDeleteTasksResponse> => {
+    const response = await makeRequest('/api/tasks/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<BulkDeleteTasksResponse>(response);
   },
 
   share: async (taskId: string): Promise<ShareTaskResponse> => {

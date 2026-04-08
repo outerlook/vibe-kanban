@@ -4,14 +4,16 @@ import { tasksApi } from '@/lib/api';
 import { paths } from '@/lib/paths';
 import { invalidateTaskQueries } from '@/lib/queryInvalidation';
 import {
+  applyTaskUpdatesToCache,
   taskKeys,
-  projectTasksKeys,
   setTaskInCache,
   removeTaskFromCache,
+  removeTasksFromCache,
   moveTaskBetweenStatuses,
-  type StatusQueryData,
+  findTaskInProjectCache,
 } from '@/lib/taskCacheHelpers';
 import type {
+  DeletedTaskSummary,
   CreateTask,
   CreateAndStartTaskRequest,
   Task,
@@ -23,25 +25,36 @@ import type {
 
 // Context types for optimistic update rollbacks
 type UpdateTaskContext = {
-  previousTask: Task | undefined;
-  previousStatusData: StatusQueryData | undefined;
+  previousTask: TaskWithAttemptStatus | undefined;
   oldStatus: TaskStatus | undefined;
 };
 
 type DeleteTaskContext = {
-  previousTask: Task | undefined;
-  previousStatusData: StatusQueryData | undefined;
+  previousTask: TaskWithAttemptStatus | undefined;
   taskStatus: TaskStatus | undefined;
+};
+
+type BulkUpdateTaskStatusContext = {
+  previousTasks: TaskWithAttemptStatus[];
+  previousStatuses: Map<string, TaskStatus>;
+};
+
+type BulkDeleteTasksContext = {
+  previousTasks: TaskWithAttemptStatus[];
 };
 
 type CreateTaskContext = {
   tempId: string;
-  tempStatusData: StatusQueryData | undefined;
 };
 
 export function useTaskMutations(projectId?: string) {
   const queryClient = useQueryClient();
   const navigate = useNavigateWithSearch();
+
+  const getCachedTask = (taskId: string) => {
+    if (!projectId) return undefined;
+    return findTaskInProjectCache(queryClient, projectId, taskId);
+  };
 
   const createTask = useMutation({
     mutationFn: (data: CreateTask) => tasksApi.create(data),
@@ -72,21 +85,20 @@ export function useTaskMutations(projectId?: string) {
         needs_attention: null,
       };
 
-      // Snapshot for potential cleanup
-      const tempStatusData = queryClient.getQueryData<StatusQueryData>(
-        projectTasksKeys.byProjectAndStatus(projectId, 'todo')
-      );
-
       // Add optimistic task to cache
       setTaskInCache(queryClient, optimisticTask, projectId);
 
-      return { tempId, tempStatusData };
+      return { tempId };
     },
     onSuccess: (createdTask: Task, _data, context) => {
       // Remove temp task and add real task
       if (context?.tempId && projectId) {
         removeTaskFromCache(queryClient, context.tempId, projectId, 'todo');
-        setTaskInCache(queryClient, createdTask as TaskWithAttemptStatus, projectId);
+        setTaskInCache(
+          queryClient,
+          createdTask as TaskWithAttemptStatus,
+          projectId
+        );
       }
 
       // Invalidate relationships if task has a parent
@@ -142,15 +154,10 @@ export function useTaskMutations(projectId?: string) {
         needs_attention: null,
       };
 
-      // Snapshot for potential cleanup
-      const tempStatusData = queryClient.getQueryData<StatusQueryData>(
-        projectTasksKeys.byProjectAndStatus(projectId, 'inprogress')
-      );
-
       // Add optimistic task to cache
       setTaskInCache(queryClient, optimisticTask, projectId);
 
-      return { tempId, tempStatusData };
+      return { tempId };
     },
     onSuccess: (createdTask: TaskWithAttemptStatus, _data, context) => {
       // Remove temp task and add real task
@@ -181,7 +188,12 @@ export function useTaskMutations(projectId?: string) {
 
       // Remove optimistic task from cache
       if (context?.tempId && projectId) {
-        removeTaskFromCache(queryClient, context.tempId, projectId, 'inprogress');
+        removeTaskFromCache(
+          queryClient,
+          context.tempId,
+          projectId,
+          'inprogress'
+        );
       }
     },
   });
@@ -199,18 +211,11 @@ export function useTaskMutations(projectId?: string) {
       await queryClient.cancelQueries({ queryKey: taskKeys.byId(taskId) });
 
       // Snapshot previous task data for rollback
-      const previousTask = queryClient.getQueryData<Task>(
-        taskKeys.byId(taskId)
-      );
+      const previousTask = getCachedTask(taskId);
       if (!previousTask) return undefined;
 
       const oldStatus = previousTask.status;
       const newStatus = data.status ?? oldStatus;
-
-      // Snapshot the old status list for rollback
-      const previousStatusData = queryClient.getQueryData<StatusQueryData>(
-        projectTasksKeys.byProjectAndStatus(projectId, oldStatus)
-      );
 
       // Create optimistic task with updated fields
       const optimisticTask: TaskWithAttemptStatus = {
@@ -232,7 +237,7 @@ export function useTaskMutations(projectId?: string) {
         setTaskInCache(queryClient, optimisticTask, projectId);
       }
 
-      return { previousTask, previousStatusData, oldStatus };
+      return { previousTask, oldStatus };
     },
     onError: (err, { data }, context) => {
       console.error('Failed to update task:', err);
@@ -272,7 +277,17 @@ export function useTaskMutations(projectId?: string) {
   });
 
   const deleteTask = useMutation({
-    mutationFn: (taskId: string) => tasksApi.delete(taskId),
+    mutationFn: async (taskId: string) => {
+      if (!projectId) {
+        await tasksApi.delete(taskId);
+        return;
+      }
+
+      await tasksApi.bulkDelete({
+        project_id: projectId,
+        task_ids: [taskId],
+      });
+    },
     onMutate: async (taskId): Promise<DeleteTaskContext | undefined> => {
       if (!projectId) return undefined;
 
@@ -280,22 +295,15 @@ export function useTaskMutations(projectId?: string) {
       await queryClient.cancelQueries({ queryKey: taskKeys.byId(taskId) });
 
       // Snapshot previous task data for rollback
-      const previousTask = queryClient.getQueryData<Task>(
-        taskKeys.byId(taskId)
-      );
+      const previousTask = getCachedTask(taskId);
       if (!previousTask) return undefined;
 
       const taskStatus = previousTask.status;
 
-      // Snapshot the status list for rollback
-      const previousStatusData = queryClient.getQueryData<StatusQueryData>(
-        projectTasksKeys.byProjectAndStatus(projectId, taskStatus)
-      );
-
       // Optimistically remove from cache
       removeTaskFromCache(queryClient, taskId, projectId, taskStatus);
 
-      return { previousTask, previousStatusData, taskStatus };
+      return { previousTask, taskStatus };
     },
     onError: (err, _taskId, context) => {
       console.error('Failed to delete task:', err);
@@ -315,6 +323,175 @@ export function useTaskMutations(projectId?: string) {
         includeDependencies: true,
         includeRelationships: true,
       });
+    },
+  });
+
+  const bulkUpdateTaskStatus = useMutation({
+    mutationFn: ({
+      taskIds,
+      status,
+    }: {
+      taskIds: string[];
+      status: TaskStatus;
+    }) => {
+      if (!projectId) {
+        throw new Error('Project ID is required for bulk status updates');
+      }
+
+      return tasksApi.bulkUpdateStatus({
+        project_id: projectId,
+        task_ids: taskIds,
+        status,
+      });
+    },
+    onMutate: async ({ taskIds, status }): Promise<BulkUpdateTaskStatusContext> => {
+      if (!projectId) {
+        return { previousTasks: [], previousStatuses: new Map() };
+      }
+
+      await Promise.all(
+        taskIds.map((taskId) =>
+          queryClient.cancelQueries({ queryKey: taskKeys.byId(taskId) })
+        )
+      );
+
+      const previousTasks = taskIds
+        .map((taskId) => getCachedTask(taskId))
+        .filter((task): task is TaskWithAttemptStatus => Boolean(task));
+
+      const previousStatuses = new Map(
+        previousTasks.map((task) => [task.id, task.status])
+      );
+
+      const updatedAt = new Date().toISOString();
+      for (const previousTask of previousTasks) {
+        const optimisticTask: TaskWithAttemptStatus = {
+          ...previousTask,
+          status,
+          updated_at: updatedAt,
+        };
+
+        if (previousTask.status !== status) {
+          moveTaskBetweenStatuses(
+            queryClient,
+            optimisticTask,
+            previousTask.status,
+            status,
+            projectId
+          );
+        } else {
+          setTaskInCache(queryClient, optimisticTask, projectId);
+        }
+      }
+
+      return { previousTasks, previousStatuses };
+    },
+    onSuccess: (result, _variables, context) => {
+      if (!projectId) return;
+
+      applyTaskUpdatesToCache(
+        queryClient,
+        result.tasks,
+        context?.previousStatuses ?? new Map(),
+        projectId
+      );
+    },
+    onError: (err, _variables, context) => {
+      console.error('Failed to bulk update task status:', err);
+
+      if (!projectId) return;
+
+      for (const previousTask of context?.previousTasks ?? []) {
+        const currentTask = queryClient.getQueryData<Task>(
+          taskKeys.byId(previousTask.id)
+        );
+
+        if (currentTask && currentTask.status !== previousTask.status) {
+          moveTaskBetweenStatuses(
+            queryClient,
+            previousTask,
+            currentTask.status,
+            previousTask.status,
+            projectId
+          );
+          continue;
+        }
+
+        setTaskInCache(queryClient, previousTask, projectId);
+      }
+    },
+    onSettled: (result, _error, variables) => {
+      const taskIds = result?.tasks.map((task) => task.id) ?? variables.taskIds;
+
+      for (const taskId of taskIds) {
+        invalidateTaskQueries(queryClient, taskId, {
+          includeDependencies: true,
+        });
+      }
+    },
+  });
+
+  const bulkDeleteTasks = useMutation({
+    mutationFn: ({ taskIds }: { taskIds: string[] }) => {
+      if (!projectId) {
+        throw new Error('Project ID is required for bulk deletion');
+      }
+
+      return tasksApi.bulkDelete({
+        project_id: projectId,
+        task_ids: taskIds,
+      });
+    },
+    onMutate: async ({ taskIds }): Promise<BulkDeleteTasksContext> => {
+      if (!projectId) {
+        return { previousTasks: [] };
+      }
+
+      await Promise.all(
+        taskIds.map((taskId) =>
+          queryClient.cancelQueries({ queryKey: taskKeys.byId(taskId) })
+        )
+      );
+
+      const previousTasks = taskIds
+        .map((taskId) => getCachedTask(taskId))
+        .filter((task): task is TaskWithAttemptStatus => Boolean(task));
+
+      removeTasksFromCache(
+        queryClient,
+        previousTasks.map((task) => ({
+          id: task.id,
+          project_id: task.project_id,
+          status: task.status,
+        }) as DeletedTaskSummary),
+        projectId
+      );
+
+      return { previousTasks };
+    },
+    onSuccess: (result) => {
+      if (!projectId) return;
+      removeTasksFromCache(queryClient, result.deleted_tasks, projectId);
+    },
+    onError: (err, _variables, context) => {
+      console.error('Failed to bulk delete tasks:', err);
+
+      if (!projectId) return;
+
+      for (const previousTask of context?.previousTasks ?? []) {
+        setTaskInCache(queryClient, previousTask, projectId);
+      }
+    },
+    onSettled: (result, _error, variables) => {
+      const deletedTaskIds =
+        result?.deleted_tasks.map((task) => task.id) ?? variables.taskIds;
+
+      for (const taskId of deletedTaskIds) {
+        invalidateTaskQueries(queryClient, taskId, {
+          includeDependencies: true,
+          includeRelationships: true,
+        });
+      }
     },
   });
 
@@ -347,6 +524,8 @@ export function useTaskMutations(projectId?: string) {
     createAndStart,
     updateTask,
     deleteTask,
+    bulkUpdateTaskStatus,
+    bulkDeleteTasks,
     shareTask,
     stopShareTask: unshareSharedTask,
     linkSharedTaskToLocal,

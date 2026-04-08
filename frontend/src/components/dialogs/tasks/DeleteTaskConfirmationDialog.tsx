@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -9,90 +10,123 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
-import { tasksApi } from '@/lib/api';
+import { useTaskMutations } from '@/hooks';
 import type { TaskWithAttemptStatus } from 'shared/types';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
 
 export interface DeleteTaskConfirmationDialogProps {
-  task: TaskWithAttemptStatus;
   projectId: string;
+  task?: TaskWithAttemptStatus;
+  taskIds?: string[];
 }
 
 const DeleteTaskConfirmationDialogImpl =
-  NiceModal.create<DeleteTaskConfirmationDialogProps>(({ task }) => {
-    const modal = useModal();
-    const [isDeleting, setIsDeleting] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+  NiceModal.create<DeleteTaskConfirmationDialogProps>(
+    ({ task, projectId, taskIds = [] }) => {
+      const modal = useModal();
+      const { t } = useTranslation(['tasks', 'common']);
+      const { deleteTask, bulkDeleteTasks } = useTaskMutations(projectId);
+      const [isDeleting, setIsDeleting] = useState(false);
+      const [error, setError] = useState<string | null>(null);
 
-    const handleConfirmDelete = async () => {
-      setIsDeleting(true);
-      setError(null);
+      const isBulkDelete = taskIds.length > 0;
+      const selectedCount = taskIds.length;
 
-      try {
-        await tasksApi.delete(task.id);
-        modal.resolve();
+      const handleConfirmDelete = async () => {
+        setIsDeleting(true);
+        setError(null);
+
+        try {
+          if (isBulkDelete) {
+            await bulkDeleteTasks.mutateAsync({ taskIds });
+          } else if (task) {
+            await deleteTask.mutateAsync(task.id);
+          } else {
+            throw new Error(t('deleteTaskDialog.errors.missingTarget'));
+          }
+
+          modal.resolve();
+          modal.hide();
+        } catch (err: unknown) {
+          const errorMessage =
+            err instanceof Error
+              ? err.message
+              : t('deleteTaskDialog.errors.deleteFailed');
+          setError(errorMessage);
+        } finally {
+          setIsDeleting(false);
+        }
+      };
+
+      const handleCancelDelete = () => {
+        if (isDeleting) return;
+        modal.reject();
         modal.hide();
-      } catch (err: unknown) {
-        const errorMessage =
-          err instanceof Error ? err.message : 'Failed to delete task';
-        setError(errorMessage);
-      } finally {
-        setIsDeleting(false);
-      }
-    };
+      };
 
-    const handleCancelDelete = () => {
-      modal.reject();
-      modal.hide();
-    };
+      return (
+        <Dialog
+          open={modal.visible}
+          onOpenChange={(open) => !open && handleCancelDelete()}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {isBulkDelete
+                  ? t('deleteTaskDialog.bulkTitle', { count: selectedCount })
+                  : t('deleteTaskDialog.title')}
+              </DialogTitle>
+              <DialogDescription>
+                {isBulkDelete
+                  ? t('deleteTaskDialog.bulkDescription', {
+                      count: selectedCount,
+                    })
+                  : t('deleteTaskDialog.description', {
+                      title: task?.title ?? '',
+                    })}
+              </DialogDescription>
+            </DialogHeader>
 
-    return (
-      <Dialog
-        open={modal.visible}
-        onOpenChange={(open) => !open && handleCancelDelete()}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Task</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete{' '}
-              <span className="font-semibold">"{task.title}"</span>?
-            </DialogDescription>
-          </DialogHeader>
-
-          <Alert variant="destructive" className="mb-4">
-            <strong>Warning:</strong> This action will permanently delete the
-            task and cannot be undone.
-          </Alert>
-
-          {error && (
             <Alert variant="destructive" className="mb-4">
-              {error}
+              <strong>{t('deleteTaskDialog.warningLabel')}</strong>{' '}
+              {isBulkDelete
+                ? t('deleteTaskDialog.bulkWarning', { count: selectedCount })
+                : t('deleteTaskDialog.warning')}
             </Alert>
-          )}
 
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={handleCancelDelete}
-              disabled={isDeleting}
-              autoFocus
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleConfirmDelete}
-              disabled={isDeleting}
-            >
-              {isDeleting ? 'Deleting...' : 'Delete Task'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    );
-  });
+            {error && (
+              <Alert variant="destructive" className="mb-4">
+                {error}
+              </Alert>
+            )}
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={handleCancelDelete}
+                disabled={isDeleting}
+                autoFocus
+              >
+                {t('common:buttons.cancel')}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+              >
+                {isDeleting
+                  ? t('deleteTaskDialog.deleting')
+                  : isBulkDelete
+                    ? t('deleteTaskDialog.bulkDeleteAction')
+                    : t('deleteTaskDialog.deleteAction')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      );
+    }
+  );
 
 export const DeleteTaskConfirmationDialog = defineModal<
   DeleteTaskConfirmationDialogProps,

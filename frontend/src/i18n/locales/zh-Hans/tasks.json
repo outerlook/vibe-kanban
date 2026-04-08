@@ -12,7 +12,11 @@
     "selectedCount_one": "已选择 {{count}} 个任务",
     "selectedCount_other": "已选择 {{count}} 个任务",
     "createAttempts": "创建尝试",
-    "clearSelection": "清除"
+    "assignToGroup": "分配到组",
+    "clearSelection": "清除",
+    "moveToStatus": "移动到状态",
+    "deleteTasks": "删除",
+    "mixedGroupsDisabled": "所选任务属于不同的组"
   },
   "filters": {
     "sharedToggleAria": "切换共享任务",
@@ -542,6 +546,38 @@
     },
     "buttons": {
       "retry": "重试"
+    }
+  },
+  "bulkMoveToStatusDialog": {
+    "title": "移动 {{count}} 个任务",
+    "description": "为所选任务选择目标状态。",
+    "statusLabel": "状态",
+    "selectPlaceholder": "选择状态",
+    "movingTo": "将 {{count}} 个任务移动到 {{status}}。",
+    "updating": "移动中...",
+    "update": "移动 {{count}} 个任务",
+    "errors": {
+      "selectStatus": "请选择状态后再继续。",
+      "updateFailed": "更新任务状态失败"
+    }
+  },
+  "deleteTaskDialog": {
+    "title": "删除任务",
+    "bulkTitle_one": "删除所选任务",
+    "bulkTitle_other": "删除 {{count}} 个任务",
+    "description": "确定要删除“{{title}}”吗？",
+    "bulkDescription_one": "确定要删除所选任务吗？",
+    "bulkDescription_other": "确定要删除这 {{count}} 个所选任务吗？",
+    "warningLabel": "警告：",
+    "warning": "此操作将永久删除该任务，且无法撤销。",
+    "bulkWarning_one": "此操作将永久删除所选任务，且无法撤销。",
+    "bulkWarning_other": "此操作将永久删除所选任务，且无法撤销。",
+    "deleting": "删除中...",
+    "deleteAction": "删除任务",
+    "bulkDeleteAction": "删除任务",
+    "errors": {
+      "missingTarget": "没有可删除的任务。",
+      "deleteFailed": "删除任务失败"
     }
   }
 }

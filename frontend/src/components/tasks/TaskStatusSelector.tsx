@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Circle, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -7,9 +8,10 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { TASK_STATUSES } from '@/constants/taskStatuses';
 import { cn } from '@/lib/utils';
 import { useTaskMutations } from '@/hooks';
-import { statusLabels, statusBoardColors } from '@/utils/statusLabels';
+import { getTaskStatusLabel, statusBoardColors } from '@/utils/statusLabels';
 import type { TaskWithAttemptStatus, TaskStatus } from 'shared/types';
 
 type Props = {
@@ -18,9 +20,8 @@ type Props = {
   className?: string;
 };
 
-const allStatuses = Object.keys(statusLabels) as TaskStatus[];
-
 export function TaskStatusSelector({ task, disabled, className }: Props) {
+  const { t } = useTranslation('tasks');
   const { updateTask } = useTaskMutations();
 
   const handleStatusChange = (newStatus: string) => {
@@ -52,7 +53,7 @@ export function TaskStatusSelector({ task, disabled, className }: Props) {
             className="h-2.5 w-2.5 fill-current"
             style={{ color: `var(${statusBoardColors[task.status]})` }}
           />
-          <span className="text-xs">{statusLabels[task.status]}</span>
+          <span className="text-xs">{getTaskStatusLabel(t, task.status)}</span>
           <ChevronDown className="h-3 w-3 ml-0.5" />
         </Button>
       </DropdownMenuTrigger>
@@ -61,13 +62,13 @@ export function TaskStatusSelector({ task, disabled, className }: Props) {
           value={task.status}
           onValueChange={handleStatusChange}
         >
-          {allStatuses.map((status) => (
+          {TASK_STATUSES.map((status) => (
             <DropdownMenuRadioItem key={status} value={status}>
               <Circle
                 className="h-2.5 w-2.5 fill-current mr-2"
                 style={{ color: `var(${statusBoardColors[status]})` }}
               />
-              {statusLabels[status]}
+              {getTaskStatusLabel(t, status)}
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>

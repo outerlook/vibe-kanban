@@ -1,5 +1,11 @@
 import type { QueryClient } from '@tanstack/react-query';
-import type { TaskStatus, TaskWithAttemptStatus, Task } from 'shared/types';
+import { TASK_STATUSES } from '@/constants/taskStatuses';
+import type {
+  DeletedTaskSummary,
+  TaskStatus,
+  TaskWithAttemptStatus,
+  Task,
+} from 'shared/types';
 
 // ============================================================================
 // Query Keys - Consolidated from multiple locations
@@ -81,6 +87,29 @@ export type StatusQueryData = {
     hasMore: boolean;
   };
 };
+
+export function findTaskInProjectCache(
+  queryClient: QueryClient,
+  projectId: string,
+  taskId: string
+): TaskWithAttemptStatus | undefined {
+  const cachedTask = queryClient.getQueryData<Task>(taskKeys.byId(taskId));
+  if (cachedTask) {
+    return cachedTask as TaskWithAttemptStatus;
+  }
+
+  for (const status of TASK_STATUSES) {
+    const statusData = queryClient.getQueryData<StatusQueryData>(
+      projectTasksKeys.byProjectAndStatus(projectId, status)
+    );
+    const task = statusData?.page.tasks.find((entry) => entry.id === taskId);
+    if (task) {
+      return task;
+    }
+  }
+
+  return undefined;
+}
 
 // ============================================================================
 // Cache Helper Functions
@@ -242,6 +271,16 @@ export function removeTaskFromCache(
   queryClient.removeQueries({ queryKey: taskKeys.byId(taskId) });
 }
 
+export function removeTasksFromCache(
+  queryClient: QueryClient,
+  deletedTasks: DeletedTaskSummary[],
+  projectId: string
+): void {
+  deletedTasks.forEach((task) => {
+    removeTaskFromCache(queryClient, task.id, projectId, task.status);
+  });
+}
+
 /**
  * Move a task between status lists in the cache.
  *
@@ -350,5 +389,30 @@ export function moveTaskBetweenStatuses(
       return oldTask; // Stale update, ignore
     }
     return task;
+  });
+}
+
+export function applyTaskUpdatesToCache(
+  queryClient: QueryClient,
+  tasks: Task[],
+  previousStatuses: Map<string, TaskStatus>,
+  projectId: string
+): void {
+  tasks.forEach((task) => {
+    const oldStatus = previousStatuses.get(task.id) ?? task.status;
+    const cachedTask = task as TaskWithAttemptStatus;
+
+    if (oldStatus !== task.status) {
+      moveTaskBetweenStatuses(
+        queryClient,
+        cachedTask,
+        oldStatus,
+        task.status,
+        projectId
+      );
+      return;
+    }
+
+    setTaskInCache(queryClient, cachedTask, projectId);
   });
 }
