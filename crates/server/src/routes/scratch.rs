@@ -13,7 +13,7 @@ use serde::Deserialize;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{routes::ws_helpers::forward_stream_to_ws, DeploymentImpl, error::ApiError};
+use crate::{DeploymentImpl, error::ApiError, routes::ws_helpers::forward_stream_to_ws};
 
 /// Path parameters for scratch routes with composite key
 #[derive(Deserialize)]

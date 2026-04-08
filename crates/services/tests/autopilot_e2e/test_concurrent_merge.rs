@@ -14,11 +14,11 @@ use db::models::{
 use git2::Repository;
 
 use super::fixtures::{
+    EntityGraphBuilder,
     git_fixtures::{
         MergeTestContext, TestRepo, add_and_commit, create_repo, create_workspace_repo,
         update_workspace_container_ref,
     },
-    EntityGraphBuilder,
 };
 
 /// Test that merge queue processes entries in FIFO order (oldest first).
@@ -325,9 +325,7 @@ async fn test_conflict_skips_to_next() {
         .expect("write readme");
 
         let mut index = repo.index().expect("get index");
-        index
-            .add_path(Path::new("README.md"))
-            .expect("add readme");
+        index.add_path(Path::new("README.md")).expect("add readme");
         index.write().expect("write index");
 
         let tree_id = index.write_tree().expect("write tree");
@@ -347,8 +345,18 @@ async fn test_conflict_skips_to_next() {
     }
 
     // Setup Task B and C: Clean changes that won't conflict
-    add_and_commit(&worktree_b_path, "file_b.txt", "content B", "Task B: Add file");
-    add_and_commit(&worktree_c_path, "file_c.txt", "content C", "Task C: Add file");
+    add_and_commit(
+        &worktree_b_path,
+        "file_b.txt",
+        "content B",
+        "Task B: Add file",
+    );
+    add_and_commit(
+        &worktree_c_path,
+        "file_c.txt",
+        "content C",
+        "Task C: Add file",
+    );
 
     // Enqueue all 3 tasks (A first with conflict, then B and C clean)
     ctx.merge_queue_store.enqueue(
@@ -436,14 +444,6 @@ async fn test_conflict_skips_to_next() {
         0,
         "Task A should have no merge record (conflict)"
     );
-    assert_eq!(
-        merges_b.len(),
-        1,
-        "Task B should have one merge record"
-    );
-    assert_eq!(
-        merges_c.len(),
-        1,
-        "Task C should have one merge record"
-    );
+    assert_eq!(merges_b.len(), 1, "Task B should have one merge record");
+    assert_eq!(merges_c.len(), 1, "Task C should have one merge record");
 }

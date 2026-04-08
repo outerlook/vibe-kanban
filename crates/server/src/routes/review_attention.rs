@@ -1,4 +1,8 @@
-use axum::{Json, Router, extract::{Path, State}, routing::get};
+use axum::{
+    Json, Router,
+    extract::{Path, State},
+    routing::get,
+};
 use db::models::review_attention::ReviewAttention;
 use deployment::Deployment;
 use utils::response::ApiResponse;

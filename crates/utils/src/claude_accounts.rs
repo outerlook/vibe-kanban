@@ -151,7 +151,6 @@ pub async fn set_secure_file_permissions(path: &std::path::Path) -> std::io::Res
     Ok(())
 }
 
-
 /// Response from Anthropic OAuth profile API
 #[derive(Debug, Deserialize)]
 struct AnthropicProfileResponse {
@@ -191,10 +190,7 @@ pub async fn fetch_account_uuid(access_token: &str) -> Option<String> {
     match response {
         Ok(resp) => {
             if !resp.status().is_success() {
-                tracing::warn!(
-                    "Anthropic profile API returned status: {}",
-                    resp.status()
-                );
+                tracing::warn!("Anthropic profile API returned status: {}", resp.status());
                 return None;
             }
             match resp.json::<AnthropicProfileResponse>().await {
@@ -540,10 +536,7 @@ mod tests {
             "be75afdf-b8bf-49f6-ad6c-01e8c13c2210"
         );
         assert_eq!(response.account.email, Some("user@example.com".to_string()));
-        assert_eq!(
-            response.account.display_name,
-            Some("User Name".to_string())
-        );
+        assert_eq!(response.account.display_name, Some("User Name".to_string()));
     }
 
     #[test]
@@ -594,8 +587,7 @@ mod tests {
         );
 
         // UUID-based matching should still work
-        let is_current_by_uuid =
-            saved_account.account_uuid.as_deref() == Some(current_uuid);
+        let is_current_by_uuid = saved_account.account_uuid.as_deref() == Some(current_uuid);
         assert!(
             is_current_by_uuid,
             "UUID matching should identify the account as current despite hash change"
@@ -644,7 +636,10 @@ mod tests {
             "UUID matching not possible for legacy accounts"
         );
         assert!(hash_match, "Hash fallback should identify legacy account");
-        assert!(is_current, "Combined logic should identify legacy account as current");
+        assert!(
+            is_current,
+            "Combined logic should identify legacy account as current"
+        );
     }
 
     /// Test the frontend `isAccountCurrent` logic simulation.

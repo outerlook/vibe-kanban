@@ -248,11 +248,9 @@ impl ReviewAttentionService {
         custom_prompt: Option<&str>,
     ) -> ExecutorAction {
         let prompt = match custom_prompt {
-            Some(template) => Self::generate_prompt_from_template(
-                template,
-                task_description,
-                agent_summary,
-            ),
+            Some(template) => {
+                Self::generate_prompt_from_template(template, task_description, agent_summary)
+            }
             None => Self::generate_review_attention_prompt(task_description, agent_summary),
         };
 
@@ -529,8 +527,7 @@ Let me know if you need more details."#;
         let task_description = "Implement feature X";
         let agent_summary = "Added feature X with tests";
 
-        let custom_prompt =
-            "Task: {task_description}\nSummary: {agent_summary}\nPlease review.";
+        let custom_prompt = "Task: {task_description}\nSummary: {agent_summary}\nPlease review.";
 
         let action = ReviewAttentionService::create_review_attention_action(
             session_id.clone(),

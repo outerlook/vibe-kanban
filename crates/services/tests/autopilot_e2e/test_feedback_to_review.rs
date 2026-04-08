@@ -4,19 +4,20 @@
 //! - Agent completes → FeedbackCollectionHandler → task moves to InReview
 //! - Task moves to InReview → ReviewAttentionHandler triggers
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use db::models::{agent_feedback::CreateAgentFeedback, task::TaskStatus};
 use services::services::domain_events::{
-    DomainEvent, DispatcherBuilder, ExecutionTrigger, HandlerContext,
+    DispatcherBuilder, DomainEvent, ExecutionTrigger, HandlerContext,
     handlers::{FeedbackCollectionHandler, ReviewAttentionHandler},
 };
 use utils::msg_store::MsgStore;
 use uuid::Uuid;
 
-use super::fixtures::{EntityGraphBuilder, TestDb, autopilot_config, create_task};
-use super::mock_execution_controller::MockExecutionController;
+use super::{
+    fixtures::{EntityGraphBuilder, TestDb, autopilot_config, create_task},
+    mock_execution_controller::MockExecutionController,
+};
 
 /// Test that a completed CodingAgent execution triggers feedback collection.
 ///
@@ -275,7 +276,13 @@ async fn test_review_attention_skipped_without_workspace() {
 
     // Setup: Create project → task (no workspace)
     let project_id = super::fixtures::create_project(&pool, "No Workspace Project").await;
-    let task = create_task(&pool, project_id, "Task without workspace", TaskStatus::InProgress).await;
+    let task = create_task(
+        &pool,
+        project_id,
+        "Task without workspace",
+        TaskStatus::InProgress,
+    )
+    .await;
 
     // Create task object with InReview status for the event
     let mut task_in_review = task.clone();

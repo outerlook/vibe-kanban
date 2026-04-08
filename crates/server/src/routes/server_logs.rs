@@ -10,7 +10,7 @@ use axum::{
 use deployment::Deployment;
 use futures_util::{StreamExt, TryStreamExt};
 
-use crate::{routes::ws_helpers::forward_ws_messages, DeploymentImpl};
+use crate::{DeploymentImpl, routes::ws_helpers::forward_ws_messages};
 
 /// WebSocket endpoint that streams server logs to clients.
 ///

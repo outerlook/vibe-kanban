@@ -24,7 +24,9 @@ use utils::{log_msg::LogMsg, response::ApiResponse};
 use uuid::Uuid;
 
 use crate::{
-    DeploymentImpl, error::ApiError, middleware::load_execution_process_middleware,
+    DeploymentImpl,
+    error::ApiError,
+    middleware::load_execution_process_middleware,
     routes::ws_helpers::{forward_stream_to_ws, forward_ws_messages},
 };
 

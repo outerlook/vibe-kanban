@@ -39,7 +39,9 @@ use utils::{
 use uuid::Uuid;
 
 use crate::{
-    DeploymentImpl, error::ApiError, middleware::load_project_middleware,
+    DeploymentImpl,
+    error::ApiError,
+    middleware::load_project_middleware,
     routes::{settings::get_github_token, ws_helpers::forward_stream_to_ws},
 };
 
@@ -902,15 +904,15 @@ pub async fn get_pr_threads(
     let pool = &deployment.db().pool;
 
     // Look up the repo by ID within this project
-    let project_repo = match ProjectRepo::find_by_project_and_repo(pool, project.id, repo_id).await?
-    {
-        Some(pr) => pr,
-        None => {
-            return Ok(ResponseJson(ApiResponse::error_with_data(
-                GetPrThreadsError::RepoNotFound,
-            )));
-        }
-    };
+    let project_repo =
+        match ProjectRepo::find_by_project_and_repo(pool, project.id, repo_id).await? {
+            Some(pr) => pr,
+            None => {
+                return Ok(ResponseJson(ApiResponse::error_with_data(
+                    GetPrThreadsError::RepoNotFound,
+                )));
+            }
+        };
 
     let repo = match Repo::find_by_id(pool, project_repo.repo_id).await? {
         Some(r) => r,
@@ -951,9 +953,9 @@ pub async fn get_pr_threads(
                 GitHubServiceError::GhCliNotInstalled(_) => Ok(ResponseJson(
                     ApiResponse::error_with_data(GetPrThreadsError::GithubNotConfigured),
                 )),
-                GitHubServiceError::AuthFailed(_) => Ok(ResponseJson(ApiResponse::error_with_data(
-                    GetPrThreadsError::GithubAuthFailed,
-                ))),
+                GitHubServiceError::AuthFailed(_) => Ok(ResponseJson(
+                    ApiResponse::error_with_data(GetPrThreadsError::GithubAuthFailed),
+                )),
                 GitHubServiceError::RepoNotFoundOrNoAccess(_) => Ok(ResponseJson(
                     ApiResponse::error_with_data(GetPrThreadsError::RepoNotFound),
                 )),

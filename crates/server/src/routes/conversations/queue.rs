@@ -1,9 +1,6 @@
 use axum::{
-    Extension, Json, Router,
-    extract::State,
-    middleware::from_fn_with_state,
-    response::Json as ResponseJson,
-    routing::get,
+    Extension, Json, Router, extract::State, middleware::from_fn_with_state,
+    response::Json as ResponseJson, routing::get,
 };
 use db::models::{conversation_session::ConversationSession, scratch::DraftFollowUpData};
 use deployment::Deployment;
@@ -78,7 +75,9 @@ pub async fn get_queue_status(
     Extension(conversation): Extension<ConversationSession>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<QueueStatus>>, ApiError> {
-    let status = deployment.queued_message_service().get_status(conversation.id);
+    let status = deployment
+        .queued_message_service()
+        .get_status(conversation.id);
 
     Ok(ResponseJson(ApiResponse::success(status)))
 }

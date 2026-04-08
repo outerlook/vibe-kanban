@@ -36,7 +36,9 @@ use utils::{api::oauth::LoginStatus, response::ApiResponse};
 use uuid::Uuid;
 
 use crate::{
-    DeploymentImpl, error::ApiError, middleware::load_task_middleware,
+    DeploymentImpl,
+    error::ApiError,
+    middleware::load_task_middleware,
     routes::{task_attempts::WorkspaceRepoInput, ws_helpers::forward_stream_to_ws},
 };
 
@@ -76,10 +78,51 @@ pub struct SearchTasksRequest {
 #[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskMatchWithScore {
-    #[serde(flatten)]
-    #[ts(flatten)]
-    pub task: TaskWithAttemptStatus,
+    // Keep the search-match payload explicit so this route's camelCase contract
+    // does not inherit snake_case field names from the flattened task model.
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub title: String,
+    pub description: Option<String>,
+    pub status: TaskStatus,
+    pub parent_workspace_id: Option<Uuid>,
+    pub shared_task_id: Option<Uuid>,
+    pub task_group_id: Option<Uuid>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub is_blocked: bool,
+    pub has_in_progress_attempt: bool,
+    pub last_attempt_failed: bool,
+    pub is_queued: bool,
+    pub last_executor: String,
+    pub needs_attention: Option<bool>,
     pub similarity_score: f64,
+}
+
+impl TaskMatchWithScore {
+    fn from_task(task: TaskWithAttemptStatus, similarity_score: f64) -> Self {
+        let task = task.task;
+
+        Self {
+            id: task.id,
+            project_id: task.project_id,
+            title: task.title,
+            description: task.description,
+            status: task.status,
+            parent_workspace_id: task.parent_workspace_id,
+            shared_task_id: task.shared_task_id,
+            task_group_id: task.task_group_id,
+            created_at: task.created_at,
+            updated_at: task.updated_at,
+            is_blocked: task.is_blocked,
+            has_in_progress_attempt: task.has_in_progress_attempt,
+            last_attempt_failed: task.last_attempt_failed,
+            is_queued: task.is_queued,
+            last_executor: task.last_executor,
+            needs_attention: task.needs_attention,
+            similarity_score,
+        }
+    }
 }
 
 /// Response for semantic task search
@@ -176,10 +219,7 @@ pub async fn search_tasks(
 
                 let matches: Vec<TaskMatchWithScore> = results
                     .into_iter()
-                    .map(|(task, score)| TaskMatchWithScore {
-                        task,
-                        similarity_score: score,
-                    })
+                    .map(|(task, score)| TaskMatchWithScore::from_task(task, score))
                     .collect();
 
                 let count = matches.len();
@@ -212,10 +252,7 @@ pub async fn search_tasks(
 
     let matches: Vec<TaskMatchWithScore> = results
         .into_iter()
-        .map(|(task, score)| TaskMatchWithScore {
-            task,
-            similarity_score: score,
-        })
+        .map(|(task, score)| TaskMatchWithScore::from_task(task, score))
         .collect();
 
     let count = matches.len();
@@ -224,6 +261,86 @@ pub async fn search_tasks(
         count,
         search_method: "keyword".to_string(),
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use serde_json::Value;
+
+    use super::*;
+
+    fn sample_task() -> TaskWithAttemptStatus {
+        TaskWithAttemptStatus::from_task(Task {
+            id: Uuid::new_v4(),
+            project_id: Uuid::new_v4(),
+            title: "Fix semantic search contract".to_string(),
+            description: Some("Align route and MCP payload naming".to_string()),
+            status: TaskStatus::InProgress,
+            parent_workspace_id: Some(Uuid::new_v4()),
+            shared_task_id: Some(Uuid::new_v4()),
+            task_group_id: Some(Uuid::new_v4()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            is_blocked: true,
+            has_in_progress_attempt: true,
+            last_attempt_failed: false,
+            is_queued: false,
+            last_executor: "claude-code".to_string(),
+            needs_attention: Some(true),
+        })
+    }
+
+    #[test]
+    fn search_task_matches_serialize_flattened_fields_in_camel_case() {
+        let response = SearchTasksResponse {
+            matches: vec![TaskMatchWithScore::from_task(sample_task(), 0.91)],
+            count: 1,
+            search_method: "hybrid".to_string(),
+        };
+
+        let value = serde_json::to_value(response).unwrap();
+        let first_match = &value["matches"][0];
+
+        assert_eq!(value["searchMethod"], Value::String("hybrid".to_string()));
+        assert!(value.get("search_method").is_none());
+
+        for key in [
+            "projectId",
+            "parentWorkspaceId",
+            "sharedTaskId",
+            "taskGroupId",
+            "createdAt",
+            "updatedAt",
+            "isBlocked",
+            "hasInProgressAttempt",
+            "lastAttemptFailed",
+            "isQueued",
+            "lastExecutor",
+            "needsAttention",
+            "similarityScore",
+        ] {
+            assert!(first_match.get(key).is_some(), "missing key {key}");
+        }
+
+        for key in [
+            "project_id",
+            "parent_workspace_id",
+            "shared_task_id",
+            "task_group_id",
+            "created_at",
+            "updated_at",
+            "is_blocked",
+            "has_in_progress_attempt",
+            "last_attempt_failed",
+            "is_queued",
+            "last_executor",
+            "needs_attention",
+            "similarity_score",
+        ] {
+            assert!(first_match.get(key).is_none(), "unexpected key {key}");
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
