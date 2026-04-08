@@ -1140,10 +1140,19 @@ async fn test_feedback_handler_links_hook_to_execution() {
 
     // Simulate what the dispatcher does: set hook_execution_id on the context
     let hook_exec_id = hook_store
-        .start_execution(task.id, "feedback_collection", services::services::domain_events::HookPoint::PostAgentComplete)
+        .start_execution(
+            task.id,
+            "feedback_collection",
+            services::services::domain_events::HookPoint::PostAgentComplete,
+        )
         .expect("feedback_collection should be a tracked handler");
 
-    let mut ctx = HandlerContext::new(db_service.clone(), config.clone(), msg_store.clone(), Some(callback));
+    let mut ctx = HandlerContext::new(
+        db_service.clone(),
+        config.clone(),
+        msg_store.clone(),
+        Some(callback),
+    );
     ctx.hook_execution_store = Some(hook_store.clone());
     ctx.hook_execution_id = Some(hook_exec_id);
 
@@ -1178,7 +1187,13 @@ async fn test_review_handler_links_hook_to_execution() {
 
     // Create test data
     let project_id = create_test_project(&pool, "review_link_test_project").await;
-    let task = create_test_task(&pool, project_id, "Review link test task", TaskStatus::InReview).await;
+    let task = create_test_task(
+        &pool,
+        project_id,
+        "Review link test task",
+        TaskStatus::InReview,
+    )
+    .await;
     let workspace = create_test_workspace(&pool, task.id, "test-branch").await;
     let session_id = create_test_session(&pool, workspace.id).await;
     let _execution = create_test_execution_process(
@@ -1204,10 +1219,19 @@ async fn test_review_handler_links_hook_to_execution() {
 
     // Simulate what the dispatcher does: set hook_execution_id on the context
     let hook_exec_id = hook_store
-        .start_execution(task.id, "review_attention", services::services::domain_events::HookPoint::PostTaskStatusChange)
+        .start_execution(
+            task.id,
+            "review_attention",
+            services::services::domain_events::HookPoint::PostTaskStatusChange,
+        )
         .expect("review_attention should be a tracked handler");
 
-    let mut ctx = HandlerContext::new(db_service.clone(), config.clone(), msg_store.clone(), Some(callback));
+    let mut ctx = HandlerContext::new(
+        db_service.clone(),
+        config.clone(),
+        msg_store.clone(),
+        Some(callback),
+    );
     ctx.hook_execution_store = Some(hook_store.clone());
     ctx.hook_execution_id = Some(hook_exec_id);
 
@@ -1234,10 +1258,13 @@ async fn test_review_handler_links_hook_to_execution() {
 /// Tests that dispatcher correctly sets hook_execution_id on context for spawned handlers.
 #[tokio::test]
 async fn test_dispatcher_sets_hook_execution_id_for_spawned_handlers() {
-    use services::services::domain_events::{ExecutionMode, HandlerError, HookExecutionStore};
+    use std::{
+        sync::atomic::{AtomicBool, Ordering},
+        time::Duration,
+    };
+
     use async_trait::async_trait;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::time::Duration;
+    use services::services::domain_events::{ExecutionMode, HandlerError, HookExecutionStore};
 
     // Custom handler that checks if hook_execution_id is set
     struct HookIdCheckHandler {

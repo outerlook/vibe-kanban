@@ -1892,7 +1892,9 @@ pub trait ContainerService {
     ///
     /// Default implementation returns None; implementors should override to provide
     /// a callback that dispatches to the domain event dispatcher.
-    fn event_dispatch_callback(&self) -> Option<crate::services::domain_events::EventDispatchCallback> {
+    fn event_dispatch_callback(
+        &self,
+    ) -> Option<crate::services::domain_events::EventDispatchCallback> {
         None
     }
 }

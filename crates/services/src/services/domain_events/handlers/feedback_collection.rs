@@ -138,8 +138,9 @@ impl EventHandler for FeedbackCollectionHandler {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use uuid::Uuid;
+
+    use super::*;
 
     /// Test that the event matching logic correctly identifies CodingAgent completed events.
     /// This test verifies the pattern used in the `handles()` method.

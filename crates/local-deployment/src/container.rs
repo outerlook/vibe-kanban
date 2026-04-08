@@ -88,9 +88,8 @@ use services::services::{
     domain_events::{
         AutopilotHandler, DispatcherBuilder, DomainEvent, DomainEventDispatcher,
         EventDispatchCallback, ExecutionTrigger, ExecutionTriggerCallback,
-        FeedbackCollectionHandler, HandlerContext, HookExecutionStore,
-        HookExecutionUpdaterHandler, NotificationHandler, RemoteSyncHandler,
-        ReviewAttentionHandler, WebSocketBroadcastHandler,
+        FeedbackCollectionHandler, HandlerContext, HookExecutionStore, HookExecutionUpdaterHandler,
+        NotificationHandler, RemoteSyncHandler, ReviewAttentionHandler, WebSocketBroadcastHandler,
     },
     feedback::FeedbackService,
     git::{Commit, DiffTarget, GitCli, GitService},
@@ -1454,8 +1453,9 @@ impl LocalContainerService {
                 }
 
                 // Process queued message (if any)
-                if let Some(queued_msg) =
-                    container.queued_message_service.take_queued(conversation_session_id)
+                if let Some(queued_msg) = container
+                    .queued_message_service
+                    .take_queued(conversation_session_id)
                 {
                     tracing::info!(
                         "Found queued message for conversation {}, starting follow-up execution",
@@ -1489,7 +1489,11 @@ impl LocalContainerService {
                 && let Some(conversation_session_id) = execution_process.conversation_session_id
             {
                 // Execution failed or was killed - discard the queued message
-                if container.queued_message_service.take_queued(conversation_session_id).is_some() {
+                if container
+                    .queued_message_service
+                    .take_queued(conversation_session_id)
+                    .is_some()
+                {
                     tracing::info!(
                         "Discarding queued message for conversation {} due to execution status {:?}",
                         conversation_session_id,
@@ -1578,9 +1582,8 @@ impl LocalContainerService {
 
         // Parse executor name to BaseCodingAgent
         let normalized_executor = executor_name.replace('-', "_").to_ascii_uppercase();
-        let base_executor = BaseCodingAgent::from_str(&normalized_executor).map_err(|_| {
-            ContainerError::Other(anyhow!("Unknown executor: {}", executor_name))
-        })?;
+        let base_executor = BaseCodingAgent::from_str(&normalized_executor)
+            .map_err(|_| ContainerError::Other(anyhow!("Unknown executor: {}", executor_name)))?;
 
         // Build executor profile with variant from queued data
         let executor_profile_id = ExecutorProfileId {
@@ -1592,7 +1595,9 @@ impl LocalContainerService {
         let latest_agent_session_id =
             ConversationService::get_latest_agent_session_id(&self.db.pool, conversation.id)
                 .await
-                .map_err(|e| ContainerError::Other(anyhow!("Failed to get agent session ID: {e}")))?;
+                .map_err(|e| {
+                    ContainerError::Other(anyhow!("Failed to get agent session ID: {e}"))
+                })?;
 
         // Build ExecutorAction - use follow-up if we have a session, otherwise initial
         let action_type = if let Some(agent_session_id) = latest_agent_session_id {
@@ -1613,9 +1618,12 @@ impl LocalContainerService {
         let executor_action = ExecutorAction::new(action_type, None);
 
         // Create user message for the queued content
-        if let Err(e) =
-            ConversationService::add_user_message(&self.db.pool, conversation.id, queued_data.message.clone())
-                .await
+        if let Err(e) = ConversationService::add_user_message(
+            &self.db.pool,
+            conversation.id,
+            queued_data.message.clone(),
+        )
+        .await
         {
             tracing::error!("Failed to create user message for queued content: {}", e);
         }

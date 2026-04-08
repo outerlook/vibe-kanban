@@ -11,13 +11,14 @@ pub use autopilot_e2e::fixtures;
 // Smoke tests to verify the test infrastructure works
 #[cfg(test)]
 mod smoke_tests {
-    use super::fixtures::{
-        autopilot_config, autopilot_disabled_config, create_execution, create_project,
-        create_session, create_task, create_workspace, TestDb,
-    };
     use db::models::{
         execution_process::{ExecutionProcessRunReason, ExecutionProcessStatus},
         task::TaskStatus,
+    };
+
+    use super::fixtures::{
+        TestDb, autopilot_config, autopilot_disabled_config, create_execution, create_project,
+        create_session, create_task, create_workspace,
     };
 
     /// Verifies that TestDb can be created and migrations run successfully.
@@ -66,12 +67,11 @@ mod smoke_tests {
         let project_id = create_project(pool, "Test Project").await;
 
         // Verify project exists
-        let project_count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM projects WHERE id = ?")
-                .bind(project_id)
-                .fetch_one(pool)
-                .await
-                .expect("Should query project");
+        let project_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM projects WHERE id = ?")
+            .bind(project_id)
+            .fetch_one(pool)
+            .await
+            .expect("Should query project");
         assert_eq!(project_count.0, 1, "Project should be created");
 
         // Create task
@@ -89,12 +89,11 @@ mod smoke_tests {
         let session_id = create_session(pool, workspace.id).await;
 
         // Verify session exists
-        let session_count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM sessions WHERE id = ?")
-                .bind(session_id)
-                .fetch_one(pool)
-                .await
-                .expect("Should query session");
+        let session_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sessions WHERE id = ?")
+            .bind(session_id)
+            .fetch_one(pool)
+            .await
+            .expect("Should query session");
         assert_eq!(session_count.0, 1, "Session should be created");
 
         // Create execution

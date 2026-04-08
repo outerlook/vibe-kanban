@@ -7,8 +7,7 @@
 //! 4. Merge succeeds → Task Done
 //! 5. Dependent task unblocked and enqueued
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use db::models::{
     execution_queue::ExecutionQueue,
@@ -24,15 +23,17 @@ use services::services::{
 };
 use utils::msg_store::MsgStore;
 
-use super::fixtures::{
-    autopilot_config,
-    git_fixtures::{
-        MergeTestContext, TestRepo, add_and_commit, create_repo, create_workspace_repo,
-        update_workspace_container_ref,
+use super::{
+    fixtures::{
+        EntityGraphBuilder, autopilot_config,
+        git_fixtures::{
+            MergeTestContext, TestRepo, add_and_commit, create_repo, create_workspace_repo,
+            update_workspace_container_ref,
+        },
+        update_task_status,
     },
-    update_task_status, EntityGraphBuilder,
+    mock_execution_controller::MockExecutionController,
 };
-use super::mock_execution_controller::MockExecutionController;
 
 /// Full autopilot flow E2E test.
 ///
@@ -78,7 +79,10 @@ async fn test_full_autopilot_flow_with_dependent_task() {
     let task_a_id = task_a_ctx.task_id();
     let workspace_a_id = task_a_ctx.workspace_id();
     let project_id = task_a_ctx.project_id();
-    let execution_a = task_a_ctx.execution().expect("execution should exist").clone();
+    let execution_a = task_a_ctx
+        .execution()
+        .expect("execution should exist")
+        .clone();
     let task_a = task_a_ctx.task().clone();
 
     // Create Task B (Todo, depends on A) with workspace

@@ -6,7 +6,9 @@
 
 use async_trait::async_trait;
 
-use crate::services::domain_events::{DomainEvent, EventHandler, ExecutionMode, HandlerContext, HandlerError};
+use crate::services::domain_events::{
+    DomainEvent, EventHandler, ExecutionMode, HandlerContext, HandlerError,
+};
 
 /// Updates hook execution status when linked execution processes complete.
 ///

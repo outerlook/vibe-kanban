@@ -68,7 +68,9 @@ use utils::response::ApiResponse;
 use uuid::Uuid;
 
 use crate::{
-    DeploymentImpl, error::ApiError, middleware::load_workspace_middleware,
+    DeploymentImpl,
+    error::ApiError,
+    middleware::load_workspace_middleware,
     routes::{task_attempts::gh_cli_setup::GhCliSetupError, ws_helpers::forward_stream_to_ws},
 };
 
@@ -465,9 +467,8 @@ async fn handle_git_status_ws(
 
     // Drain client messages in background so pings/pongs work.
     // We use AbortHandle to cancel this task when the sender loop exits.
-    let drain_handle = tokio::spawn(async move {
-        while let Some(Ok(_)) = receiver.next().await {}
-    });
+    let drain_handle =
+        tokio::spawn(async move { while let Some(Ok(_)) = receiver.next().await {} });
 
     // Create a stream that merges all subscriptions
     let workspace_id = workspace.id;
