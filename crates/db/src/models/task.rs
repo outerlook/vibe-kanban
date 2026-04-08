@@ -1185,9 +1185,16 @@ mod tests {
 
         // Test with wrong dimension (too short)
         let wrong_embedding: Vec<f32> = vec![0.0; 100];
-        let result =
-            Task::search_hybrid(&pool, project_id, &wrong_embedding, "test query", None, None, 10)
-                .await;
+        let result = Task::search_hybrid(
+            &pool,
+            project_id,
+            &wrong_embedding,
+            "test query",
+            None,
+            None,
+            10,
+        )
+        .await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -1195,9 +1202,16 @@ mod tests {
 
         // Test with wrong dimension (too long)
         let wrong_embedding: Vec<f32> = vec![0.0; 500];
-        let result =
-            Task::search_hybrid(&pool, project_id, &wrong_embedding, "test query", None, None, 10)
-                .await;
+        let result = Task::search_hybrid(
+            &pool,
+            project_id,
+            &wrong_embedding,
+            "test query",
+            None,
+            None,
+            10,
+        )
+        .await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();

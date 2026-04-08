@@ -64,7 +64,12 @@ impl EventHandler for NotificationHandler {
         let title = format!("Task Complete: {}", execution_ctx.task.title);
 
         // Check if frontend handles sounds (skip backend sound playback if so)
-        let frontend_sounds_enabled = ctx.config.read().await.notifications.frontend_sounds_enabled;
+        let frontend_sounds_enabled = ctx
+            .config
+            .read()
+            .await
+            .notifications
+            .frontend_sounds_enabled;
 
         match process.status {
             ExecutionProcessStatus::Completed => {

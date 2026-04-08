@@ -4,7 +4,9 @@ use json_patch::Patch;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json, to_value};
 use ts_rs::TS;
-use workspace_utils::{diff::Diff, log_msg::LogMsg, msg_store::MsgStore, text::truncate_to_char_boundary};
+use workspace_utils::{
+    diff::Diff, log_msg::LogMsg, msg_store::MsgStore, text::truncate_to_char_boundary,
+};
 
 use crate::logs::{NormalizedEntry, NormalizedEntryType, utils::EntryIndexProvider};
 

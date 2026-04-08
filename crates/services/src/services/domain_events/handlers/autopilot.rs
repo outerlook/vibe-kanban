@@ -60,7 +60,12 @@ impl AutopilotHandler {
         if git_branch_prefix.is_empty() {
             format!("{}-{}", short_uuid(workspace_id), task_title_id)
         } else {
-            format!("{}/{}-{}", git_branch_prefix, short_uuid(workspace_id), task_title_id)
+            format!(
+                "{}/{}-{}",
+                git_branch_prefix,
+                short_uuid(workspace_id),
+                task_title_id
+            )
         }
     }
 
@@ -193,7 +198,9 @@ impl AutopilotHandler {
             })
             .collect();
 
-        if let Err(e) = WorkspaceRepo::create_many(&ctx.db.pool, workspace.id, &workspace_repos).await {
+        if let Err(e) =
+            WorkspaceRepo::create_many(&ctx.db.pool, workspace.id, &workspace_repos).await
+        {
             error!(
                 task_id = %task.id,
                 workspace_id = %workspace.id,

@@ -3,11 +3,11 @@
 //! These tests verify the flow: Task Done → AutopilotHandler → find unblocked dependents → ExecutionQueue.create
 
 use db::models::{execution_queue::ExecutionQueue, task::TaskStatus};
-use services::services::domain_events::{AutopilotHandler, DomainEvent, DispatcherBuilder};
+use services::services::domain_events::{AutopilotHandler, DispatcherBuilder, DomainEvent};
 
 use super::fixtures::{
-    EntityGraphBuilder, TestDb, autopilot_config, autopilot_disabled_config,
-    get_task_is_blocked, make_task_for_event, test_handler_context, update_task_status,
+    EntityGraphBuilder, TestDb, autopilot_config, autopilot_disabled_config, get_task_is_blocked,
+    make_task_for_event, test_handler_context, update_task_status,
 };
 
 #[tokio::test]
@@ -198,18 +198,9 @@ async fn test_multiple_dependents_all_enqueued() {
         .await
         .expect("DB query failed");
 
-    assert!(
-        queue_b.is_some(),
-        "Task B's workspace should be enqueued"
-    );
-    assert!(
-        queue_c.is_some(),
-        "Task C's workspace should be enqueued"
-    );
-    assert!(
-        queue_d.is_some(),
-        "Task D's workspace should be enqueued"
-    );
+    assert!(queue_b.is_some(), "Task B's workspace should be enqueued");
+    assert!(queue_c.is_some(), "Task C's workspace should be enqueued");
+    assert!(queue_d.is_some(), "Task D's workspace should be enqueued");
 }
 
 #[tokio::test]
@@ -351,9 +342,7 @@ async fn test_dependent_without_workspace_skipped() {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     // Assert: No execution queue entries for the whole test (Task B has no workspace)
-    let queue_count = ExecutionQueue::count(&pool)
-        .await
-        .expect("DB query failed");
+    let queue_count = ExecutionQueue::count(&pool).await.expect("DB query failed");
     assert_eq!(
         queue_count, 0,
         "No execution queue entries should exist (Task B has no workspace)"

@@ -684,24 +684,24 @@ pub async fn dispatch_task_done(
 pub mod git_fixtures {
     //! Git repository fixtures for tests that need real git operations.
 
-    use std::path::{Path, PathBuf};
+    use std::{
+        path::{Path, PathBuf},
+        sync::Arc,
+    };
 
     use db::models::workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo};
     use git2::Repository;
     use services::services::{
-        config::Config,
-        git::GitService,
-        merge_queue_processor::MergeQueueProcessor,
+        config::Config, git::GitService, merge_queue_processor::MergeQueueProcessor,
         merge_queue_store::MergeQueueStore,
     };
     use sqlx::SqlitePool;
-    use std::sync::Arc;
     use tempfile::TempDir;
     use tokio::sync::RwLock;
     use utils::msg_store::MsgStore;
     use uuid::Uuid;
 
-    use super::{autopilot_config, TestDb};
+    use super::{TestDb, autopilot_config};
 
     /// A test git repository with worktree support.
     ///
@@ -755,7 +755,9 @@ pub mod git_fixtures {
             let mut master = repo
                 .find_branch("master", git2::BranchType::Local)
                 .expect("Failed to find master branch");
-            master.rename("main", false).expect("Failed to rename to main");
+            master
+                .rename("main", false)
+                .expect("Failed to rename to main");
 
             repo.set_head("refs/heads/main")
                 .expect("Failed to set HEAD to main");

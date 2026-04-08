@@ -194,7 +194,8 @@ impl HookExecutionStore {
         };
 
         if let Some(exec) = execution {
-            self.msg_store.push_patch(hook_execution_patch::replace(&exec));
+            self.msg_store
+                .push_patch(hook_execution_patch::replace(&exec));
         }
     }
 
@@ -209,7 +210,8 @@ impl HookExecutionStore {
         };
 
         if let Some(exec) = execution {
-            self.msg_store.push_patch(hook_execution_patch::replace(&exec));
+            self.msg_store
+                .push_patch(hook_execution_patch::replace(&exec));
         }
     }
 
@@ -424,7 +426,11 @@ mod tests {
 
         // Use tracked handler names
         store.start_execution(task_id, "autopilot", HookPoint::PostTaskCreate);
-        store.start_execution(task_id, "feedback_collection", HookPoint::PostTaskStatusChange);
+        store.start_execution(
+            task_id,
+            "feedback_collection",
+            HookPoint::PostTaskStatusChange,
+        );
 
         let execs = store.get_for_task(task_id);
         assert_eq!(execs.len(), 2);
@@ -454,7 +460,11 @@ mod tests {
             .start_execution(task_id, "autopilot", HookPoint::PostTaskCreate)
             .expect("autopilot should be tracked");
         let exec2 = store
-            .start_execution(task_id, "feedback_collection", HookPoint::PostTaskStatusChange)
+            .start_execution(
+                task_id,
+                "feedback_collection",
+                HookPoint::PostTaskStatusChange,
+            )
             .expect("feedback_collection should be tracked");
         let _exec3 = store
             .start_execution(task_id, "review_attention", HookPoint::PostAgentComplete)
@@ -499,8 +509,12 @@ mod tests {
         let task_id = Uuid::new_v4();
 
         // Non-whitelisted handlers should return None and not be tracked
-        let result = store.start_execution(task_id, "websocket_broadcast", HookPoint::PostTaskCreate);
-        assert!(result.is_none(), "websocket_broadcast should not be tracked");
+        let result =
+            store.start_execution(task_id, "websocket_broadcast", HookPoint::PostTaskCreate);
+        assert!(
+            result.is_none(),
+            "websocket_broadcast should not be tracked"
+        );
 
         let result = store.start_execution(task_id, "notifications", HookPoint::PostTaskCreate);
         assert!(result.is_none(), "notifications should not be tracked");
@@ -510,7 +524,10 @@ mod tests {
 
         // No executions should be stored
         let execs = store.get_for_task(task_id);
-        assert!(execs.is_empty(), "untracked handlers should not create executions");
+        assert!(
+            execs.is_empty(),
+            "untracked handlers should not create executions"
+        );
     }
 
     #[test]
@@ -522,15 +539,24 @@ mod tests {
         let autopilot = store.start_execution(task_id, "autopilot", HookPoint::PostTaskCreate);
         assert!(autopilot.is_some(), "autopilot should be tracked");
 
-        let feedback = store.start_execution(task_id, "feedback_collection", HookPoint::PostTaskStatusChange);
+        let feedback = store.start_execution(
+            task_id,
+            "feedback_collection",
+            HookPoint::PostTaskStatusChange,
+        );
         assert!(feedback.is_some(), "feedback_collection should be tracked");
 
-        let review = store.start_execution(task_id, "review_attention", HookPoint::PostAgentComplete);
+        let review =
+            store.start_execution(task_id, "review_attention", HookPoint::PostAgentComplete);
         assert!(review.is_some(), "review_attention should be tracked");
 
         // All three should be stored
         let execs = store.get_for_task(task_id);
-        assert_eq!(execs.len(), 3, "all whitelisted handlers should create executions");
+        assert_eq!(
+            execs.len(),
+            3,
+            "all whitelisted handlers should create executions"
+        );
 
         // Verify the handler names
         let names: Vec<_> = execs.iter().map(|e| e.handler_name.as_str()).collect();
@@ -613,7 +639,11 @@ mod tests {
         store.link_execution_process(exec_id, process_id);
 
         let completed_at = Utc::now();
-        store.update_from_execution_process(process_id, ExecutionProcessStatus::Failed, completed_at);
+        store.update_from_execution_process(
+            process_id,
+            ExecutionProcessStatus::Failed,
+            completed_at,
+        );
 
         let execs = store.get_for_task(task_id);
         assert_eq!(execs[0].status, HookExecutionStatus::Failed);
@@ -633,7 +663,11 @@ mod tests {
         store.link_execution_process(exec_id, process_id);
 
         let completed_at = Utc::now();
-        store.update_from_execution_process(process_id, ExecutionProcessStatus::Killed, completed_at);
+        store.update_from_execution_process(
+            process_id,
+            ExecutionProcessStatus::Killed,
+            completed_at,
+        );
 
         let execs = store.get_for_task(task_id);
         assert_eq!(execs[0].status, HookExecutionStatus::Failed);
