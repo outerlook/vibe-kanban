@@ -37,13 +37,18 @@ export function toPrData(pr: ProjectPrSummary, repoId: string): PrData {
   };
 }
 
+function toBigIntCount(value: number | bigint): bigint {
+  // Task group stats come from plain JSON, so bigint-typed fields may arrive as numbers.
+  return typeof value === 'bigint' ? value : BigInt(value);
+}
+
 function sumTaskCounts(groups: TaskGroupWithStats[]): TaskStatusCounts {
   return groups.reduce<TaskStatusCounts>((totals, group) => {
-    totals.todo += group.task_counts.todo;
-    totals.inprogress += group.task_counts.inprogress;
-    totals.inreview += group.task_counts.inreview;
-    totals.done += group.task_counts.done;
-    totals.cancelled += group.task_counts.cancelled;
+    totals.todo += toBigIntCount(group.task_counts.todo);
+    totals.inprogress += toBigIntCount(group.task_counts.inprogress);
+    totals.inreview += toBigIntCount(group.task_counts.inreview);
+    totals.done += toBigIntCount(group.task_counts.done);
+    totals.cancelled += toBigIntCount(group.task_counts.cancelled);
     return totals;
   }, createEmptyTaskCounts());
 }

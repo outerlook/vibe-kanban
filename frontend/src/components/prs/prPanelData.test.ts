@@ -110,4 +110,35 @@ describe('buildPrPanelData', () => {
     expect(result.branchMetadata.has('feature-b')).toBe(false);
     expect(result.selectedPrData?.id).toBe('repo-1-2');
   });
+
+  it('accepts task count values from JSON responses without bigint revival', () => {
+    const taskGroupsFromJson = [
+      {
+        ...taskGroups[0],
+        task_counts: {
+          todo: 1,
+          inprogress: 2,
+          inreview: 0,
+          done: 3,
+          cancelled: 0,
+        },
+      },
+    ] as unknown as TaskGroupWithStats[];
+
+    const result = buildPrPanelData({
+      prsResponse,
+      taskGroups: taskGroupsFromJson,
+      workspaces,
+      selectedRepoId: 'repo-1',
+      selectedPrNumber: '1',
+    });
+
+    expect(result.branchMetadata.get('feature-a')?.taskCounts).toEqual({
+      todo: 1n,
+      inprogress: 2n,
+      inreview: 0n,
+      done: 3n,
+      cancelled: 0n,
+    });
+  });
 });
