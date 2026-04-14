@@ -330,6 +330,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 mod tests {
     use axum::{Extension, extract::State};
     use db::models::{
+        coding_agent_turn::{CodingAgentTurn, CreateCodingAgentTurn},
         execution_process::{CreateExecutionProcess, ExecutionProcessRunReason},
         project::{CreateProject, Project},
         session::{CreateSession, Session},
@@ -338,8 +339,10 @@ mod tests {
     };
     use executors::actions::{
         ExecutorAction, ExecutorActionType,
+        coding_agent_initial::CodingAgentInitialRequest,
         script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
     };
+    use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
     use local_deployment::LocalDeployment;
     use uuid::Uuid;
 
@@ -445,5 +448,76 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(updated.status, ExecutionProcessStatus::Killed);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn execution_orchestration_context_exposes_coding_agent_turn() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let deployment = LocalDeployment::new().await.unwrap();
+
+        let project = create_project(&deployment, "execution-orchestration-context").await;
+        let task = create_task(&deployment, project.id, "Review coding result").await;
+        let workspace = create_workspace(&deployment, task.id).await;
+        let session = create_session(&deployment, workspace.id).await;
+
+        let execution = ExecutionProcess::create(
+            &deployment.db().pool,
+            &CreateExecutionProcess {
+                session_id: session.id,
+                executor_action: ExecutorAction::new(
+                    ExecutorActionType::CodingAgentInitialRequest(
+                        CodingAgentInitialRequest {
+                            prompt: "Fix the flaky review attention workflow".to_string(),
+                            executor_profile_id: ExecutorProfileId::new(
+                                BaseCodingAgent::ClaudeCode,
+                            ),
+                            working_dir: None,
+                        },
+                    ),
+                    None,
+                ),
+                run_reason: ExecutionProcessRunReason::CodingAgent,
+            },
+            Uuid::new_v4(),
+            &[],
+        )
+        .await
+        .unwrap();
+
+        CodingAgentTurn::create(
+            &deployment.db().pool,
+            &CreateCodingAgentTurn {
+                execution_process_id: execution.id,
+                prompt: Some("Fix the flaky review attention workflow".to_string()),
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+        CodingAgentTurn::update_summary(
+            &deployment.db().pool,
+            execution.id,
+            "Adjusted the orchestration flow and added regression coverage.",
+        )
+        .await
+        .unwrap();
+
+        let response =
+            get_execution_process_orchestration_context(Extension(execution), State(deployment))
+                .await
+                .unwrap();
+        let payload = serde_json::to_value(response.0).unwrap();
+
+        assert_eq!(
+            payload["data"]["coding_agent_turn"]["prompt"],
+            serde_json::json!("Fix the flaky review attention workflow")
+        );
+        assert_eq!(
+            payload["data"]["coding_agent_turn"]["summary"],
+            serde_json::json!(
+                "Adjusted the orchestration flow and added regression coverage."
+            )
+        );
     }
 }

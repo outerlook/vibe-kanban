@@ -13,8 +13,8 @@
       "type": "n8n-nodes-vibe-kanban.vibeKanbanTrigger",
       "typeVersion": 1,
       "position": [
-        240,
-        280
+        200,
+        300
       ],
       "credentials": {
         "vibeKanbanMqtt": {
@@ -32,14 +32,45 @@
       "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
       "typeVersion": 1,
       "position": [
-        520,
-        280
+        460,
+        300
       ],
       "credentials": {
         "vibeKanbanApi": {
           "name": "Local VK API"
         }
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "run-reason",
+              "leftValue": "={{$json.execution.run_reason}}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "coding_agent"
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "coding-agent-filter",
+      "name": "Only Coding Agent Executions",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        720,
+        300
+      ]
     },
     {
       "parameters": {
@@ -64,16 +95,121 @@
               "value": "={{$json.execution.id}}"
             },
             {
+              "id": "task-description",
+              "name": "taskDescription",
+              "type": "string",
+              "value": "={{$json.coding_agent_turn && $json.coding_agent_turn.prompt ? $json.coding_agent_turn.prompt : ($json.scope.task.description || $json.scope.task.title)}}"
+            },
+            {
+              "id": "agent-summary",
+              "name": "agentSummary",
+              "type": "string",
+              "value": "={{$json.coding_agent_turn && $json.coding_agent_turn.summary ? $json.coding_agent_turn.summary : ''}}"
+            },
+            {
+              "id": "execution-context",
+              "name": "executionContext",
+              "type": "string",
+              "value": "={{JSON.stringify($json, null, 2)}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "review-attention-input",
+      "name": "Build Review Attention Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{`Analyze whether the completed work successfully addresses the original task.\n\n## Original Task\n${$('Build Review Attention Input').item.json.taskDescription}\n\n## Agent's Work Summary\n${$('Build Review Attention Input').item.json.agentSummary}\n\n## Execution Context\n${$('Build Review Attention Input').item.json.executionContext}\n\n## Your Role\nYou are reviewing whether the task objective was achieved. Check BOTH:\n1. Did the agent report any problems or failures?\n2. Does the work actually address what the original task requested?\n\n## NEEDS ATTENTION if ANY of these are true:\n\n### Agent-reported problems:\n- Errors or failures that weren't resolved\n- Work that is incomplete or partially done\n- Blockers encountered\n- Tests failing\n- Uncertainty about correctness\n\n### Task completion issues:\n- The work does NOT address the original task objective\n- The agent did something tangential (e.g., answered a question but didn't fix the underlying problem)\n- The summary describes work that doesn't match what the task asked for\n- The task requested a fix/implementation but the agent only investigated/explained\n\n## Does NOT need attention if:\n- The work directly addresses what the task requested\n- The agent completed the actual objective (not just related activities)\n- No problems or concerns are mentioned by the agent\n\n## IMPORTANT - Do NOT flag attention for:\n- Normal configuration requirements (env vars, parameters to set)\n- Suggestions for future improvements or additional testing\n- Standard deployment steps\n- Your own hypothetical concerns about the code\n- Things the agent did NOT mention as problems\n\nKey question: Did the agent complete what the task actually asked for, or just do something related?\n\nReturn only JSON with this shape:\n{\"needs_attention\": true, \"reasoning\": \"brief explanation\"}`}}",
+        "hasOutputParser": true
+      },
+      "id": "review-attention-chain",
+      "name": "Ask Review Attention LLM",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1270,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5-mini"
+        },
+        "responsesApiEnabled": true
+      },
+      "id": "review-attention-model",
+      "name": "Review Attention Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1270,
+        120
+      ],
+      "credentials": {
+        "openAiApi": {
+          "name": "Local OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\"type\":\"object\",\"properties\":{\"needs_attention\":{\"type\":\"boolean\"},\"reasoning\":{\"type\":\"string\"}},\"required\":[\"needs_attention\",\"reasoning\"],\"additionalProperties\":false}"
+      },
+      "id": "review-attention-parser",
+      "name": "Review Attention Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1470,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "task-id",
+              "name": "taskId",
+              "type": "string",
+              "value": "={{$('Build Review Attention Input').item.json.taskId}}"
+            },
+            {
+              "id": "workspace-id",
+              "name": "workspaceId",
+              "type": "string",
+              "value": "={{$('Build Review Attention Input').item.json.workspaceId}}"
+            },
+            {
+              "id": "execution-id",
+              "name": "executionProcessId",
+              "type": "string",
+              "value": "={{$('Build Review Attention Input').item.json.executionProcessId}}"
+            },
+            {
               "id": "needs-attention",
               "name": "needsAttention",
               "type": "boolean",
-              "value": "={{$json.execution.status !== 'completed' || $json.pending_questions.length > 0}}"
+              "value": "={{$json.output.needs_attention}}"
             },
             {
               "id": "reasoning",
               "name": "reasoning",
               "type": "string",
-              "value": "={{$json.pending_questions.length > 0 ? 'Pending AskUser or approval resolution remains open.' : 'Execution completed without follow-up blockers.'}}"
+              "value": "={{$json.output.reasoning}}"
             }
           ]
         },
@@ -84,8 +220,8 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        800,
-        280
+        1550,
+        300
       ]
     },
     {
@@ -103,8 +239,8 @@
       "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
       "typeVersion": 1,
       "position": [
-        1120,
-        280
+        1820,
+        300
       ],
       "credentials": {
         "vibeKanbanApi": {
@@ -126,6 +262,62 @@
       ]
     },
     "Read Execution Context": {
+      "main": [
+        [
+          {
+            "node": "Only Coding Agent Executions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only Coding Agent Executions": {
+      "main": [
+        [
+          {
+            "node": "Build Review Attention Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Build Review Attention Input": {
+      "main": [
+        [
+          {
+            "node": "Ask Review Attention LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review Attention Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Ask Review Attention LLM",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review Attention Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Ask Review Attention LLM",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask Review Attention LLM": {
       "main": [
         [
           {

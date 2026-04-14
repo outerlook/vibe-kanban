@@ -136,7 +136,7 @@ export type OrchestrationTaskGroupContextDto = { task_group: TaskGroupSnapshotDt
 
 export type OrchestrationConversationContextDto = { conversation: ConversationSnapshotDto, transcript: ConversationTranscriptDto, executions: Array<ExecutionSnapshotDto>, current_execution_visibility: ExecutionVisibilityDto, latest_agent_session_id: string | null, };
 
-export type OrchestrationExecutionContextDto = { execution: ExecutionSnapshotDto, scope: ExecutionScopeDto, repo_states: Array<ExecutionRepoStateSnapshotDto>, current_execution_visibility: ExecutionVisibilityDto, pending_tool_approvals: Array<ToolApprovalSnapshotDto>, pending_questions: Array<UserQuestionSnapshotDto>, review_attention: ReviewAttentionHydrationSummary | null, feedback: FeedbackHydrationSummary | null, };
+export type OrchestrationExecutionContextDto = { execution: ExecutionSnapshotDto, scope: ExecutionScopeDto, coding_agent_turn: CodingAgentTurnSnapshotDto | null, repo_states: Array<ExecutionRepoStateSnapshotDto>, current_execution_visibility: ExecutionVisibilityDto, pending_tool_approvals: Array<ToolApprovalSnapshotDto>, pending_questions: Array<UserQuestionSnapshotDto>, review_attention: ReviewAttentionHydrationSummary | null, feedback: FeedbackHydrationSummary | null, };
 
 export type OrchestrationApprovalContextDto = { approval: ApprovalContextSnapshotDto, execution: ExecutionSnapshotDto | null, task: TaskSnapshotDto | null, workspace: WorkspaceSnapshotDto | null, session: SessionSnapshotDto | null, current_execution_visibility: ExecutionVisibilityDto | null, };
 

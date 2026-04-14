@@ -45,4 +45,23 @@ describe('workflow examples', () => {
       }
     }
   });
+
+  it('routes review attention through an AI review step fed by the coding turn', () => {
+    const workflow = JSON.parse(
+      readFileSync(join(examplesDir, 'review-attention.workflow.json'), 'utf8'),
+    ) as {
+      nodes: Array<{ type: string; parameters?: Record<string, unknown> }>;
+    };
+
+    expect(
+      workflow.nodes.some(
+        (node) => node.type === '@n8n/n8n-nodes-langchain.chainLlm',
+      ),
+    ).toBe(true);
+
+    const serialized = JSON.stringify(workflow);
+    expect(serialized).toContain('coding_agent_turn.summary');
+    expect(serialized).toContain('coding_agent_turn.prompt');
+    expect(serialized).not.toContain('pending_questions.length > 0');
+  });
 });

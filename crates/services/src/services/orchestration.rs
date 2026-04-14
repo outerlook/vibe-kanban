@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use db::models::{
     agent_feedback::AgentFeedback,
+    coding_agent_turn::CodingAgentTurn,
     conversation_message::{ConversationMessage, ConversationMessageError},
     conversation_session::ConversationSession,
     execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
@@ -72,6 +73,7 @@ pub struct OrchestrationConversationContextDto {
 pub struct OrchestrationExecutionContextDto {
     pub execution: ExecutionSnapshotDto,
     pub scope: ExecutionScopeDto,
+    pub coding_agent_turn: Option<CodingAgentTurnSnapshotDto>,
     pub repo_states: Vec<ExecutionRepoStateSnapshotDto>,
     pub current_execution_visibility: ExecutionVisibilityDto,
     pub pending_tool_approvals: Vec<ToolApprovalSnapshotDto>,
@@ -193,6 +195,13 @@ pub struct ExecutionSnapshotDto {
     pub completed_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
+pub struct CodingAgentTurnSnapshotDto {
+    pub prompt: Option<String>,
+    pub summary: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, TS)]
@@ -572,6 +581,9 @@ impl OrchestrationService {
         approvals: &Approvals,
         execution: ExecutionProcess,
     ) -> Result<OrchestrationExecutionContextDto, sqlx::Error> {
+        let coding_agent_turn = CodingAgentTurn::find_by_execution_process_id(pool, execution.id)
+            .await?
+            .map(CodingAgentTurnSnapshotDto::from);
         let repo_states =
             ExecutionProcessRepoState::find_by_execution_process_id(pool, execution.id).await?;
         let pending_tool_approvals =
@@ -642,6 +654,7 @@ impl OrchestrationService {
         Ok(OrchestrationExecutionContextDto {
             execution: ExecutionSnapshotDto::from(execution),
             scope,
+            coding_agent_turn,
             repo_states: repo_states
                 .into_iter()
                 .map(ExecutionRepoStateSnapshotDto::from)
@@ -1055,6 +1068,15 @@ impl From<ExecutionProcess> for ExecutionSnapshotDto {
             completed_at: execution.completed_at.map(normalize_ts),
             created_at: normalize_ts(execution.created_at),
             updated_at: normalize_ts(execution.updated_at),
+        }
+    }
+}
+
+impl From<CodingAgentTurn> for CodingAgentTurnSnapshotDto {
+    fn from(turn: CodingAgentTurn) -> Self {
+        Self {
+            prompt: turn.prompt,
+            summary: turn.summary,
         }
     }
 }
