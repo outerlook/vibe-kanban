@@ -23,10 +23,12 @@ use executors::{
     profile::{ExecutorConfigs, ExecutorProfileId},
 };
 use serde::{Deserialize, Serialize};
-use services::services::container::ContainerService;
-use services::services::domain_events::{
-    DomainEvent, DomainEventEntityIds, FollowUpQueueKind, FollowUpScope,
-    FollowUpTransitionState,
+use services::services::{
+    container::ContainerService,
+    domain_events::{
+        DomainEvent, DomainEventEntityIds, FollowUpQueueKind, FollowUpScope,
+        FollowUpTransitionState,
+    },
 };
 use sqlx::Error as SqlxError;
 use ts_rs::TS;
@@ -340,7 +342,6 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     Router::new().nest("/sessions", sessions_router)
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::{path::Path, sync::Arc, time::Duration};
@@ -357,7 +358,9 @@ mod tests {
         workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
     };
     use executors::{
-        actions::{ExecutorAction, ExecutorActionType, coding_agent_initial::CodingAgentInitialRequest},
+        actions::{
+            ExecutorAction, ExecutorActionType, coding_agent_initial::CodingAgentInitialRequest,
+        },
         executors::BaseCodingAgent,
         profile::ExecutorProfileId,
     };
@@ -511,19 +514,19 @@ mod tests {
         let _lock = crate::TEST_DB_LOCK.lock().unwrap();
         let publisher = RecordingOrchestrationEventPublisher::default();
         let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
-        let deployment =
-            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
-                .await
-                .unwrap();
+        let deployment = LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+            .await
+            .unwrap();
         deployment.config().write().await.max_concurrent_agents = 1;
 
         let project = create_project(&deployment, "session-follow-up-events").await;
         let task = create_task(&deployment, project.id, "Follow up").await;
-        let workspace = create_workspace_for_task(&deployment, task.id, "feature/session-follow-up").await;
+        let workspace =
+            create_workspace_for_task(&deployment, task.id, "feature/session-follow-up").await;
         let session = create_session_for_workspace(&deployment, workspace.id).await;
 
-        let repo_path = std::env::temp_dir()
-            .join(format!("vk-session-follow-up-repo-{}", Uuid::new_v4()));
+        let repo_path =
+            std::env::temp_dir().join(format!("vk-session-follow-up-repo-{}", Uuid::new_v4()));
         deployment
             .git()
             .initialize_repo_with_main_branch(&repo_path)
@@ -542,14 +545,9 @@ mod tests {
             .git()
             .create_branch(&repo_path, &workspace.branch, Some("main"))
             .unwrap();
-        let _repo = attach_repo_to_workspace(
-            &deployment,
-            project.id,
-            workspace.id,
-            &repo_path,
-            "main",
-        )
-        .await;
+        let _repo =
+            attach_repo_to_workspace(&deployment, project.id, workspace.id, &repo_path, "main")
+                .await;
 
         let _running = create_running_coding_agent_process(&deployment, session.id).await;
 

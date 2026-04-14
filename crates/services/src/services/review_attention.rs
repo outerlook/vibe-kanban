@@ -3,13 +3,14 @@
 //! This service generates prompts to ask agents to analyze their work output
 //! and extracts structured responses indicating whether human review is needed.
 
+use db::models::review_attention::ReviewAttention;
 use executors::{
     actions::{
         ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
     },
     profile::ExecutorProfileId,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Default prompt template for review attention analysis.
@@ -82,6 +83,17 @@ pub struct ReviewAttentionResult {
     pub reasoning: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewAttentionHydrationSummary {
+    pub id: String,
+    pub execution_process_id: String,
+    pub task_id: String,
+    pub workspace_id: String,
+    pub needs_attention: bool,
+    pub reasoning: Option<String>,
+    pub analyzed_at: String,
+}
+
 /// Internal struct for deserializing the JSON response.
 #[derive(Debug, Deserialize)]
 struct ReviewAttentionResponse {
@@ -148,6 +160,18 @@ impl ReviewAttentionService {
             needs_attention: response.needs_attention,
             reasoning: response.reasoning,
         })
+    }
+
+    pub fn summarize_record(record: &ReviewAttention) -> ReviewAttentionHydrationSummary {
+        ReviewAttentionHydrationSummary {
+            id: record.id.to_string(),
+            execution_process_id: record.execution_process_id.to_string(),
+            task_id: record.task_id.to_string(),
+            workspace_id: record.workspace_id.to_string(),
+            needs_attention: record.needs_attention,
+            reasoning: record.reasoning.clone(),
+            analyzed_at: record.analyzed_at.to_rfc3339(),
+        }
     }
 
     /// Extract JSON content from a response that might contain markdown or other text.

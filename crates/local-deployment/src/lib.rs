@@ -144,11 +144,12 @@ impl LocalDeployment {
         // Always save config (may have been migrated or version updated)
         save_config_to_file(&raw_config, &config_path()).await?;
 
-        let orchestration_event_publisher = if let Some(publisher) = orchestration_event_publisher_override {
-            Some(publisher)
-        } else {
-            build_orchestration_event_publisher(&raw_config)?
-        };
+        let orchestration_event_publisher =
+            if let Some(publisher) = orchestration_event_publisher_override {
+                Some(publisher)
+            } else {
+                build_orchestration_event_publisher(&raw_config)?
+            };
         let config = Arc::new(RwLock::new(raw_config));
         let user_id = generate_user_id();
         let analytics = AnalyticsConfig::new().map(AnalyticsService::new);

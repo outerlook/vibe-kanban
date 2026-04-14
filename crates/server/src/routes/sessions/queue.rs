@@ -5,10 +5,13 @@ use axum::{
 use db::models::{scratch::DraftFollowUpData, session::Session};
 use deployment::Deployment;
 use serde::Deserialize;
-use services::services::{container::ContainerService, queued_message::QueueStatus};
-use services::services::domain_events::{
-    DomainEvent, DomainEventEntityIds, FollowUpQueueKind, FollowUpScope,
-    FollowUpTransitionState,
+use services::services::{
+    container::ContainerService,
+    domain_events::{
+        DomainEvent, DomainEventEntityIds, FollowUpQueueKind, FollowUpScope,
+        FollowUpTransitionState,
+    },
+    queued_message::QueueStatus,
 };
 use ts_rs::TS;
 use utils::response::ApiResponse;
@@ -130,7 +133,6 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         ))
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::{sync::Arc, time::Duration};
@@ -236,10 +238,9 @@ mod tests {
         let _lock = crate::TEST_DB_LOCK.lock().unwrap();
         let publisher = RecordingOrchestrationEventPublisher::default();
         let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
-        let deployment =
-            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
-                .await
-                .unwrap();
+        let deployment = LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+            .await
+            .unwrap();
         let project = create_project(&deployment, "session-queue-events").await;
         let task = create_task(&deployment, project.id, "Queue me").await;
         let session = create_session_for_task(&deployment, task.id, "session-queue").await;

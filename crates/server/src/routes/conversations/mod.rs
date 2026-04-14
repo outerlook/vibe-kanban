@@ -31,9 +31,8 @@ use serde::{Deserialize, Serialize};
 use services::services::{
     container::ContainerService,
     conversation::{ConversationService, ConversationWithMessages, SendMessageResponse},
-    domain_events::{
-        DomainEvent, DomainEventEntityIds, FollowUpScope, FollowUpTransitionState,
-    },
+    domain_events::{DomainEvent, DomainEventEntityIds, FollowUpScope, FollowUpTransitionState},
+    orchestration::{OrchestrationConversationContextDto, OrchestrationService},
 };
 use ts_rs::TS;
 use utils::response::ApiResponse;
@@ -170,6 +169,17 @@ pub async fn get_conversation(
     Ok(ResponseJson(ApiResponse::success(
         conversation_with_messages,
     )))
+}
+
+pub async fn get_conversation_orchestration_context(
+    Extension(conversation): Extension<ConversationSession>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<OrchestrationConversationContextDto>>, ApiError> {
+    let context =
+        OrchestrationService::build_conversation_context(&deployment.db().pool, conversation)
+            .await?;
+
+    Ok(ResponseJson(ApiResponse::success(context)))
 }
 
 pub async fn update_conversation(
@@ -368,6 +378,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
                 .patch(update_conversation)
                 .delete(delete_conversation),
         )
+        .route(
+            "/orchestration-context",
+            get(get_conversation_orchestration_context),
+        )
         .route("/messages", get(get_messages).post(send_message))
         .route("/executions", get(get_executions))
         .layer(from_fn_with_state(
@@ -397,12 +411,14 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         )
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::{sync::Arc, time::Duration};
 
-    use axum::{Extension, Json, extract::{Path as AxumPath, State}};
+    use axum::{
+        Extension, Json,
+        extract::{Path as AxumPath, State},
+    };
     use db::models::{
         conversation_session::{ConversationSession, CreateConversationSession},
         project::{CreateProject, Project},
@@ -453,14 +469,15 @@ mod tests {
         let _lock = crate::TEST_DB_LOCK.lock().unwrap();
         let publisher = RecordingOrchestrationEventPublisher::default();
         let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
-        let deployment =
-            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
-                .await
-                .unwrap();
+        let deployment = LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+            .await
+            .unwrap();
         let project = create_project(&deployment, "conversation-route-events").await;
 
-        let missing_worktree_path = std::env::temp_dir()
-            .join(format!("vk-conversation-missing-worktree-{}", Uuid::new_v4()));
+        let missing_worktree_path = std::env::temp_dir().join(format!(
+            "vk-conversation-missing-worktree-{}",
+            Uuid::new_v4()
+        ));
         let create_result = create_conversation(
             State(deployment.clone()),
             AxumPath(project.id),

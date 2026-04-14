@@ -517,8 +517,7 @@ impl OrchestrationEventMapper {
         &self,
         event: &DomainEvent,
     ) -> Result<Vec<OrchestrationEventEnvelope>> {
-        let Some((project_id, candidate_group_ids)) =
-            self.task_group_completion_candidates(event)
+        let Some((project_id, candidate_group_ids)) = self.task_group_completion_candidates(event)
         else {
             return Ok(Vec::new());
         };
@@ -542,7 +541,8 @@ impl OrchestrationEventMapper {
                 continue;
             }
 
-            let Some(group_stats) = stats.iter().find(|group| group.group.id == task_group_id) else {
+            let Some(group_stats) = stats.iter().find(|group| group.group.id == task_group_id)
+            else {
                 continue;
             };
 
@@ -569,13 +569,11 @@ impl OrchestrationEventMapper {
         Ok(envelopes)
     }
 
-    fn task_group_completion_candidates(
-        &self,
-        event: &DomainEvent,
-    ) -> Option<(Uuid, Vec<Uuid>)> {
+    fn task_group_completion_candidates(&self, event: &DomainEvent) -> Option<(Uuid, Vec<Uuid>)> {
         match event {
             DomainEvent::TaskStatusChanged { task, .. }
-                if matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled) => {
+                if matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled) =>
+            {
                 Some((task.project_id, task.task_group_id.into_iter().collect()))
             }
             DomainEvent::TaskLifecycle {
@@ -583,7 +581,11 @@ impl OrchestrationEventMapper {
                 task,
                 previous_task_group_id,
                 ..
-            } if matches!(action, TaskLifecycleAction::Updated | TaskLifecycleAction::Deleted) => {
+            } if matches!(
+                action,
+                TaskLifecycleAction::Updated | TaskLifecycleAction::Deleted
+            ) =>
+            {
                 let mut group_ids = Vec::new();
                 if let Some(group_id) = *previous_task_group_id {
                     group_ids.push(group_id);
@@ -605,7 +607,8 @@ impl OrchestrationEventMapper {
             } if matches!(
                 action,
                 TaskGroupTransitionAction::Merged | TaskGroupTransitionAction::AssignmentChanged
-            ) => {
+            ) =>
+            {
                 let mut group_ids = Vec::new();
                 if let Some(group_id) = *previous_task_group_id {
                     group_ids.push(group_id);

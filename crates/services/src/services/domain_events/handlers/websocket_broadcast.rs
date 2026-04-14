@@ -52,7 +52,7 @@ impl EventHandler for WebSocketBroadcastHandler {
                 // When execution completes, refresh the task to get latest status.
                 if let Some(task_id) = task_id
                     && let Some(task_with_status) =
-                    Task::find_by_id_with_attempt_status(&ctx.db.pool, task_id).await?
+                        Task::find_by_id_with_attempt_status(&ctx.db.pool, task_id).await?
                 {
                     let patch = task_patch::replace(&task_with_status);
                     ctx.msg_store.push_patch(patch);

@@ -97,7 +97,6 @@ impl PrMonitorService {
         Ok(())
     }
 
-
     /// Check the status of a specific PR
     async fn check_pr_status(&self, pr_merge: &PrMerge) -> Result<(), PrMonitorError> {
         // GitHubService now uses gh CLI, no token needed
@@ -194,16 +193,11 @@ mod tests {
     use tempfile::TempDir;
     use uuid::Uuid;
 
-    use crate::services::{
-        domain_events::{
-            EventDispatchCallback, OrchestrationEventMapper, OrchestrationEventPublisher,
-            OrchestrationEventType, RecordingOrchestrationEventPublisher,
-            default_topic_namespace,
-        },
-    };
-
     use super::*;
-
+    use crate::services::domain_events::{
+        EventDispatchCallback, OrchestrationEventMapper, OrchestrationEventPublisher,
+        OrchestrationEventType, RecordingOrchestrationEventPublisher, default_topic_namespace,
+    };
 
     fn recording_dispatcher(
         db: &DBService,
@@ -215,7 +209,10 @@ mod tests {
             let publisher = publisher.clone();
             Box::pin(async move {
                 let mapper = OrchestrationEventMapper::new(db.pool.clone());
-                let envelopes = mapper.map_event(&event).await.expect("map orchestration event");
+                let envelopes = mapper
+                    .map_event(&event)
+                    .await
+                    .expect("map orchestration event");
                 for envelope in envelopes {
                     let event_name = serde_json::to_string(&envelope.event_type)
                         .expect("event type serialization cannot fail")

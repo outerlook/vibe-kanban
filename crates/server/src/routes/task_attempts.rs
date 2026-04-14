@@ -2408,7 +2408,6 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     Router::new().nest("/task-attempts", task_attempts_router)
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::{fs, path::Path, sync::Arc, time::Duration};
@@ -2479,7 +2478,6 @@ mod tests {
         repo
     }
 
-
     async fn wait_for_merge_transition_count(
         publisher: &RecordingOrchestrationEventPublisher,
         minimum: usize,
@@ -2508,16 +2506,15 @@ mod tests {
         let _lock = crate::TEST_DB_LOCK.lock().unwrap();
         let publisher = RecordingOrchestrationEventPublisher::default();
         let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
-        let deployment =
-            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
-                .await
-                .unwrap();
+        let deployment = LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+            .await
+            .unwrap();
 
         let project = create_project(&deployment, "task-attempt-route-events").await;
         let task = create_task(&deployment, project.id, "Attempt me").await;
 
-        let repo_path = std::env::temp_dir()
-            .join(format!("vk-task-attempt-repo-{}", Uuid::new_v4()));
+        let repo_path =
+            std::env::temp_dir().join(format!("vk-task-attempt-repo-{}", Uuid::new_v4()));
         deployment
             .git()
             .initialize_repo_with_main_branch(&repo_path)
@@ -2532,7 +2529,8 @@ mod tests {
             ])
             .status()
             .unwrap();
-        let repo = attach_repo_to_project(&deployment, project.id, &repo_path, "Attempt Repo").await;
+        let repo =
+            attach_repo_to_project(&deployment, project.id, &repo_path, "Attempt Repo").await;
 
         let workspace = create_task_attempt(
             State(deployment.clone()),
@@ -2567,7 +2565,10 @@ mod tests {
             .status()
             .unwrap();
         fs::write(repo_path.join("queued.txt"), "feature work\n").unwrap();
-        deployment.git().commit(&repo_path, "feature commit").unwrap();
+        deployment
+            .git()
+            .commit(&repo_path, "feature commit")
+            .unwrap();
         std::process::Command::new("git")
             .args(["-C", repo_path.to_str().unwrap(), "checkout", "main"])
             .status()
@@ -2625,9 +2626,12 @@ mod tests {
             1
         );
 
-        deployment
-            .merge_queue_store()
-            .enqueue(project.id, workspace.id, repo.id, "manual queue".to_string());
+        deployment.merge_queue_store().enqueue(
+            project.id,
+            workspace.id,
+            repo.id,
+            "manual queue".to_string(),
+        );
         let _ = cancel_queue_merge(Extension(workspace), State(deployment.clone()))
             .await
             .unwrap();

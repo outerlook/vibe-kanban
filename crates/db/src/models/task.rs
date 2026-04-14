@@ -540,8 +540,7 @@ impl Task {
             return Ok(0);
         }
 
-        let mut query_builder =
-            sqlx::QueryBuilder::new("UPDATE tasks SET status = ");
+        let mut query_builder = sqlx::QueryBuilder::new("UPDATE tasks SET status = ");
         query_builder.push_bind(status);
         query_builder.push(", updated_at = datetime('now', 'subsec') WHERE project_id = ");
         query_builder.push_bind(project_id);

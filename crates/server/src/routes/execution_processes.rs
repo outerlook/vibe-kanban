@@ -19,7 +19,10 @@ use db::models::{
 use deployment::Deployment;
 use futures_util::{StreamExt, TryStreamExt, stream::BoxStream};
 use serde::Deserialize;
-use services::services::container::{ContainerError, ContainerService};
+use services::services::{
+    container::{ContainerError, ContainerService},
+    orchestration::{OrchestrationExecutionContextDto, OrchestrationService},
+};
 use utils::{log_msg::LogMsg, response::ApiResponse};
 use uuid::Uuid;
 
@@ -53,6 +56,20 @@ pub async fn get_execution_process_by_id(
     State(_deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<ExecutionProcess>>, ApiError> {
     Ok(ResponseJson(ApiResponse::success(execution_process)))
+}
+
+pub async fn get_execution_process_orchestration_context(
+    Extension(execution_process): Extension<ExecutionProcess>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<OrchestrationExecutionContextDto>>, ApiError> {
+    let context = OrchestrationService::build_execution_context(
+        &deployment.db().pool,
+        deployment.approvals(),
+        execution_process,
+    )
+    .await?;
+
+    Ok(ResponseJson(ApiResponse::success(context)))
 }
 
 pub async fn stream_raw_logs_ws(
@@ -288,6 +305,10 @@ pub async fn get_execution_process_repo_states(
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let workspace_id_router = Router::new()
         .route("/", get(get_execution_process_by_id))
+        .route(
+            "/orchestration-context",
+            get(get_execution_process_orchestration_context),
+        )
         .route("/stop", post(stop_execution_process))
         .route("/repo-states", get(get_execution_process_repo_states))
         .route("/normalized-entries", get(get_normalized_entries))

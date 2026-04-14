@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use services::services::{
     container::{ContainerService, StartWorkspaceResult},
     domain_events::{DomainEvent, TaskGroupTransitionAction, TaskLifecycleAction},
+    orchestration::{OrchestrationService, OrchestrationTaskContextDto},
     share::ShareError,
     workspace_manager::WorkspaceManager,
 };
@@ -451,6 +452,21 @@ pub async fn get_task(
     State(_deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
     Ok(ResponseJson(ApiResponse::success(task)))
+}
+
+pub async fn get_task_orchestration_context(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<OrchestrationTaskContextDto>>, ApiError> {
+    let context = OrchestrationService::build_task_context(
+        &deployment.db().pool,
+        deployment.approvals(),
+        deployment.merge_queue_store(),
+        task,
+    )
+    .await?;
+
+    Ok(ResponseJson(ApiResponse::success(context)))
 }
 
 /// Validates that the provided task_group_id belongs to the specified project.
@@ -1097,7 +1113,9 @@ pub async fn bulk_update_task_status(
     }
 
     Ok(ResponseJson(ApiResponse::success(
-        BulkUpdateTaskStatusResponse { tasks: updated_tasks },
+        BulkUpdateTaskStatusResponse {
+            tasks: updated_tasks,
+        },
     )))
 }
 
@@ -1184,6 +1202,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 
     let task_id_router = Router::new()
         .route("/", get(get_task))
+        .route(
+            "/orchestration-context",
+            get(get_task_orchestration_context),
+        )
         .merge(task_actions_router)
         .layer(from_fn_with_state(deployment.clone(), load_task_middleware));
 
@@ -1249,6 +1271,8 @@ pub fn project_router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 #[cfg(test)]
 mod lifecycle_tests {
 
+    use std::{sync::Arc, time::Duration};
+
     use axum::{
         body::{Body, to_bytes},
         http::{Request, StatusCode},
@@ -1265,24 +1289,23 @@ mod lifecycle_tests {
         OrchestrationEventPublisherHandle, OrchestrationEventType,
         RecordingOrchestrationEventPublisher,
     };
-    use std::{sync::Arc, time::Duration};
     use tower::ServiceExt;
 
     use super::*;
     use crate::middleware::load_project_middleware;
 
-
     fn bulk_tasks_test_router(deployment: DeploymentImpl) -> Router {
-        let project_routes = Router::new()
-            .nest(
-                "/{id}",
-                project_router(&deployment).layer(from_fn_with_state(
-                    deployment.clone(),
-                    load_project_middleware,
-                )),
-            );
+        let project_routes = Router::new().nest(
+            "/{id}",
+            project_router(&deployment).layer(from_fn_with_state(
+                deployment.clone(),
+                load_project_middleware,
+            )),
+        );
 
-        Router::new().nest("/projects", project_routes).with_state(deployment)
+        Router::new()
+            .nest("/projects", project_routes)
+            .with_state(deployment)
     }
 
     async fn create_project(deployment: &DeploymentImpl, name: &str) -> Project {
@@ -1393,10 +1416,9 @@ mod lifecycle_tests {
         let _lock = crate::TEST_DB_LOCK.lock().unwrap();
         let publisher = RecordingOrchestrationEventPublisher::default();
         let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
-        let deployment =
-            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
-                .await
-                .unwrap();
+        let deployment = LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+            .await
+            .unwrap();
         let project = create_project(&deployment, "task-lifecycle-events").await;
 
         let created = super::create_task(

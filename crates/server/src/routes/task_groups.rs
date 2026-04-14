@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use services::services::{
     container::ContainerService,
     domain_events::{DomainEvent, TaskGroupTransitionAction},
+    orchestration::{OrchestrationService, OrchestrationTaskGroupContextDto},
 };
 use ts_rs::TS;
 use utils::response::ApiResponse;
@@ -83,6 +84,20 @@ pub async fn get_task_group(
     Extension(task_group): Extension<TaskGroup>,
 ) -> Result<ResponseJson<ApiResponse<TaskGroup>>, ApiError> {
     Ok(ResponseJson(ApiResponse::success(task_group)))
+}
+
+pub async fn get_task_group_orchestration_context(
+    Extension(task_group): Extension<TaskGroup>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<OrchestrationTaskGroupContextDto>>, ApiError> {
+    let context = OrchestrationService::build_task_group_context(
+        &deployment.db().pool,
+        deployment.merge_queue_store(),
+        task_group,
+    )
+    .await?;
+
+    Ok(ResponseJson(ApiResponse::success(context)))
 }
 
 pub async fn create_task_group(
@@ -276,6 +291,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
                 .put(update_task_group)
                 .delete(delete_task_group),
         )
+        .route(
+            "/orchestration-context",
+            get(get_task_group_orchestration_context),
+        )
         .route("/assign", post(bulk_assign_tasks))
         .route("/merge", post(merge_task_group))
         .route("/merge-queue-count", get(get_merge_queue_count))
@@ -309,7 +328,6 @@ mod tests {
     };
 
     use super::*;
-
 
     async fn create_project(deployment: &DeploymentImpl, name: &str) -> Project {
         Project::create(
@@ -348,10 +366,9 @@ mod tests {
         let _lock = crate::TEST_DB_LOCK.lock().unwrap();
         let publisher = RecordingOrchestrationEventPublisher::default();
         let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
-        let deployment =
-            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
-                .await
-                .unwrap();
+        let deployment = LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+            .await
+            .unwrap();
         let project = create_project(&deployment, "task-group-events").await;
 
         let group = create_task_group(

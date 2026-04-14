@@ -78,7 +78,6 @@ use executors::{
 };
 use futures::{FutureExt, TryStreamExt, stream::select};
 use serde_json::json;
-use sqlx::types::chrono::Utc;
 use services::services::{
     analytics::AnalyticsContext,
     approvals::{Approvals, executor_approvals::ExecutorApprovalBridge},
@@ -88,12 +87,11 @@ use services::services::{
     diff_stream::{self, DiffStreamHandle},
     domain_events::{
         AutopilotHandler, DispatcherBuilder, DomainEvent, DomainEventDispatcher,
-        DomainEventEntityIds, EventDispatchCallback, ExecutionTrigger,
-        ExecutionTriggerCallback,
-        FeedbackCollectionHandler, HandlerContext, HookExecutionStore, HookExecutionUpdaterHandler,
-        FollowUpQueueKind, FollowUpScope, FollowUpTransitionState,
-        NotificationHandler, OrchestrationEventPublisherHandle, OrchestrationEventPublisherHandler,
-        RemoteSyncHandler, ReviewAttentionHandler, WebSocketBroadcastHandler,
+        DomainEventEntityIds, EventDispatchCallback, ExecutionTrigger, ExecutionTriggerCallback,
+        FeedbackCollectionHandler, FollowUpQueueKind, FollowUpScope, FollowUpTransitionState,
+        HandlerContext, HookExecutionStore, HookExecutionUpdaterHandler, NotificationHandler,
+        OrchestrationEventPublisherHandle, OrchestrationEventPublisherHandler, RemoteSyncHandler,
+        ReviewAttentionHandler, WebSocketBroadcastHandler,
     },
     feedback::FeedbackService,
     git::{Commit, DiffTarget, GitCli, GitService},
@@ -109,6 +107,7 @@ use services::services::{
     watcher_manager::WatcherManager,
     workspace_manager::{RepoWorkspaceInput, WorkspaceManager},
 };
+use sqlx::types::chrono::Utc;
 use tokio::{sync::RwLock, task::JoinHandle};
 use tokio_util::io::ReaderStream;
 use utils::{
@@ -1589,13 +1588,13 @@ impl LocalContainerService {
 
         let execution_process = self
             .start_execution(
-            &ctx.workspace,
-            &ctx.session,
-            &action,
-            &ExecutionProcessRunReason::CodingAgent,
-            None,
-        )
-        .await?;
+                &ctx.workspace,
+                &ctx.session,
+                &action,
+                &ExecutionProcessRunReason::CodingAgent,
+                None,
+            )
+            .await?;
 
         self.event_dispatcher
             .dispatch(DomainEvent::FollowUpTransition {
@@ -3308,7 +3307,9 @@ impl ContainerService for LocalContainerService {
             )
             .await?;
 
-            if let Ok(ctx) = ExecutionProcess::load_context(&self.db.pool, execution_process.id).await {
+            if let Ok(ctx) =
+                ExecutionProcess::load_context(&self.db.pool, execution_process.id).await
+            {
                 self.event_dispatcher
                     .dispatch(DomainEvent::ExecutionCompleted {
                         process: ctx.execution_process.clone(),
@@ -3675,11 +3676,11 @@ mod tests {
 
     use dashmap::DashSet;
     use db::models::{
+        conversation_session::{ConversationSession, CreateConversationSession},
         execution_process::{
             CreateExecutionProcess, ExecutionProcess, ExecutionProcessRunReason,
             ExecutionProcessStatus,
         },
-        conversation_session::{ConversationSession, CreateConversationSession},
         project::{CreateProject, Project},
         session::{CreateSession, Session},
         task::{CreateTask, Task, TaskStatus},
@@ -3806,7 +3807,6 @@ mod tests {
         assert!(!running_workspaces.contains(&workspace_1));
         assert!(running_workspaces.contains(&workspace_2));
     }
-
 
     async fn wait_for_event_types(
         publisher: &RecordingOrchestrationEventPublisher,
@@ -3937,10 +3937,9 @@ mod tests {
         let _lock = TEST_LOCK.lock().expect("lock poisoned");
         let publisher = RecordingOrchestrationEventPublisher::default();
         let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
-        let deployment =
-            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
-                .await
-                .expect("create deployment");
+        let deployment = LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+            .await
+            .expect("create deployment");
 
         let project = Project::create(
             &deployment.db().pool,
@@ -3999,10 +3998,9 @@ mod tests {
         let _lock = TEST_LOCK.lock().expect("lock poisoned");
         let publisher = RecordingOrchestrationEventPublisher::default();
         let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
-        let deployment =
-            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
-                .await
-                .expect("create deployment");
+        let deployment = LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+            .await
+            .expect("create deployment");
 
         let project = Project::create(
             &deployment.db().pool,

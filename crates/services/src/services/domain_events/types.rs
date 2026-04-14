@@ -242,8 +242,7 @@ impl DomainEvent {
                 task_group_id,
                 ..
             }
-            |
-            DomainEvent::ExecutionCompleted {
+            | DomainEvent::ExecutionCompleted {
                 process,
                 task_id,
                 workspace_id,
@@ -386,8 +385,7 @@ impl DomainEvent {
             },
             DomainEvent::TaskStatusChanged { .. } => HookPoint::PostTaskStatusChange,
             DomainEvent::ExecutionStarted { .. }
-            |
-            DomainEvent::ExecutionCompleted { .. }
+            | DomainEvent::ExecutionCompleted { .. }
             | DomainEvent::ApprovalRequested { .. }
             | DomainEvent::ApprovalResolved { .. }
             | DomainEvent::ConversationMessageAdded { .. }

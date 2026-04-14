@@ -5,10 +5,13 @@ use axum::{
 use db::models::{conversation_session::ConversationSession, scratch::DraftFollowUpData};
 use deployment::Deployment;
 use serde::Deserialize;
-use services::services::{container::ContainerService, queued_message::QueueStatus};
-use services::services::domain_events::{
-    DomainEvent, DomainEventEntityIds, FollowUpQueueKind, FollowUpScope,
-    FollowUpTransitionState,
+use services::services::{
+    container::ContainerService,
+    domain_events::{
+        DomainEvent, DomainEventEntityIds, FollowUpQueueKind, FollowUpScope,
+        FollowUpTransitionState,
+    },
+    queued_message::QueueStatus,
 };
 use ts_rs::TS;
 use utils::response::ApiResponse;
@@ -149,7 +152,6 @@ mod tests {
 
     use super::*;
 
-
     async fn create_project(deployment: &DeploymentImpl, name: &str) -> Project {
         Project::create(
             &deployment.db().pool,
@@ -187,10 +189,9 @@ mod tests {
         let _lock = crate::TEST_DB_LOCK.lock().unwrap();
         let publisher = RecordingOrchestrationEventPublisher::default();
         let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
-        let deployment =
-            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
-                .await
-                .unwrap();
+        let deployment = LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+            .await
+            .unwrap();
         let project = create_project(&deployment, "conversation-queue-events").await;
         let (conversation, _) = ConversationService::create_conversation_with_events(
             &deployment.db().pool,

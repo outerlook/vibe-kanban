@@ -3,12 +3,14 @@
 //! This service handles the prompt generation for collecting feedback from agents
 //! and extracting valid JSON from their responses for storage.
 
+use db::models::agent_feedback::AgentFeedback;
 use executors::{
     actions::{
         ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
     },
     profile::ExecutorProfileId,
 };
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Errors that can occur during feedback operations.
@@ -20,6 +22,29 @@ pub enum FeedbackError {
 }
 
 pub type Result<T> = std::result::Result<T, FeedbackError>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeedbackHydrationSummary {
+    pub id: String,
+    pub execution_process_id: String,
+    pub task_id: String,
+    pub workspace_id: String,
+    pub collected_at: String,
+    pub task_clarity: Option<String>,
+    pub missing_tools: Option<String>,
+    pub integration_problems: Option<String>,
+    pub improvement_suggestions: Option<String>,
+    pub agent_documentation: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct ParsedFeedbackFields {
+    task_clarity: Option<String>,
+    missing_tools: Option<String>,
+    integration_problems: Option<String>,
+    improvement_suggestions: Option<String>,
+    agent_documentation: Option<String>,
+}
 
 /// Service for generating feedback prompts and parsing agent responses.
 #[derive(Clone, Default)]
@@ -178,6 +203,31 @@ Be specific and actionable in your feedback. If a category doesn't apply, set it
             ExecutorActionType::CodingAgentFollowUpRequest(follow_up),
             None,
         )
+    }
+
+    pub fn summarize_record(record: &AgentFeedback) -> FeedbackHydrationSummary {
+        let parsed = record
+            .feedback_json
+            .as_deref()
+            .and_then(Self::parse_feedback_fields)
+            .unwrap_or_default();
+
+        FeedbackHydrationSummary {
+            id: record.id.to_string(),
+            execution_process_id: record.execution_process_id.to_string(),
+            task_id: record.task_id.to_string(),
+            workspace_id: record.workspace_id.to_string(),
+            collected_at: record.collected_at.to_rfc3339(),
+            task_clarity: parsed.task_clarity,
+            missing_tools: parsed.missing_tools,
+            integration_problems: parsed.integration_problems,
+            improvement_suggestions: parsed.improvement_suggestions,
+            agent_documentation: parsed.agent_documentation,
+        }
+    }
+
+    fn parse_feedback_fields(raw: &str) -> Option<ParsedFeedbackFields> {
+        serde_json::from_str(raw).ok()
     }
 }
 

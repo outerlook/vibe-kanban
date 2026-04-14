@@ -347,17 +347,9 @@ impl MergeQueueProcessor {
             )
             .await?;
 
-        self.complete_successful_entry(
-            entry,
-            &workspace,
-            &repo,
-            &task,
-            base_branch,
-            merge_commit,
-        )
-        .await
+        self.complete_successful_entry(entry, &workspace, &repo, &task, base_branch, merge_commit)
+            .await
     }
-
 
     async fn complete_successful_entry(
         &self,
@@ -635,14 +627,11 @@ mod tests {
     use tempfile::TempDir;
     use utils::msg_store::MsgStore;
 
+    use super::*;
     use crate::services::domain_events::{
         EventDispatchCallback, OrchestrationEventMapper, OrchestrationEventPublisher,
-        OrchestrationEventType, RecordingOrchestrationEventPublisher,
-        default_topic_namespace,
+        OrchestrationEventType, RecordingOrchestrationEventPublisher, default_topic_namespace,
     };
-
-    use super::*;
-
 
     #[test]
     fn test_merge_queue_error_is_conflict() {
@@ -667,7 +656,6 @@ mod tests {
         assert_eq!(other_err.conflict_message(), None);
     }
 
-
     fn recording_dispatcher(
         db: &DBService,
         publisher: RecordingOrchestrationEventPublisher,
@@ -678,7 +666,10 @@ mod tests {
             let publisher = publisher.clone();
             Box::pin(async move {
                 let mapper = OrchestrationEventMapper::new(db.pool.clone());
-                let envelopes = mapper.map_event(&event).await.expect("map orchestration event");
+                let envelopes = mapper
+                    .map_event(&event)
+                    .await
+                    .expect("map orchestration event");
                 for envelope in envelopes {
                     let event_name = serde_json::to_string(&envelope.event_type)
                         .expect("event type serialization cannot fail")
@@ -778,7 +769,10 @@ mod tests {
             .await
             .expect("complete merge entry");
 
-        assert!(store.get(workspace.id).is_none(), "queue entry should be removed");
+        assert!(
+            store.get(workspace.id).is_none(),
+            "queue entry should be removed"
+        );
         let updated_task = Task::find_by_id(&db.pool, task.id)
             .await
             .expect("load task")
@@ -800,5 +794,4 @@ mod tests {
         assert!(event_types.contains(&OrchestrationEventType::MergeQueueTransition));
         assert!(event_types.contains(&OrchestrationEventType::TaskStatusChanged));
     }
-
 }

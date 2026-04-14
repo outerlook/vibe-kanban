@@ -28,8 +28,7 @@ use utils::{
 use uuid::Uuid;
 
 use super::domain_events::{
-    ApprovalEventKind, ApprovalResolution, DomainEvent, DomainEventEntityIds,
-    EventDispatchCallback,
+    ApprovalEventKind, ApprovalResolution, DomainEvent, DomainEventEntityIds, EventDispatchCallback,
 };
 
 #[derive(Debug)]
@@ -58,6 +57,7 @@ pub struct ToolContext {
 pub struct Approvals {
     db: SqlitePool,
     pending: Arc<DashMap<String, PendingApproval>>,
+    requests: Arc<DashMap<String, ApprovalRequest>>,
     completed: Arc<DashMap<String, ApprovalStatus>>,
     msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
     protocol_peers: Arc<RwLock<HashMap<Uuid, ProtocolPeer>>>,
@@ -89,6 +89,7 @@ impl Approvals {
         Self {
             db,
             pending: Arc::new(DashMap::new()),
+            requests: Arc::new(DashMap::new()),
             completed: Arc::new(DashMap::new()),
             msg_stores,
             protocol_peers,
@@ -116,6 +117,33 @@ impl Approvals {
     /// Get the protocol peers map for external access
     pub fn protocol_peers(&self) -> &Arc<RwLock<HashMap<Uuid, ProtocolPeer>>> {
         &self.protocol_peers
+    }
+
+    pub fn find_request(&self, id: &str) -> Option<ApprovalRequest> {
+        self.requests.get(id).map(|request| request.clone())
+    }
+
+    pub fn find_status(&self, id: &str) -> Option<ApprovalStatus> {
+        if self.pending.contains_key(id) {
+            Some(ApprovalStatus::Pending)
+        } else {
+            self.completed.get(id).map(|status| status.clone())
+        }
+    }
+
+    pub fn list_pending_requests_for_execution_process(
+        &self,
+        execution_process_id: Uuid,
+    ) -> Vec<ApprovalRequest> {
+        self.pending
+            .iter()
+            .filter(|entry| entry.execution_process_id == execution_process_id)
+            .filter_map(|entry| {
+                self.requests
+                    .get(entry.key())
+                    .map(|request| request.clone())
+            })
+            .collect()
     }
 
     async fn dispatch_event(&self, event: DomainEvent) {
@@ -158,6 +186,8 @@ impl Approvals {
             .boxed()
             .shared();
         let req_id = request.id.clone();
+
+        self.requests.insert(req_id.clone(), request.clone());
 
         // For user questions, insert into DB for persistence
         if let ApprovalRequestType::UserQuestion { ref questions } = request.request_type {
@@ -247,14 +277,14 @@ impl Approvals {
 
         let entity_ids = self.event_entity_ids(request.execution_process_id).await;
         let (kind, tool_name, question_count) = match &request.request_type {
-            ApprovalRequestType::ToolApproval { tool_name, .. } => {
-                (ApprovalEventKind::ToolApproval, Some(tool_name.clone()), None)
-            }
-            ApprovalRequestType::UserQuestion { questions } => (
-                ApprovalEventKind::UserQuestion,
+            ApprovalRequestType::ToolApproval { tool_name, .. } => (
+                ApprovalEventKind::ToolApproval,
+                Some(tool_name.clone()),
                 None,
-                Some(questions.len()),
             ),
+            ApprovalRequestType::UserQuestion { questions } => {
+                (ApprovalEventKind::UserQuestion, None, Some(questions.len()))
+            }
         };
 
         self.dispatch_event(DomainEvent::ApprovalRequested {
@@ -593,11 +623,7 @@ fn find_matching_tool_use(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        sync::Arc,
-        time::Duration,
-    };
+    use std::{collections::HashMap, sync::Arc, time::Duration};
 
     use db::{
         DBService,
@@ -612,23 +638,22 @@ mod tests {
         },
     };
     use executors::{
-        actions::{ExecutorAction, ExecutorActionType, script::{ScriptContext, ScriptRequest, ScriptRequestLanguage}},
+        actions::{
+            ExecutorAction, ExecutorActionType,
+            script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+        },
         logs::{ActionType, NormalizedEntry, NormalizedEntryType, ToolStatus},
     };
     use utils::{
-        approvals::{
-            CreateApprovalRequest, QuestionAnswer, QuestionData, QuestionOption,
-        },
+        approvals::{CreateApprovalRequest, QuestionAnswer, QuestionData, QuestionOption},
         msg_store::MsgStore,
     };
 
+    use super::*;
     use crate::services::domain_events::{
         EventDispatchCallback, OrchestrationEventMapper, OrchestrationEventPublisher,
-        OrchestrationEventType, RecordingOrchestrationEventPublisher,
-        default_topic_namespace,
+        OrchestrationEventType, RecordingOrchestrationEventPublisher, default_topic_namespace,
     };
-    use super::*;
-
 
     fn create_tool_use_entry(
         tool_name: &str,
@@ -799,7 +824,6 @@ mod tests {
         assert!(ToolStatus::from_approval_status(&ApprovalStatus::Pending).is_none());
     }
 
-
     fn recording_dispatcher(
         db: &DBService,
         publisher: RecordingOrchestrationEventPublisher,
@@ -810,7 +834,10 @@ mod tests {
             let publisher = publisher.clone();
             Box::pin(async move {
                 let mapper = OrchestrationEventMapper::new(db.pool.clone());
-                let envelopes = mapper.map_event(&event).await.expect("map orchestration event");
+                let envelopes = mapper
+                    .map_event(&event)
+                    .await
+                    .expect("map orchestration event");
                 for envelope in envelopes {
                     let event_name = serde_json::to_string(&envelope.event_type)
                         .expect("event type serialization cannot fail")
@@ -932,7 +959,11 @@ mod tests {
         let db = DBService::new().await.expect("db service");
         let msg_stores = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
         let publisher = RecordingOrchestrationEventPublisher::default();
-        let approvals = Approvals::new(db.pool.clone(), msg_stores, Arc::new(tokio::sync::RwLock::new(HashMap::new())));
+        let approvals = Approvals::new(
+            db.pool.clone(),
+            msg_stores,
+            Arc::new(tokio::sync::RwLock::new(HashMap::new())),
+        );
         approvals
             .set_event_dispatcher(recording_dispatcher(&db, publisher.clone()))
             .await;
@@ -986,5 +1017,4 @@ mod tests {
             .expect("task exists");
         assert_eq!(updated_task.status, TaskStatus::InProgress);
     }
-
 }
