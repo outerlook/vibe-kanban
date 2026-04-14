@@ -168,6 +168,8 @@ mod tests {
         let event = DomainEvent::ExecutionCompleted {
             process,
             task_id: Uuid::new_v4(),
+            workspace_id: None,
+            task_group_id: None,
         };
 
         assert!(handler.handles(&event));
@@ -230,7 +232,12 @@ mod tests {
 
         // Create context with the store and handle the event
         let ctx = test_context_with_store(store.clone());
-        let event = DomainEvent::ExecutionCompleted { process, task_id };
+        let event = DomainEvent::ExecutionCompleted {
+            process,
+            task_id,
+            workspace_id: None,
+            task_group_id: None,
+        };
 
         let result = handler.handle(event, &ctx).await;
         assert!(result.is_ok());
@@ -260,7 +267,12 @@ mod tests {
         store.link_execution_process(hook_exec_id, process_id);
 
         let ctx = test_context_with_store(store.clone());
-        let event = DomainEvent::ExecutionCompleted { process, task_id };
+        let event = DomainEvent::ExecutionCompleted {
+            process,
+            task_id,
+            workspace_id: None,
+            task_group_id: None,
+        };
 
         let result = handler.handle(event, &ctx).await;
         assert!(result.is_ok());
@@ -288,7 +300,12 @@ mod tests {
         store.link_execution_process(hook_exec_id, process_id);
 
         let ctx = test_context_with_store(store.clone());
-        let event = DomainEvent::ExecutionCompleted { process, task_id };
+        let event = DomainEvent::ExecutionCompleted {
+            process,
+            task_id,
+            workspace_id: None,
+            task_group_id: None,
+        };
 
         let result = handler.handle(event, &ctx).await;
         assert!(result.is_ok());
@@ -308,6 +325,8 @@ mod tests {
         let event = DomainEvent::ExecutionCompleted {
             process,
             task_id: Uuid::new_v4(),
+            workspace_id: None,
+            task_group_id: None,
         };
 
         // Should succeed without doing anything
@@ -330,7 +349,12 @@ mod tests {
         let process = create_completed_execution_process(ExecutionProcessStatus::Completed);
 
         let ctx = test_context_with_store(store.clone());
-        let event = DomainEvent::ExecutionCompleted { process, task_id };
+        let event = DomainEvent::ExecutionCompleted {
+            process,
+            task_id,
+            workspace_id: None,
+            task_group_id: None,
+        };
 
         let result = handler.handle(event, &ctx).await;
         assert!(result.is_ok());
@@ -357,7 +381,12 @@ mod tests {
         store.link_execution_process(hook_exec_id, process_id);
 
         let ctx = test_context_with_store(store.clone());
-        let event = DomainEvent::ExecutionCompleted { process, task_id };
+        let event = DomainEvent::ExecutionCompleted {
+            process,
+            task_id,
+            workspace_id: None,
+            task_group_id: None,
+        };
 
         let result = handler.handle(event, &ctx).await;
         assert!(result.is_ok());

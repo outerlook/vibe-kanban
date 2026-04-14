@@ -73,6 +73,8 @@ async fn test_agent_completes_triggers_feedback_collection() {
         .dispatch(DomainEvent::ExecutionCompleted {
             process: execution.clone(),
             task_id,
+            workspace_id: None,
+            task_group_id: None,
         })
         .await;
 
@@ -244,6 +246,8 @@ async fn test_feedback_skipped_if_already_exists() {
         .dispatch(DomainEvent::ExecutionCompleted {
             process: execution,
             task_id,
+            workspace_id: None,
+            task_group_id: None,
         })
         .await;
 

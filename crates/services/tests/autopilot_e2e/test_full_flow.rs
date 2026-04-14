@@ -155,6 +155,8 @@ async fn test_full_autopilot_flow_with_dependent_task() {
         .dispatch(DomainEvent::ExecutionCompleted {
             process: execution_a.clone(),
             task_id: task_a_id,
+            workspace_id: None,
+            task_group_id: None,
         })
         .await;
 

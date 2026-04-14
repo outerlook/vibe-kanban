@@ -89,7 +89,8 @@ use services::services::{
         AutopilotHandler, DispatcherBuilder, DomainEvent, DomainEventDispatcher,
         EventDispatchCallback, ExecutionTrigger, ExecutionTriggerCallback,
         FeedbackCollectionHandler, HandlerContext, HookExecutionStore, HookExecutionUpdaterHandler,
-        NotificationHandler, RemoteSyncHandler, ReviewAttentionHandler, WebSocketBroadcastHandler,
+        NotificationHandler, OrchestrationEventPublisherHandle, OrchestrationEventPublisherHandler,
+        RemoteSyncHandler, ReviewAttentionHandler, WebSocketBroadcastHandler,
     },
     feedback::FeedbackService,
     git::{Commit, DiffTarget, GitCli, GitService},
@@ -160,6 +161,7 @@ impl LocalContainerService {
         publisher: Result<SharePublisher, RemoteClientNotConfigured>,
         skills_cache: GlobalSkillsCache,
         hook_execution_store: HookExecutionStore,
+        orchestration_event_publisher: Option<OrchestrationEventPublisherHandle>,
     ) -> Self {
         let child_store = Arc::new(RwLock::new(HashMap::new()));
         let interrupt_senders = Arc::new(RwLock::new(HashMap::new()));
@@ -304,25 +306,30 @@ impl LocalContainerService {
         );
 
         // Build the domain event dispatcher with all handlers
-        let event_dispatcher = Arc::new(
-            DispatcherBuilder::new()
-                .with_handler(WebSocketBroadcastHandler::new())
-                .with_handler(NotificationHandler::new(notification_service.clone()))
-                .with_handler(AutopilotHandler::new())
-                .with_handler(RemoteSyncHandler::new(publisher.clone().ok()))
-                .with_handler(ReviewAttentionHandler::new())
-                .with_handler(HookExecutionUpdaterHandler::new())
-                .with_handler(FeedbackCollectionHandler::new(db.clone()))
-                .with_context(HandlerContext::new(
-                    db.clone(),
-                    config.clone(),
-                    global_msg_store,
-                    None, // Will be overridden by with_execution_trigger
-                ))
-                .with_execution_trigger(execution_trigger_callback)
-                .with_hook_execution_store(hook_execution_store)
-                .build(),
-        );
+        let mut dispatcher_builder = DispatcherBuilder::new()
+            .with_handler(WebSocketBroadcastHandler::new())
+            .with_handler(NotificationHandler::new(notification_service.clone()))
+            .with_handler(AutopilotHandler::new())
+            .with_handler(RemoteSyncHandler::new(publisher.clone().ok()))
+            .with_handler(ReviewAttentionHandler::new())
+            .with_handler(HookExecutionUpdaterHandler::new())
+            .with_handler(FeedbackCollectionHandler::new(db.clone()))
+            .with_handler(OrchestrationEventPublisherHandler::new())
+            .with_context(HandlerContext::new(
+                db.clone(),
+                config.clone(),
+                global_msg_store,
+                None,
+            ))
+            .with_execution_trigger(execution_trigger_callback)
+            .with_hook_execution_store(hook_execution_store);
+
+        if let Some(orchestration_event_publisher) = orchestration_event_publisher {
+            dispatcher_builder = dispatcher_builder
+                .with_orchestration_event_publisher(orchestration_event_publisher);
+        }
+
+        let event_dispatcher = Arc::new(dispatcher_builder.build());
 
         let container = LocalContainerService {
             db,
@@ -700,6 +707,8 @@ impl LocalContainerService {
                     .dispatch(DomainEvent::ExecutionCompleted {
                         process: ctx.execution_process.clone(),
                         task_id: ctx.task.id,
+                        workspace_id: Some(ctx.workspace.id),
+                        task_group_id: ctx.task.task_group_id,
                     })
                     .await;
 

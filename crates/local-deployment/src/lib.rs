@@ -10,7 +10,10 @@ use services::services::{
     auth::AuthContext,
     config::{Config, load_config_from_file, save_config_to_file},
     container::ContainerService,
-    domain_events::HookExecutionStore,
+    domain_events::{
+        HookExecutionStore, OrchestrationEventPublisherHandle,
+        build_mqtt_orchestration_event_publisher,
+    },
     embedding::EmbeddingService,
     events::{EventService, EventWorkerHandle},
     file_search_cache::FileSearchCache,
@@ -81,6 +84,24 @@ struct PendingHandoff {
     app_verifier: String,
 }
 
+fn build_orchestration_event_publisher(
+    config: &Config,
+) -> Result<Option<OrchestrationEventPublisherHandle>, DeploymentError> {
+    if !config.orchestration_event_publisher.enabled {
+        return Ok(None);
+    }
+
+    let mqtt = config.orchestration_event_publisher.mqtt().ok_or_else(|| {
+        DeploymentError::Config(services::services::config::ConfigError::ValidationError(
+            "orchestration publisher requires an MQTT configuration".to_string(),
+        ))
+    })?;
+
+    let publisher =
+        build_mqtt_orchestration_event_publisher(mqtt).map_err(DeploymentError::Other)?;
+    Ok(Some(publisher))
+}
+
 impl LocalDeployment {
     /// Creates a new LocalDeployment with a provided server log store.
     pub async fn new_with_log_store(
@@ -114,6 +135,7 @@ impl LocalDeployment {
         // Always save config (may have been migrated or version updated)
         save_config_to_file(&raw_config, &config_path()).await?;
 
+        let orchestration_event_publisher = build_orchestration_event_publisher(&raw_config)?;
         let config = Arc::new(RwLock::new(raw_config));
         let user_id = generate_user_id();
         let analytics = AnalyticsConfig::new().map(AnalyticsService::new);
@@ -229,6 +251,7 @@ impl LocalDeployment {
             share_publisher.clone(),
             skills_cache.clone(),
             hook_execution_store.clone(),
+            orchestration_event_publisher,
         )
         .await;
 

@@ -206,6 +206,8 @@ mod tests {
         let event = DomainEvent::ExecutionCompleted {
             process,
             task_id: uuid::Uuid::new_v4(),
+            workspace_id: None,
+            task_group_id: None,
         };
 
         assert!(handler.handles(&event));

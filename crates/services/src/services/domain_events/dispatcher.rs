@@ -113,6 +113,7 @@ pub struct DispatcherBuilder {
     ctx: Option<HandlerContext>,
     execution_trigger: Option<ExecutionTriggerCallback>,
     hook_execution_store: Option<HookExecutionStore>,
+    orchestration_event_publisher: Option<super::OrchestrationEventPublisherHandle>,
 }
 
 impl DispatcherBuilder {
@@ -123,6 +124,7 @@ impl DispatcherBuilder {
             ctx: None,
             execution_trigger: None,
             hook_execution_store: None,
+            orchestration_event_publisher: None,
         }
     }
 
@@ -156,6 +158,14 @@ impl DispatcherBuilder {
         self
     }
 
+    pub fn with_orchestration_event_publisher(
+        mut self,
+        publisher: super::OrchestrationEventPublisherHandle,
+    ) -> Self {
+        self.orchestration_event_publisher = Some(publisher);
+        self
+    }
+
     /// Builds the dispatcher.
     ///
     /// If `with_execution_trigger` was called, the callback will be set on the
@@ -179,6 +189,10 @@ impl DispatcherBuilder {
         // Apply hook_execution_store if set via with_hook_execution_store
         if let Some(store) = self.hook_execution_store {
             ctx.hook_execution_store = Some(store);
+        }
+
+        if let Some(publisher) = self.orchestration_event_publisher {
+            ctx.orchestration_event_publisher = Some(publisher);
         }
 
         // Sort handlers by name for deterministic ordering

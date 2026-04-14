@@ -18,17 +18,17 @@ pub enum ConfigError {
     ValidationError(String),
 }
 
-pub type Config = versions::v15::Config;
-pub type NotificationConfig = versions::v15::NotificationConfig;
-pub type EditorConfig = versions::v15::EditorConfig;
-pub type ThemeMode = versions::v15::ThemeMode;
-pub type SoundFile = versions::v15::SoundFile;
+pub type Config = versions::v16::Config;
+pub type NotificationConfig = versions::v16::NotificationConfig;
+pub type EditorConfig = versions::v16::EditorConfig;
+pub type ThemeMode = versions::v16::ThemeMode;
+pub type SoundFile = versions::v16::SoundFile;
 pub use versions::v2::EffectiveSound;
-pub type EditorType = versions::v15::EditorType;
-pub type GitHubConfig = versions::v15::GitHubConfig;
-pub type UiLanguage = versions::v15::UiLanguage;
-pub type ShowcaseState = versions::v15::ShowcaseState;
-pub type BackupConfig = versions::v15::BackupConfig;
+pub type EditorType = versions::v16::EditorType;
+pub type GitHubConfig = versions::v16::GitHubConfig;
+pub type UiLanguage = versions::v16::UiLanguage;
+pub type ShowcaseState = versions::v16::ShowcaseState;
+pub type BackupConfig = versions::v16::BackupConfig;
 
 /// Will always return config, trying old schemas or eventually returning default
 pub async fn load_config_from_file(config_path: &PathBuf) -> Config {
@@ -46,6 +46,7 @@ pub async fn save_config_to_file(
     config: &Config,
     config_path: &PathBuf,
 ) -> Result<(), ConfigError> {
+    config.validate()?;
     let raw_config = serde_json::to_string_pretty(config)?;
     tokio::fs::write(config_path, raw_config).await?;
     Ok(())

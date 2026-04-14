@@ -7,7 +7,9 @@ use tokio::sync::RwLock;
 use utils::msg_store::MsgStore;
 use uuid::Uuid;
 
-use super::{DomainEvent, ExecutionTriggerCallback, HookExecutionStore};
+use super::{
+    DomainEvent, ExecutionTriggerCallback, HookExecutionStore, OrchestrationEventPublisherHandle,
+};
 use crate::services::config::Config;
 
 /// Determines how an event handler should be executed.
@@ -44,6 +46,8 @@ pub struct HandlerContext {
     /// Store for tracking hook execution status. Used by the dispatcher
     /// to track spawned handler executions.
     pub hook_execution_store: Option<HookExecutionStore>,
+    /// Optional publisher for emitting compact orchestration events.
+    pub orchestration_event_publisher: Option<OrchestrationEventPublisherHandle>,
     /// The ID of the hook execution tracking this handler invocation.
     /// Set by the dispatcher for spawned handlers to enable linking
     /// triggered execution processes back to the hook execution.
@@ -63,6 +67,7 @@ impl HandlerContext {
             msg_store,
             execution_trigger,
             hook_execution_store: None,
+            orchestration_event_publisher: None,
             hook_execution_id: None,
         }
     }
@@ -70,6 +75,14 @@ impl HandlerContext {
     /// Sets the hook execution store for tracking handler executions.
     pub fn with_hook_execution_store(mut self, store: HookExecutionStore) -> Self {
         self.hook_execution_store = Some(store);
+        self
+    }
+
+    pub fn with_orchestration_event_publisher(
+        mut self,
+        publisher: OrchestrationEventPublisherHandle,
+    ) -> Self {
+        self.orchestration_event_publisher = Some(publisher);
         self
     }
 }

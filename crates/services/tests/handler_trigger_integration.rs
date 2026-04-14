@@ -323,6 +323,8 @@ async fn test_feedback_handler_triggers_callback_on_coding_agent_completion() {
     let event = DomainEvent::ExecutionCompleted {
         process: execution.clone(),
         task_id: task.id,
+        workspace_id: None,
+        task_group_id: None,
     };
     assert!(
         handler.handles(&event),
@@ -385,6 +387,8 @@ async fn test_feedback_handler_ignores_non_coding_agent_executions() {
         let event = DomainEvent::ExecutionCompleted {
             process: execution.clone(),
             task_id: task.id,
+            workspace_id: None,
+            task_group_id: None,
         };
 
         assert!(
@@ -425,6 +429,8 @@ async fn test_feedback_handler_ignores_failed_executions() {
         let event = DomainEvent::ExecutionCompleted {
             process: execution.clone(),
             task_id: task.id,
+            workspace_id: None,
+            task_group_id: None,
         };
 
         assert!(
@@ -480,6 +486,8 @@ async fn test_feedback_handler_skips_if_feedback_exists() {
     let event = DomainEvent::ExecutionCompleted {
         process: execution.clone(),
         task_id: task.id,
+        workspace_id: None,
+        task_group_id: None,
     };
 
     // Handler should succeed but NOT trigger callback (feedback already exists)
@@ -724,6 +732,8 @@ async fn test_dispatcher_feedback_collection_flow() {
         .dispatch(DomainEvent::ExecutionCompleted {
             process: execution.clone(),
             task_id: task.id,
+            workspace_id: None,
+            task_group_id: None,
         })
         .await;
 
@@ -831,6 +841,8 @@ async fn test_dispatcher_both_handlers_no_cross_triggering() {
         .dispatch(DomainEvent::ExecutionCompleted {
             process: execution.clone(),
             task_id: task.id,
+            workspace_id: None,
+            task_group_id: None,
         })
         .await;
 
@@ -943,6 +955,8 @@ async fn test_no_duplicate_feedback_triggers() {
     let event = DomainEvent::ExecutionCompleted {
         process: execution.clone(),
         task_id: task.id,
+        workspace_id: None,
+        task_group_id: None,
     };
 
     dispatcher.dispatch(event).await;
@@ -1074,6 +1088,8 @@ async fn test_handlers_gracefully_handle_no_callback() {
             DomainEvent::ExecutionCompleted {
                 process: execution.clone(),
                 task_id: task.id,
+                workspace_id: None,
+                task_group_id: None,
             },
             &ctx,
         )
@@ -1164,6 +1180,8 @@ async fn test_feedback_handler_links_hook_to_execution() {
             DomainEvent::ExecutionCompleted {
                 process: execution.clone(),
                 task_id: task.id,
+                workspace_id: None,
+                task_group_id: None,
             },
             &ctx,
         )
