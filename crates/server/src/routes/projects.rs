@@ -84,6 +84,20 @@ pub struct ProjectWorktreesResponse {
     pub worktrees: Vec<WorktreeInfo>,
 }
 
+/// A project repository that can be resolved to a GitHub owner/repository pair.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectGitHubRepository {
+    pub project_id: Uuid,
+    pub project_name: String,
+    pub repo_id: Uuid,
+    pub repo_name: String,
+    pub display_name: String,
+    pub path: String,
+    pub github_owner: String,
+    pub github_repo_name: String,
+    pub github_full_name: String,
+}
+
 const DEFAULT_PROJECT_PRS_LIMIT: usize = 25;
 const MAX_PROJECT_PRS_LIMIT: usize = 100;
 
@@ -656,6 +670,46 @@ pub async fn get_project_repositories(
         .get_repositories(&deployment.db().pool, project.id)
         .await?;
     Ok(ResponseJson(ApiResponse::success(repositories)))
+}
+
+pub async fn get_project_github_repositories(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<Vec<ProjectGitHubRepository>>>, ApiError> {
+    let repositories = deployment
+        .project()
+        .get_repositories(&deployment.db().pool, project.id)
+        .await?;
+
+    let git_service = deployment.git();
+    let github_repositories = repositories
+        .into_iter()
+        .filter_map(|repo| match git_service.get_github_repo_info(&repo.path) {
+            Ok(info) => Some(ProjectGitHubRepository {
+                project_id: project.id,
+                project_name: project.name.clone(),
+                repo_id: repo.id,
+                repo_name: repo.name,
+                display_name: repo.display_name,
+                path: repo.path.to_string_lossy().to_string(),
+                github_owner: info.owner.clone(),
+                github_repo_name: info.repo_name.clone(),
+                github_full_name: format!("{}/{}", info.owner, info.repo_name),
+            }),
+            Err(error) => {
+                tracing::warn!(
+                    "Skipping repo {} ({}) in project {}: failed to resolve GitHub identity: {}",
+                    repo.name,
+                    repo.path.display(),
+                    project.id,
+                    error
+                );
+                None
+            }
+        })
+        .collect();
+
+    Ok(ResponseJson(ApiResponse::success(github_repositories)))
 }
 
 pub async fn add_project_repository(
@@ -1294,6 +1348,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             "/repositories",
             get(get_project_repositories).post(add_project_repository),
         )
+        .route("/github-repositories", get(get_project_github_repositories))
         .route("/prs", get(get_project_prs))
         .route("/prs/invalidate", post(invalidate_project_prs_cache))
         .route(
@@ -1334,9 +1389,14 @@ mod tests {
         http::{Request, StatusCode},
     };
     use chrono::TimeZone;
-    use db::models::project::{CreateProject, Project};
+    use db::models::{
+        project::{CreateProject, Project},
+        project_repo::ProjectRepo,
+    };
+    use git2::Repository;
     use local_deployment::LocalDeployment;
     use serde_json::json;
+    use tempfile::TempDir;
     use tower::ServiceExt;
 
     use super::*;
@@ -1418,6 +1478,67 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(delete_response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn project_github_repositories_route_returns_resolved_owner_repo_pairs() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        reset_test_database();
+        let deployment = LocalDeployment::new().await.unwrap();
+        let project = Project::create(
+            &deployment.db().pool,
+            &CreateProject {
+                name: "github-project".to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("github-linked-repo");
+        std::fs::create_dir_all(&repo_path).unwrap();
+
+        let repository = Repository::init(&repo_path).unwrap();
+        repository
+            .remote("origin", "https://github.com/acme/widgets.git")
+            .unwrap();
+
+        ProjectRepo::add_repo_to_project(
+            &deployment.db().pool,
+            project.id,
+            repo_path.to_str().unwrap(),
+            "GitHub Linked Repo",
+        )
+        .await
+        .unwrap();
+
+        let app = super::router(&deployment).with_state(deployment.clone());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/projects/{}/github-repositories", project.id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let api_response: ApiResponse<Vec<ProjectGitHubRepository>> =
+            serde_json::from_slice(&body).unwrap();
+        let repositories = api_response.into_data().unwrap();
+
+        assert_eq!(repositories.len(), 1);
+        assert_eq!(repositories[0].project_id, project.id);
+        assert_eq!(repositories[0].project_name, "github-project");
+        assert_eq!(repositories[0].display_name, "GitHub Linked Repo");
+        assert_eq!(repositories[0].github_owner, "acme");
+        assert_eq!(repositories[0].github_repo_name, "widgets");
+        assert_eq!(repositories[0].github_full_name, "acme/widgets");
     }
 
     fn sample_pr_record(
