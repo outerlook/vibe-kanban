@@ -11,11 +11,13 @@ use db::models::{
 };
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 use uuid::Uuid;
 
 use super::HookPoint;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct DomainEventEntityIds {
     pub task_id: Option<Uuid>,
     pub workspace_id: Option<Uuid>,
@@ -24,14 +26,16 @@ pub struct DomainEventEntityIds {
     pub task_group_id: Option<Uuid>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalEventKind {
     ToolApproval,
     UserQuestion,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalResolution {
     Approved,
@@ -40,14 +44,16 @@ pub enum ApprovalResolution {
     TimedOut,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ConversationMessageEventRole {
     User,
     Assistant,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum MergeQueueTransitionState {
     Queued,
@@ -58,7 +64,8 @@ pub enum MergeQueueTransitionState {
     Skipped,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskLifecycleAction {
     Created,
@@ -66,7 +73,8 @@ pub enum TaskLifecycleAction {
     Deleted,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum FollowUpTransitionState {
     Started,
@@ -74,21 +82,24 @@ pub enum FollowUpTransitionState {
     Cancelled,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum FollowUpQueueKind {
     Concurrency,
     AfterCurrentExecution,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum FollowUpScope {
     TaskSession,
     Conversation,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskGroupTransitionAction {
     Created,

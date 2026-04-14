@@ -1,0 +1,49 @@
+{
+  "name": "n8n-nodes-vibe-kanban",
+  "version": "0.1.0",
+  "description": "First-class n8n integration for Vibe Kanban orchestration",
+  "license": "MIT",
+  "keywords": [
+    "n8n-community-node-package",
+    "n8n",
+    "vibe-kanban"
+  ],
+  "scripts": {
+    "build": "n8n-node build",
+    "dev": "n8n-node dev",
+    "lint": "n8n-node lint",
+    "test": "vitest run",
+    "test:smoke": "vitest run test/smoke.test.ts"
+  },
+  "files": [
+    "dist",
+    "examples"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "strict": true,
+    "credentials": [
+      "dist/credentials/VibeKanbanApi.credentials.js",
+      "dist/credentials/VibeKanbanMqtt.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/VibeKanban/VibeKanbanTrigger.node.js",
+      "dist/nodes/VibeKanban/VibeKanbanRead.node.js",
+      "dist/nodes/VibeKanban/VibeKanbanAction.node.js"
+    ]
+  },
+  "devDependencies": {
+    "@n8n/node-cli": "*",
+    "@types/node": "^24.5.2",
+    "aedes": "^0.51.3",
+    "n8n-workflow": "*",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.7"
+  },
+  "dependencies": {
+    "mqtt": "^5.14.1"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  }
+}

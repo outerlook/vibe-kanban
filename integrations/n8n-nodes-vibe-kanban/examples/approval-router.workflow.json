@@ -1,0 +1,91 @@
+{
+  "name": "VK Approval Router",
+  "nodes": [
+    {
+      "parameters": {
+        "eventTypes": [
+          "approval_requested"
+        ],
+        "schemaVersion": "vk_n8n_orchestration_v1"
+      },
+      "id": "vk-trigger",
+      "name": "VK Trigger",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        260
+      ],
+      "credentials": {
+        "vibeKanbanMqtt": {
+          "name": "Local VK MQTT"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "approval",
+        "approvalId": "={{$json.refs.approvalContext.approvalId}}"
+      },
+      "id": "vk-read-approval",
+      "name": "Read Approval Context",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
+      "typeVersion": 1,
+      "position": [
+        520,
+        260
+      ],
+      "credentials": {
+        "vibeKanbanApi": {
+          "name": "Local VK API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "approval",
+        "operation": "answerApproval",
+        "approvalId": "={{$json.approval.id}}",
+        "executionProcessId": "={{$json.approval.execution_process_id}}",
+        "approvalResponse": "approved"
+      },
+      "id": "vk-answer-approval",
+      "name": "Approve",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
+      "typeVersion": 1,
+      "position": [
+        820,
+        260
+      ],
+      "credentials": {
+        "vibeKanbanApi": {
+          "name": "Local VK API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "VK Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Approval Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Approval Context": {
+      "main": [
+        [
+          {
+            "node": "Approve",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

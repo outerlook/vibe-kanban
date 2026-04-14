@@ -12,7 +12,6 @@ use db::models::{
 };
 use rumqttc::{AsyncClient, EventLoop, MqttOptions, QoS};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use tokio::time::sleep;
 use ts_rs::TS;
@@ -41,7 +40,8 @@ fn run_reason_name(
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum OrchestrationEventType {
     TaskCreated,
@@ -62,7 +62,8 @@ pub enum OrchestrationEventType {
     TaskGroupCompleted,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct OrchestrationEventEnvelope {
     pub event_id: Uuid,
     pub schema_version: String,
@@ -78,11 +79,15 @@ pub struct OrchestrationEventEnvelope {
     pub execution_process_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task_group_id: Option<Uuid>,
-    pub payload: Value,
+    pub payload: OrchestrationEventPayload,
 }
 
 impl OrchestrationEventEnvelope {
-    fn new(event: &DomainEvent, event_type: OrchestrationEventType, payload: Value) -> Self {
+    fn new(
+        event: &DomainEvent,
+        event_type: OrchestrationEventType,
+        payload: OrchestrationEventPayload,
+    ) -> Self {
         let ids = event.entity_ids();
 
         Self {
@@ -98,6 +103,139 @@ impl OrchestrationEventEnvelope {
             payload,
         }
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+pub struct OrchestrationEmptyPayload {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+pub struct TaskLifecycleEventPayload {
+    pub project_id: Uuid,
+    pub status: TaskStatus,
+    pub previous_task_group_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+pub struct TaskStatusChangedEventPayload {
+    pub status: TaskStatus,
+    pub previous_status: TaskStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+pub struct ExecutionStartedEventPayload {
+    pub status: db::models::execution_process::ExecutionProcessStatus,
+    pub run_reason: String,
+    pub conversation_session_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+pub struct ExecutionCompletedEventPayload {
+    pub status: db::models::execution_process::ExecutionProcessStatus,
+    pub run_reason: String,
+    pub exit_code: Option<i64>,
+    pub conversation_session_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+pub struct WorkspaceCreatedEventPayload {
+    pub branch: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+pub struct ProjectUpdatedEventPayload {
+    pub project_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+pub struct ApprovalRequestedEventPayload {
+    pub approval_id: String,
+    pub kind: super::ApprovalEventKind,
+    pub tool_call_id: Option<String>,
+    pub tool_name: Option<String>,
+    pub question_count: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+pub struct ApprovalResolvedEventPayload {
+    pub approval_id: String,
+    pub resolution: super::ApprovalResolution,
+    pub tool_call_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+pub struct ConversationMessageAddedEventPayload {
+    pub conversation_session_id: Uuid,
+    pub message_id: Uuid,
+    pub execution_process_id: Option<Uuid>,
+    pub role: super::ConversationMessageEventRole,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+pub struct FollowUpTransitionEventPayload {
+    pub state: super::FollowUpTransitionState,
+    pub scope: super::FollowUpScope,
+    pub queue_kind: Option<super::FollowUpQueueKind>,
+    pub execution_process_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+pub struct MergeQueueTransitionEventPayload {
+    pub entry_id: Uuid,
+    pub project_id: Uuid,
+    pub repo_id: Uuid,
+    pub state: super::MergeQueueTransitionState,
+    pub merge_commit: Option<String>,
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+pub struct TaskGroupTransitionEventPayload {
+    pub action: super::TaskGroupTransitionAction,
+    pub project_id: Uuid,
+    pub task_group_id: Option<Uuid>,
+    pub previous_task_group_id: Option<Uuid>,
+    pub task_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+pub struct TaskGroupCompletedEventPayload {
+    pub project_id: Uuid,
+    pub completed_task_ids: Vec<Uuid>,
+    pub terminal_task_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(untagged)]
+pub enum OrchestrationEventPayload {
+    TaskLifecycle(TaskLifecycleEventPayload),
+    TaskStatusChanged(TaskStatusChangedEventPayload),
+    ExecutionStarted(ExecutionStartedEventPayload),
+    ExecutionCompleted(ExecutionCompletedEventPayload),
+    WorkspaceCreated(WorkspaceCreatedEventPayload),
+    WorkspaceDeleted(OrchestrationEmptyPayload),
+    ProjectUpdated(ProjectUpdatedEventPayload),
+    ApprovalRequested(ApprovalRequestedEventPayload),
+    ApprovalResolved(ApprovalResolvedEventPayload),
+    ConversationMessageAdded(ConversationMessageAddedEventPayload),
+    FollowUpTransition(FollowUpTransitionEventPayload),
+    MergeQueueTransition(MergeQueueTransitionEventPayload),
+    TaskGroupTransition(TaskGroupTransitionEventPayload),
+    TaskGroupCompleted(TaskGroupCompletedEventPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
@@ -339,10 +477,10 @@ impl OrchestrationEventMapper {
                     TaskLifecycleAction::Updated => OrchestrationEventType::TaskUpdated,
                     TaskLifecycleAction::Deleted => OrchestrationEventType::TaskDeleted,
                 },
-                json!({
-                    "project_id": task.project_id,
-                    "status": task.status,
-                    "previous_task_group_id": previous_task_group_id,
+                OrchestrationEventPayload::TaskLifecycle(TaskLifecycleEventPayload {
+                    project_id: task.project_id,
+                    status: task.status.clone(),
+                    previous_task_group_id: *previous_task_group_id,
                 }),
             ),
             DomainEvent::TaskStatusChanged {
@@ -351,47 +489,47 @@ impl OrchestrationEventMapper {
             } => OrchestrationEventEnvelope::new(
                 event,
                 OrchestrationEventType::TaskStatusChanged,
-                json!({
-                    "status": task.status,
-                    "previous_status": previous_status,
+                OrchestrationEventPayload::TaskStatusChanged(TaskStatusChangedEventPayload {
+                    status: task.status.clone(),
+                    previous_status: previous_status.clone(),
                 }),
             ),
             DomainEvent::ExecutionStarted { process, .. } => OrchestrationEventEnvelope::new(
                 event,
                 OrchestrationEventType::ExecutionStarted,
-                json!({
-                    "status": process.status,
-                    "run_reason": run_reason_name(&process.run_reason),
-                    "conversation_session_id": process.conversation_session_id,
+                OrchestrationEventPayload::ExecutionStarted(ExecutionStartedEventPayload {
+                    status: process.status.clone(),
+                    run_reason: run_reason_name(&process.run_reason).to_string(),
+                    conversation_session_id: process.conversation_session_id,
                 }),
             ),
             DomainEvent::ExecutionCompleted { process, .. } => OrchestrationEventEnvelope::new(
                 event,
                 OrchestrationEventType::ExecutionCompleted,
-                json!({
-                    "status": process.status,
-                    "run_reason": run_reason_name(&process.run_reason),
-                    "exit_code": process.exit_code,
-                    "conversation_session_id": process.conversation_session_id,
+                OrchestrationEventPayload::ExecutionCompleted(ExecutionCompletedEventPayload {
+                    status: process.status.clone(),
+                    run_reason: run_reason_name(&process.run_reason).to_string(),
+                    exit_code: process.exit_code,
+                    conversation_session_id: process.conversation_session_id,
                 }),
             ),
             DomainEvent::WorkspaceCreated { workspace } => OrchestrationEventEnvelope::new(
                 event,
                 OrchestrationEventType::WorkspaceCreated,
-                json!({
-                    "branch": workspace.branch,
+                OrchestrationEventPayload::WorkspaceCreated(WorkspaceCreatedEventPayload {
+                    branch: workspace.branch.clone(),
                 }),
             ),
             DomainEvent::WorkspaceDeleted { .. } => OrchestrationEventEnvelope::new(
                 event,
                 OrchestrationEventType::WorkspaceDeleted,
-                json!({}),
+                OrchestrationEventPayload::WorkspaceDeleted(OrchestrationEmptyPayload::default()),
             ),
             DomainEvent::ProjectUpdated { project } => OrchestrationEventEnvelope::new(
                 event,
                 OrchestrationEventType::ProjectUpdated,
-                json!({
-                    "project_id": project.id,
+                OrchestrationEventPayload::ProjectUpdated(ProjectUpdatedEventPayload {
+                    project_id: project.id,
                 }),
             ),
             DomainEvent::ApprovalRequested {
@@ -404,12 +542,12 @@ impl OrchestrationEventMapper {
             } => OrchestrationEventEnvelope::new(
                 event,
                 OrchestrationEventType::ApprovalRequested,
-                json!({
-                    "approval_id": approval_id,
-                    "kind": kind,
-                    "tool_call_id": tool_call_id,
-                    "tool_name": tool_name,
-                    "question_count": question_count,
+                OrchestrationEventPayload::ApprovalRequested(ApprovalRequestedEventPayload {
+                    approval_id: approval_id.clone(),
+                    kind: *kind,
+                    tool_call_id: Some(tool_call_id.clone()),
+                    tool_name: tool_name.clone(),
+                    question_count: *question_count,
                 }),
             ),
             DomainEvent::ApprovalResolved {
@@ -420,10 +558,10 @@ impl OrchestrationEventMapper {
             } => OrchestrationEventEnvelope::new(
                 event,
                 OrchestrationEventType::ApprovalResolved,
-                json!({
-                    "approval_id": approval_id,
-                    "resolution": resolution,
-                    "tool_call_id": tool_call_id,
+                OrchestrationEventPayload::ApprovalResolved(ApprovalResolvedEventPayload {
+                    approval_id: approval_id.clone(),
+                    resolution: *resolution,
+                    tool_call_id: tool_call_id.clone(),
                 }),
             ),
             DomainEvent::ConversationMessageAdded {
@@ -435,12 +573,14 @@ impl OrchestrationEventMapper {
             } => OrchestrationEventEnvelope::new(
                 event,
                 OrchestrationEventType::ConversationMessageAdded,
-                json!({
-                    "conversation_session_id": conversation_session_id,
-                    "message_id": message_id,
-                    "execution_process_id": execution_process_id,
-                    "role": role,
-                }),
+                OrchestrationEventPayload::ConversationMessageAdded(
+                    ConversationMessageAddedEventPayload {
+                        conversation_session_id: *conversation_session_id,
+                        message_id: *message_id,
+                        execution_process_id: *execution_process_id,
+                        role: *role,
+                    },
+                ),
             ),
             DomainEvent::FollowUpTransition {
                 state,
@@ -451,11 +591,11 @@ impl OrchestrationEventMapper {
             } => OrchestrationEventEnvelope::new(
                 event,
                 OrchestrationEventType::FollowUpTransition,
-                json!({
-                    "state": state,
-                    "scope": scope,
-                    "queue_kind": queue_kind,
-                    "execution_process_id": execution_process_id,
+                OrchestrationEventPayload::FollowUpTransition(FollowUpTransitionEventPayload {
+                    state: *state,
+                    scope: *scope,
+                    queue_kind: *queue_kind,
+                    execution_process_id: *execution_process_id,
                 }),
             ),
             DomainEvent::MergeQueueTransition {
@@ -469,13 +609,13 @@ impl OrchestrationEventMapper {
             } => OrchestrationEventEnvelope::new(
                 event,
                 OrchestrationEventType::MergeQueueTransition,
-                json!({
-                    "entry_id": entry_id,
-                    "project_id": project_id,
-                    "repo_id": repo_id,
-                    "state": state,
-                    "merge_commit": merge_commit,
-                    "detail": detail,
+                OrchestrationEventPayload::MergeQueueTransition(MergeQueueTransitionEventPayload {
+                    entry_id: *entry_id,
+                    project_id: *project_id,
+                    repo_id: *repo_id,
+                    state: *state,
+                    merge_commit: merge_commit.clone(),
+                    detail: detail.clone(),
                 }),
             ),
             DomainEvent::TaskGroupTransition {
@@ -488,12 +628,12 @@ impl OrchestrationEventMapper {
             } => OrchestrationEventEnvelope::new(
                 event,
                 OrchestrationEventType::TaskGroupTransition,
-                json!({
-                    "action": action,
-                    "project_id": project_id,
-                    "task_group_id": task_group_id,
-                    "previous_task_group_id": previous_task_group_id,
-                    "task_ids": task_ids,
+                OrchestrationEventPayload::TaskGroupTransition(TaskGroupTransitionEventPayload {
+                    action: *action,
+                    project_id: *project_id,
+                    task_group_id: *task_group_id,
+                    previous_task_group_id: *previous_task_group_id,
+                    task_ids: task_ids.clone(),
                 }),
             ),
             DomainEvent::TaskGroupCompleted {
@@ -504,10 +644,10 @@ impl OrchestrationEventMapper {
             } => OrchestrationEventEnvelope::new(
                 event,
                 OrchestrationEventType::TaskGroupCompleted,
-                json!({
-                    "project_id": project_id,
-                    "completed_task_ids": completed_task_ids,
-                    "terminal_task_count": terminal_task_count,
+                OrchestrationEventPayload::TaskGroupCompleted(TaskGroupCompletedEventPayload {
+                    project_id: *project_id,
+                    completed_task_ids: completed_task_ids.clone(),
+                    terminal_task_count: *terminal_task_count,
                 }),
             ),
         }
@@ -977,7 +1117,10 @@ mod tests {
             session_id: None,
             execution_process_id: None,
             task_group_id: None,
-            payload: json!({"status": "done"}),
+            payload: OrchestrationEventPayload::TaskStatusChanged(TaskStatusChangedEventPayload {
+                status: TaskStatus::Done,
+                previous_status: TaskStatus::InProgress,
+            }),
         };
 
         // The publish call proves the concrete MQTT transport is bound into the seam.

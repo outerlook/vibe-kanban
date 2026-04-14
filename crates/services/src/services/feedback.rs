@@ -12,6 +12,7 @@ use executors::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use ts_rs::TS;
 
 /// Errors that can occur during feedback operations.
 #[derive(Debug, Error)]
@@ -23,7 +24,8 @@ pub enum FeedbackError {
 
 pub type Result<T> = std::result::Result<T, FeedbackError>;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct FeedbackHydrationSummary {
     pub id: String,
     pub execution_process_id: String,

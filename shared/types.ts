@@ -126,6 +126,128 @@ export type ConversationWithMessages = { messages: Array<ConversationMessage>, i
 
 export type SendMessageResponse = { user_message: ConversationMessage, execution_process_id: string, };
 
+export type FeedbackHydrationSummary = { id: string, execution_process_id: string, task_id: string, workspace_id: string, collected_at: string, task_clarity: string | null, missing_tools: string | null, integration_problems: string | null, improvement_suggestions: string | null, agent_documentation: string | null, };
+
+export type ReviewAttentionHydrationSummary = { id: string, execution_process_id: string, task_id: string, workspace_id: string, needs_attention: boolean, reasoning: string | null, analyzed_at: string, };
+
+export type OrchestrationTaskContextDto = { task: TaskSnapshotDto, images: Array<ImageSnapshotDto>, latest_workspace: WorkspaceSnapshotDto | null, latest_session: SessionSnapshotDto | null, latest_coding_execution: ExecutionSnapshotDto | null, current_execution_visibility: ExecutionVisibilityDto | null, pending_tool_approvals: Array<ToolApprovalSnapshotDto>, pending_questions: Array<UserQuestionSnapshotDto>, dependency_context: TaskDependencyContextDto, latest_review_attention: ReviewAttentionHydrationSummary | null, latest_feedback: FeedbackHydrationSummary | null, queue_state: TaskQueueStateDto, };
+
+export type OrchestrationTaskGroupContextDto = { task_group: TaskGroupSnapshotDto, stats: TaskGroupStatsDto, tasks: Array<TaskListItemDto>, dependency_context: TaskGroupDependencyContextDto, queue_state: TaskGroupQueueStateDto, };
+
+export type OrchestrationConversationContextDto = { conversation: ConversationSnapshotDto, transcript: ConversationTranscriptDto, executions: Array<ExecutionSnapshotDto>, current_execution_visibility: ExecutionVisibilityDto, latest_agent_session_id: string | null, };
+
+export type OrchestrationExecutionContextDto = { execution: ExecutionSnapshotDto, scope: ExecutionScopeDto, repo_states: Array<ExecutionRepoStateSnapshotDto>, current_execution_visibility: ExecutionVisibilityDto, pending_tool_approvals: Array<ToolApprovalSnapshotDto>, pending_questions: Array<UserQuestionSnapshotDto>, review_attention: ReviewAttentionHydrationSummary | null, feedback: FeedbackHydrationSummary | null, };
+
+export type OrchestrationApprovalContextDto = { approval: ApprovalContextSnapshotDto, execution: ExecutionSnapshotDto | null, task: TaskSnapshotDto | null, workspace: WorkspaceSnapshotDto | null, session: SessionSnapshotDto | null, current_execution_visibility: ExecutionVisibilityDto | null, };
+
+export type ApprovalContextSnapshotDto = { id: string, kind: string, status: string, execution_process_id: string, tool_call_id: string | null, tool_name: string | null, tool_input: JsonValue | null, questions: Array<QuestionSnapshotDto>, answers: Array<QuestionAnswerSnapshotDto>, created_at: string | null, timeout_at: string | null, answered_at: string | null, };
+
+export type TaskSnapshotDto = { id: string, project_id: string, title: string, description: string | null, status: string, parent_workspace_id: string | null, shared_task_id: string | null, task_group_id: string | null, is_blocked: boolean, has_in_progress_attempt: boolean, last_attempt_failed: boolean, is_queued: boolean, last_executor: string, needs_attention: boolean | null, created_at: string, updated_at: string, };
+
+export type TaskListItemDto = { id: string, title: string, status: string, task_group_id: string | null, is_blocked: boolean, has_in_progress_attempt: boolean, is_queued: boolean, needs_attention: boolean | null, };
+
+export type ImageSnapshotDto = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, created_at: string, };
+
+export type WorkspaceSnapshotDto = { id: string, task_id: string, branch: string, agent_working_dir: string | null, setup_completed_at: string | null, created_at: string, updated_at: string, };
+
+export type SessionSnapshotDto = { id: string, workspace_id: string, executor: string | null, created_at: string, updated_at: string, };
+
+export type ExecutionSnapshotDto = { id: string, session_id: string | null, conversation_session_id: string | null, run_reason: string, status: string, action_type: string, executor_profile: string | null, exit_code: bigint | null, dropped: boolean, input_tokens: bigint | null, output_tokens: bigint | null, started_at: string, completed_at: string | null, created_at: string, updated_at: string, };
+
+export type ExecutionVisibilityDto = { latest_execution_id: string | null, latest_visible_execution_id: string | null, running_execution_ids: Array<string>, hidden_execution_ids: Array<string>, };
+
+export type ToolApprovalSnapshotDto = { id: string, execution_process_id: string, tool_call_id: string, tool_name: string, tool_input: JsonValue, created_at: string, timeout_at: string | null, };
+
+export type UserQuestionSnapshotDto = { id: string, execution_process_id: string, status: string, created_at: string, answered_at: string | null, questions: Array<QuestionSnapshotDto>, answers: Array<QuestionAnswerSnapshotDto>, };
+
+export type QuestionSnapshotDto = { header: string | null, question: string, multi_select: boolean, options: Array<QuestionOptionSnapshotDto>, };
+
+export type QuestionOptionSnapshotDto = { label: string, description: string | null, };
+
+export type QuestionAnswerSnapshotDto = { question_index: number, selected_indices: Array<number>, other_text: string | null, };
+
+export type TaskDependencyContextDto = { blocked_by: Array<TaskListItemDto>, blocking: Array<TaskListItemDto>, ready_dependents: Array<TaskListItemDto>, };
+
+export type TaskQueueStateDto = { execution_queue: ExecutionQueueSnapshotDto | null, merge_queue: MergeQueueEntrySnapshotDto | null, };
+
+export type ExecutionQueueSnapshotDto = { id: string, workspace_id: string, executor_profile: string, queued_at: string, session_id: string | null, is_follow_up: boolean, };
+
+export type MergeQueueEntrySnapshotDto = { id: string, project_id: string, workspace_id: string, repo_id: string, status: string, commit_message: string, queued_at: string, };
+
+export type TaskGroupSnapshotDto = { id: string, project_id: string, name: string, description: string | null, base_branch: string | null, created_at: string, updated_at: string, };
+
+export type TaskGroupStatsDto = { todo: bigint, in_progress: bigint, in_review: bigint, done: bigint, cancelled: bigint, };
+
+export type TaskGroupDependencyContextDto = { blocked_tasks: Array<TaskListItemDto>, ready_tasks: Array<TaskListItemDto>, };
+
+export type TaskGroupQueueStateDto = { queued_tasks: Array<TaskListItemDto>, merge_queue_entries: Array<MergeQueueEntrySnapshotDto>, };
+
+export type ConversationSnapshotDto = { id: string, project_id: string, title: string, status: string, executor: string | null, worktree_path: string | null, worktree_branch: string | null, created_at: string, updated_at: string, };
+
+export type ConversationTranscriptDto = { messages: Array<ConversationMessageSnapshotDto>, images: Array<ImageSnapshotDto>, };
+
+export type ConversationMessageSnapshotDto = { id: string, execution_process_id: string | null, role: string, content: string, metadata: JsonValue | null, created_at: string, };
+
+export type ExecutionScopeDto = { task: TaskSnapshotDto | null, workspace: WorkspaceSnapshotDto | null, session: SessionSnapshotDto | null, conversation: ConversationSnapshotDto | null, };
+
+export type ExecutionRepoStateSnapshotDto = { id: string, execution_process_id: string, repo_id: string, before_head_commit: string | null, after_head_commit: string | null, merge_commit: string | null, created_at: string, updated_at: string, };
+
+export type OrchestrationEventType = "task_created" | "task_updated" | "task_deleted" | "task_status_changed" | "execution_started" | "execution_completed" | "workspace_created" | "workspace_deleted" | "project_updated" | "approval_requested" | "approval_resolved" | "conversation_message_added" | "follow_up_transition" | "merge_queue_transition" | "task_group_transition" | "task_group_completed";
+
+export type OrchestrationEventEnvelope = { event_id: string, schema_version: string, occurred_at: string, event_type: OrchestrationEventType, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, payload: OrchestrationEventPayload, };
+
+export type OrchestrationEventPayload = TaskLifecycleEventPayload | TaskStatusChangedEventPayload | ExecutionStartedEventPayload | ExecutionCompletedEventPayload | WorkspaceCreatedEventPayload | OrchestrationEmptyPayload | ProjectUpdatedEventPayload | ApprovalRequestedEventPayload | ApprovalResolvedEventPayload | ConversationMessageAddedEventPayload | FollowUpTransitionEventPayload | MergeQueueTransitionEventPayload | TaskGroupTransitionEventPayload | TaskGroupCompletedEventPayload;
+
+export type MqttOrchestrationPublisherConfig = { broker_url: string, topic_namespace: string, client_id?: string, qos: number, retain: boolean, };
+
+export type OrchestrationEventPublisherConfig = { enabled: boolean, mqtt?: MqttOrchestrationPublisherConfig, };
+
+export type OrchestrationEmptyPayload = Record<string, never>;
+
+export type TaskLifecycleEventPayload = { project_id: string, status: TaskStatus, previous_task_group_id: string | null, };
+
+export type TaskStatusChangedEventPayload = { status: TaskStatus, previous_status: TaskStatus, };
+
+export type ExecutionStartedEventPayload = { status: ExecutionProcessStatus, run_reason: string, conversation_session_id: string | null, };
+
+export type ExecutionCompletedEventPayload = { status: ExecutionProcessStatus, run_reason: string, exit_code: bigint | null, conversation_session_id: string | null, };
+
+export type WorkspaceCreatedEventPayload = { branch: string, };
+
+export type ProjectUpdatedEventPayload = { project_id: string, };
+
+export type ApprovalRequestedEventPayload = { approval_id: string, kind: ApprovalEventKind, tool_call_id: string | null, tool_name: string | null, question_count: number | null, };
+
+export type ApprovalResolvedEventPayload = { approval_id: string, resolution: ApprovalResolution, tool_call_id: string | null, };
+
+export type ConversationMessageAddedEventPayload = { conversation_session_id: string, message_id: string, execution_process_id: string | null, role: ConversationMessageEventRole, };
+
+export type FollowUpTransitionEventPayload = { state: FollowUpTransitionState, scope: FollowUpScope, queue_kind: FollowUpQueueKind | null, execution_process_id: string | null, };
+
+export type MergeQueueTransitionEventPayload = { entry_id: string, project_id: string, repo_id: string, state: MergeQueueTransitionState, merge_commit: string | null, detail: string | null, };
+
+export type TaskGroupTransitionEventPayload = { action: TaskGroupTransitionAction, project_id: string, task_group_id: string | null, previous_task_group_id: string | null, task_ids: Array<string>, };
+
+export type TaskGroupCompletedEventPayload = { project_id: string, completed_task_ids: Array<string>, terminal_task_count: number, };
+
+export type ApprovalEventKind = "tool_approval" | "user_question";
+
+export type ApprovalResolution = "approved" | "denied" | "answered" | "timed_out";
+
+export type ConversationMessageEventRole = "user" | "assistant";
+
+export type FollowUpTransitionState = "started" | "queued" | "cancelled";
+
+export type FollowUpQueueKind = "concurrency" | "after_current_execution";
+
+export type FollowUpScope = "task_session" | "conversation";
+
+export type MergeQueueTransitionState = "queued" | "claimed" | "completed" | "conflict" | "removed" | "skipped";
+
+export type TaskLifecycleAction = "created" | "updated" | "deleted";
+
+export type TaskGroupTransitionAction = "created" | "updated" | "deleted" | "merged" | "assignment_changed";
+
 export type CreateConversationRequest = { title: string, initial_message: string, executor_profile_id: ExecutorProfileId | null, worktree_path: string | null, worktree_branch: string | null, };
 
 export type CreateConversationResponse = { session: ConversationSession, initial_message: ConversationMessage, execution_process_id: string, };

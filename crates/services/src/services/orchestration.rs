@@ -19,6 +19,7 @@ use executors::actions::{ExecutorAction, ExecutorActionType};
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::SqlitePool;
+use ts_rs::TS;
 use uuid::Uuid;
 
 use super::{
@@ -29,7 +30,8 @@ use super::{
     review_attention::{ReviewAttentionHydrationSummary, ReviewAttentionService},
 };
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct OrchestrationTaskContextDto {
     pub task: TaskSnapshotDto,
     pub images: Vec<ImageSnapshotDto>,
@@ -45,7 +47,8 @@ pub struct OrchestrationTaskContextDto {
     pub queue_state: TaskQueueStateDto,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct OrchestrationTaskGroupContextDto {
     pub task_group: TaskGroupSnapshotDto,
     pub stats: TaskGroupStatsDto,
@@ -54,7 +57,8 @@ pub struct OrchestrationTaskGroupContextDto {
     pub queue_state: TaskGroupQueueStateDto,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct OrchestrationConversationContextDto {
     pub conversation: ConversationSnapshotDto,
     pub transcript: ConversationTranscriptDto,
@@ -63,7 +67,8 @@ pub struct OrchestrationConversationContextDto {
     pub latest_agent_session_id: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct OrchestrationExecutionContextDto {
     pub execution: ExecutionSnapshotDto,
     pub scope: ExecutionScopeDto,
@@ -75,7 +80,8 @@ pub struct OrchestrationExecutionContextDto {
     pub feedback: Option<FeedbackHydrationSummary>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct OrchestrationApprovalContextDto {
     pub approval: ApprovalContextSnapshotDto,
     pub execution: Option<ExecutionSnapshotDto>,
@@ -85,7 +91,8 @@ pub struct OrchestrationApprovalContextDto {
     pub current_execution_visibility: Option<ExecutionVisibilityDto>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct ApprovalContextSnapshotDto {
     pub id: String,
     pub kind: String,
@@ -101,7 +108,8 @@ pub struct ApprovalContextSnapshotDto {
     pub answered_at: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct TaskSnapshotDto {
     pub id: String,
     pub project_id: String,
@@ -121,7 +129,8 @@ pub struct TaskSnapshotDto {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct TaskListItemDto {
     pub id: String,
     pub title: String,
@@ -133,7 +142,8 @@ pub struct TaskListItemDto {
     pub needs_attention: Option<bool>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct ImageSnapshotDto {
     pub id: String,
     pub file_path: String,
@@ -143,7 +153,8 @@ pub struct ImageSnapshotDto {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct WorkspaceSnapshotDto {
     pub id: String,
     pub task_id: String,
@@ -154,7 +165,8 @@ pub struct WorkspaceSnapshotDto {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct SessionSnapshotDto {
     pub id: String,
     pub workspace_id: String,
@@ -163,7 +175,8 @@ pub struct SessionSnapshotDto {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct ExecutionSnapshotDto {
     pub id: String,
     pub session_id: Option<String>,
@@ -182,7 +195,8 @@ pub struct ExecutionSnapshotDto {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct ExecutionVisibilityDto {
     pub latest_execution_id: Option<String>,
     pub latest_visible_execution_id: Option<String>,
@@ -190,7 +204,8 @@ pub struct ExecutionVisibilityDto {
     pub hidden_execution_ids: Vec<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct ToolApprovalSnapshotDto {
     pub id: String,
     pub execution_process_id: String,
@@ -201,7 +216,8 @@ pub struct ToolApprovalSnapshotDto {
     pub timeout_at: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct UserQuestionSnapshotDto {
     pub id: String,
     pub execution_process_id: String,
@@ -212,7 +228,8 @@ pub struct UserQuestionSnapshotDto {
     pub answers: Vec<QuestionAnswerSnapshotDto>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct QuestionSnapshotDto {
     pub header: Option<String>,
     pub question: String,
@@ -220,33 +237,38 @@ pub struct QuestionSnapshotDto {
     pub options: Vec<QuestionOptionSnapshotDto>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct QuestionOptionSnapshotDto {
     pub label: String,
     pub description: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct QuestionAnswerSnapshotDto {
     pub question_index: usize,
     pub selected_indices: Vec<usize>,
     pub other_text: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct TaskDependencyContextDto {
     pub blocked_by: Vec<TaskListItemDto>,
     pub blocking: Vec<TaskListItemDto>,
     pub ready_dependents: Vec<TaskListItemDto>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct TaskQueueStateDto {
     pub execution_queue: Option<ExecutionQueueSnapshotDto>,
     pub merge_queue: Option<MergeQueueEntrySnapshotDto>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct ExecutionQueueSnapshotDto {
     pub id: String,
     pub workspace_id: String,
@@ -256,7 +278,8 @@ pub struct ExecutionQueueSnapshotDto {
     pub is_follow_up: bool,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct MergeQueueEntrySnapshotDto {
     pub id: String,
     pub project_id: String,
@@ -267,7 +290,8 @@ pub struct MergeQueueEntrySnapshotDto {
     pub queued_at: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct TaskGroupSnapshotDto {
     pub id: String,
     pub project_id: String,
@@ -278,7 +302,8 @@ pub struct TaskGroupSnapshotDto {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct TaskGroupStatsDto {
     pub todo: i64,
     pub in_progress: i64,
@@ -287,19 +312,22 @@ pub struct TaskGroupStatsDto {
     pub cancelled: i64,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct TaskGroupDependencyContextDto {
     pub blocked_tasks: Vec<TaskListItemDto>,
     pub ready_tasks: Vec<TaskListItemDto>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct TaskGroupQueueStateDto {
     pub queued_tasks: Vec<TaskListItemDto>,
     pub merge_queue_entries: Vec<MergeQueueEntrySnapshotDto>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct ConversationSnapshotDto {
     pub id: String,
     pub project_id: String,
@@ -312,13 +340,15 @@ pub struct ConversationSnapshotDto {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct ConversationTranscriptDto {
     pub messages: Vec<ConversationMessageSnapshotDto>,
     pub images: Vec<ImageSnapshotDto>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct ConversationMessageSnapshotDto {
     pub id: String,
     pub execution_process_id: Option<String>,
@@ -328,7 +358,8 @@ pub struct ConversationMessageSnapshotDto {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct ExecutionScopeDto {
     pub task: Option<TaskSnapshotDto>,
     pub workspace: Option<WorkspaceSnapshotDto>,
@@ -336,7 +367,8 @@ pub struct ExecutionScopeDto {
     pub conversation: Option<ConversationSnapshotDto>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export)]
 pub struct ExecutionRepoStateSnapshotDto {
     pub id: String,
     pub execution_process_id: String,

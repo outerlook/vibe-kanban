@@ -22,12 +22,19 @@ pub use handlers::{
 pub use hook_execution::{HookExecution, HookExecutionStatus, HookExecutionStore};
 pub use hook_points::HookPoint;
 pub use orchestration::{
-    DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION, MqttOrchestrationEventPublisher,
-    MqttOrchestrationPublisherConfig, OrchestrationEventEnvelope, OrchestrationEventMapper,
-    OrchestrationEventPublisher, OrchestrationEventPublisherConfig,
-    OrchestrationEventPublisherHandle, OrchestrationEventType,
-    RecordingOrchestrationEventPublisher, build_mqtt_orchestration_event_publisher,
-    default_topic_namespace,
+    ApprovalRequestedEventPayload, ApprovalResolvedEventPayload,
+    ConversationMessageAddedEventPayload, DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION,
+    ExecutionCompletedEventPayload, ExecutionStartedEventPayload,
+    FollowUpTransitionEventPayload, MergeQueueTransitionEventPayload,
+    MqttOrchestrationEventPublisher, MqttOrchestrationPublisherConfig,
+    OrchestrationEmptyPayload, OrchestrationEventEnvelope, OrchestrationEventMapper,
+    OrchestrationEventPayload, OrchestrationEventPublisher,
+    OrchestrationEventPublisherConfig, OrchestrationEventPublisherHandle,
+    OrchestrationEventType, ProjectUpdatedEventPayload,
+    RecordingOrchestrationEventPublisher, TaskGroupCompletedEventPayload,
+    TaskGroupTransitionEventPayload, TaskLifecycleEventPayload,
+    TaskStatusChangedEventPayload, WorkspaceCreatedEventPayload,
+    build_mqtt_orchestration_event_publisher, default_topic_namespace,
 };
 pub use types::{
     ApprovalEventKind, ApprovalResolution, ConversationMessageEventRole, DomainEvent,

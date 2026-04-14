@@ -12,6 +12,7 @@ use executors::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use ts_rs::TS;
 
 /// Default prompt template for review attention analysis.
 /// Uses `{task_description}` and `{agent_summary}` as placeholders.
@@ -83,7 +84,8 @@ pub struct ReviewAttentionResult {
     pub reasoning: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ReviewAttentionHydrationSummary {
     pub id: String,
     pub execution_process_id: String,
