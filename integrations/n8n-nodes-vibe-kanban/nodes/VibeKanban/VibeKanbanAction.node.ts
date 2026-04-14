@@ -11,6 +11,7 @@ import {
   cancelGenerateAndMerge,
   cancelConversationFollowUp,
   cancelTaskFollowUp,
+  createConversation,
   createFeedback,
   createReviewAttention,
   queueGenerateAndMerge,
@@ -26,6 +27,7 @@ import type {
   VkActionResource,
   VkApiCredentialValue,
   VkApprovalResponse,
+  VkCreateConversationRequest,
   VkExecutorProfileId,
   VkQuestionAnswer,
 } from './shared/vk-contracts';
@@ -123,9 +125,10 @@ export class VibeKanbanAction implements INodeType {
         displayName: 'Operation',
         name: 'operation',
         type: 'options',
-        default: 'sendMessage',
+        default: 'createConversation',
         displayOptions: { show: { resource: ['conversation'] } },
         options: [
+          { name: 'Create Conversation', value: 'createConversation' },
           { name: 'Send Message', value: 'sendMessage' },
           { name: 'Queue Follow Up', value: 'queueFollowUp' },
           { name: 'Cancel Queued Follow Up', value: 'cancelQueuedFollowUp' },
@@ -188,6 +191,19 @@ export class VibeKanbanAction implements INodeType {
         },
       },
       {
+        displayName: 'Project ID',
+        name: 'projectId',
+        type: 'string',
+        default: '',
+        required: true,
+        displayOptions: {
+          show: {
+            resource: ['conversation'],
+            operation: ['createConversation'],
+          },
+        },
+      },
+      {
         displayName: 'Executor Profile JSON',
         name: 'executorProfileJson',
         type: 'string',
@@ -196,8 +212,8 @@ export class VibeKanbanAction implements INodeType {
         required: true,
         displayOptions: {
           show: {
-            resource: ['task'],
-            operation: ['startWorkspaceExecution'],
+            resource: ['task', 'conversation'],
+            operation: ['startWorkspaceExecution', 'createConversation'],
           },
         },
       },
@@ -259,7 +275,65 @@ export class VibeKanbanAction implements INodeType {
         type: 'string',
         default: '',
         required: true,
-        displayOptions: { show: { resource: ['conversation'] } },
+        displayOptions: {
+          show: {
+            resource: ['conversation'],
+            operation: ['sendMessage', 'queueFollowUp', 'cancelQueuedFollowUp'],
+          },
+        },
+      },
+      {
+        displayName: 'Title',
+        name: 'title',
+        type: 'string',
+        default: '',
+        required: true,
+        displayOptions: {
+          show: {
+            resource: ['conversation'],
+            operation: ['createConversation'],
+          },
+        },
+      },
+      {
+        displayName: 'Initial Message',
+        name: 'initialMessage',
+        type: 'string',
+        typeOptions: { rows: 4 },
+        default: '',
+        required: true,
+        displayOptions: {
+          show: {
+            resource: ['conversation'],
+            operation: ['createConversation'],
+          },
+        },
+      },
+      {
+        displayName: 'Worktree Path',
+        name: 'worktreePath',
+        type: 'string',
+        default: '',
+        required: false,
+        displayOptions: {
+          show: {
+            resource: ['conversation'],
+            operation: ['createConversation'],
+          },
+        },
+      },
+      {
+        displayName: 'Worktree Branch',
+        name: 'worktreeBranch',
+        type: 'string',
+        default: '',
+        required: false,
+        displayOptions: {
+          show: {
+            resource: ['conversation'],
+            operation: ['createConversation'],
+          },
+        },
       },
       {
         displayName: 'Approval ID',
@@ -588,47 +662,98 @@ export class VibeKanbanAction implements INodeType {
             break;
           }
           case 'conversation': {
-            const conversationId = this.getNodeParameter(
-              'conversationId',
-              itemIndex,
-            ) as string;
-            if (operation === 'sendMessage') {
-              const content = this.getNodeParameter('content', itemIndex) as string;
-              const variant = this.getNodeParameter('variant', itemIndex, '') as string;
-              const data = await sendConversationMessage(credentials, conversationId, {
-                content,
-                variant: variant || undefined,
-              });
+            if (operation === 'createConversation') {
+              const projectId = this.getNodeParameter('projectId', itemIndex) as string;
+              const title = this.getNodeParameter('title', itemIndex) as string;
+              const initialMessage = this.getNodeParameter(
+                'initialMessage',
+                itemIndex,
+              ) as string;
+              const executorProfileJson = this.getNodeParameter(
+                'executorProfileJson',
+                itemIndex,
+                '',
+              ) as string;
+              const worktreePath = this.getNodeParameter(
+                'worktreePath',
+                itemIndex,
+                '',
+              ) as string;
+              const worktreeBranch = this.getNodeParameter(
+                'worktreeBranch',
+                itemIndex,
+                '',
+              ) as string;
+              const body: VkCreateConversationRequest = {
+                title,
+                initial_message: initialMessage,
+                executor_profile_id: executorProfileJson.trim()
+                  ? parseJsonValue<VkExecutorProfileId>(
+                      executorProfileJson,
+                      'Executor Profile JSON',
+                    )
+                  : null,
+                worktree_path: worktreePath || null,
+                worktree_branch: worktreeBranch || null,
+              };
+              const data = await createConversation(credentials, projectId, body);
               output = normalizeActionOutput({
                 resource,
                 operation,
-                identifiers: { conversationId },
-                data,
-              });
-            } else if (operation === 'queueFollowUp') {
-              const message = this.getNodeParameter('message', itemIndex) as string;
-              const variant = this.getNodeParameter('variant', itemIndex, '') as string;
-              const data = await queueConversationFollowUp(credentials, conversationId, {
-                message,
-                variant: variant || undefined,
-              });
-              output = normalizeActionOutput({
-                resource,
-                operation,
-                identifiers: { conversationId },
+                identifiers: { projectId },
                 data,
               });
             } else {
-              const data = await cancelConversationFollowUp(
-                credentials,
-                conversationId,
-              );
-              output = normalizeActionOutput({
-                resource,
-                operation,
-                identifiers: { conversationId },
-                data,
-              });
+              const conversationId = this.getNodeParameter(
+                'conversationId',
+                itemIndex,
+              ) as string;
+              if (operation === 'sendMessage') {
+                const content = this.getNodeParameter('content', itemIndex) as string;
+                const variant = this.getNodeParameter(
+                  'variant',
+                  itemIndex,
+                  '',
+                ) as string;
+                const data = await sendConversationMessage(
+                  credentials,
+                  conversationId,
+                  {
+                    content,
+                    variant: variant || undefined,
+                  },
+                );
+                output = normalizeActionOutput({
+                  resource,
+                  operation,
+                  identifiers: { conversationId },
+                  data,
+                });
+              } else if (operation === 'queueFollowUp') {
+                const message = this.getNodeParameter('message', itemIndex) as string;
+                const variant = this.getNodeParameter('variant', itemIndex, '') as string;
+                const data = await queueConversationFollowUp(credentials, conversationId, {
+                  message,
+                  variant: variant || undefined,
+                });
+                output = normalizeActionOutput({
+                  resource,
+                  operation,
+                  identifiers: { conversationId },
+                  data,
+                });
+              } else {
+                const data = await cancelConversationFollowUp(
+                  credentials,
+                  conversationId,
+                );
+                output = normalizeActionOutput({
+                  resource,
+                  operation,
+                  identifiers: { conversationId },
+                  data,
+                });
+              }
             }
             break;
           }

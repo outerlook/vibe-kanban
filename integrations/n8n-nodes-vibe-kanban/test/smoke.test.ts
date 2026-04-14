@@ -6,7 +6,11 @@ import aedes from 'aedes';
 import { connect } from 'mqtt';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { answerApproval, getApprovalContext } from '../nodes/VibeKanban/shared/api';
+import {
+  answerApproval,
+  createConversation,
+  getApprovalContext,
+} from '../nodes/VibeKanban/shared/api';
 import {
   VK_ORCHESTRATION_SCHEMA_VERSION,
   type VkEventType,
@@ -41,6 +45,7 @@ describe('VK n8n smoke harness', () => {
   let mqttPort = 0;
   let httpPort = 0;
   let receivedApprovalBody: unknown = null;
+  let receivedCreateConversationBody: unknown = null;
 
   const approvalContext = {
     approval: {
@@ -72,6 +77,37 @@ describe('VK n8n smoke harness', () => {
 
     httpServer = createServer(
       async (request: IncomingMessage, response: ServerResponse) => {
+        if (
+          request.method === 'POST' &&
+          request.url === '/api/projects/project-1/conversations'
+        ) {
+          const chunks: Buffer[] = [];
+          for await (const chunk of request) {
+            chunks.push(Buffer.from(chunk));
+          }
+          receivedCreateConversationBody = JSON.parse(Buffer.concat(chunks).toString());
+          response.setHeader('content-type', 'application/json');
+          response.end(
+            JSON.stringify({
+              success: true,
+              data: {
+                session: {
+                  id: 'conversation-1',
+                  project_id: 'project-1',
+                  title: 'Investigate webhook failure',
+                },
+                initial_message: {
+                  id: 'message-1',
+                  role: 'user',
+                  content: 'Investigate the webhook failure.',
+                },
+                execution_process_id: 'exec-2',
+              },
+            }),
+          );
+          return;
+        }
+
         if (
           request.method === 'GET' &&
           request.url === '/api/approvals/approval-1/orchestration-context'
@@ -189,5 +225,31 @@ describe('VK n8n smoke harness', () => {
 
     publisher.end(true);
     await closeVkMqttClient(subscriber);
+  });
+
+  it('creates conversations through the VK control plane', async () => {
+    const response = await createConversation(apiCredentials, 'project-1', {
+      title: 'Investigate webhook failure',
+      initial_message: 'Investigate the webhook failure.',
+      executor_profile_id: {
+        executor: 'CODEX',
+        variant: 'HIGH',
+      },
+      worktree_path: 'services/webhooks',
+      worktree_branch: 'feature/webhook-debug',
+    });
+
+    expect(response.execution_process_id).toBe('exec-2');
+    expect(response.session.id).toBe('conversation-1');
+    expect(receivedCreateConversationBody).toEqual({
+      title: 'Investigate webhook failure',
+      initial_message: 'Investigate the webhook failure.',
+      executor_profile_id: {
+        executor: 'CODEX',
+        variant: 'HIGH',
+      },
+      worktree_path: 'services/webhooks',
+      worktree_branch: 'feature/webhook-debug',
+    });
   });
 });

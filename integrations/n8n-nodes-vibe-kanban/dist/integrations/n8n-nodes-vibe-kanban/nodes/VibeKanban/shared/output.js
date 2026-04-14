@@ -38,6 +38,16 @@ function normalizeActionOutput(args) {
             queue: args.data,
         };
     }
+    if (args.operation === 'createConversation' && args.data) {
+        const conversationCreation = args.data;
+        return {
+            ...base,
+            conversationCreation,
+            conversation: conversationCreation.session,
+            initialMessage: conversationCreation.initial_message,
+            executionProcessId: conversationCreation.execution_process_id,
+        };
+    }
     if (args.operation === 'sendMessage' && args.data) {
         const message = args.data;
         return {

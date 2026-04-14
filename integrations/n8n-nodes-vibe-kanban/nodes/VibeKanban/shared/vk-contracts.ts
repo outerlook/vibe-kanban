@@ -1,6 +1,8 @@
 import type {
   ApprovalResponse,
   ApprovalStatus,
+  CreateConversationRequest,
+  CreateConversationResponse,
   CreateAgentFeedback,
   CreateReviewAttention,
   ExecutorProfileId,
@@ -35,6 +37,8 @@ export type VkApprovalResponse = ApprovalResponse;
 export type VkApprovalStatus = ApprovalStatus;
 export type VkQuestionAnswer = QuestionAnswer;
 export type VkExecutorProfileId = ExecutorProfileId;
+export type VkCreateConversationRequest = CreateConversationRequest;
+export type VkCreateConversationResponse = CreateConversationResponse;
 export type VkStartWorkspaceExecutionCommand = StartWorkspaceExecutionCommand;
 export type VkStartWorkspaceExecutionResult = StartWorkspaceExecutionResult;
 export type VkQueueGenerateAndMergeCommand = QueueGenerateAndMergeCommand;

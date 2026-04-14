@@ -154,6 +154,8 @@ export type SessionSnapshotDto = { id: string, workspace_id: string, executor: s
 
 export type ExecutionSnapshotDto = { id: string, session_id: string | null, conversation_session_id: string | null, run_reason: string, status: string, action_type: string, executor_profile: string | null, exit_code: bigint | null, dropped: boolean, input_tokens: bigint | null, output_tokens: bigint | null, started_at: string, completed_at: string | null, created_at: string, updated_at: string, };
 
+export type CodingAgentTurnSnapshotDto = { prompt: string | null, summary: string | null, };
+
 export type ExecutionVisibilityDto = { latest_execution_id: string | null, latest_visible_execution_id: string | null, running_execution_ids: Array<string>, hidden_execution_ids: Array<string>, };
 
 export type ToolApprovalSnapshotDto = { id: string, execution_process_id: string, tool_call_id: string, tool_name: string, tool_input: JsonValue, created_at: string, timeout_at: string | null, };

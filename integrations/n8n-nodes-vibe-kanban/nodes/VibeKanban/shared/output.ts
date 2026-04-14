@@ -2,6 +2,7 @@ import type {
   VkApprovalContext,
   VkApprovalStatus,
   VkConversationContext,
+  VkCreateConversationResponse,
   VkExecutionContext,
   VkFeedbackResponse,
   VkFollowUpResult,
@@ -39,6 +40,7 @@ export function normalizeActionOutput(args: {
   identifiers: Record<string, string>;
   data?:
     | VkApprovalStatus
+    | VkCreateConversationResponse
     | VkFeedbackResponse
     | VkFollowUpResult
     | VkQueueGenerateAndMergeResult
@@ -76,6 +78,17 @@ export function normalizeActionOutput(args: {
     return {
       ...base,
       queue: args.data,
+    };
+  }
+
+  if (args.operation === 'createConversation' && args.data) {
+    const conversationCreation = args.data as VkCreateConversationResponse;
+    return {
+      ...base,
+      conversationCreation,
+      conversation: conversationCreation.session,
+      initialMessage: conversationCreation.initial_message,
+      executionProcessId: conversationCreation.execution_process_id,
     };
   }
 

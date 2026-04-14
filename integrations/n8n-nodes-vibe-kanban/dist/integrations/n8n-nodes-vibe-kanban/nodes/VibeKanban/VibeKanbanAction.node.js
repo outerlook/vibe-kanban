@@ -93,9 +93,10 @@ class VibeKanbanAction {
                 displayName: 'Operation',
                 name: 'operation',
                 type: 'options',
-                default: 'sendMessage',
+                default: 'createConversation',
                 displayOptions: { show: { resource: ['conversation'] } },
                 options: [
+                    { name: 'Create Conversation', value: 'createConversation' },
                     { name: 'Send Message', value: 'sendMessage' },
                     { name: 'Queue Follow Up', value: 'queueFollowUp' },
                     { name: 'Cancel Queued Follow Up', value: 'cancelQueuedFollowUp' },
@@ -158,6 +159,19 @@ class VibeKanbanAction {
                 },
             },
             {
+                displayName: 'Project ID',
+                name: 'projectId',
+                type: 'string',
+                default: '',
+                required: true,
+                displayOptions: {
+                    show: {
+                        resource: ['conversation'],
+                        operation: ['createConversation'],
+                    },
+                },
+            },
+            {
                 displayName: 'Executor Profile JSON',
                 name: 'executorProfileJson',
                 type: 'string',
@@ -166,8 +180,8 @@ class VibeKanbanAction {
                 required: true,
                 displayOptions: {
                     show: {
-                        resource: ['task'],
-                        operation: ['startWorkspaceExecution'],
+                        resource: ['task', 'conversation'],
+                        operation: ['startWorkspaceExecution', 'createConversation'],
                     },
                 },
             },
@@ -229,7 +243,65 @@ class VibeKanbanAction {
                 type: 'string',
                 default: '',
                 required: true,
-                displayOptions: { show: { resource: ['conversation'] } },
+                displayOptions: {
+                    show: {
+                        resource: ['conversation'],
+                        operation: ['sendMessage', 'queueFollowUp', 'cancelQueuedFollowUp'],
+                    },
+                },
+            },
+            {
+                displayName: 'Title',
+                name: 'title',
+                type: 'string',
+                default: '',
+                required: true,
+                displayOptions: {
+                    show: {
+                        resource: ['conversation'],
+                        operation: ['createConversation'],
+                    },
+                },
+            },
+            {
+                displayName: 'Initial Message',
+                name: 'initialMessage',
+                type: 'string',
+                typeOptions: { rows: 4 },
+                default: '',
+                required: true,
+                displayOptions: {
+                    show: {
+                        resource: ['conversation'],
+                        operation: ['createConversation'],
+                    },
+                },
+            },
+            {
+                displayName: 'Worktree Path',
+                name: 'worktreePath',
+                type: 'string',
+                default: '',
+                required: false,
+                displayOptions: {
+                    show: {
+                        resource: ['conversation'],
+                        operation: ['createConversation'],
+                    },
+                },
+            },
+            {
+                displayName: 'Worktree Branch',
+                name: 'worktreeBranch',
+                type: 'string',
+                default: '',
+                required: false,
+                displayOptions: {
+                    show: {
+                        resource: ['conversation'],
+                        operation: ['createConversation'],
+                    },
+                },
             },
             {
                 displayName: 'Approval ID',
@@ -533,43 +605,69 @@ class VibeKanbanAction {
                         break;
                     }
                     case 'conversation': {
-                        const conversationId = this.getNodeParameter('conversationId', itemIndex);
-                        if (operation === 'sendMessage') {
-                            const content = this.getNodeParameter('content', itemIndex);
-                            const variant = this.getNodeParameter('variant', itemIndex, '');
-                            const data = await (0, api_1.sendConversationMessage)(credentials, conversationId, {
-                                content,
-                                variant: variant || undefined,
-                            });
+                        if (operation === 'createConversation') {
+                            const projectId = this.getNodeParameter('projectId', itemIndex);
+                            const title = this.getNodeParameter('title', itemIndex);
+                            const initialMessage = this.getNodeParameter('initialMessage', itemIndex);
+                            const executorProfileJson = this.getNodeParameter('executorProfileJson', itemIndex, '');
+                            const worktreePath = this.getNodeParameter('worktreePath', itemIndex, '');
+                            const worktreeBranch = this.getNodeParameter('worktreeBranch', itemIndex, '');
+                            const body = {
+                                title,
+                                initial_message: initialMessage,
+                                executor_profile_id: executorProfileJson.trim()
+                                    ? parseJsonValue(executorProfileJson, 'Executor Profile JSON')
+                                    : null,
+                                worktree_path: worktreePath || null,
+                                worktree_branch: worktreeBranch || null,
+                            };
+                            const data = await (0, api_1.createConversation)(credentials, projectId, body);
                             output = (0, output_1.normalizeActionOutput)({
                                 resource,
                                 operation,
-                                identifiers: { conversationId },
-                                data,
-                            });
-                        }
-                        else if (operation === 'queueFollowUp') {
-                            const message = this.getNodeParameter('message', itemIndex);
-                            const variant = this.getNodeParameter('variant', itemIndex, '');
-                            const data = await (0, api_1.queueConversationFollowUp)(credentials, conversationId, {
-                                message,
-                                variant: variant || undefined,
-                            });
-                            output = (0, output_1.normalizeActionOutput)({
-                                resource,
-                                operation,
-                                identifiers: { conversationId },
+                                identifiers: { projectId },
                                 data,
                             });
                         }
                         else {
-                            const data = await (0, api_1.cancelConversationFollowUp)(credentials, conversationId);
-                            output = (0, output_1.normalizeActionOutput)({
-                                resource,
-                                operation,
-                                identifiers: { conversationId },
-                                data,
-                            });
+                            const conversationId = this.getNodeParameter('conversationId', itemIndex);
+                            if (operation === 'sendMessage') {
+                                const content = this.getNodeParameter('content', itemIndex);
+                                const variant = this.getNodeParameter('variant', itemIndex, '');
+                                const data = await (0, api_1.sendConversationMessage)(credentials, conversationId, {
+                                    content,
+                                    variant: variant || undefined,
+                                });
+                                output = (0, output_1.normalizeActionOutput)({
+                                    resource,
+                                    operation,
+                                    identifiers: { conversationId },
+                                    data,
+                                });
+                            }
+                            else if (operation === 'queueFollowUp') {
+                                const message = this.getNodeParameter('message', itemIndex);
+                                const variant = this.getNodeParameter('variant', itemIndex, '');
+                                const data = await (0, api_1.queueConversationFollowUp)(credentials, conversationId, {
+                                    message,
+                                    variant: variant || undefined,
+                                });
+                                output = (0, output_1.normalizeActionOutput)({
+                                    resource,
+                                    operation,
+                                    identifiers: { conversationId },
+                                    data,
+                                });
+                            }
+                            else {
+                                const data = await (0, api_1.cancelConversationFollowUp)(credentials, conversationId);
+                                output = (0, output_1.normalizeActionOutput)({
+                                    resource,
+                                    operation,
+                                    identifiers: { conversationId },
+                                    data,
+                                });
+                            }
                         }
                         break;
                     }

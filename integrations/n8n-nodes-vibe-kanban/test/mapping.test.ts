@@ -53,4 +53,45 @@ describe('node response mapping', () => {
       approvalStatus: { status: 'approved' },
     });
   });
+
+  it('keeps conversation creation outputs expression-friendly', () => {
+    const output = normalizeActionOutput({
+      resource: 'conversation',
+      operation: 'createConversation',
+      identifiers: {
+        projectId: 'project-1',
+      },
+      data: {
+        session: { id: 'conversation-1', title: 'Investigate failure' },
+        initial_message: {
+          id: 'message-1',
+          role: 'user',
+          content: 'Investigate the failing webhook.',
+        },
+        execution_process_id: 'exec-1',
+      } as never,
+    });
+
+    expect(output).toEqual({
+      resource: 'conversation',
+      operation: 'createConversation',
+      projectId: 'project-1',
+      conversationCreation: {
+        session: { id: 'conversation-1', title: 'Investigate failure' },
+        initial_message: {
+          id: 'message-1',
+          role: 'user',
+          content: 'Investigate the failing webhook.',
+        },
+        execution_process_id: 'exec-1',
+      },
+      conversation: { id: 'conversation-1', title: 'Investigate failure' },
+      initialMessage: {
+        id: 'message-1',
+        role: 'user',
+        content: 'Investigate the failing webhook.',
+      },
+      executionProcessId: 'exec-1',
+    });
+  });
 });

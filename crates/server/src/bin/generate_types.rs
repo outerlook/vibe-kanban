@@ -88,6 +88,7 @@ fn generate_types_content() -> String {
         services::services::orchestration::WorkspaceSnapshotDto::decl(),
         services::services::orchestration::SessionSnapshotDto::decl(),
         services::services::orchestration::ExecutionSnapshotDto::decl(),
+        services::services::orchestration::CodingAgentTurnSnapshotDto::decl(),
         services::services::orchestration::ExecutionVisibilityDto::decl(),
         services::services::orchestration::ToolApprovalSnapshotDto::decl(),
         services::services::orchestration::UserQuestionSnapshotDto::decl(),

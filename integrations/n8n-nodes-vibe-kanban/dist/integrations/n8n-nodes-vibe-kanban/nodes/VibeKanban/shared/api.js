@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getTaskContext = getTaskContext;
 exports.getTaskGroupContext = getTaskGroupContext;
 exports.getConversationContext = getConversationContext;
+exports.createConversation = createConversation;
 exports.getExecutionContext = getExecutionContext;
 exports.getApprovalContext = getApprovalContext;
 exports.startTaskFollowUp = startTaskFollowUp;
@@ -62,6 +63,12 @@ async function getTaskGroupContext(credentials, taskGroupId) {
 }
 async function getConversationContext(credentials, conversationId) {
     return requestVk(credentials, `/conversations/${conversationId}/orchestration-context`);
+}
+async function createConversation(credentials, projectId, body) {
+    return requestVk(credentials, `/projects/${projectId}/conversations`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
 }
 async function getExecutionContext(credentials, executionProcessId) {
     return requestVk(credentials, `/execution-processes/${executionProcessId}/orchestration-context`);

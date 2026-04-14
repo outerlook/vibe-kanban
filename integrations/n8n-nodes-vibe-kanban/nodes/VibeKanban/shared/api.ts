@@ -4,6 +4,8 @@ import type {
   VkApprovalResponse,
   VkApprovalStatus,
   VkConversationContext,
+  VkCreateConversationRequest,
+  VkCreateConversationResponse,
   VkCreateAgentFeedback,
   VkCreateReviewAttention,
   VkExecutionContext,
@@ -107,6 +109,21 @@ export async function getConversationContext(
   return requestVk<VkConversationContext>(
     credentials,
     `/conversations/${conversationId}/orchestration-context`,
+  );
+}
+
+export async function createConversation(
+  credentials: VkApiCredentialValue,
+  projectId: string,
+  body: VkCreateConversationRequest,
+): Promise<VkCreateConversationResponse> {
+  return requestVk<VkCreateConversationResponse>(
+    credentials,
+    `/projects/${projectId}/conversations`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
   );
 }
 
