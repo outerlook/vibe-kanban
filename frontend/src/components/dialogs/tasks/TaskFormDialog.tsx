@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useRef, useState, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
@@ -30,6 +31,14 @@ import BranchSelector from '@/components/tasks/BranchSelector';
 import RepoBranchSelector from '@/components/tasks/RepoBranchSelector';
 import GroupSelector from '@/components/tasks/GroupSelector';
 import { DependencySection } from '@/components/tasks/DependencySection';
+import { WorkflowAssociationFields } from '@/components/tasks/WorkflowAssociationFields';
+import {
+  emptyWorkflowAssociationFormState,
+  getAssociationAtScope,
+  getWorkflowAssociationFormError,
+  workflowAssociationFormToPayload,
+  workflowAssociationToFormState,
+} from '@/components/tasks/workflowAssociationHelpers';
 import { ExecutorProfileSelector } from '@/components/settings';
 import { useUserSystem } from '@/components/ConfigProvider';
 import {
@@ -40,7 +49,9 @@ import {
   useRepoBranchSelection,
   useTaskGroups,
 } from '@/hooks';
+import { useTaskWorkflowAssociations, workflowAssociationKeys } from '@/hooks/useWorkflowAssociations';
 import { TaskGroupFormDialog } from './TaskGroupFormDialog';
+import { tasksApi } from '@/lib/api';
 import {
   useKeySubmitTask,
   useKeySubmitTaskAlt,
@@ -96,6 +107,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   const { t } = useTranslation(['tasks', 'common']);
   const { createTask, createAndStart, updateTask } =
     useTaskMutations(projectId);
+  const queryClient = useQueryClient();
   const { system, profiles, loading: userSystemLoading } = useUserSystem();
   const { upload, uploadForTask } = useImageUpload();
   const { enableScope, disableScope } = useHotkeysContext();
@@ -106,10 +118,17 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
     []
   );
   const [showDiscardWarning, setShowDiscardWarning] = useState(false);
+  const [workflowAssociation, setWorkflowAssociation] = useState(
+    emptyWorkflowAssociationFormState
+  );
   const forceCreateOnlyRef = useRef(false);
 
   const { data: taskImages } = useTaskImages(
     editMode ? props.task.id : undefined
+  );
+  const { data: taskWorkflowResolution } = useTaskWorkflowAssociations(
+    editMode ? props.task.id : undefined,
+    { enabled: modal.visible && editMode }
   );
   const { data: projectRepos = [] } = useProjectRepos(projectId, {
     enabled: modal.visible,
@@ -176,54 +195,74 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
 
   // Form submission handler
   const handleSubmit = async ({ value }: { value: TaskFormValues }) => {
+    const workflowPayload = workflowAssociationFormToPayload(workflowAssociation);
+    const existingTaskAssociation = getAssociationAtScope(
+      taskWorkflowResolution,
+      'task_override'
+    );
+
     if (editMode) {
-      await updateTask.mutateAsync(
-        {
-          taskId: props.task.id,
-          data: {
-            title: value.title,
-            description: value.description,
-            status: value.status,
-            parent_workspace_id: null,
-            image_ids: images.length > 0 ? images.map((img) => img.id) : null,
-            task_group_id: value.taskGroupId,
-          },
+      const updatedTask = await updateTask.mutateAsync({
+        taskId: props.task.id,
+        data: {
+          title: value.title,
+          description: value.description,
+          status: value.status,
+          parent_workspace_id: null,
+          image_ids: images.length > 0 ? images.map((img) => img.id) : null,
+          task_group_id: value.taskGroupId,
         },
-        { onSuccess: () => modal.remove() }
-      );
-    } else {
-      const imageIds =
-        newlyUploadedImageIds.length > 0 ? newlyUploadedImageIds : null;
-      const task = {
-        project_id: projectId,
-        title: value.title,
-        description: value.description,
-        status: null,
-        parent_workspace_id:
-          mode === 'subtask' ? props.parentTaskAttemptId : null,
-        image_ids: imageIds,
-        shared_task_id: null,
-        task_group_id: value.taskGroupId,
-      };
-      const shouldAutoStart = value.autoStart && !forceCreateOnlyRef.current;
-      if (shouldAutoStart) {
-        const repos = value.repoBranches.map((rb) => ({
-          repo_id: rb.repoId,
-          target_branch: rb.branch,
-        }));
-        await createAndStart.mutateAsync(
-          {
-            task,
-            executor_profile_id: value.executorProfileId!,
-            repos,
-          },
-          { onSuccess: () => modal.remove() }
-        );
-      } else {
-        await createTask.mutateAsync(task, { onSuccess: () => modal.remove() });
+      });
+
+      if (workflowPayload) {
+        await tasksApi.upsertWorkflowAssociation(updatedTask.id, workflowPayload);
+      } else if (existingTaskAssociation) {
+        await tasksApi.deleteWorkflowAssociation(updatedTask.id);
       }
+
+      await queryClient.invalidateQueries({
+        queryKey: workflowAssociationKeys.task(updatedTask.id),
+      });
+      modal.remove();
+      return;
     }
+
+    const imageIds = newlyUploadedImageIds.length > 0 ? newlyUploadedImageIds : null;
+    const task = {
+      project_id: projectId,
+      title: value.title,
+      description: value.description,
+      status: null,
+      parent_workspace_id: mode === 'subtask' ? props.parentTaskAttemptId : null,
+      image_ids: imageIds,
+      shared_task_id: null,
+      task_group_id: value.taskGroupId,
+    };
+    const shouldAutoStart = value.autoStart && !forceCreateOnlyRef.current;
+    const createdTask = shouldAutoStart
+      ? await createAndStart.mutateAsync({
+          task,
+          executor_profile_id: value.executorProfileId!,
+          repos: value.repoBranches.map((rb) => ({
+            repo_id: rb.repoId,
+            target_branch: rb.branch,
+          })),
+        })
+      : await createTask.mutateAsync(task);
+
+    if (workflowPayload) {
+      await tasksApi.upsertWorkflowAssociation(createdTask.id, workflowPayload);
+      await queryClient.invalidateQueries({
+        queryKey: workflowAssociationKeys.task(createdTask.id),
+      });
+    }
+
+    modal.remove();
   };
+
+  const workflowAssociationError = getWorkflowAssociationFormError(
+    workflowAssociation
+  );
 
   const validator = (value: TaskFormValues): string | undefined => {
     if (!value.title.trim().length) return 'need title';
@@ -252,13 +291,29 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
 
   const isSubmitting = useStore(form.store, (state) => state.isSubmitting);
   const isDirty = useStore(form.store, (state) => state.isDirty);
-  const canSubmit = useStore(form.store, (state) => state.canSubmit);
+  const canSubmit =
+    useStore(form.store, (state) => state.canSubmit) && !workflowAssociationError;
 
   // Load images for edit mode
   useEffect(() => {
     if (!taskImages) return;
     setImages(taskImages);
   }, [taskImages]);
+
+  useEffect(() => {
+    if (!modal.visible) return;
+
+    if (editMode) {
+      setWorkflowAssociation(
+        workflowAssociationToFormState(
+          getAssociationAtScope(taskWorkflowResolution, 'task_override')
+        )
+      );
+      return;
+    }
+
+    setWorkflowAssociation(emptyWorkflowAssociationFormState);
+  }, [editMode, modal.visible, taskWorkflowResolution]);
 
   const onDrop = useCallback(
     async (files: File[]) => {
@@ -316,8 +371,22 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
     if (isDirty) return true;
     if (newlyUploadedImageIds.length > 0) return true;
     if (images.length > 0 && !editMode) return true;
-    return false;
-  }, [isDirty, newlyUploadedImageIds, images, editMode]);
+
+    const initialWorkflowAssociation = editMode
+      ? workflowAssociationToFormState(
+          getAssociationAtScope(taskWorkflowResolution, 'task_override')
+        )
+      : emptyWorkflowAssociationFormState;
+
+    return JSON.stringify(workflowAssociation) !== JSON.stringify(initialWorkflowAssociation);
+  }, [
+    editMode,
+    images,
+    isDirty,
+    newlyUploadedImageIds.length,
+    taskWorkflowResolution,
+    workflowAssociation,
+  ]);
 
   // beforeunload listener
   useEffect(() => {
@@ -548,6 +617,17 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                 </div>
               )}
             </form.Field>
+
+            <WorkflowAssociationFields
+              title="Task workflow override"
+              description="Override inherited n8n workflow metadata for this task. Leave blank to inherit from the group or repository default."
+              value={workflowAssociation}
+              onChange={(updates) =>
+                setWorkflowAssociation((previous) => ({ ...previous, ...updates }))
+              }
+              error={workflowAssociationError}
+              onClear={() => setWorkflowAssociation(emptyWorkflowAssociationFormState)}
+            />
             {editMode && (
               <div className="pt-4">
                 <DependencySection

@@ -1,6 +1,16 @@
 import { useMemo } from 'react';
-import { Loader2, CheckCircle2, MinusCircle, XCircle } from 'lucide-react';
+import {
+  CheckCircle2,
+  ExternalLink,
+  Loader2,
+  MinusCircle,
+  XCircle,
+} from 'lucide-react';
 import { useProjectTasksContext } from '@/contexts/ProjectTasksContext';
+import { useTaskWorkflowAssociations } from '@/hooks/useWorkflowAssociations';
+import {
+  getWorkflowAssociationScopeLabel,
+} from '@/components/tasks/workflowAssociationHelpers';
 import type { HookExecution, HookExecutionStatus, HookPoint } from 'shared/types';
 import {
   Tooltip,
@@ -21,19 +31,6 @@ const hookPointDisplayNames: Record<HookPoint, string> = {
   post_agent_complete: 'Post-Agent Complete',
   post_dependency_unblocked: 'Post-Dependency Unblocked',
 };
-
-const handlerDisplayNames: Record<string, string> = {
-  autopilot: 'Autopilot',
-  feedback_collection: 'Feedback Collection',
-  review_attention: 'Review Attention',
-};
-
-function getHandlerDisplayName(handlerName: string): string {
-  return handlerDisplayNames[handlerName] ?? handlerName
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
 
 function getHookPointDisplayName(hookPoint: HookPoint): string {
   return hookPointDisplayNames[hookPoint] ?? hookPoint;
@@ -86,7 +83,6 @@ function sortExecutions(executions: HookExecution[]): HookExecution[] {
 }
 
 function HookExecutionItem({ execution }: { execution: HookExecution }) {
-  const handlerName = getHandlerDisplayName(execution.handler_name);
   const hookPoint = getHookPointDisplayName(execution.hook_point);
   const duration = execution.completed_at
     ? formatDuration(execution.started_at, execution.completed_at)
@@ -96,8 +92,10 @@ function HookExecutionItem({ execution }: { execution: HookExecution }) {
     <div className="flex items-center gap-3 py-2 px-1">
       <StatusIcon status={execution.status} />
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate">{handlerName}</div>
-        <div className="text-xs text-muted-foreground truncate">{hookPoint}</div>
+        <div className="text-sm font-medium truncate">{hookPoint}</div>
+        <div className="text-xs text-muted-foreground truncate">
+          Internal handler: {execution.handler_name}
+        </div>
       </div>
       {duration && (
         <div className="text-xs text-muted-foreground flex-shrink-0">
@@ -129,25 +127,74 @@ function HookExecutionItem({ execution }: { execution: HookExecution }) {
 
 export function HookStatusDetails({ taskId }: HookStatusDetailsProps) {
   const { hookExecutionsByTaskId } = useProjectTasksContext();
+  const { data: workflowResolution } = useTaskWorkflowAssociations(taskId);
 
   const sortedExecutions = useMemo(
     () => sortExecutions(hookExecutionsByTaskId[taskId] ?? []),
     [hookExecutionsByTaskId, taskId]
   );
 
-  if (sortedExecutions.length === 0) {
+  const associations = workflowResolution?.associations ?? [];
+
+  if (associations.length === 0 && sortedExecutions.length === 0) {
     return (
       <div className="text-sm text-muted-foreground py-4 text-center">
-        No hook executions
+        No associated workflows or hook executions
       </div>
     );
   }
 
   return (
-    <div className="divide-y divide-border">
-      {sortedExecutions.map((execution) => (
-        <HookExecutionItem key={execution.id} execution={execution} />
-      ))}
+    <div className="space-y-4 py-4">
+      {associations.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Associated n8n workflows
+          </div>
+          <div className="space-y-2">
+            {associations.map((association) => (
+              <a
+                key={`${association.scope}-${association.workflow_id}`}
+                href={association.url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 hover:bg-accent/50"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium truncate">
+                      {association.label}
+                    </span>
+                    {association.is_effective ? (
+                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+                        Effective
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {getWorkflowAssociationScopeLabel(association.scope)} ·{' '}
+                    {association.workflow_id}
+                  </div>
+                </div>
+                <ExternalLink className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {sortedExecutions.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Execution history
+          </div>
+          <div className="divide-y divide-border rounded-md border">
+            {sortedExecutions.map((execution) => (
+              <HookExecutionItem key={execution.id} execution={execution} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

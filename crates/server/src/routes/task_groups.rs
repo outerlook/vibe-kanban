@@ -4,10 +4,13 @@ use axum::{
     http::StatusCode,
     middleware::from_fn_with_state,
     response::Json as ResponseJson,
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use db::models::{
     task_group::{MergeError, TaskGroup, TaskGroupWithStats, UpdateTaskGroup},
+    workflow_association::{
+        UpsertWorkflowAssociation, WorkflowAssociation, WorkflowAssociationResolution,
+    },
     workspace::Workspace,
 };
 use deployment::Deployment;
@@ -84,6 +87,42 @@ pub async fn get_task_group(
     Extension(task_group): Extension<TaskGroup>,
 ) -> Result<ResponseJson<ApiResponse<TaskGroup>>, ApiError> {
     Ok(ResponseJson(ApiResponse::success(task_group)))
+}
+
+pub async fn get_task_group_workflow_associations(
+    Extension(task_group): Extension<TaskGroup>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<WorkflowAssociationResolution>>, ApiError> {
+    let resolution =
+        WorkflowAssociation::resolve_for_task_group(&deployment.db().pool, &task_group).await?;
+    Ok(ResponseJson(ApiResponse::success(resolution)))
+}
+
+pub async fn upsert_task_group_workflow_association(
+    Extension(task_group): Extension<TaskGroup>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<UpsertWorkflowAssociation>,
+) -> Result<ResponseJson<ApiResponse<WorkflowAssociation>>, ApiError> {
+    let association =
+        WorkflowAssociation::upsert_for_task_group(&deployment.db().pool, task_group.id, &payload)
+            .await?;
+    Ok(ResponseJson(ApiResponse::success(association)))
+}
+
+pub async fn delete_task_group_workflow_association(
+    Extension(task_group): Extension<TaskGroup>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    let deleted =
+        WorkflowAssociation::delete_for_task_group(&deployment.db().pool, task_group.id).await?;
+    if deleted == 0 {
+        return Err(ApiError::NotFound(format!(
+            "No workflow association found for task group {}",
+            task_group.id
+        )));
+    }
+
+    Ok(ResponseJson(ApiResponse::success(())))
 }
 
 pub async fn get_task_group_orchestration_context(
@@ -295,6 +334,15 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             "/orchestration-context",
             get(get_task_group_orchestration_context),
         )
+        .route(
+            "/workflow-associations",
+            get(get_task_group_workflow_associations),
+        )
+        .route(
+            "/workflow-association",
+            put(upsert_task_group_workflow_association)
+                .delete(delete_task_group_workflow_association),
+        )
         .route("/assign", post(bulk_assign_tasks))
         .route("/merge", post(merge_task_group))
         .route("/merge-queue-count", get(get_merge_queue_count))
@@ -315,7 +363,12 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 mod tests {
     use std::{sync::Arc, time::Duration};
 
-    use axum::{Extension, Json, extract::State};
+    use axum::{
+        Extension, Json,
+        body::{Body, to_bytes},
+        extract::State,
+        http::{Request, StatusCode},
+    };
     use db::models::{
         project::{CreateProject, Project},
         task::{CreateTask, Task},
@@ -326,8 +379,75 @@ mod tests {
         OrchestrationEventPublisherHandle, OrchestrationEventType,
         RecordingOrchestrationEventPublisher,
     };
+    use tower::ServiceExt;
 
     use super::*;
+
+    fn reset_test_database() {
+        let db_path = utils::assets::asset_dir().join("db.sqlite");
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(db_path.with_extension("sqlite-wal"));
+        let _ = std::fs::remove_file(db_path.with_extension("sqlite-shm"));
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn task_group_workflow_association_routes_round_trip() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        reset_test_database();
+        let deployment = LocalDeployment::new().await.unwrap();
+        let project = create_project(&deployment, "workflow-group").await;
+        let group = TaskGroup::create(
+            &deployment.db().pool,
+            project.id,
+            "Orchestration".to_string(),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let app = super::router(&deployment).with_state(deployment.clone());
+
+        let update_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/task-groups/{}/workflow-association", group.id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "workflow_id": "wf-group",
+                            "label": "Group workflow",
+                            "url": "https://n8n.example/group"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(update_response.status(), StatusCode::OK);
+
+        let get_response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/task-groups/{}/workflow-associations", group.id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(get_response.status(), StatusCode::OK);
+        let body = to_bytes(get_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let api_response: ApiResponse<WorkflowAssociationResolution> =
+            serde_json::from_slice(&body).unwrap();
+        let data = api_response.into_data().unwrap();
+        assert_eq!(data.effective.unwrap().workflow_id, "wf-group");
+    }
 
     async fn create_project(deployment: &DeploymentImpl, name: &str) -> Project {
         Project::create(

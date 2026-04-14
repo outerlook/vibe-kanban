@@ -22,6 +22,20 @@ export type CreateProject = { name: string, repositories: Array<CreateProjectRep
 
 export type UpdateProject = { name: string | null, dev_script: string | null, dev_script_working_dir: string | null, default_agent_working_dir: string | null, };
 
+export type WorkflowAssociationScope = "repository_default" | "task_group_default" | "task_override";
+
+export type WorkflowAssociation = { id: string, project_id: string | null, task_group_id: string | null, task_id: string | null, scope: WorkflowAssociationScope, workflow_id: string, label: string, url: string, created_at: Date, updated_at: Date, };
+
+export type UpsertWorkflowAssociation = { workflow_id: string, label: string, url: string, };
+
+export type ResolvedWorkflowAssociation = { scope: WorkflowAssociationScope, workflow_id: string, label: string, url: string, is_effective: boolean, };
+
+export type WorkflowAssociationResolution = { effective: ResolvedWorkflowAssociation | null, associations: Array<ResolvedWorkflowAssociation>, };
+
+export type MqttOrchestrationPublisherConfig = { broker_url: string, topic_namespace: string, client_id: string | null, qos: number, retain: boolean, };
+
+export type OrchestrationEventPublisherConfig = { enabled: boolean, mqtt: MqttOrchestrationPublisherConfig | null, };
+
 export type SearchResult = { path: string, is_file: boolean, match_type: SearchMatchType, };
 
 export type SearchMatchType = "FileName" | "DirectoryName" | "FullPath";
@@ -608,27 +622,7 @@ export type DirectoryEntry = { name: string, path: string, is_directory: boolean
 
 export type DirectoryListResponse = { entries: Array<DirectoryEntry>, current_path: string, };
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, default_clone_directory: string | null, commit_message_auto_generate_enabled: boolean, commit_message_prompt: string | null, commit_message_executor_profile: ExecutorProfileId | null, 
-/**
- * Maximum concurrent agent executions (0 = unlimited)
- */
-max_concurrent_agents: number, langfuse_enabled: boolean, langfuse_public_key: string | null, langfuse_secret_key: string | null, langfuse_host: string | null, backup: BackupConfig, 
-/**
- * Executor profile for the review attention agent.
- * When Some, review attention uses the specified executor.
- * When None, review attention is disabled.
- */
-review_attention_executor_profile: ExecutorProfileId | null, 
-/**
- * Custom prompt for the review attention agent.
- * When None, uses the default prompt.
- * The prompt should include placeholders {task_description} and {agent_summary}.
- */
-review_attention_prompt: string | null, 
-/**
- * When enabled, completed tasks are automatically merged and dependent tasks are queued.
- */
-autopilot_enabled: boolean, };
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, default_clone_directory: string | null, commit_message_auto_generate_enabled: boolean, commit_message_prompt: string | null, commit_message_executor_profile: ExecutorProfileId | null, max_concurrent_agents: number, langfuse_enabled: boolean, langfuse_public_key: string | null, langfuse_secret_key: string | null, langfuse_host: string | null, backup: BackupConfig, review_attention_executor_profile: ExecutorProfileId | null, review_attention_prompt: string | null, autopilot_enabled: boolean, orchestration_event_publisher: OrchestrationEventPublisherConfig, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, error_sound_file: SoundFile, custom_sound_path: string | null, 
 /**

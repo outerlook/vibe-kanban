@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -13,10 +14,23 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import BranchSelector from '@/components/tasks/BranchSelector';
+import { WorkflowAssociationFields } from '@/components/tasks/WorkflowAssociationFields';
+import {
+  emptyWorkflowAssociationFormState,
+  getAssociationAtScope,
+  getWorkflowAssociationFormError,
+  workflowAssociationFormToPayload,
+  workflowAssociationToFormState,
+} from '@/components/tasks/workflowAssociationHelpers';
 import { useProjectRepos, useRepoBranches } from '@/hooks';
 import { useTaskGroupMutations } from '@/hooks/useTaskGroups';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal, type SaveResult } from '@/lib/modals';
+import { taskGroupsApi } from '@/lib/api';
+import {
+  useTaskGroupWorkflowAssociations,
+  workflowAssociationKeys,
+} from '@/hooks/useWorkflowAssociations';
 import type { TaskGroup } from 'shared/types';
 
 export type TaskGroupFormDialogProps =
@@ -27,6 +41,7 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
   (props) => {
     const modal = useModal();
     const { t } = useTranslation(['tasks', 'common']);
+    const queryClient = useQueryClient();
     const { projectId } = props;
     const group = props.mode === 'edit' ? props.group : undefined;
 
@@ -34,10 +49,17 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
     const [description, setDescription] = useState('');
     const [baseBranch, setBaseBranch] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [workflowAssociation, setWorkflowAssociation] = useState(
+      emptyWorkflowAssociationFormState
+    );
 
     const { data: repos = [], isLoading: isLoadingRepos } = useProjectRepos(
       projectId,
       { enabled: modal.visible }
+    );
+    const { data: workflowResolution } = useTaskGroupWorkflowAssociations(
+      group?.id,
+      { enabled: modal.visible && !!group }
     );
 
     // Use first repo for branch selection (task groups have a single base_branch)
@@ -47,25 +69,7 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
         enabled: modal.visible && !!primaryRepo,
       });
 
-    const { createTaskGroup, updateTaskGroup } = useTaskGroupMutations(
-      projectId,
-      {
-        onCreateSuccess: () => {
-          modal.resolve('saved' as SaveResult);
-          modal.hide();
-        },
-        onCreateError: () => {
-          setError(t('taskGroupFormDialog.errors.createFailed'));
-        },
-        onUpdateSuccess: () => {
-          modal.resolve('saved' as SaveResult);
-          modal.hide();
-        },
-        onUpdateError: () => {
-          setError(t('taskGroupFormDialog.errors.updateFailed'));
-        },
-      }
-    );
+    const { createTaskGroup, updateTaskGroup } = useTaskGroupMutations(projectId);
 
     const isLoading = createTaskGroup.isPending || updateTaskGroup.isPending;
     const isLoadingInitial = isLoadingRepos || isLoadingBranches;
@@ -82,36 +86,80 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
           setDescription('');
           setBaseBranch(null);
         }
+        setWorkflowAssociation(
+          workflowAssociationToFormState(
+            getAssociationAtScope(workflowResolution, 'task_group_default')
+          )
+        );
         setError(null);
       }
-    }, [modal.visible, group]);
+    }, [modal.visible, group, workflowResolution]);
 
-    const canSubmit = !!name.trim() && !isLoading && !isLoadingInitial;
+    const workflowAssociationError = getWorkflowAssociationFormError(
+      workflowAssociation
+    );
+    const canSubmit =
+      !!name.trim() && !isLoading && !isLoadingInitial && !workflowAssociationError;
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
       const trimmedName = name.trim();
       if (!trimmedName) {
         setError(t('taskGroupFormDialog.errors.nameRequired'));
         return;
       }
 
+      if (workflowAssociationError) {
+        setError(workflowAssociationError);
+        return;
+      }
+
       setError(null);
 
-      if (props.mode === 'create') {
-        createTaskGroup.mutate({
-          name: trimmedName,
-          description: description.trim() || null,
-          base_branch: baseBranch,
+      try {
+        const savedGroup =
+          props.mode === 'create'
+            ? await createTaskGroup.mutateAsync({
+                name: trimmedName,
+                description: description.trim() || null,
+                base_branch: baseBranch,
+              })
+            : await updateTaskGroup.mutateAsync({
+                groupId: props.group.id,
+                data: {
+                  name: trimmedName,
+                  description: description.trim() || null,
+                  base_branch: baseBranch,
+                },
+              });
+
+        const workflowPayload =
+          workflowAssociationFormToPayload(workflowAssociation);
+        const existingWorkflowAssociation = getAssociationAtScope(
+          workflowResolution,
+          'task_group_default'
+        );
+
+        if (workflowPayload) {
+          await taskGroupsApi.upsertWorkflowAssociation(
+            savedGroup.id,
+            workflowPayload
+          );
+        } else if (existingWorkflowAssociation) {
+          await taskGroupsApi.deleteWorkflowAssociation(savedGroup.id);
+        }
+
+        await queryClient.invalidateQueries({
+          queryKey: workflowAssociationKeys.taskGroup(savedGroup.id),
         });
-      } else {
-        updateTaskGroup.mutate({
-          groupId: props.group.id,
-          data: {
-            name: trimmedName,
-            description: description.trim() || null,
-            base_branch: baseBranch,
-          },
-        });
+
+        modal.resolve('saved' as SaveResult);
+        modal.hide();
+      } catch {
+        setError(
+          props.mode === 'create'
+            ? t('taskGroupFormDialog.errors.createFailed')
+            : t('taskGroupFormDialog.errors.updateFailed')
+        );
       }
     };
 
@@ -197,6 +245,17 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
                 </p>
               </div>
             )}
+
+            <WorkflowAssociationFields
+              title="Task group workflow default"
+              description="Set the default n8n workflow metadata for tasks in this group. Task-level overrides take precedence."
+              value={workflowAssociation}
+              onChange={(updates) =>
+                setWorkflowAssociation((previous) => ({ ...previous, ...updates }))
+              }
+              error={workflowAssociationError}
+              onClear={() => setWorkflowAssociation(emptyWorkflowAssociationFormState)}
+            />
 
             {error && <div className="text-sm text-destructive">{error}</div>}
           </div>

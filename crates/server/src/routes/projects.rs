@@ -21,6 +21,7 @@ use db::models::{
     project_repo::{CreateProjectRepo, ProjectRepo, UpdateProjectRepo},
     repo::Repo,
     task_group::TaskGroup,
+    workflow_association::{UpsertWorkflowAssociation, WorkflowAssociation},
     workspace::Workspace,
 };
 use deployment::Deployment;
@@ -287,6 +288,42 @@ pub async fn get_project(
     Extension(project): Extension<Project>,
 ) -> Result<ResponseJson<ApiResponse<Project>>, ApiError> {
     Ok(ResponseJson(ApiResponse::success(project)))
+}
+
+pub async fn get_project_workflow_association(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<Option<WorkflowAssociation>>>, ApiError> {
+    let association =
+        WorkflowAssociation::find_by_project_id(&deployment.db().pool, project.id).await?;
+    Ok(ResponseJson(ApiResponse::success(association)))
+}
+
+pub async fn upsert_project_workflow_association(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<UpsertWorkflowAssociation>,
+) -> Result<ResponseJson<ApiResponse<WorkflowAssociation>>, ApiError> {
+    let association =
+        WorkflowAssociation::upsert_for_project(&deployment.db().pool, project.id, &payload)
+            .await?;
+    Ok(ResponseJson(ApiResponse::success(association)))
+}
+
+pub async fn delete_project_workflow_association(
+    Extension(project): Extension<Project>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    let deleted =
+        WorkflowAssociation::delete_for_project(&deployment.db().pool, project.id).await?;
+    if deleted == 0 {
+        return Err(ApiError::NotFound(format!(
+            "No workflow association found for project {}",
+            project.id
+        )));
+    }
+
+    Ok(ResponseJson(ApiResponse::success(())))
 }
 
 pub async fn link_project_to_existing_remote(
@@ -1240,6 +1277,12 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             get(get_project).put(update_project).delete(delete_project),
         )
         .route("/remote/members", get(get_project_remote_members))
+        .route(
+            "/workflow-association",
+            get(get_project_workflow_association)
+                .put(upsert_project_workflow_association)
+                .delete(delete_project_workflow_association),
+        )
         .route("/search", get(search_project_files))
         .route("/open-editor", post(open_project_in_editor))
         .route(
@@ -1286,10 +1329,96 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 
 #[cfg(test)]
 mod tests {
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
     use chrono::TimeZone;
+    use db::models::project::{CreateProject, Project};
+    use local_deployment::LocalDeployment;
     use serde_json::json;
+    use tower::ServiceExt;
 
     use super::*;
+
+    fn reset_test_database() {
+        let db_path = utils::assets::asset_dir().join("db.sqlite");
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(db_path.with_extension("sqlite-wal"));
+        let _ = std::fs::remove_file(db_path.with_extension("sqlite-shm"));
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn project_workflow_association_routes_round_trip() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        reset_test_database();
+        let deployment = LocalDeployment::new().await.unwrap();
+        let project = Project::create(
+            &deployment.db().pool,
+            &CreateProject {
+                name: "workflow-project".to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        let app = super::router(&deployment).with_state(deployment.clone());
+
+        let update_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/projects/{}/workflow-association", project.id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "workflow_id": "wf-project",
+                            "label": "Repository default",
+                            "url": "https://n8n.example/project"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(update_response.status(), StatusCode::OK);
+
+        let get_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/projects/{}/workflow-association", project.id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(get_response.status(), StatusCode::OK);
+        let body = to_bytes(get_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let api_response: ApiResponse<Option<WorkflowAssociation>> =
+            serde_json::from_slice(&body).unwrap();
+        let data = api_response.into_data().unwrap().unwrap();
+        assert_eq!(data.workflow_id, "wf-project");
+
+        let delete_response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/projects/{}/workflow-association", project.id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(delete_response.status(), StatusCode::OK);
+    }
 
     fn sample_pr_record(
         repo_id: Uuid,

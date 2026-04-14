@@ -143,6 +143,9 @@ import {
   ProjectRepoPrPage,
   ProjectPrSummary,
   PrUnresolvedCountsResponse,
+  WorkflowAssociation,
+  UpsertWorkflowAssociation,
+  WorkflowAssociationResolution,
   PrThreadsResponse,
   FeedbackResponse,
   ReviewAttention,
@@ -401,6 +404,37 @@ export const projectsApi = {
       body: JSON.stringify(data),
     });
     return handleApiResponse<Project>(response);
+  },
+
+  getWorkflowAssociation: async (
+    projectId: string
+  ): Promise<WorkflowAssociation | null> => {
+    const response = await makeRequest(
+      `/api/projects/${projectId}/workflow-association`
+    );
+    return handleApiResponse<WorkflowAssociation | null>(response);
+  },
+
+  upsertWorkflowAssociation: async (
+    projectId: string,
+    data: UpsertWorkflowAssociation
+  ): Promise<WorkflowAssociation> => {
+    const response = await makeRequest(
+      `/api/projects/${projectId}/workflow-association`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<WorkflowAssociation>(response);
+  },
+
+  deleteWorkflowAssociation: async (projectId: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/projects/${projectId}/workflow-association`,
+      { method: 'DELETE' }
+    );
+    return handleApiResponse<void>(response);
   },
 
   getRemoteMembers: async (
@@ -680,6 +714,31 @@ export const tasksApi = {
     return handleApiResponse<Task>(response);
   },
 
+  getWorkflowAssociations: async (
+    taskId: string
+  ): Promise<WorkflowAssociationResolution> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/workflow-associations`);
+    return handleApiResponse<WorkflowAssociationResolution>(response);
+  },
+
+  upsertWorkflowAssociation: async (
+    taskId: string,
+    data: UpsertWorkflowAssociation
+  ): Promise<WorkflowAssociation> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/workflow-association`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<WorkflowAssociation>(response);
+  },
+
+  deleteWorkflowAssociation: async (taskId: string): Promise<void> => {
+    const response = await makeRequest(`/api/tasks/${taskId}/workflow-association`, {
+      method: 'DELETE',
+    });
+    return handleApiResponse<void>(response);
+  },
+
   bulkUpdateStatus: async (
     data: BulkUpdateTaskStatusRequest
   ): Promise<BulkUpdateTaskStatusResponse> => {
@@ -841,6 +900,37 @@ export const taskGroupsApi = {
       body: JSON.stringify(data),
     });
     return handleApiResponse<TaskGroup>(response);
+  },
+
+  getWorkflowAssociations: async (
+    groupId: string
+  ): Promise<WorkflowAssociationResolution> => {
+    const response = await makeRequest(
+      `/api/task-groups/${groupId}/workflow-associations`
+    );
+    return handleApiResponse<WorkflowAssociationResolution>(response);
+  },
+
+  upsertWorkflowAssociation: async (
+    groupId: string,
+    data: UpsertWorkflowAssociation
+  ): Promise<WorkflowAssociation> => {
+    const response = await makeRequest(
+      `/api/task-groups/${groupId}/workflow-association`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<WorkflowAssociation>(response);
+  },
+
+  deleteWorkflowAssociation: async (groupId: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/task-groups/${groupId}/workflow-association`,
+      { method: 'DELETE' }
+    );
+    return handleApiResponse<void>(response);
   },
 
   delete: async (groupId: string): Promise<void> => {

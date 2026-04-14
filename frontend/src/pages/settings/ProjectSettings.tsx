@@ -27,12 +27,26 @@ import { useProjectMutations } from '@/hooks/useProjectMutations';
 import { useScriptPlaceholders } from '@/hooks/useScriptPlaceholders';
 import { useDeleteTaskGroup, useTaskGroups } from '@/hooks/useTaskGroups';
 import { CopyFilesField } from '@/components/projects/CopyFilesField';
+import { WorkflowAssociationFields } from '@/components/tasks/WorkflowAssociationFields';
+import {
+  emptyWorkflowAssociationFormState,
+  getWorkflowAssociationFormError,
+  workflowAssociationFormToPayload,
+  workflowAssociationToFormState,
+  type WorkflowAssociationFormState,
+} from '@/components/tasks/workflowAssociationHelpers';
 import { AutoExpandingTextarea } from '@/components/ui/auto-expanding-textarea';
 import { TaskGroupFormDialog } from '@/components/dialogs';
 import { RepoPickerDialog } from '@/components/dialogs/shared/RepoPickerDialog';
 import { projectsApi } from '@/lib/api';
 import { repoBranchKeys } from '@/hooks/useRepoBranches';
-import type { Project, ProjectRepo, Repo, UpdateProject } from 'shared/types';
+import type {
+  Project,
+  ProjectRepo,
+  Repo,
+  UpdateProject,
+  WorkflowAssociation,
+} from 'shared/types';
 
 interface ProjectFormState {
   name: string;
@@ -94,6 +108,15 @@ export function ProjectSettings() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [projectWorkflowAssociation, setProjectWorkflowAssociation] =
+    useState<WorkflowAssociation | null>(null);
+  const [workflowDraft, setWorkflowDraft] = useState<WorkflowAssociationFormState>(
+    emptyWorkflowAssociationFormState
+  );
+  const [loadingWorkflow, setLoadingWorkflow] = useState(false);
+  const [savingWorkflow, setSavingWorkflow] = useState(false);
+  const [workflowError, setWorkflowError] = useState<string | null>(null);
+  const [workflowSuccess, setWorkflowSuccess] = useState(false);
 
   // Repositories state
   const [repositories, setRepositories] = useState<Repo[]>([]);
@@ -135,6 +158,14 @@ export function ProjectSettings() {
     return !isEqual(draft, projectToFormState(selectedProject));
   }, [draft, selectedProject]);
 
+  // Check for unsaved workflow changes
+  const hasUnsavedWorkflowChanges = useMemo(() => {
+    return !isEqual(
+      workflowDraft,
+      workflowAssociationToFormState(projectWorkflowAssociation)
+    );
+  }, [projectWorkflowAssociation, workflowDraft]);
+
   // Check for unsaved script changes
   const hasUnsavedScriptsChanges = useMemo(() => {
     if (!scriptsDraft || !selectedProjectRepo) return false;
@@ -146,7 +177,9 @@ export function ProjectSettings() {
 
   // Combined check for any unsaved changes
   const hasUnsavedChanges =
-    hasUnsavedProjectChanges || hasUnsavedScriptsChanges;
+    hasUnsavedProjectChanges ||
+    hasUnsavedScriptsChanges ||
+    hasUnsavedWorkflowChanges;
 
   // Handle project selection from dropdown
   const handleProjectSelect = useCallback(
@@ -247,6 +280,81 @@ export function ProjectSettings() {
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setProjectWorkflowAssociation(null);
+      setWorkflowDraft(emptyWorkflowAssociationFormState);
+      return;
+    }
+
+    setLoadingWorkflow(true);
+    setWorkflowError(null);
+    projectsApi
+      .getWorkflowAssociation(selectedProjectId)
+      .then((association) => {
+        setProjectWorkflowAssociation(association);
+        setWorkflowDraft(workflowAssociationToFormState(association));
+      })
+      .catch((err) => {
+        setWorkflowError(
+          err instanceof Error
+            ? err.message
+            : 'Failed to load workflow association'
+        );
+        setProjectWorkflowAssociation(null);
+        setWorkflowDraft(emptyWorkflowAssociationFormState);
+      })
+      .finally(() => setLoadingWorkflow(false));
+  }, [selectedProjectId]);
+
+  const workflowAssociationError = getWorkflowAssociationFormError(
+    workflowDraft
+  );
+
+  const handleSaveWorkflowAssociation = async () => {
+    if (!selectedProjectId) return;
+    if (workflowAssociationError) {
+      setWorkflowError(workflowAssociationError);
+      return;
+    }
+
+    setSavingWorkflow(true);
+    setWorkflowError(null);
+    setWorkflowSuccess(false);
+
+    try {
+      const payload = workflowAssociationFormToPayload(workflowDraft);
+      const association = payload
+        ? await projectsApi.upsertWorkflowAssociation(selectedProjectId, payload)
+        : projectWorkflowAssociation
+          ? await (async () => {
+              await projectsApi.deleteWorkflowAssociation(selectedProjectId);
+              return null;
+            })()
+          : null;
+
+      setProjectWorkflowAssociation(association);
+      setWorkflowDraft(workflowAssociationToFormState(association));
+      setWorkflowSuccess(true);
+      setTimeout(() => setWorkflowSuccess(false), 3000);
+    } catch (err) {
+      setWorkflowError(
+        err instanceof Error ? err.message : 'Failed to save workflow association'
+      );
+    } finally {
+      setSavingWorkflow(false);
+    }
+  };
+
+  const handleDiscardWorkflowAssociation = () => {
+    setWorkflowDraft(workflowAssociationToFormState(projectWorkflowAssociation));
+    setWorkflowError(null);
+  };
+
+  const updateWorkflowDraft = (updates: Partial<WorkflowAssociationFormState>) => {
+    setWorkflowDraft((previous) => ({ ...previous, ...updates }));
+  };
 
   // Fetch repositories when project changes
   useEffect(() => {
@@ -710,6 +818,79 @@ export function ProjectSettings() {
                 <Alert>
                   <AlertDescription>
                     {t('settings.projects.save.success')}
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          </SettingsSection>
+
+          <SettingsSection
+            id="project-workflows"
+            title="Workflow Association"
+            description="Set the repository-level default n8n workflow metadata used when a task group or task does not override it."
+            collapsible
+            defaultExpanded={false}
+          >
+            <div className="space-y-4">
+              {loadingWorkflow ? (
+                <SkeletonForm fields={1} />
+              ) : (
+                <WorkflowAssociationFields
+                  title="Repository workflow default"
+                  description="This metadata becomes the fallback association for tasks in this project. Task group defaults and task overrides take precedence."
+                  value={workflowDraft}
+                  onChange={updateWorkflowDraft}
+                  error={workflowAssociationError}
+                  onClear={() => setWorkflowDraft(emptyWorkflowAssociationFormState)}
+                />
+              )}
+
+              <div className="flex items-center justify-between pt-4 border-t">
+                {hasUnsavedWorkflowChanges ? (
+                  <Text variant="secondary" size="sm">
+                    {t('settings.projects.save.unsavedChanges')}
+                  </Text>
+                ) : (
+                  <span />
+                )}
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleDiscardWorkflowAssociation}
+                    disabled={savingWorkflow || !hasUnsavedWorkflowChanges}
+                  >
+                    {t('settings.projects.save.discard')}
+                  </Button>
+                  <Button
+                    onClick={handleSaveWorkflowAssociation}
+                    disabled={
+                      loadingWorkflow ||
+                      savingWorkflow ||
+                      !hasUnsavedWorkflowChanges ||
+                      !!workflowAssociationError
+                    }
+                  >
+                    {savingWorkflow ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        {t('settings.projects.save.saving')}
+                      </>
+                    ) : (
+                      'Save workflow association'
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {workflowError && (
+                <Alert variant="destructive">
+                  <AlertDescription>{workflowError}</AlertDescription>
+                </Alert>
+              )}
+              {workflowSuccess && (
+                <Alert>
+                  <AlertDescription>
+                    Workflow association saved successfully
                   </AlertDescription>
                 </Alert>
               )}

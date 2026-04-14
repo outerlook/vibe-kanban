@@ -21,6 +21,9 @@ use db::models::{
     repo::Repo,
     task::{CreateTask, Task, TaskOrderBy, TaskStatus, TaskWithAttemptStatus, UpdateTask},
     task_group::TaskGroup,
+    workflow_association::{
+        UpsertWorkflowAssociation, WorkflowAssociation, WorkflowAssociationResolution,
+    },
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
@@ -452,6 +455,39 @@ pub async fn get_task(
     State(_deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Task>>, ApiError> {
     Ok(ResponseJson(ApiResponse::success(task)))
+}
+
+pub async fn get_task_workflow_associations(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<WorkflowAssociationResolution>>, ApiError> {
+    let resolution = WorkflowAssociation::resolve_for_task(&deployment.db().pool, &task).await?;
+    Ok(ResponseJson(ApiResponse::success(resolution)))
+}
+
+pub async fn upsert_task_workflow_association(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<UpsertWorkflowAssociation>,
+) -> Result<ResponseJson<ApiResponse<WorkflowAssociation>>, ApiError> {
+    let association =
+        WorkflowAssociation::upsert_for_task(&deployment.db().pool, task.id, &payload).await?;
+    Ok(ResponseJson(ApiResponse::success(association)))
+}
+
+pub async fn delete_task_workflow_association(
+    Extension(task): Extension<Task>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    let deleted = WorkflowAssociation::delete_for_task(&deployment.db().pool, task.id).await?;
+    if deleted == 0 {
+        return Err(ApiError::NotFound(format!(
+            "No workflow association found for task {}",
+            task.id
+        )));
+    }
+
+    Ok(ResponseJson(ApiResponse::success(())))
 }
 
 pub async fn get_task_orchestration_context(
@@ -1198,7 +1234,15 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let task_actions_router = Router::new()
         .route("/", put(update_task))
         .route("/", delete(delete_task))
-        .route("/share", post(share_task));
+        .route("/share", post(share_task))
+        .route(
+            "/workflow-associations",
+            get(get_task_workflow_associations),
+        )
+        .route(
+            "/workflow-association",
+            put(upsert_task_workflow_association).delete(delete_task_workflow_association),
+        );
 
     let task_id_router = Router::new()
         .route("/", get(get_task))
@@ -1282,6 +1326,7 @@ mod lifecycle_tests {
         project::CreateProject,
         session::{CreateSession, Session},
         task::{CreateTask, TaskStatus},
+        workflow_association::WorkflowAssociationResolution,
         workspace::{CreateWorkspace, Workspace},
     };
     use local_deployment::LocalDeployment;
@@ -1293,6 +1338,89 @@ mod lifecycle_tests {
 
     use super::*;
     use crate::middleware::load_project_middleware;
+
+    fn reset_test_database() {
+        let db_path = utils::assets::asset_dir().join("db.sqlite");
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(db_path.with_extension("sqlite-wal"));
+        let _ = std::fs::remove_file(db_path.with_extension("sqlite-shm"));
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn task_workflow_association_routes_resolve_precedence() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        reset_test_database();
+        let deployment = LocalDeployment::new().await.unwrap();
+        let project = create_project(&deployment, "workflow-task").await;
+        let group = TaskGroup::create(
+            &deployment.db().pool,
+            project.id,
+            "Workflow group".to_string(),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let task = Task::create(
+            &deployment.db().pool,
+            &CreateTask {
+                project_id: project.id,
+                title: "Resolve association".to_string(),
+                description: None,
+                status: Some(TaskStatus::Todo),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: Some(group.id),
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        let app = super::router(&deployment).with_state(deployment.clone());
+
+        let request = |method: &str, path: String, body: serde_json::Value| {
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+
+        app.clone()
+            .oneshot(request(
+                "PUT",
+                format!("/tasks/{}/workflow-association", task.id),
+                serde_json::json!({
+                    "workflow_id": "wf-task",
+                    "label": "Task workflow",
+                    "url": "https://n8n.example/task"
+                }),
+            ))
+            .await
+            .unwrap();
+
+        let get_response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/tasks/{}/workflow-associations", task.id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(get_response.status(), StatusCode::OK);
+        let body = to_bytes(get_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let api_response: ApiResponse<WorkflowAssociationResolution> =
+            serde_json::from_slice(&body).unwrap();
+        let data = api_response.into_data().unwrap();
+        assert_eq!(data.effective.unwrap().workflow_id, "wf-task");
+    }
 
     fn bulk_tasks_test_router(deployment: DeploymentImpl) -> Router {
         let project_routes = Router::new().nest(
@@ -1473,6 +1601,7 @@ mod lifecycle_tests {
     #[allow(clippy::await_holding_lock)]
     async fn bulk_status_rejects_cross_project_tasks_without_mutating() {
         let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        reset_test_database();
         let deployment = LocalDeployment::new().await.unwrap();
         let project = create_project(&deployment, "bulk-status-main").await;
         let other_project = create_project(&deployment, "bulk-status-other").await;
@@ -1529,6 +1658,7 @@ mod lifecycle_tests {
     #[allow(clippy::await_holding_lock)]
     async fn bulk_status_dispatches_status_change_side_effects() {
         let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        reset_test_database();
         let deployment = LocalDeployment::new().await.unwrap();
         let project = create_project(&deployment, "bulk-status-events").await;
         let first_task =
@@ -1590,6 +1720,7 @@ mod lifecycle_tests {
     #[allow(clippy::await_holding_lock)]
     async fn bulk_delete_rejects_if_any_task_has_running_processes() {
         let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        reset_test_database();
         let deployment = LocalDeployment::new().await.unwrap();
         let project = create_project(&deployment, "bulk-delete-guard").await;
         let deletable_task =
@@ -1635,6 +1766,7 @@ mod lifecycle_tests {
     #[allow(clippy::await_holding_lock)]
     async fn bulk_delete_clears_child_parent_links_and_returns_deleted_ids() {
         let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        reset_test_database();
         let deployment = LocalDeployment::new().await.unwrap();
         let project = create_project(&deployment, "bulk-delete-side-effects").await;
         let parent_task =

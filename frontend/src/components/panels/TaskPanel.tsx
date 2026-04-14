@@ -11,7 +11,6 @@ import { NewCardContent } from '../ui/new-card';
 import { Button } from '../ui/button';
 import { PlusIcon, MessageSquare } from 'lucide-react';
 import { HookStatusDetails } from '@/components/tasks/HookStatusDetails';
-import { useProjectTasksContext } from '@/contexts/ProjectTasksContext';
 import { CreateAttemptDialog } from '@/components/dialogs/tasks/CreateAttemptDialog';
 import WYSIWYGEditor from '@/components/ui/wysiwyg';
 import { DataTable, type ColumnDef } from '@/components/ui/table';
@@ -25,7 +24,6 @@ const TaskPanel = ({ task }: TaskPanelProps) => {
   const { t } = useTranslation('tasks');
   const navigate = useNavigateWithSearch();
   const { projectId } = useProject();
-  const { hookExecutionsByTaskId } = useProjectTasksContext();
 
   // Stream workspaces with sessions via WebSocket
   const {
@@ -179,16 +177,14 @@ const TaskPanel = ({ task }: TaskPanelProps) => {
               />
             )}
 
-            {hookExecutionsByTaskId[task.id]?.length > 0 && (
-              <div className="rounded-lg border bg-card">
-                <div className="px-4 py-2 border-b text-sm font-medium">
-                  Hooks
-                </div>
-                <div className="px-4">
-                  <HookStatusDetails taskId={task.id} />
-                </div>
+            <div className="rounded-lg border bg-card">
+              <div className="px-4 py-2 border-b text-sm font-medium">
+                Automation
               </div>
-            )}
+              <div className="px-4">
+                <HookStatusDetails taskId={task.id} />
+              </div>
+            </div>
           </div>
         </div>
       </NewCardContent>
