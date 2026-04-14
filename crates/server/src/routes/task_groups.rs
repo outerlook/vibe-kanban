@@ -12,6 +12,10 @@ use db::models::{
 };
 use deployment::Deployment;
 use serde::{Deserialize, Serialize};
+use services::services::{
+    container::ContainerService,
+    domain_events::{DomainEvent, TaskGroupTransitionAction},
+};
 use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
@@ -94,6 +98,18 @@ pub async fn create_task_group(
     )
     .await?;
 
+    deployment
+        .container()
+        .dispatch_event(DomainEvent::TaskGroupTransition {
+            action: TaskGroupTransitionAction::Created,
+            project_id: task_group.project_id,
+            task_group_id: Some(task_group.id),
+            previous_task_group_id: None,
+            task_ids: Vec::new(),
+            occurred_at: task_group.created_at,
+        })
+        .await;
+
     Ok(ResponseJson(ApiResponse::success(task_group)))
 }
 
@@ -112,6 +128,18 @@ pub async fn update_task_group(
         .await?
         .ok_or_else(|| ApiError::NotFound("Task group not found".to_string()))?;
 
+    deployment
+        .container()
+        .dispatch_event(DomainEvent::TaskGroupTransition {
+            action: TaskGroupTransitionAction::Updated,
+            project_id: task_group.project_id,
+            task_group_id: Some(task_group.id),
+            previous_task_group_id: None,
+            task_ids: Vec::new(),
+            occurred_at: task_group.updated_at,
+        })
+        .await;
+
     Ok(ResponseJson(ApiResponse::success(task_group)))
 }
 
@@ -124,6 +152,18 @@ pub async fn delete_task_group(
     if rows_affected == 0 {
         return Err(ApiError::NotFound("Task group not found".to_string()));
     }
+
+    deployment
+        .container()
+        .dispatch_event(DomainEvent::TaskGroupTransition {
+            action: TaskGroupTransitionAction::Deleted,
+            project_id: task_group.project_id,
+            task_group_id: Some(task_group.id),
+            previous_task_group_id: None,
+            task_ids: Vec::new(),
+            occurred_at: chrono::Utc::now(),
+        })
+        .await;
 
     Ok((StatusCode::OK, ResponseJson(ApiResponse::success(()))))
 }
@@ -147,6 +187,18 @@ pub async fn bulk_assign_tasks(
     )
     .await?;
 
+    deployment
+        .container()
+        .dispatch_event(DomainEvent::TaskGroupTransition {
+            action: TaskGroupTransitionAction::AssignmentChanged,
+            project_id: task_group.project_id,
+            task_group_id: Some(task_group.id),
+            previous_task_group_id: None,
+            task_ids: payload.task_ids.clone(),
+            occurred_at: chrono::Utc::now(),
+        })
+        .await;
+
     Ok(ResponseJson(ApiResponse::success(
         BulkAssignTasksResponse { updated_count },
     )))
@@ -157,6 +209,17 @@ pub async fn merge_task_group(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<MergeTaskGroupRequest>,
 ) -> Result<ResponseJson<ApiResponse<TaskGroup>>, ApiError> {
+    let moved_task_ids = db::models::task::Task::find_by_project_id_with_attempt_status(
+        &deployment.db().pool,
+        source_group.project_id,
+    )
+    .await?
+    .into_iter()
+    .map(|task| task.task)
+    .filter(|task| task.task_group_id == Some(source_group.id))
+    .map(|task| task.id)
+    .collect::<Vec<_>>();
+
     let target = TaskGroup::merge_into(
         &deployment.db().pool,
         source_group.id,
@@ -174,6 +237,18 @@ pub async fn merge_task_group(
         }
         MergeError::Database(db_err) => ApiError::Database(db_err),
     })?;
+
+    deployment
+        .container()
+        .dispatch_event(DomainEvent::TaskGroupTransition {
+            action: TaskGroupTransitionAction::Merged,
+            project_id: target.project_id,
+            task_group_id: Some(target.id),
+            previous_task_group_id: Some(source_group.id),
+            task_ids: moved_task_ids,
+            occurred_at: chrono::Utc::now(),
+        })
+        .await;
 
     Ok(ResponseJson(ApiResponse::success(target)))
 }
@@ -215,4 +290,136 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .nest("/{group_id}", task_group_actions);
 
     Router::new().nest("/task-groups", inner)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use axum::{Extension, Json, extract::State};
+    use db::models::{
+        project::{CreateProject, Project},
+        task::{CreateTask, Task},
+    };
+    use deployment::Deployment;
+    use local_deployment::LocalDeployment;
+    use services::services::domain_events::{
+        OrchestrationEventPublisherHandle, OrchestrationEventType,
+        RecordingOrchestrationEventPublisher,
+    };
+
+    use super::*;
+
+
+    async fn create_project(deployment: &DeploymentImpl, name: &str) -> Project {
+        Project::create(
+            &deployment.db().pool,
+            &CreateProject {
+                name: name.to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn wait_for_event_types(
+        publisher: &RecordingOrchestrationEventPublisher,
+        minimum: usize,
+    ) -> Vec<OrchestrationEventType> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let events = publisher
+                .published()
+                .into_iter()
+                .map(|(_, envelope)| envelope.event_type)
+                .collect::<Vec<_>>();
+            if events.len() >= minimum || tokio::time::Instant::now() >= deadline {
+                return events;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn task_group_routes_emit_transition_and_completion_events() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let publisher = RecordingOrchestrationEventPublisher::default();
+        let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
+        let deployment =
+            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+                .await
+                .unwrap();
+        let project = create_project(&deployment, "task-group-events").await;
+
+        let group = create_task_group(
+            State(deployment.clone()),
+            Json(CreateTaskGroupRequest {
+                project_id: project.id,
+                name: "Group A".to_string(),
+                description: None,
+                base_branch: None,
+            }),
+        )
+        .await
+        .unwrap()
+        .0
+        .into_data()
+        .unwrap();
+
+        let task = Task::create(
+            &deployment.db().pool,
+            &CreateTask {
+                project_id: project.id,
+                title: "Done task".to_string(),
+                description: None,
+                status: Some(db::models::task::TaskStatus::Done),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: None,
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        let _ = bulk_assign_tasks(
+            Extension(group.clone()),
+            State(deployment.clone()),
+            Json(BulkAssignTasksRequest {
+                task_ids: vec![task.id],
+            }),
+        )
+        .await
+        .unwrap();
+
+        let assignment_event_types = wait_for_event_types(&publisher, 3).await;
+        assert!(assignment_event_types.contains(&OrchestrationEventType::TaskGroupTransition));
+        assert!(assignment_event_types.contains(&OrchestrationEventType::TaskGroupCompleted));
+
+        let group = update_task_group(
+            Extension(group.clone()),
+            State(deployment.clone()),
+            Json(UpdateTaskGroupRequest {
+                name: Some("Group A+".to_string()),
+                description: None,
+                base_branch: None,
+            }),
+        )
+        .await
+        .unwrap()
+        .0
+        .into_data()
+        .unwrap();
+
+        let _ = delete_task_group(Extension(group), State(deployment.clone()))
+            .await
+            .unwrap();
+
+        let event_types = wait_for_event_types(&publisher, 4).await;
+        assert!(event_types.contains(&OrchestrationEventType::TaskGroupTransition));
+    }
 }

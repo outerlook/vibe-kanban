@@ -48,3 +48,7 @@ pub async fn perform_cleanup_actions(deployment: &DeploymentImpl) {
         .await
         .expect("Failed to cleanly kill running execution processes");
 }
+
+#[cfg(test)]
+pub(crate) static TEST_DB_LOCK: std::sync::LazyLock<std::sync::Mutex<()>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(()));

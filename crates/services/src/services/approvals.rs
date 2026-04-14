@@ -27,6 +27,11 @@ use utils::{
 };
 use uuid::Uuid;
 
+use super::domain_events::{
+    ApprovalEventKind, ApprovalResolution, DomainEvent, DomainEventEntityIds,
+    EventDispatchCallback,
+};
+
 #[derive(Debug)]
 struct PendingApproval {
     /// Index and entry of the matching tool use. May be None if the entry was
@@ -56,6 +61,7 @@ pub struct Approvals {
     completed: Arc<DashMap<String, ApprovalStatus>>,
     msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
     protocol_peers: Arc<RwLock<HashMap<Uuid, ProtocolPeer>>>,
+    event_dispatcher: Arc<RwLock<Option<EventDispatchCallback>>>,
 }
 
 #[derive(Debug, Error)]
@@ -86,7 +92,13 @@ impl Approvals {
             completed: Arc::new(DashMap::new()),
             msg_stores,
             protocol_peers,
+            event_dispatcher: Arc::new(RwLock::new(None)),
         }
+    }
+
+    pub async fn set_event_dispatcher(&self, dispatcher: EventDispatchCallback) {
+        let mut guard = self.event_dispatcher.write().await;
+        *guard = Some(dispatcher);
     }
 
     /// Register a protocol peer for an execution process
@@ -104,6 +116,36 @@ impl Approvals {
     /// Get the protocol peers map for external access
     pub fn protocol_peers(&self) -> &Arc<RwLock<HashMap<Uuid, ProtocolPeer>>> {
         &self.protocol_peers
+    }
+
+    async fn dispatch_event(&self, event: DomainEvent) {
+        let dispatcher = { self.event_dispatcher.read().await.clone() };
+        if let Some(dispatcher) = dispatcher {
+            dispatcher(event).await;
+        }
+    }
+
+    async fn event_entity_ids(&self, execution_process_id: Uuid) -> DomainEventEntityIds {
+        match ExecutionProcess::load_context(&self.db, execution_process_id).await {
+            Ok(ctx) => DomainEventEntityIds {
+                task_id: Some(ctx.task.id),
+                workspace_id: Some(ctx.workspace.id),
+                session_id: Some(ctx.session.id),
+                execution_process_id: Some(execution_process_id),
+                task_group_id: ctx.task.task_group_id,
+            },
+            Err(error) => {
+                tracing::warn!(
+                    ?error,
+                    execution_process_id = %execution_process_id,
+                    "Failed to load approval event context"
+                );
+                DomainEventEntityIds {
+                    execution_process_id: Some(execution_process_id),
+                    ..DomainEventEntityIds::default()
+                }
+            }
+        }
     }
 
     pub async fn create_with_waiter(
@@ -202,6 +244,30 @@ impl Approvals {
         if let Some(timeout_at) = request.timeout_at {
             self.spawn_timeout_watcher(req_id.clone(), timeout_at, waiter.clone());
         }
+
+        let entity_ids = self.event_entity_ids(request.execution_process_id).await;
+        let (kind, tool_name, question_count) = match &request.request_type {
+            ApprovalRequestType::ToolApproval { tool_name, .. } => {
+                (ApprovalEventKind::ToolApproval, Some(tool_name.clone()), None)
+            }
+            ApprovalRequestType::UserQuestion { questions } => (
+                ApprovalEventKind::UserQuestion,
+                None,
+                Some(questions.len()),
+            ),
+        };
+
+        self.dispatch_event(DomainEvent::ApprovalRequested {
+            approval_id: request.id.clone(),
+            kind,
+            tool_call_id: request.tool_call_id.clone(),
+            tool_name,
+            question_count,
+            entity_ids,
+            occurred_at: request.created_at,
+        })
+        .await;
+
         Ok((request, waiter))
     }
 
@@ -286,13 +352,36 @@ impl Approvals {
             ) && let Ok(ctx) =
                 ExecutionProcess::load_context(pool, tool_ctx.execution_process_id).await
                 && ctx.task.status == TaskStatus::InReview
-                && let Err(e) = Task::update_status(pool, ctx.task.id, TaskStatus::InProgress).await
             {
-                tracing::warn!(
-                    "Failed to update task status to InProgress after approval response: {}",
-                    e
-                );
+                let previous_status = ctx.task.status.clone();
+                match Task::update_status(pool, ctx.task.id, TaskStatus::InProgress).await {
+                    Ok(_) => {
+                        let mut updated_task = ctx.task.clone();
+                        updated_task.status = TaskStatus::InProgress;
+                        self.dispatch_event(DomainEvent::TaskStatusChanged {
+                            task: updated_task,
+                            previous_status,
+                        })
+                        .await;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to update task status to InProgress after approval response: {}",
+                            e
+                        );
+                    }
+                }
             }
+
+            let entity_ids = self.event_entity_ids(tool_ctx.execution_process_id).await;
+            self.dispatch_event(DomainEvent::ApprovalResolved {
+                approval_id: id.to_string(),
+                resolution: approval_resolution(&final_status),
+                tool_call_id: Some(tool_ctx.tool_call_id.clone()),
+                entity_ids,
+                occurred_at: chrono::Utc::now(),
+            })
+            .await;
 
             Ok((final_status, tool_ctx))
         } else if self.completed.contains_key(id) {
@@ -323,6 +412,16 @@ impl Approvals {
                     needs_follow_up: true, // Executor was dead, needs follow-up
                 };
 
+                let entity_ids = self.event_entity_ids(tool_ctx.execution_process_id).await;
+                self.dispatch_event(DomainEvent::ApprovalResolved {
+                    approval_id: id.to_string(),
+                    resolution: approval_resolution(&final_status),
+                    tool_call_id: Some(tool_ctx.tool_call_id.clone()),
+                    entity_ids,
+                    occurred_at: chrono::Utc::now(),
+                })
+                .await;
+
                 Ok((final_status, tool_ctx))
             } else {
                 Err(ApprovalError::NotFound)
@@ -340,6 +439,7 @@ impl Approvals {
         let pending = self.pending.clone();
         let completed = self.completed.clone();
         let msg_stores = self.msg_stores.clone();
+        let approvals = self.clone();
 
         let now = chrono::Utc::now();
         let to_wait = (timeout_at - now)
@@ -391,6 +491,19 @@ impl Approvals {
                         pending_approval.execution_process_id
                     );
                 }
+
+                let entity_ids = approvals
+                    .event_entity_ids(pending_approval.execution_process_id)
+                    .await;
+                approvals
+                    .dispatch_event(DomainEvent::ApprovalResolved {
+                        approval_id: id.clone(),
+                        resolution: ApprovalResolution::TimedOut,
+                        tool_call_id: Some(pending_approval.tool_call_id.clone()),
+                        entity_ids,
+                        occurred_at: chrono::Utc::now(),
+                    })
+                    .await;
             }
         });
     }
@@ -401,15 +514,42 @@ impl Approvals {
     }
 }
 
-pub(crate) async fn ensure_task_in_review(pool: &SqlitePool, execution_process_id: Uuid) {
+fn approval_resolution(status: &ApprovalStatus) -> ApprovalResolution {
+    match status {
+        ApprovalStatus::Approved => ApprovalResolution::Approved,
+        ApprovalStatus::Denied { .. } => ApprovalResolution::Denied,
+        ApprovalStatus::Answered { .. } => ApprovalResolution::Answered,
+        ApprovalStatus::TimedOut | ApprovalStatus::Pending => ApprovalResolution::TimedOut,
+    }
+}
+
+pub(crate) async fn ensure_task_in_review(
+    approvals: &Approvals,
+    pool: &SqlitePool,
+    execution_process_id: Uuid,
+) {
     if let Ok(ctx) = ExecutionProcess::load_context(pool, execution_process_id).await
         && ctx.task.status == TaskStatus::InProgress
-        && let Err(e) = Task::update_status(pool, ctx.task.id, TaskStatus::InReview).await
     {
-        tracing::warn!(
-            "Failed to update task status to InReview for approval request: {}",
-            e
-        );
+        let previous_status = ctx.task.status.clone();
+        match Task::update_status(pool, ctx.task.id, TaskStatus::InReview).await {
+            Ok(_) => {
+                let mut updated_task = ctx.task.clone();
+                updated_task.status = TaskStatus::InReview;
+                approvals
+                    .dispatch_event(DomainEvent::TaskStatusChanged {
+                        task: updated_task,
+                        previous_status,
+                    })
+                    .await;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to update task status to InReview for approval request: {}",
+                    e
+                );
+            }
+        }
     }
 }
 
@@ -453,15 +593,42 @@ fn find_matching_tool_use(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{
+        collections::HashMap,
+        sync::Arc,
+        time::Duration,
+    };
 
-    use executors::logs::{ActionType, NormalizedEntry, NormalizedEntryType, ToolStatus};
+    use db::{
+        DBService,
+        models::{
+            execution_process::{
+                CreateExecutionProcess, ExecutionProcess, ExecutionProcessRunReason,
+            },
+            project::{CreateProject, Project},
+            session::{CreateSession, Session},
+            task::{CreateTask, Task, TaskStatus},
+            workspace::{CreateWorkspace, Workspace},
+        },
+    };
+    use executors::{
+        actions::{ExecutorAction, ExecutorActionType, script::{ScriptContext, ScriptRequest, ScriptRequestLanguage}},
+        logs::{ActionType, NormalizedEntry, NormalizedEntryType, ToolStatus},
+    };
     use utils::{
-        approvals::{QuestionAnswer, QuestionData, QuestionOption},
+        approvals::{
+            CreateApprovalRequest, QuestionAnswer, QuestionData, QuestionOption,
+        },
         msg_store::MsgStore,
     };
 
+    use crate::services::domain_events::{
+        EventDispatchCallback, OrchestrationEventMapper, OrchestrationEventPublisher,
+        OrchestrationEventType, RecordingOrchestrationEventPublisher,
+        default_topic_namespace,
+    };
     use super::*;
+
 
     fn create_tool_use_entry(
         tool_name: &str,
@@ -631,4 +798,193 @@ mod tests {
         // Test Pending -> None
         assert!(ToolStatus::from_approval_status(&ApprovalStatus::Pending).is_none());
     }
+
+
+    fn recording_dispatcher(
+        db: &DBService,
+        publisher: RecordingOrchestrationEventPublisher,
+    ) -> EventDispatchCallback {
+        let db = db.clone();
+        Arc::new(move |event| {
+            let db = db.clone();
+            let publisher = publisher.clone();
+            Box::pin(async move {
+                let mapper = OrchestrationEventMapper::new(db.pool.clone());
+                let envelopes = mapper.map_event(&event).await.expect("map orchestration event");
+                for envelope in envelopes {
+                    let event_name = serde_json::to_string(&envelope.event_type)
+                        .expect("event type serialization cannot fail")
+                        .trim_matches('"')
+                        .to_string();
+                    publisher
+                        .publish(
+                            format!("{}/{}", default_topic_namespace(), event_name),
+                            envelope,
+                        )
+                        .await
+                        .expect("publish orchestration event");
+                }
+            })
+        })
+    }
+
+    async fn wait_for_event_types(
+        publisher: &RecordingOrchestrationEventPublisher,
+        minimum: usize,
+    ) -> Vec<OrchestrationEventType> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let event_types = publisher
+                .published()
+                .into_iter()
+                .map(|(_, envelope)| envelope.event_type)
+                .collect::<Vec<_>>();
+            if event_types.len() >= minimum || tokio::time::Instant::now() >= deadline {
+                return event_types;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
+    async fn create_execution_context(
+        db: &DBService,
+        status: TaskStatus,
+    ) -> (Task, Workspace, Session, ExecutionProcess) {
+        let project = Project::create(
+            &db.pool,
+            &CreateProject {
+                name: "approval-events".to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .expect("create project");
+
+        let task = Task::create(
+            &db.pool,
+            &CreateTask {
+                project_id: project.id,
+                title: "approval-task".to_string(),
+                description: None,
+                status: Some(status),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: None,
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .expect("create task");
+
+        let workspace = Workspace::create(
+            &db.pool,
+            &CreateWorkspace {
+                branch: "approval-task".to_string(),
+                agent_working_dir: None,
+            },
+            Uuid::new_v4(),
+            task.id,
+        )
+        .await
+        .expect("create workspace");
+
+        let session = Session::create(
+            &db.pool,
+            &CreateSession {
+                executor: Some("\"claude-code\"".to_string()),
+            },
+            Uuid::new_v4(),
+            workspace.id,
+        )
+        .await
+        .expect("create session");
+
+        let execution = ExecutionProcess::create(
+            &db.pool,
+            &CreateExecutionProcess {
+                session_id: session.id,
+                executor_action: ExecutorAction::new(
+                    ExecutorActionType::ScriptRequest(ScriptRequest {
+                        script: "echo approval".to_string(),
+                        language: ScriptRequestLanguage::Bash,
+                        context: ScriptContext::SetupScript,
+                        working_dir: None,
+                    }),
+                    None,
+                ),
+                run_reason: ExecutionProcessRunReason::CodingAgent,
+            },
+            Uuid::new_v4(),
+            &[],
+        )
+        .await
+        .expect("create execution process");
+
+        (task, workspace, session, execution)
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn approvals_emit_request_resolution_and_status_events() {
+        let _lock = crate::services::TEST_DB_LOCK.lock().expect("lock poisoned");
+        let db = DBService::new().await.expect("db service");
+        let msg_stores = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
+        let publisher = RecordingOrchestrationEventPublisher::default();
+        let approvals = Approvals::new(db.pool.clone(), msg_stores, Arc::new(tokio::sync::RwLock::new(HashMap::new())));
+        approvals
+            .set_event_dispatcher(recording_dispatcher(&db, publisher.clone()))
+            .await;
+
+        let (task, _workspace, _session, execution) =
+            create_execution_context(&db, TaskStatus::InProgress).await;
+
+        ensure_task_in_review(&approvals, &db.pool, execution.id).await;
+
+        let request = ApprovalRequest::from_create(
+            CreateApprovalRequest {
+                tool_name: "Write".to_string(),
+                tool_input: serde_json::json!({ "path": "src/main.rs" }),
+                tool_call_id: "tool-call-1".to_string(),
+            },
+            execution.id,
+        );
+        let (request, _waiter) = approvals
+            .create_with_waiter(request)
+            .await
+            .expect("create approval");
+
+        approvals
+            .respond(
+                &db.pool,
+                &request.id,
+                ApprovalResponse {
+                    execution_process_id: execution.id,
+                    status: ApprovalStatus::Approved,
+                    answers: None,
+                },
+            )
+            .await
+            .expect("respond approval");
+
+        let event_types = wait_for_event_types(&publisher, 4).await;
+        assert!(event_types.contains(&OrchestrationEventType::ApprovalRequested));
+        assert!(event_types.contains(&OrchestrationEventType::ApprovalResolved));
+        assert_eq!(
+            event_types
+                .iter()
+                .filter(|event_type| **event_type == OrchestrationEventType::TaskStatusChanged)
+                .count(),
+            2,
+            "expected one task status change into review and one back into progress"
+        );
+
+        let updated_task = Task::find_by_id(&db.pool, task.id)
+            .await
+            .expect("load task")
+            .expect("task exists");
+        assert_eq!(updated_task.status, TaskStatus::InProgress);
+    }
+
 }

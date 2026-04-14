@@ -40,3 +40,7 @@ pub mod skills_cache;
 pub mod watcher_manager;
 pub mod workspace_manager;
 pub mod worktree_manager;
+
+#[cfg(test)]
+pub(crate) static TEST_DB_LOCK: std::sync::LazyLock<std::sync::Mutex<()>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(()));

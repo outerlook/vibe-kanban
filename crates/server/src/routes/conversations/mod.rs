@@ -31,6 +31,9 @@ use serde::{Deserialize, Serialize};
 use services::services::{
     container::ContainerService,
     conversation::{ConversationService, ConversationWithMessages, SendMessageResponse},
+    domain_events::{
+        DomainEvent, DomainEventEntityIds, FollowUpScope, FollowUpTransitionState,
+    },
 };
 use ts_rs::TS;
 use utils::response::ApiResponse;
@@ -121,7 +124,7 @@ pub async fn create_conversation(
     // Store executor name in session for future messages
     let executor_name = Some(executor_profile_id.executor.to_string());
 
-    let (session, initial_message) = ConversationService::create_conversation(
+    let (session, initial_message) = ConversationService::create_conversation_with_events(
         &deployment.db().pool,
         project_id,
         payload.title,
@@ -129,6 +132,7 @@ pub async fn create_conversation(
         executor_name,
         payload.worktree_path.clone(),
         payload.worktree_branch.clone(),
+        deployment.container().event_dispatch_callback(),
     )
     .await?;
 
@@ -207,11 +211,16 @@ pub async fn send_message(
     Json(payload): Json<SendMessageRequest>,
 ) -> Result<ResponseJson<ApiResponse<SendMessageResponse>>, ApiError> {
     let pool = &deployment.db().pool;
+    let event_dispatcher = deployment.container().event_dispatch_callback();
 
     // Create user message
-    let user_message =
-        ConversationService::add_user_message(pool, conversation.id, payload.content.clone())
-            .await?;
+    let user_message = ConversationService::add_user_message_with_events(
+        pool,
+        conversation.id,
+        payload.content.clone(),
+        event_dispatcher.clone(),
+    )
+    .await?;
 
     // Get the executor from the conversation session, or use a default
     let executor_name = conversation
@@ -270,6 +279,22 @@ pub async fn send_message(
         .container()
         .start_conversation_execution(&conversation, &executor_action)
         .await?;
+
+    if let Some(dispatcher) = event_dispatcher {
+        dispatcher(DomainEvent::FollowUpTransition {
+            state: FollowUpTransitionState::Started,
+            scope: FollowUpScope::Conversation,
+            queue_kind: None,
+            execution_process_id: Some(execution_process.id),
+            entity_ids: DomainEventEntityIds {
+                session_id: Some(conversation.id),
+                execution_process_id: Some(execution_process.id),
+                ..DomainEventEntityIds::default()
+            },
+            occurred_at: chrono::Utc::now(),
+        })
+        .await;
+    }
 
     Ok(ResponseJson(ApiResponse::success(SendMessageResponse {
         user_message,
@@ -370,4 +395,119 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             "/conversations/{conversation_id}/queue",
             queue::router(deployment),
         )
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use axum::{Extension, Json, extract::{Path as AxumPath, State}};
+    use db::models::{
+        conversation_session::{ConversationSession, CreateConversationSession},
+        project::{CreateProject, Project},
+    };
+    use local_deployment::LocalDeployment;
+    use services::services::domain_events::{
+        OrchestrationEventPublisherHandle, OrchestrationEventType,
+        RecordingOrchestrationEventPublisher,
+    };
+    use uuid::Uuid;
+
+    use super::*;
+
+    async fn create_project(deployment: &DeploymentImpl, name: &str) -> Project {
+        Project::create(
+            &deployment.db().pool,
+            &CreateProject {
+                name: name.to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn wait_for_event_types(
+        publisher: &RecordingOrchestrationEventPublisher,
+        minimum: usize,
+    ) -> Vec<OrchestrationEventType> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let events = publisher
+                .published()
+                .into_iter()
+                .map(|(_, envelope)| envelope.event_type)
+                .collect::<Vec<_>>();
+            if events.len() >= minimum || tokio::time::Instant::now() >= deadline {
+                return events;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn conversation_routes_emit_message_events_from_authoritative_handlers() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let publisher = RecordingOrchestrationEventPublisher::default();
+        let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
+        let deployment =
+            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+                .await
+                .unwrap();
+        let project = create_project(&deployment, "conversation-route-events").await;
+
+        let missing_worktree_path = std::env::temp_dir()
+            .join(format!("vk-conversation-missing-worktree-{}", Uuid::new_v4()));
+        let create_result = create_conversation(
+            State(deployment.clone()),
+            AxumPath(project.id),
+            Json(CreateConversationRequest {
+                title: "Conversation".to_string(),
+                initial_message: "hello from create".to_string(),
+                executor_profile_id: None,
+                worktree_path: Some(missing_worktree_path.to_string_lossy().to_string()),
+                worktree_branch: None,
+            }),
+        )
+        .await;
+        assert!(create_result.is_err());
+
+        let conversation = ConversationSession::create(
+            &deployment.db().pool,
+            CreateConversationSession {
+                project_id: project.id,
+                title: "Send message".to_string(),
+                executor: Some("not-a-real-executor".to_string()),
+                worktree_path: None,
+                worktree_branch: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let send_result = send_message(
+            Extension(conversation),
+            State(deployment.clone()),
+            Json(SendMessageRequest {
+                content: "hello from send".to_string(),
+                variant: None,
+            }),
+        )
+        .await;
+        assert!(send_result.is_err());
+
+        let event_types = wait_for_event_types(&publisher, 2).await;
+        assert_eq!(
+            event_types
+                .iter()
+                .filter(|event_type| {
+                    **event_type == OrchestrationEventType::ConversationMessageAdded
+                })
+                .count(),
+            2
+        );
+    }
 }

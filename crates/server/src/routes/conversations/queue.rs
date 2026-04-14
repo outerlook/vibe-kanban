@@ -5,7 +5,11 @@ use axum::{
 use db::models::{conversation_session::ConversationSession, scratch::DraftFollowUpData};
 use deployment::Deployment;
 use serde::Deserialize;
-use services::services::queued_message::QueueStatus;
+use services::services::{container::ContainerService, queued_message::QueueStatus};
+use services::services::domain_events::{
+    DomainEvent, DomainEventEntityIds, FollowUpQueueKind, FollowUpScope,
+    FollowUpTransitionState,
+};
 use ts_rs::TS;
 use utils::response::ApiResponse;
 
@@ -43,6 +47,21 @@ pub async fn queue_message(
         )
         .await;
 
+    if let Some(dispatcher) = deployment.container().event_dispatch_callback() {
+        dispatcher(DomainEvent::FollowUpTransition {
+            state: FollowUpTransitionState::Queued,
+            scope: FollowUpScope::Conversation,
+            queue_kind: Some(FollowUpQueueKind::AfterCurrentExecution),
+            execution_process_id: None,
+            entity_ids: DomainEventEntityIds {
+                session_id: Some(conversation.id),
+                ..DomainEventEntityIds::default()
+            },
+            occurred_at: queued.queued_at,
+        })
+        .await;
+    }
+
     Ok(ResponseJson(ApiResponse::success(QueueStatus::Queued {
         message: queued,
     })))
@@ -66,6 +85,21 @@ pub async fn cancel_queued_message(
             }),
         )
         .await;
+
+    if let Some(dispatcher) = deployment.container().event_dispatch_callback() {
+        dispatcher(DomainEvent::FollowUpTransition {
+            state: FollowUpTransitionState::Cancelled,
+            scope: FollowUpScope::Conversation,
+            queue_kind: Some(FollowUpQueueKind::AfterCurrentExecution),
+            execution_process_id: None,
+            entity_ids: DomainEventEntityIds {
+                session_id: Some(conversation.id),
+                ..DomainEventEntityIds::default()
+            },
+            occurred_at: chrono::Utc::now(),
+        })
+        .await;
+    }
 
     Ok(ResponseJson(ApiResponse::success(QueueStatus::Empty)))
 }
@@ -94,4 +128,100 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             deployment.clone(),
             load_conversation_middleware,
         ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use axum::{Extension, Json, extract::State};
+    use db::models::project::{CreateProject, Project};
+    use deployment::Deployment;
+    use local_deployment::LocalDeployment;
+    use services::services::{
+        conversation::ConversationService,
+        domain_events::{
+            OrchestrationEventPublisherHandle, OrchestrationEventType,
+            RecordingOrchestrationEventPublisher,
+        },
+    };
+    use uuid::Uuid;
+
+    use super::*;
+
+
+    async fn create_project(deployment: &DeploymentImpl, name: &str) -> Project {
+        Project::create(
+            &deployment.db().pool,
+            &CreateProject {
+                name: name.to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn wait_for_event_types(
+        publisher: &RecordingOrchestrationEventPublisher,
+        minimum: usize,
+    ) -> Vec<OrchestrationEventType> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let events = publisher
+                .published()
+                .into_iter()
+                .map(|(_, envelope)| envelope.event_type)
+                .collect::<Vec<_>>();
+            if events.len() >= minimum || tokio::time::Instant::now() >= deadline {
+                return events;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn queue_routes_emit_follow_up_transitions() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let publisher = RecordingOrchestrationEventPublisher::default();
+        let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
+        let deployment =
+            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+                .await
+                .unwrap();
+        let project = create_project(&deployment, "conversation-queue-events").await;
+        let (conversation, _) = ConversationService::create_conversation_with_events(
+            &deployment.db().pool,
+            project.id,
+            "Chat".to_string(),
+            "hello".to_string(),
+            Some("CLAUDE_CODE".to_string()),
+            None,
+            None,
+            deployment.container().event_dispatch_callback(),
+        )
+        .await
+        .unwrap();
+
+        let _ = queue_message(
+            Extension(conversation.clone()),
+            State(deployment.clone()),
+            Json(QueueMessageRequest {
+                message: "follow up".to_string(),
+                variant: None,
+            }),
+        )
+        .await
+        .unwrap();
+
+        let _ = cancel_queued_message(Extension(conversation), State(deployment.clone()))
+            .await
+            .unwrap();
+
+        let event_types = wait_for_event_types(&publisher, 3).await;
+        assert!(event_types.contains(&OrchestrationEventType::ConversationMessageAdded));
+        assert!(event_types.contains(&OrchestrationEventType::FollowUpTransition));
+    }
 }

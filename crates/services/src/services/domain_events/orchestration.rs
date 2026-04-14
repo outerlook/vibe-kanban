@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
@@ -15,11 +18,11 @@ use tokio::time::sleep;
 use ts_rs::TS;
 use uuid::Uuid;
 
-use super::DomainEvent;
+use super::{DomainEvent, TaskGroupTransitionAction, TaskLifecycleAction};
 
 pub const DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION: &str = "vk_n8n_orchestration_v1";
 
-fn default_topic_namespace() -> String {
+pub fn default_topic_namespace() -> String {
     "vk/orchestration".to_string()
 }
 
@@ -41,7 +44,11 @@ fn run_reason_name(
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum OrchestrationEventType {
+    TaskCreated,
+    TaskUpdated,
+    TaskDeleted,
     TaskStatusChanged,
+    ExecutionStarted,
     ExecutionCompleted,
     WorkspaceCreated,
     WorkspaceDeleted,
@@ -49,7 +56,9 @@ pub enum OrchestrationEventType {
     ApprovalRequested,
     ApprovalResolved,
     ConversationMessageAdded,
+    FollowUpTransition,
     MergeQueueTransition,
+    TaskGroupTransition,
     TaskGroupCompleted,
 }
 
@@ -181,6 +190,31 @@ pub trait OrchestrationEventPublisher: Send + Sync {
 
 pub type OrchestrationEventPublisherHandle = Arc<dyn OrchestrationEventPublisher>;
 
+#[derive(Clone, Default)]
+pub struct RecordingOrchestrationEventPublisher {
+    published: Arc<Mutex<Vec<(String, OrchestrationEventEnvelope)>>>,
+}
+
+impl RecordingOrchestrationEventPublisher {
+    pub fn published(&self) -> Vec<(String, OrchestrationEventEnvelope)> {
+        self.published
+            .lock()
+            .expect("publisher mutex poisoned")
+            .clone()
+    }
+}
+
+#[async_trait]
+impl OrchestrationEventPublisher for RecordingOrchestrationEventPublisher {
+    async fn publish(&self, topic: String, envelope: OrchestrationEventEnvelope) -> Result<()> {
+        self.published
+            .lock()
+            .expect("publisher mutex poisoned")
+            .push((topic, envelope));
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 pub struct MqttOrchestrationEventPublisher {
     client: AsyncClient,
@@ -286,15 +320,31 @@ impl OrchestrationEventMapper {
     pub async fn map_event(&self, event: &DomainEvent) -> Result<Vec<OrchestrationEventEnvelope>> {
         let mut envelopes = vec![self.map_primary_event(event)];
 
-        if let Some(derived) = self.map_task_group_completed(event).await? {
-            envelopes.push(derived);
-        }
+        envelopes.extend(self.map_task_group_completed(event).await?);
 
         Ok(envelopes)
     }
 
     fn map_primary_event(&self, event: &DomainEvent) -> OrchestrationEventEnvelope {
         match event {
+            DomainEvent::TaskLifecycle {
+                action,
+                task,
+                previous_task_group_id,
+                ..
+            } => OrchestrationEventEnvelope::new(
+                event,
+                match action {
+                    TaskLifecycleAction::Created => OrchestrationEventType::TaskCreated,
+                    TaskLifecycleAction::Updated => OrchestrationEventType::TaskUpdated,
+                    TaskLifecycleAction::Deleted => OrchestrationEventType::TaskDeleted,
+                },
+                json!({
+                    "project_id": task.project_id,
+                    "status": task.status,
+                    "previous_task_group_id": previous_task_group_id,
+                }),
+            ),
             DomainEvent::TaskStatusChanged {
                 task,
                 previous_status,
@@ -304,6 +354,15 @@ impl OrchestrationEventMapper {
                 json!({
                     "status": task.status,
                     "previous_status": previous_status,
+                }),
+            ),
+            DomainEvent::ExecutionStarted { process, .. } => OrchestrationEventEnvelope::new(
+                event,
+                OrchestrationEventType::ExecutionStarted,
+                json!({
+                    "status": process.status,
+                    "run_reason": run_reason_name(&process.run_reason),
+                    "conversation_session_id": process.conversation_session_id,
                 }),
             ),
             DomainEvent::ExecutionCompleted { process, .. } => OrchestrationEventEnvelope::new(
@@ -383,6 +442,22 @@ impl OrchestrationEventMapper {
                     "role": role,
                 }),
             ),
+            DomainEvent::FollowUpTransition {
+                state,
+                scope,
+                queue_kind,
+                execution_process_id,
+                ..
+            } => OrchestrationEventEnvelope::new(
+                event,
+                OrchestrationEventType::FollowUpTransition,
+                json!({
+                    "state": state,
+                    "scope": scope,
+                    "queue_kind": queue_kind,
+                    "execution_process_id": execution_process_id,
+                }),
+            ),
             DomainEvent::MergeQueueTransition {
                 entry_id,
                 project_id,
@@ -401,6 +476,24 @@ impl OrchestrationEventMapper {
                     "state": state,
                     "merge_commit": merge_commit,
                     "detail": detail,
+                }),
+            ),
+            DomainEvent::TaskGroupTransition {
+                action,
+                project_id,
+                task_group_id,
+                previous_task_group_id,
+                task_ids,
+                ..
+            } => OrchestrationEventEnvelope::new(
+                event,
+                OrchestrationEventType::TaskGroupTransition,
+                json!({
+                    "action": action,
+                    "project_id": project_id,
+                    "task_group_id": task_group_id,
+                    "previous_task_group_id": previous_task_group_id,
+                    "task_ids": task_ids,
                 }),
             ),
             DomainEvent::TaskGroupCompleted {
@@ -423,76 +516,110 @@ impl OrchestrationEventMapper {
     async fn map_task_group_completed(
         &self,
         event: &DomainEvent,
-    ) -> Result<Option<OrchestrationEventEnvelope>> {
-        let DomainEvent::TaskStatusChanged { task, .. } = event else {
-            return Ok(None);
+    ) -> Result<Vec<OrchestrationEventEnvelope>> {
+        let Some((project_id, candidate_group_ids)) =
+            self.task_group_completion_candidates(event)
+        else {
+            return Ok(Vec::new());
         };
 
-        if !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled) {
-            return Ok(None);
-        }
+        let grouped_tasks = Task::find_by_project_id_with_attempt_status(&self.pool, project_id)
+            .await?
+            .into_iter()
+            .map(|task| task.task)
+            .collect::<Vec<_>>();
+        let stats = TaskGroup::get_stats_for_project(&self.pool, project_id).await?;
 
-        let Some(task_group_id) = task.task_group_id else {
-            return Ok(None);
-        };
-
-        let grouped_tasks =
-            Task::find_by_project_id_with_attempt_status(&self.pool, task.project_id)
-                .await?
-                .into_iter()
-                .map(|task| task.task)
-                .filter(|grouped_task| grouped_task.task_group_id == Some(task_group_id))
+        let mut envelopes = Vec::new();
+        for task_group_id in candidate_group_ids {
+            let completed_tasks = grouped_tasks
+                .iter()
+                .filter(|task| task.task_group_id == Some(task_group_id))
+                .cloned()
                 .collect::<Vec<_>>();
 
-        if grouped_tasks.is_empty() {
-            return Ok(None);
+            if completed_tasks.is_empty() {
+                continue;
+            }
+
+            let Some(group_stats) = stats.iter().find(|group| group.group.id == task_group_id) else {
+                continue;
+            };
+
+            if group_stats.task_counts.todo
+                + group_stats.task_counts.inprogress
+                + group_stats.task_counts.inreview
+                > 0
+            {
+                continue;
+            }
+
+            let terminal_task_count = completed_tasks.len();
+            let derived_event = DomainEvent::TaskGroupCompleted {
+                project_id,
+                task_group_id,
+                completed_task_ids: completed_tasks.into_iter().map(|task| task.id).collect(),
+                terminal_task_count,
+                occurred_at: event.occurred_at(),
+            };
+
+            envelopes.push(self.map_primary_event(&derived_event));
         }
 
-        let is_terminal = grouped_tasks.iter().all(|grouped_task| {
-            matches!(
-                grouped_task.status,
-                TaskStatus::Done | TaskStatus::Cancelled
-            )
-        });
+        Ok(envelopes)
+    }
 
-        if !is_terminal {
-            return Ok(None);
+    fn task_group_completion_candidates(
+        &self,
+        event: &DomainEvent,
+    ) -> Option<(Uuid, Vec<Uuid>)> {
+        match event {
+            DomainEvent::TaskStatusChanged { task, .. }
+                if matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled) => {
+                Some((task.project_id, task.task_group_id.into_iter().collect()))
+            }
+            DomainEvent::TaskLifecycle {
+                action,
+                task,
+                previous_task_group_id,
+                ..
+            } if matches!(action, TaskLifecycleAction::Updated | TaskLifecycleAction::Deleted) => {
+                let mut group_ids = Vec::new();
+                if let Some(group_id) = *previous_task_group_id {
+                    group_ids.push(group_id);
+                }
+                if let Some(group_id) = task.task_group_id
+                    && !group_ids.contains(&group_id)
+                {
+                    group_ids.push(group_id);
+                }
+
+                (!group_ids.is_empty()).then_some((task.project_id, group_ids))
+            }
+            DomainEvent::TaskGroupTransition {
+                action,
+                project_id,
+                task_group_id,
+                previous_task_group_id,
+                ..
+            } if matches!(
+                action,
+                TaskGroupTransitionAction::Merged | TaskGroupTransitionAction::AssignmentChanged
+            ) => {
+                let mut group_ids = Vec::new();
+                if let Some(group_id) = *previous_task_group_id {
+                    group_ids.push(group_id);
+                }
+                if let Some(group_id) = *task_group_id
+                    && !group_ids.contains(&group_id)
+                {
+                    group_ids.push(group_id);
+                }
+
+                (!group_ids.is_empty()).then_some((*project_id, group_ids))
+            }
+            _ => None,
         }
-
-        let stats = TaskGroup::get_stats_for_project(&self.pool, task.project_id).await?;
-        let Some(group_stats) = stats
-            .into_iter()
-            .find(|group| group.group.id == task_group_id)
-        else {
-            return Ok(None);
-        };
-
-        if group_stats.task_counts.todo
-            + group_stats.task_counts.inprogress
-            + group_stats.task_counts.inreview
-            > 0
-        {
-            return Ok(None);
-        }
-
-        let terminal_task_count = grouped_tasks.len();
-        if terminal_task_count == 0 {
-            return Ok(None);
-        }
-
-        let derived_event = DomainEvent::TaskGroupCompleted {
-            project_id: task.project_id,
-            task_group_id,
-            completed_task_ids: grouped_tasks
-                .into_iter()
-                .map(|grouped_task| grouped_task.id)
-                .collect(),
-            // Cancelled tasks are terminal so the group can still complete when work is intentionally abandoned.
-            terminal_task_count,
-            occurred_at: task.updated_at,
-        };
-
-        Ok(Some(self.map_primary_event(&derived_event)))
     }
 }
 
@@ -687,7 +814,7 @@ mod tests {
         let envelopes = mapper
             .map_event(&DomainEvent::ExecutionCompleted {
                 process,
-                task_id,
+                task_id: Some(task_id),
                 workspace_id: Some(workspace_id),
                 task_group_id: Some(task_group_id),
             })

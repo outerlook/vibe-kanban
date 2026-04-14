@@ -23,13 +23,16 @@ pub use hook_execution::{HookExecution, HookExecutionStatus, HookExecutionStore}
 pub use hook_points::HookPoint;
 pub use orchestration::{
     DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION, MqttOrchestrationEventPublisher,
+    default_topic_namespace,
     MqttOrchestrationPublisherConfig, OrchestrationEventEnvelope, OrchestrationEventMapper,
     OrchestrationEventPublisher, OrchestrationEventPublisherConfig,
     OrchestrationEventPublisherHandle, OrchestrationEventType,
+    RecordingOrchestrationEventPublisher,
     build_mqtt_orchestration_event_publisher,
 };
 pub use types::{
     ApprovalEventKind, ApprovalResolution, ConversationMessageEventRole, DomainEvent,
     DomainEventEntityIds, EventDispatchCallback, ExecutionTrigger, ExecutionTriggerCallback,
-    MergeQueueTransitionState,
+    FollowUpQueueKind, FollowUpScope, FollowUpTransitionState, MergeQueueTransitionState,
+    TaskGroupTransitionAction, TaskLifecycleAction,
 };

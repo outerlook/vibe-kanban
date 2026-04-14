@@ -322,7 +322,7 @@ async fn test_feedback_handler_triggers_callback_on_coding_agent_completion() {
     // Verify handler accepts this event
     let event = DomainEvent::ExecutionCompleted {
         process: execution.clone(),
-        task_id: task.id,
+        task_id: Some(task.id),
         workspace_id: None,
         task_group_id: None,
     };
@@ -386,7 +386,7 @@ async fn test_feedback_handler_ignores_non_coding_agent_executions() {
 
         let event = DomainEvent::ExecutionCompleted {
             process: execution.clone(),
-            task_id: task.id,
+            task_id: Some(task.id),
             workspace_id: None,
             task_group_id: None,
         };
@@ -428,7 +428,7 @@ async fn test_feedback_handler_ignores_failed_executions() {
 
         let event = DomainEvent::ExecutionCompleted {
             process: execution.clone(),
-            task_id: task.id,
+            task_id: Some(task.id),
             workspace_id: None,
             task_group_id: None,
         };
@@ -485,7 +485,7 @@ async fn test_feedback_handler_skips_if_feedback_exists() {
 
     let event = DomainEvent::ExecutionCompleted {
         process: execution.clone(),
-        task_id: task.id,
+        task_id: Some(task.id),
         workspace_id: None,
         task_group_id: None,
     };
@@ -731,7 +731,7 @@ async fn test_dispatcher_feedback_collection_flow() {
     dispatcher
         .dispatch(DomainEvent::ExecutionCompleted {
             process: execution.clone(),
-            task_id: task.id,
+            task_id: Some(task.id),
             workspace_id: None,
             task_group_id: None,
         })
@@ -840,7 +840,7 @@ async fn test_dispatcher_both_handlers_no_cross_triggering() {
     dispatcher
         .dispatch(DomainEvent::ExecutionCompleted {
             process: execution.clone(),
-            task_id: task.id,
+            task_id: Some(task.id),
             workspace_id: None,
             task_group_id: None,
         })
@@ -954,7 +954,7 @@ async fn test_no_duplicate_feedback_triggers() {
     // Dispatch the same event
     let event = DomainEvent::ExecutionCompleted {
         process: execution.clone(),
-        task_id: task.id,
+        task_id: Some(task.id),
         workspace_id: None,
         task_group_id: None,
     };
@@ -1087,7 +1087,7 @@ async fn test_handlers_gracefully_handle_no_callback() {
         .handle(
             DomainEvent::ExecutionCompleted {
                 process: execution.clone(),
-                task_id: task.id,
+                task_id: Some(task.id),
                 workspace_id: None,
                 task_group_id: None,
             },
@@ -1179,7 +1179,7 @@ async fn test_feedback_handler_links_hook_to_execution() {
         .handle(
             DomainEvent::ExecutionCompleted {
                 process: execution.clone(),
-                task_id: task.id,
+                task_id: Some(task.id),
                 workspace_id: None,
                 task_group_id: None,
             },

@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use crate::services::domain_events::{
     DomainEvent, EventHandler, ExecutionMode, HandlerContext, HandlerError,
-    OrchestrationEventMapper,
+    OrchestrationEventMapper, default_topic_namespace,
 };
 
 pub struct OrchestrationEventPublisherHandler;
@@ -31,23 +31,28 @@ impl EventHandler for OrchestrationEventPublisherHandler {
         let Some(publisher) = &ctx.orchestration_event_publisher else {
             return Ok(());
         };
-        let Some(mqtt) = ctx
+        let topic_namespace = ctx
             .config
             .read()
             .await
             .orchestration_event_publisher
             .mqtt()
-            .cloned()
-        else {
-            return Ok(());
-        };
+            .map(|mqtt| mqtt.topic_namespace.clone())
+            .unwrap_or_else(default_topic_namespace);
 
         let mapper = OrchestrationEventMapper::new(ctx.db.pool.clone());
         let envelopes = mapper.map_event(&event).await?;
 
         for envelope in envelopes {
+            let event_name = serde_json::to_string(&envelope.event_type)
+                .expect("event type serialization cannot fail")
+                .trim_matches('"')
+                .to_string();
             publisher
-                .publish(mqtt.topic_for(&envelope.event_type), envelope)
+                .publish(
+                    format!("{}/{}", topic_namespace.trim_end_matches('/'), event_name),
+                    envelope,
+                )
                 .await?;
         }
 

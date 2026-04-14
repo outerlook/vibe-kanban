@@ -78,6 +78,7 @@ use executors::{
 };
 use futures::{FutureExt, TryStreamExt, stream::select};
 use serde_json::json;
+use sqlx::types::chrono::Utc;
 use services::services::{
     analytics::AnalyticsContext,
     approvals::{Approvals, executor_approvals::ExecutorApprovalBridge},
@@ -87,8 +88,10 @@ use services::services::{
     diff_stream::{self, DiffStreamHandle},
     domain_events::{
         AutopilotHandler, DispatcherBuilder, DomainEvent, DomainEventDispatcher,
-        EventDispatchCallback, ExecutionTrigger, ExecutionTriggerCallback,
+        DomainEventEntityIds, EventDispatchCallback, ExecutionTrigger,
+        ExecutionTriggerCallback,
         FeedbackCollectionHandler, HandlerContext, HookExecutionStore, HookExecutionUpdaterHandler,
+        FollowUpQueueKind, FollowUpScope, FollowUpTransitionState,
         NotificationHandler, OrchestrationEventPublisherHandle, OrchestrationEventPublisherHandler,
         RemoteSyncHandler, ReviewAttentionHandler, WebSocketBroadcastHandler,
     },
@@ -359,6 +362,22 @@ impl LocalContainerService {
         container.spawn_workspace_cleanup().await;
 
         container
+    }
+
+    async fn dispatch_task_status_change(
+        &self,
+        task: &Task,
+        previous_status: TaskStatus,
+        next_status: TaskStatus,
+    ) {
+        let mut updated_task = task.clone();
+        updated_task.status = next_status;
+        self.event_dispatcher
+            .dispatch(DomainEvent::TaskStatusChanged {
+                task: updated_task,
+                previous_status,
+            })
+            .await;
     }
 
     /// Set the MergeQueueStore and OperationStatusStore for autopilot merge functionality.
@@ -706,7 +725,7 @@ impl LocalContainerService {
                     .event_dispatcher
                     .dispatch(DomainEvent::ExecutionCompleted {
                         process: ctx.execution_process.clone(),
-                        task_id: ctx.task.id,
+                        task_id: Some(ctx.task.id),
                         workspace_id: Some(ctx.workspace.id),
                         task_group_id: ctx.task.task_group_id,
                     })
@@ -1438,11 +1457,12 @@ impl LocalContainerService {
             {
                 // Store the assistant message
                 if let Some(ref content) = assistant_message
-                    && let Err(e) = ConversationService::add_assistant_message(
+                    && let Err(e) = ConversationService::add_assistant_message_with_events(
                         &db.pool,
                         conversation_session_id,
                         exec_id,
                         content.clone(),
+                        container.event_dispatch_callback(),
                     )
                     .await
                 {
@@ -1567,14 +1587,34 @@ impl LocalContainerService {
 
         let action = ExecutorAction::new(action_type, cleanup_action.map(Box::new));
 
-        self.start_execution(
+        let execution_process = self
+            .start_execution(
             &ctx.workspace,
             &ctx.session,
             &action,
             &ExecutionProcessRunReason::CodingAgent,
             None,
         )
-        .await
+        .await?;
+
+        self.event_dispatcher
+            .dispatch(DomainEvent::FollowUpTransition {
+                state: FollowUpTransitionState::Started,
+                scope: FollowUpScope::TaskSession,
+                queue_kind: Some(FollowUpQueueKind::AfterCurrentExecution),
+                execution_process_id: Some(execution_process.id),
+                entity_ids: DomainEventEntityIds {
+                    task_id: Some(ctx.task.id),
+                    workspace_id: Some(ctx.workspace.id),
+                    session_id: Some(ctx.session.id),
+                    execution_process_id: Some(execution_process.id),
+                    task_group_id: ctx.task.task_group_id,
+                },
+                occurred_at: Utc::now(),
+            })
+            .await;
+
+        Ok(execution_process)
     }
 
     /// Start a follow-up conversation execution from a queued message
@@ -1627,10 +1667,11 @@ impl LocalContainerService {
         let executor_action = ExecutorAction::new(action_type, None);
 
         // Create user message for the queued content
-        if let Err(e) = ConversationService::add_user_message(
+        if let Err(e) = ConversationService::add_user_message_with_events(
             &self.db.pool,
             conversation.id,
             queued_data.message.clone(),
+            self.event_dispatch_callback(),
         )
         .await
         {
@@ -1638,8 +1679,26 @@ impl LocalContainerService {
         }
 
         // Start conversation execution
-        self.start_conversation_execution(conversation, &executor_action)
-            .await
+        let execution_process = self
+            .start_conversation_execution(conversation, &executor_action)
+            .await?;
+
+        self.event_dispatcher
+            .dispatch(DomainEvent::FollowUpTransition {
+                state: FollowUpTransitionState::Started,
+                scope: FollowUpScope::Conversation,
+                queue_kind: Some(FollowUpQueueKind::AfterCurrentExecution),
+                execution_process_id: Some(execution_process.id),
+                entity_ids: DomainEventEntityIds {
+                    session_id: Some(conversation.id),
+                    execution_process_id: Some(execution_process.id),
+                    ..DomainEventEntityIds::default()
+                },
+                occurred_at: Utc::now(),
+            })
+            .await;
+
+        Ok(execution_process)
     }
 
     /// Collect feedback from the coding agent after successful execution.
@@ -3249,6 +3308,17 @@ impl ContainerService for LocalContainerService {
             )
             .await?;
 
+            if let Ok(ctx) = ExecutionProcess::load_context(&self.db.pool, execution_process.id).await {
+                self.event_dispatcher
+                    .dispatch(DomainEvent::ExecutionCompleted {
+                        process: ctx.execution_process.clone(),
+                        task_id: Some(ctx.task.id),
+                        workspace_id: Some(ctx.workspace.id),
+                        task_group_id: ctx.task.task_group_id,
+                    })
+                    .await;
+            }
+
             // Clean up any stale msg_store entry
             if let Some(msg) = self.msg_stores.write().await.remove(&execution_process.id) {
                 msg.push_finished();
@@ -3274,6 +3344,13 @@ impl ContainerService for LocalContainerService {
                         "Failed to propagate shared task update for {}",
                         ctx.task.id
                     );
+                } else {
+                    self.dispatch_task_status_change(
+                        &ctx.task,
+                        ctx.task.status.clone(),
+                        TaskStatus::InReview,
+                    )
+                    .await;
                 }
             }
 
@@ -3361,6 +3438,13 @@ impl ContainerService for LocalContainerService {
                     "Failed to propagate shared task update for {}",
                     ctx.task.id
                 );
+            } else {
+                self.dispatch_task_status_change(
+                    &ctx.task,
+                    ctx.task.status.clone(),
+                    TaskStatus::InReview,
+                )
+                .await;
             }
         }
 
@@ -3584,10 +3668,40 @@ fn success_exit_status() -> std::process::ExitStatus {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{
+        sync::{Arc, LazyLock, Mutex},
+        time::Duration,
+    };
 
     use dashmap::DashSet;
+    use db::models::{
+        execution_process::{
+            CreateExecutionProcess, ExecutionProcess, ExecutionProcessRunReason,
+            ExecutionProcessStatus,
+        },
+        conversation_session::{ConversationSession, CreateConversationSession},
+        project::{CreateProject, Project},
+        session::{CreateSession, Session},
+        task::{CreateTask, Task, TaskStatus},
+        workspace::{CreateWorkspace, Workspace},
+    };
+    use deployment::Deployment;
+    use executors::actions::{
+        ExecutorAction, ExecutorActionType,
+        script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+    };
+    use services::services::{
+        container::ContainerService,
+        domain_events::{
+            OrchestrationEventPublisherHandle, OrchestrationEventType,
+            RecordingOrchestrationEventPublisher,
+        },
+    };
     use uuid::Uuid;
+
+    use crate::LocalDeployment;
+
+    static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     /// Tests that the DashSet-based guard correctly blocks duplicate workspace spawns.
     /// This verifies the core logic used in start_execution() at line ~1898.
@@ -3691,5 +3805,273 @@ mod tests {
         running_workspaces.remove(&workspace_1);
         assert!(!running_workspaces.contains(&workspace_1));
         assert!(running_workspaces.contains(&workspace_2));
+    }
+
+
+    async fn wait_for_event_types(
+        publisher: &RecordingOrchestrationEventPublisher,
+        minimum: usize,
+    ) -> Vec<OrchestrationEventType> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let event_types = publisher
+                .published()
+                .into_iter()
+                .map(|(_, envelope)| envelope.event_type)
+                .collect::<Vec<_>>();
+            if event_types.len() >= minimum || tokio::time::Instant::now() >= deadline {
+                return event_types;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn stop_execution_emits_completion_events_for_orphaned_processes() {
+        let _lock = TEST_LOCK.lock().expect("lock poisoned");
+        let publisher = RecordingOrchestrationEventPublisher::default();
+        let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
+        let deployment = LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+            .await
+            .expect("deployment");
+
+        let project = Project::create(
+            &deployment.db().pool,
+            &CreateProject {
+                name: "execution-events".to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .expect("create project");
+
+        let task = Task::create(
+            &deployment.db().pool,
+            &CreateTask {
+                project_id: project.id,
+                title: "kill me".to_string(),
+                description: None,
+                status: Some(TaskStatus::InProgress),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: None,
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .expect("create task");
+
+        let workspace = Workspace::create(
+            &deployment.db().pool,
+            &CreateWorkspace {
+                branch: "feature/execution".to_string(),
+                agent_working_dir: None,
+            },
+            Uuid::new_v4(),
+            task.id,
+        )
+        .await
+        .expect("create workspace");
+
+        let session = Session::create(
+            &deployment.db().pool,
+            &CreateSession {
+                executor: Some("\"claude-code\"".to_string()),
+            },
+            Uuid::new_v4(),
+            workspace.id,
+        )
+        .await
+        .expect("create session");
+
+        let execution = ExecutionProcess::create(
+            &deployment.db().pool,
+            &CreateExecutionProcess {
+                session_id: session.id,
+                executor_action: ExecutorAction::new(
+                    ExecutorActionType::ScriptRequest(ScriptRequest {
+                        script: "echo test".to_string(),
+                        language: ScriptRequestLanguage::Bash,
+                        context: ScriptContext::SetupScript,
+                        working_dir: None,
+                    }),
+                    None,
+                ),
+                run_reason: ExecutionProcessRunReason::CodingAgent,
+            },
+            Uuid::new_v4(),
+            &[],
+        )
+        .await
+        .expect("create execution");
+
+        deployment
+            .container()
+            .stop_execution(&execution, ExecutionProcessStatus::Killed)
+            .await
+            .expect("stop execution");
+
+        let event_types = wait_for_event_types(&publisher, 2).await;
+        assert!(event_types.contains(&OrchestrationEventType::ExecutionCompleted));
+        assert!(event_types.contains(&OrchestrationEventType::TaskStatusChanged));
+
+        let updated_task = Task::find_by_id(&deployment.db().pool, task.id)
+            .await
+            .expect("load task")
+            .expect("task exists");
+        assert_eq!(updated_task.status, TaskStatus::InReview);
+
+        let updated_execution = ExecutionProcess::find_by_id(&deployment.db().pool, execution.id)
+            .await
+            .expect("load execution")
+            .expect("execution exists");
+        assert_eq!(updated_execution.status, ExecutionProcessStatus::Killed);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn start_conversation_execution_emits_started_event() {
+        let _lock = TEST_LOCK.lock().expect("lock poisoned");
+        let publisher = RecordingOrchestrationEventPublisher::default();
+        let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
+        let deployment =
+            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+                .await
+                .expect("create deployment");
+
+        let project = Project::create(
+            &deployment.db().pool,
+            &CreateProject {
+                name: "conversation-started-events".to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .expect("create project");
+
+        let workspace_root = tempfile::tempdir().expect("tempdir");
+        let conversation = ConversationSession::create(
+            &deployment.db().pool,
+            CreateConversationSession {
+                project_id: project.id,
+                title: "Conversation".to_string(),
+                executor: None,
+                worktree_path: Some(workspace_root.path().to_string_lossy().to_string()),
+                worktree_branch: None,
+            },
+        )
+        .await
+        .expect("create conversation");
+
+        let action = ExecutorAction::new(
+            ExecutorActionType::ScriptRequest(ScriptRequest {
+                script: "echo hello".to_string(),
+                language: ScriptRequestLanguage::Bash,
+                context: ScriptContext::SetupScript,
+                working_dir: None,
+            }),
+            None,
+        );
+
+        let execution = deployment
+            .container()
+            .start_conversation_execution(&conversation, &action)
+            .await
+            .expect("start conversation execution");
+
+        let event_types = wait_for_event_types(&publisher, 1).await;
+        assert!(event_types.contains(&OrchestrationEventType::ExecutionStarted));
+
+        let updated_execution = ExecutionProcess::find_by_id(&deployment.db().pool, execution.id)
+            .await
+            .expect("load execution")
+            .expect("execution exists");
+        assert_eq!(updated_execution.status, ExecutionProcessStatus::Running);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn failing_conversation_start_emits_completion_event() {
+        let _lock = TEST_LOCK.lock().expect("lock poisoned");
+        let publisher = RecordingOrchestrationEventPublisher::default();
+        let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
+        let deployment =
+            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+                .await
+                .expect("create deployment");
+
+        let project = Project::create(
+            &deployment.db().pool,
+            &CreateProject {
+                name: "conversation-completion-events".to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .expect("create project");
+
+        let workspace_root = tempfile::tempdir().expect("tempdir");
+        let conversation = ConversationSession::create(
+            &deployment.db().pool,
+            CreateConversationSession {
+                project_id: project.id,
+                title: "Conversation".to_string(),
+                executor: None,
+                worktree_path: Some(workspace_root.path().to_string_lossy().to_string()),
+                worktree_branch: None,
+            },
+        )
+        .await
+        .expect("create conversation");
+
+        let action = ExecutorAction::new(
+            ExecutorActionType::ScriptRequest(ScriptRequest {
+                script: "echo hello".to_string(),
+                language: ScriptRequestLanguage::Bash,
+                context: ScriptContext::SetupScript,
+                working_dir: Some("missing-dir".to_string()),
+            }),
+            None,
+        );
+
+        let start_result = deployment
+            .container()
+            .start_conversation_execution(&conversation, &action)
+            .await;
+        assert!(start_result.is_err());
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        let event_types = loop {
+            let event_types = publisher
+                .published()
+                .into_iter()
+                .map(|(_, envelope)| envelope.event_type)
+                .collect::<Vec<_>>();
+            if event_types.contains(&OrchestrationEventType::ExecutionCompleted) {
+                break event_types;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                break event_types;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        };
+        assert!(event_types.contains(&OrchestrationEventType::ExecutionCompleted));
+
+        let execution = ExecutionProcess::find_by_conversation_session_id(
+            &deployment.db().pool,
+            conversation.id,
+            false,
+        )
+        .await
+        .expect("load conversation executions")
+        .into_iter()
+        .next()
+        .expect("execution exists");
+        assert_eq!(execution.status, ExecutionProcessStatus::Failed);
     }
 }

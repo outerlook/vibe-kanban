@@ -128,6 +128,33 @@ impl MergeQueueProcessor {
         self
     }
 
+    async fn dispatch_merge_queue_transition(
+        &self,
+        entry: &MergeQueueEntry,
+        task: Option<&Task>,
+        state: super::domain_events::MergeQueueTransitionState,
+        merge_commit: Option<String>,
+        detail: Option<String>,
+    ) {
+        let Some(dispatcher) = &self.event_dispatcher else {
+            return;
+        };
+
+        dispatcher(DomainEvent::MergeQueueTransition {
+            entry_id: entry.id,
+            project_id: entry.project_id,
+            workspace_id: entry.workspace_id,
+            task_id: task.map(|task| task.id),
+            task_group_id: task.and_then(|task| task.task_group_id),
+            repo_id: entry.repo_id,
+            state,
+            merge_commit,
+            detail,
+            occurred_at: chrono::Utc::now(),
+        })
+        .await;
+    }
+
     /// Process all queued entries for a project until the queue is empty.
     ///
     /// This method loops through the queue, processing each entry:
@@ -156,6 +183,15 @@ impl MergeQueueProcessor {
                 repo_id = %entry.repo_id,
                 "Processing merge queue entry"
             );
+
+            self.dispatch_merge_queue_transition(
+                &entry,
+                None,
+                super::domain_events::MergeQueueTransitionState::Claimed,
+                None,
+                None,
+            )
+            .await;
 
             // Set Merging operation status (load workspace to get task_id)
             if let Some(ref op_status) = self.operation_status {
@@ -194,6 +230,14 @@ impl MergeQueueProcessor {
                         "Merge queue entry has conflicts, removing entry"
                     );
                     self.merge_queue_store.remove(entry.workspace_id);
+                    self.dispatch_merge_queue_transition(
+                        &entry,
+                        None,
+                        super::domain_events::MergeQueueTransitionState::Conflict,
+                        None,
+                        e.conflict_message().map(str::to_string),
+                    )
+                    .await;
                     // Continue to next entry
                 }
                 Err(e) => {
@@ -203,6 +247,14 @@ impl MergeQueueProcessor {
                         "Unexpected error processing merge queue entry, removing entry"
                     );
                     self.merge_queue_store.remove(entry.workspace_id);
+                    self.dispatch_merge_queue_transition(
+                        &entry,
+                        None,
+                        super::domain_events::MergeQueueTransitionState::Removed,
+                        None,
+                        Some(e.to_string()),
+                    )
+                    .await;
                     // Continue to next entry
                 }
             }
@@ -256,6 +308,14 @@ impl MergeQueueProcessor {
                 "Nothing to merge (0 commits ahead), removing from queue"
             );
             self.merge_queue_store.remove(entry.workspace_id);
+            self.dispatch_merge_queue_transition(
+                entry,
+                Some(&task),
+                super::domain_events::MergeQueueTransitionState::Skipped,
+                None,
+                Some("nothing_to_merge".to_string()),
+            )
+            .await;
             return Ok("skipped:nothing_to_merge".to_string());
         }
 
@@ -287,10 +347,29 @@ impl MergeQueueProcessor {
             )
             .await?;
 
-        // Step 4: Remove the queue entry (completed successfully)
+        self.complete_successful_entry(
+            entry,
+            &workspace,
+            &repo,
+            &task,
+            base_branch,
+            merge_commit,
+        )
+        .await
+    }
+
+
+    async fn complete_successful_entry(
+        &self,
+        entry: &MergeQueueEntry,
+        workspace: &Workspace,
+        repo: &Repo,
+        task: &Task,
+        base_branch: &str,
+        merge_commit: String,
+    ) -> Result<String, MergeQueueError> {
         self.merge_queue_store.remove(entry.workspace_id);
 
-        // Step 5: Create merge record
         Merge::create_direct(
             &self.pool,
             workspace.id,
@@ -300,22 +379,23 @@ impl MergeQueueProcessor {
         )
         .await?;
 
-        // Step 6: Update task status to Done
         let previous_status = task.status.clone();
         Task::update_status(&self.pool, task.id, TaskStatus::Done).await?;
-
-        // Note: Agent feedback collection is not done here because:
-        // 1. MergeQueueProcessor doesn't have access to ContainerService
-        // 2. Feedback is typically collected when merge is triggered via HTTP endpoints
-        // 3. The agent session may have expired by the time the queue processes
 
         info!(
             task_id = %task.id,
             "Task marked as Done after successful merge"
         );
 
-        // Step 7: Dispatch TaskStatusChanged event for handlers (autopilot, remote sync, etc.)
-        // The AutopilotHandler will handle auto-dequeueing unblocked dependents.
+        self.dispatch_merge_queue_transition(
+            entry,
+            Some(task),
+            super::domain_events::MergeQueueTransitionState::Completed,
+            Some(merge_commit.clone()),
+            None,
+        )
+        .await;
+
         if let Some(dispatcher) = &self.event_dispatcher {
             let mut updated_task = task.clone();
             updated_task.status = TaskStatus::Done;
@@ -325,9 +405,6 @@ impl MergeQueueProcessor {
             })
             .await;
         } else {
-            // Fallback: If no event dispatcher is configured, auto-dequeue directly.
-            // Note: Enqueued tasks will be picked up by container's process_queue when
-            // the next execution completes or when any new execution is requested.
             self.auto_dequeue_unblocked_dependents(task.id).await;
         }
 
@@ -544,7 +621,28 @@ impl MergeQueueProcessor {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use db::{
+        DBService,
+        models::{
+            project::{CreateProject, Project},
+            repo::Repo,
+            task::{CreateTask, Task, TaskStatus},
+            workspace::{CreateWorkspace, Workspace},
+        },
+    };
+    use tempfile::TempDir;
+    use utils::msg_store::MsgStore;
+
+    use crate::services::domain_events::{
+        EventDispatchCallback, OrchestrationEventMapper, OrchestrationEventPublisher,
+        OrchestrationEventType, RecordingOrchestrationEventPublisher,
+        default_topic_namespace,
+    };
+
     use super::*;
+
 
     #[test]
     fn test_merge_queue_error_is_conflict() {
@@ -568,4 +666,139 @@ mod tests {
         let other_err = MergeQueueError::TaskNotFound(Uuid::new_v4());
         assert_eq!(other_err.conflict_message(), None);
     }
+
+
+    fn recording_dispatcher(
+        db: &DBService,
+        publisher: RecordingOrchestrationEventPublisher,
+    ) -> EventDispatchCallback {
+        let db = db.clone();
+        Arc::new(move |event| {
+            let db = db.clone();
+            let publisher = publisher.clone();
+            Box::pin(async move {
+                let mapper = OrchestrationEventMapper::new(db.pool.clone());
+                let envelopes = mapper.map_event(&event).await.expect("map orchestration event");
+                for envelope in envelopes {
+                    let event_name = serde_json::to_string(&envelope.event_type)
+                        .expect("event type serialization cannot fail")
+                        .trim_matches('"')
+                        .to_string();
+                    publisher
+                        .publish(
+                            format!("{}/{}", default_topic_namespace(), event_name),
+                            envelope,
+                        )
+                        .await
+                        .expect("publish orchestration event");
+                }
+            })
+        })
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn merge_queue_completion_emits_completed_transition() {
+        let _lock = crate::services::TEST_DB_LOCK.lock().expect("lock poisoned");
+        let db = DBService::new().await.expect("db service");
+        let publisher = RecordingOrchestrationEventPublisher::default();
+        let store = MergeQueueStore::new(Arc::new(MsgStore::new()));
+        let processor = MergeQueueProcessor::new(
+            db.pool.clone(),
+            GitService::new(),
+            store.clone(),
+            Arc::new(RwLock::new(Config::default())),
+        )
+        .with_event_dispatcher(recording_dispatcher(&db, publisher.clone()));
+
+        let tempdir = TempDir::new().expect("tempdir");
+        let repo_path = tempdir.path().join("repo");
+        std::fs::create_dir_all(&repo_path).expect("create repo dir");
+
+        let project = Project::create(
+            &db.pool,
+            &CreateProject {
+                name: "merge-queue-events".to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .expect("create project");
+
+        let task = Task::create(
+            &db.pool,
+            &CreateTask {
+                project_id: project.id,
+                title: "merge-me".to_string(),
+                description: None,
+                status: Some(TaskStatus::InProgress),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: None,
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .expect("create task");
+
+        let workspace = Workspace::create(
+            &db.pool,
+            &CreateWorkspace {
+                branch: "feature/merge-me".to_string(),
+                agent_working_dir: None,
+            },
+            Uuid::new_v4(),
+            task.id,
+        )
+        .await
+        .expect("create workspace");
+
+        let repo = Repo::find_or_create(&db.pool, &repo_path, "repo")
+            .await
+            .expect("create repo");
+
+        let entry = store.enqueue(
+            project.id,
+            workspace.id,
+            repo.id,
+            "Merge feature branch".to_string(),
+        );
+
+        processor
+            .complete_successful_entry(
+                &entry,
+                &workspace,
+                &repo,
+                &task,
+                "main",
+                "abc123".to_string(),
+            )
+            .await
+            .expect("complete merge entry");
+
+        assert!(store.get(workspace.id).is_none(), "queue entry should be removed");
+        let updated_task = Task::find_by_id(&db.pool, task.id)
+            .await
+            .expect("load task")
+            .expect("task exists");
+        assert_eq!(updated_task.status, TaskStatus::Done);
+        assert_eq!(
+            Merge::find_by_workspace_id(&db.pool, workspace.id)
+                .await
+                .expect("load merges")
+                .len(),
+            1
+        );
+
+        let event_types = publisher
+            .published()
+            .into_iter()
+            .map(|(_, envelope)| envelope.event_type)
+            .collect::<Vec<_>>();
+        assert!(event_types.contains(&OrchestrationEventType::MergeQueueTransition));
+        assert!(event_types.contains(&OrchestrationEventType::TaskStatusChanged));
+    }
+
 }

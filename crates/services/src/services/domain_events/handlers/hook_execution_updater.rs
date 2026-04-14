@@ -167,7 +167,7 @@ mod tests {
         let process = create_completed_execution_process(ExecutionProcessStatus::Completed);
         let event = DomainEvent::ExecutionCompleted {
             process,
-            task_id: Uuid::new_v4(),
+            task_id: Some(Uuid::new_v4()),
             workspace_id: None,
             task_group_id: None,
         };
@@ -234,7 +234,7 @@ mod tests {
         let ctx = test_context_with_store(store.clone());
         let event = DomainEvent::ExecutionCompleted {
             process,
-            task_id,
+            task_id: Some(task_id),
             workspace_id: None,
             task_group_id: None,
         };
@@ -269,7 +269,7 @@ mod tests {
         let ctx = test_context_with_store(store.clone());
         let event = DomainEvent::ExecutionCompleted {
             process,
-            task_id,
+            task_id: Some(task_id),
             workspace_id: None,
             task_group_id: None,
         };
@@ -302,7 +302,7 @@ mod tests {
         let ctx = test_context_with_store(store.clone());
         let event = DomainEvent::ExecutionCompleted {
             process,
-            task_id,
+            task_id: Some(task_id),
             workspace_id: None,
             task_group_id: None,
         };
@@ -324,7 +324,7 @@ mod tests {
         let process = create_completed_execution_process(ExecutionProcessStatus::Completed);
         let event = DomainEvent::ExecutionCompleted {
             process,
-            task_id: Uuid::new_v4(),
+            task_id: Some(Uuid::new_v4()),
             workspace_id: None,
             task_group_id: None,
         };
@@ -351,7 +351,7 @@ mod tests {
         let ctx = test_context_with_store(store.clone());
         let event = DomainEvent::ExecutionCompleted {
             process,
-            task_id,
+            task_id: Some(task_id),
             workspace_id: None,
             task_group_id: None,
         };
@@ -383,7 +383,7 @@ mod tests {
         let ctx = test_context_with_store(store.clone());
         let event = DomainEvent::ExecutionCompleted {
             process,
-            task_id,
+            task_id: Some(task_id),
             workspace_id: None,
             task_group_id: None,
         };

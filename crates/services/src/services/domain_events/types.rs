@@ -58,22 +58,79 @@ pub enum MergeQueueTransitionState {
     Skipped,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskLifecycleAction {
+    Created,
+    Updated,
+    Deleted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FollowUpTransitionState {
+    Started,
+    Queued,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FollowUpQueueKind {
+    Concurrency,
+    AfterCurrentExecution,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FollowUpScope {
+    TaskSession,
+    Conversation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskGroupTransitionAction {
+    Created,
+    Updated,
+    Deleted,
+    Merged,
+    AssignmentChanged,
+}
+
 /// Domain events that can trigger handler execution.
 ///
 /// These events represent significant state changes in the system
 /// that handlers may want to react to.
 #[derive(Debug, Clone)]
 pub enum DomainEvent {
+    /// A task was created, updated, or deleted.
+    TaskLifecycle {
+        action: TaskLifecycleAction,
+        task: Task,
+        previous_task_group_id: Option<Uuid>,
+        occurred_at: DateTime<Utc>,
+    },
+
     /// A task's status changed.
     TaskStatusChanged {
         task: Task,
         previous_status: db::models::task::TaskStatus,
     },
 
+    /// An execution process started.
+    ExecutionStarted {
+        process: ExecutionProcess,
+        task_id: Option<Uuid>,
+        workspace_id: Option<Uuid>,
+        task_group_id: Option<Uuid>,
+        occurred_at: DateTime<Utc>,
+    },
+
     /// An execution process completed (success or failure).
     ExecutionCompleted {
         process: ExecutionProcess,
-        task_id: Uuid,
+        task_id: Option<Uuid>,
         workspace_id: Option<Uuid>,
         task_group_id: Option<Uuid>,
     },
@@ -117,6 +174,16 @@ pub enum DomainEvent {
         occurred_at: DateTime<Utc>,
     },
 
+    /// A follow-up request changed state.
+    FollowUpTransition {
+        state: FollowUpTransitionState,
+        scope: FollowUpScope,
+        queue_kind: Option<FollowUpQueueKind>,
+        execution_process_id: Option<Uuid>,
+        entity_ids: DomainEventEntityIds,
+        occurred_at: DateTime<Utc>,
+    },
+
     /// A merge queue entry changed state.
     MergeQueueTransition {
         entry_id: Uuid,
@@ -128,6 +195,16 @@ pub enum DomainEvent {
         state: MergeQueueTransitionState,
         merge_commit: Option<String>,
         detail: Option<String>,
+        occurred_at: DateTime<Utc>,
+    },
+
+    /// A task-group lifecycle mutation occurred.
+    TaskGroupTransition {
+        action: TaskGroupTransitionAction,
+        project_id: Uuid,
+        task_group_id: Option<Uuid>,
+        previous_task_group_id: Option<Uuid>,
+        task_ids: Vec<Uuid>,
         occurred_at: DateTime<Utc>,
     },
 
@@ -144,6 +221,13 @@ pub enum DomainEvent {
 impl DomainEvent {
     pub fn entity_ids(&self) -> DomainEventEntityIds {
         match self {
+            DomainEvent::TaskLifecycle { task, .. } => DomainEventEntityIds {
+                task_id: Some(task.id),
+                workspace_id: task.parent_workspace_id,
+                session_id: None,
+                execution_process_id: None,
+                task_group_id: task.task_group_id,
+            },
             DomainEvent::TaskStatusChanged { task, .. } => DomainEventEntityIds {
                 task_id: Some(task.id),
                 workspace_id: task.parent_workspace_id,
@@ -151,13 +235,21 @@ impl DomainEvent {
                 execution_process_id: None,
                 task_group_id: task.task_group_id,
             },
+            DomainEvent::ExecutionStarted {
+                process,
+                task_id,
+                workspace_id,
+                task_group_id,
+                ..
+            }
+            |
             DomainEvent::ExecutionCompleted {
                 process,
                 task_id,
                 workspace_id,
                 task_group_id,
             } => DomainEventEntityIds {
-                task_id: Some(*task_id),
+                task_id: *task_id,
                 workspace_id: *workspace_id,
                 session_id: process.session_id,
                 execution_process_id: Some(process.id),
@@ -183,7 +275,8 @@ impl DomainEvent {
             DomainEvent::ProjectUpdated { .. } => DomainEventEntityIds::default(),
             DomainEvent::ApprovalRequested { entity_ids, .. }
             | DomainEvent::ApprovalResolved { entity_ids, .. }
-            | DomainEvent::ConversationMessageAdded { entity_ids, .. } => *entity_ids,
+            | DomainEvent::ConversationMessageAdded { entity_ids, .. }
+            | DomainEvent::FollowUpTransition { entity_ids, .. } => *entity_ids,
             DomainEvent::MergeQueueTransition {
                 workspace_id,
                 task_id,
@@ -195,6 +288,17 @@ impl DomainEvent {
                 session_id: None,
                 execution_process_id: None,
                 task_group_id: *task_group_id,
+            },
+            DomainEvent::TaskGroupTransition {
+                task_group_id,
+                previous_task_group_id,
+                ..
+            } => DomainEventEntityIds {
+                task_id: None,
+                workspace_id: None,
+                session_id: None,
+                execution_process_id: None,
+                task_group_id: task_group_id.or(*previous_task_group_id),
             },
             DomainEvent::TaskGroupCompleted { task_group_id, .. } => DomainEventEntityIds {
                 task_id: None,
@@ -229,7 +333,13 @@ impl DomainEvent {
 
     pub fn event_name(&self) -> &'static str {
         match self {
+            DomainEvent::TaskLifecycle { action, .. } => match action {
+                TaskLifecycleAction::Created => "task_created",
+                TaskLifecycleAction::Updated => "task_updated",
+                TaskLifecycleAction::Deleted => "task_deleted",
+            },
             DomainEvent::TaskStatusChanged { .. } => "task_status_changed",
+            DomainEvent::ExecutionStarted { .. } => "execution_started",
             DomainEvent::ExecutionCompleted { .. } => "execution_completed",
             DomainEvent::WorkspaceCreated { .. } => "workspace_created",
             DomainEvent::WorkspaceDeleted { .. } => "workspace_deleted",
@@ -237,14 +347,18 @@ impl DomainEvent {
             DomainEvent::ApprovalRequested { .. } => "approval_requested",
             DomainEvent::ApprovalResolved { .. } => "approval_resolved",
             DomainEvent::ConversationMessageAdded { .. } => "conversation_message_added",
+            DomainEvent::FollowUpTransition { .. } => "follow_up_transition",
             DomainEvent::MergeQueueTransition { .. } => "merge_queue_transition",
+            DomainEvent::TaskGroupTransition { .. } => "task_group_transition",
             DomainEvent::TaskGroupCompleted { .. } => "task_group_completed",
         }
     }
 
     pub fn occurred_at(&self) -> DateTime<Utc> {
         match self {
+            DomainEvent::TaskLifecycle { occurred_at, .. } => *occurred_at,
             DomainEvent::TaskStatusChanged { task, .. } => task.updated_at,
+            DomainEvent::ExecutionStarted { occurred_at, .. } => *occurred_at,
             DomainEvent::ExecutionCompleted { process, .. } => {
                 process.completed_at.unwrap_or(process.updated_at)
             }
@@ -254,7 +368,9 @@ impl DomainEvent {
             DomainEvent::ApprovalRequested { occurred_at, .. }
             | DomainEvent::ApprovalResolved { occurred_at, .. }
             | DomainEvent::ConversationMessageAdded { occurred_at, .. }
+            | DomainEvent::FollowUpTransition { occurred_at, .. }
             | DomainEvent::MergeQueueTransition { occurred_at, .. }
+            | DomainEvent::TaskGroupTransition { occurred_at, .. }
             | DomainEvent::TaskGroupCompleted { occurred_at, .. } => *occurred_at,
         }
     }
@@ -262,15 +378,25 @@ impl DomainEvent {
     /// Returns the hook point associated with this event.
     pub fn hook_point(&self) -> HookPoint {
         match self {
+            DomainEvent::TaskLifecycle { action, .. } => match action {
+                TaskLifecycleAction::Created => HookPoint::PostTaskCreate,
+                TaskLifecycleAction::Updated | TaskLifecycleAction::Deleted => {
+                    HookPoint::PostTaskStatusChange
+                }
+            },
             DomainEvent::TaskStatusChanged { .. } => HookPoint::PostTaskStatusChange,
+            DomainEvent::ExecutionStarted { .. }
+            |
             DomainEvent::ExecutionCompleted { .. }
             | DomainEvent::ApprovalRequested { .. }
             | DomainEvent::ApprovalResolved { .. }
-            | DomainEvent::ConversationMessageAdded { .. } => HookPoint::PostAgentComplete,
+            | DomainEvent::ConversationMessageAdded { .. }
+            | DomainEvent::FollowUpTransition { .. } => HookPoint::PostAgentComplete,
             DomainEvent::WorkspaceCreated { .. } => HookPoint::PostTaskCreate,
             DomainEvent::WorkspaceDeleted { .. }
             | DomainEvent::ProjectUpdated { .. }
             | DomainEvent::MergeQueueTransition { .. }
+            | DomainEvent::TaskGroupTransition { .. }
             | DomainEvent::TaskGroupCompleted { .. } => HookPoint::PostTaskStatusChange,
         }
     }

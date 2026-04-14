@@ -29,7 +29,7 @@ use executors::profile::ExecutorProfileId;
 use serde::{Deserialize, Serialize};
 use services::services::{
     container::{ContainerService, StartWorkspaceResult},
-    domain_events::DomainEvent,
+    domain_events::{DomainEvent, TaskGroupTransitionAction, TaskLifecycleAction},
     share::ShareError,
     workspace_manager::WorkspaceManager,
 };
@@ -507,6 +507,16 @@ pub async fn create_task(
         )
         .await;
 
+    deployment
+        .container()
+        .dispatch_event(DomainEvent::TaskLifecycle {
+            action: TaskLifecycleAction::Created,
+            task: task.clone(),
+            previous_task_group_id: None,
+            occurred_at: task.created_at,
+        })
+        .await;
+
     Ok(ResponseJson(ApiResponse::success(task)))
 }
 
@@ -548,6 +558,16 @@ pub async fn create_task_and_start(
         )
         .await;
 
+    deployment
+        .container()
+        .dispatch_event(DomainEvent::TaskLifecycle {
+            action: TaskLifecycleAction::Created,
+            task: task.clone(),
+            previous_task_group_id: None,
+            occurred_at: task.created_at,
+        })
+        .await;
+
     let project = Project::find_by_id(pool, task.project_id)
         .await?
         .ok_or(ProjectError::ProjectNotFound)?;
@@ -574,6 +594,13 @@ pub async fn create_task_and_start(
         task.id,
     )
     .await?;
+
+    deployment
+        .container()
+        .dispatch_event(DomainEvent::WorkspaceCreated {
+            workspace: workspace.clone(),
+        })
+        .await;
 
     let workspace_repos: Vec<CreateWorkspaceRepo> = payload
         .repos
@@ -641,6 +668,11 @@ pub async fn update_task(
     let image_ids = payload.image_ids.clone();
     let resolved_update = resolve_task_update(&deployment, &existing_task, &payload).await?;
     let previous_status = existing_task.status.clone();
+    let task_updated = existing_task.title != resolved_update.title
+        || existing_task.description != resolved_update.description
+        || existing_task.parent_workspace_id != resolved_update.parent_workspace_id
+        || existing_task.task_group_id != resolved_update.task_group_id
+        || image_ids.is_some();
     let task = persist_task_update(&deployment.db().pool, &existing_task, &resolved_update).await?;
 
     if let Some(image_ids) = &image_ids {
@@ -649,6 +681,32 @@ pub async fn update_task(
     }
 
     finalize_task_update(&deployment, &task, previous_status).await?;
+
+    if existing_task.task_group_id != task.task_group_id {
+        deployment
+            .container()
+            .dispatch_event(DomainEvent::TaskGroupTransition {
+                action: TaskGroupTransitionAction::AssignmentChanged,
+                project_id: task.project_id,
+                task_group_id: task.task_group_id,
+                previous_task_group_id: existing_task.task_group_id,
+                task_ids: vec![task.id],
+                occurred_at: task.updated_at,
+            })
+            .await;
+    }
+
+    if task_updated {
+        deployment
+            .container()
+            .dispatch_event(DomainEvent::TaskLifecycle {
+                action: TaskLifecycleAction::Updated,
+                task: task.clone(),
+                previous_task_group_id: existing_task.task_group_id,
+                occurred_at: task.updated_at,
+            })
+            .await;
+    }
 
     Ok(ResponseJson(ApiResponse::success(task)))
 }
@@ -983,6 +1041,15 @@ pub async fn delete_task(
     let deletion_plan = build_task_deletion_plan(&deployment, task).await?;
     publish_task_deletions(&deployment, std::slice::from_ref(&deletion_plan)).await?;
     execute_task_deletions(&deployment.db().pool, std::slice::from_ref(&deletion_plan)).await?;
+    deployment
+        .container()
+        .dispatch_event(DomainEvent::TaskLifecycle {
+            action: TaskLifecycleAction::Deleted,
+            task: deletion_plan.task.clone(),
+            previous_task_group_id: deletion_plan.task.task_group_id,
+            occurred_at: chrono::Utc::now(),
+        })
+        .await;
     track_deleted_tasks(&deployment, std::slice::from_ref(&deletion_plan)).await;
     spawn_task_cleanup(deployment.db().pool.clone(), vec![deletion_plan]);
 
@@ -1055,6 +1122,17 @@ pub async fn bulk_delete_tasks(
 
     publish_task_deletions(&deployment, &deletion_plans).await?;
     let deleted_tasks = execute_task_deletions(&deployment.db().pool, &deletion_plans).await?;
+    for plan in &deletion_plans {
+        deployment
+            .container()
+            .dispatch_event(DomainEvent::TaskLifecycle {
+                action: TaskLifecycleAction::Deleted,
+                task: plan.task.clone(),
+                previous_task_group_id: plan.task.task_group_id,
+                occurred_at: chrono::Utc::now(),
+            })
+            .await;
+    }
     track_deleted_tasks(&deployment, &deletion_plans).await;
     spawn_task_cleanup(deployment.db().pool.clone(), deletion_plans);
 
@@ -1169,8 +1247,7 @@ pub fn project_router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::{LazyLock, Mutex};
+mod lifecycle_tests {
 
     use axum::{
         body::{Body, to_bytes},
@@ -1184,12 +1261,16 @@ mod tests {
         workspace::{CreateWorkspace, Workspace},
     };
     use local_deployment::LocalDeployment;
+    use services::services::domain_events::{
+        OrchestrationEventPublisherHandle, OrchestrationEventType,
+        RecordingOrchestrationEventPublisher,
+    };
+    use std::{sync::Arc, time::Duration};
     use tower::ServiceExt;
 
     use super::*;
     use crate::middleware::load_project_middleware;
 
-    static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     fn bulk_tasks_test_router(deployment: DeploymentImpl) -> Router {
         let project_routes = Router::new()
@@ -1288,10 +1369,88 @@ mod tests {
         .unwrap();
     }
 
+    async fn wait_for_event_types(
+        publisher: &RecordingOrchestrationEventPublisher,
+        minimum: usize,
+    ) -> Vec<OrchestrationEventType> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let events = publisher
+                .published()
+                .into_iter()
+                .map(|(_, envelope)| envelope.event_type)
+                .collect::<Vec<_>>();
+            if events.len() >= minimum || tokio::time::Instant::now() >= deadline {
+                return events;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn task_routes_emit_task_lifecycle_events() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let publisher = RecordingOrchestrationEventPublisher::default();
+        let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
+        let deployment =
+            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+                .await
+                .unwrap();
+        let project = create_project(&deployment, "task-lifecycle-events").await;
+
+        let created = super::create_task(
+            State(deployment.clone()),
+            Json(CreateTask {
+                project_id: project.id,
+                title: "task-a".to_string(),
+                description: Some("first".to_string()),
+                status: Some(TaskStatus::Todo),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: None,
+            }),
+        )
+        .await
+        .unwrap()
+        .0
+        .into_data()
+        .unwrap();
+
+        let updated = super::update_task(
+            Extension(created.clone()),
+            State(deployment.clone()),
+            Json(UpdateTask {
+                title: Some("task-a-updated".to_string()),
+                description: Some("updated".to_string()),
+                status: Some(TaskStatus::InReview),
+                parent_workspace_id: None,
+                task_group_id: None,
+                image_ids: None,
+            }),
+        )
+        .await
+        .unwrap()
+        .0
+        .into_data()
+        .unwrap();
+
+        let _ = super::delete_task(Extension(updated), State(deployment.clone()))
+            .await
+            .unwrap();
+
+        let event_types = wait_for_event_types(&publisher, 4).await;
+        assert!(event_types.contains(&OrchestrationEventType::TaskCreated));
+        assert!(event_types.contains(&OrchestrationEventType::TaskUpdated));
+        assert!(event_types.contains(&OrchestrationEventType::TaskStatusChanged));
+        assert!(event_types.contains(&OrchestrationEventType::TaskDeleted));
+    }
+
     #[tokio::test]
     #[allow(clippy::await_holding_lock)]
     async fn bulk_status_rejects_cross_project_tasks_without_mutating() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
         let deployment = LocalDeployment::new().await.unwrap();
         let project = create_project(&deployment, "bulk-status-main").await;
         let other_project = create_project(&deployment, "bulk-status-other").await;
@@ -1347,7 +1506,7 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::await_holding_lock)]
     async fn bulk_status_dispatches_status_change_side_effects() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
         let deployment = LocalDeployment::new().await.unwrap();
         let project = create_project(&deployment, "bulk-status-events").await;
         let first_task =
@@ -1408,7 +1567,7 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::await_holding_lock)]
     async fn bulk_delete_rejects_if_any_task_has_running_processes() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
         let deployment = LocalDeployment::new().await.unwrap();
         let project = create_project(&deployment, "bulk-delete-guard").await;
         let deletable_task =
@@ -1453,7 +1612,7 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::await_holding_lock)]
     async fn bulk_delete_clears_child_parent_links_and_returns_deleted_ids() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
         let deployment = LocalDeployment::new().await.unwrap();
         let project = create_project(&deployment, "bulk-delete-side-effects").await;
         let parent_task =

@@ -13,6 +13,10 @@ use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
 
+use super::domain_events::{
+    ConversationMessageEventRole, DomainEvent, DomainEventEntityIds, EventDispatchCallback,
+};
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ConversationWithMessages {
     #[serde(flatten)]
@@ -44,6 +48,28 @@ pub enum ConversationServiceError {
 pub struct ConversationService;
 
 impl ConversationService {
+    async fn dispatch_message_added(
+        dispatcher: Option<EventDispatchCallback>,
+        message: &ConversationMessage,
+        role: ConversationMessageEventRole,
+    ) {
+        if let Some(dispatcher) = dispatcher {
+            dispatcher(DomainEvent::ConversationMessageAdded {
+                conversation_session_id: message.conversation_session_id,
+                message_id: message.id,
+                execution_process_id: message.execution_process_id,
+                role,
+                entity_ids: DomainEventEntityIds {
+                    session_id: Some(message.conversation_session_id),
+                    execution_process_id: message.execution_process_id,
+                    ..DomainEventEntityIds::default()
+                },
+                occurred_at: message.created_at,
+            })
+            .await;
+        }
+    }
+
     /// Creates a new conversation session with an initial user message.
     pub async fn create_conversation(
         pool: &SqlitePool,
@@ -53,6 +79,29 @@ impl ConversationService {
         executor: Option<String>,
         worktree_path: Option<String>,
         worktree_branch: Option<String>,
+    ) -> Result<(ConversationSession, ConversationMessage), ConversationServiceError> {
+        Self::create_conversation_with_events(
+            pool,
+            project_id,
+            title,
+            initial_message,
+            executor,
+            worktree_path,
+            worktree_branch,
+            None,
+        )
+        .await
+    }
+
+    pub async fn create_conversation_with_events(
+        pool: &SqlitePool,
+        project_id: Uuid,
+        title: String,
+        initial_message: String,
+        executor: Option<String>,
+        worktree_path: Option<String>,
+        worktree_branch: Option<String>,
+        event_dispatcher: Option<EventDispatchCallback>,
     ) -> Result<(ConversationSession, ConversationMessage), ConversationServiceError> {
         let session = ConversationSession::create(
             pool,
@@ -77,6 +126,13 @@ impl ConversationService {
             },
         )
         .await?;
+
+        Self::dispatch_message_added(
+            event_dispatcher,
+            &message,
+            ConversationMessageEventRole::User,
+        )
+        .await;
 
         Ok((session, message))
     }
@@ -103,6 +159,15 @@ impl ConversationService {
         conversation_session_id: Uuid,
         content: String,
     ) -> Result<ConversationMessage, ConversationServiceError> {
+        Self::add_user_message_with_events(pool, conversation_session_id, content, None).await
+    }
+
+    pub async fn add_user_message_with_events(
+        pool: &SqlitePool,
+        conversation_session_id: Uuid,
+        content: String,
+        event_dispatcher: Option<EventDispatchCallback>,
+    ) -> Result<ConversationMessage, ConversationServiceError> {
         let message = ConversationMessage::create(
             pool,
             CreateConversationMessage {
@@ -115,6 +180,13 @@ impl ConversationService {
         )
         .await?;
 
+        Self::dispatch_message_added(
+            event_dispatcher,
+            &message,
+            ConversationMessageEventRole::User,
+        )
+        .await;
+
         Ok(message)
     }
 
@@ -124,6 +196,23 @@ impl ConversationService {
         conversation_session_id: Uuid,
         execution_process_id: Uuid,
         content: String,
+    ) -> Result<ConversationMessage, ConversationServiceError> {
+        Self::add_assistant_message_with_events(
+            pool,
+            conversation_session_id,
+            execution_process_id,
+            content,
+            None,
+        )
+        .await
+    }
+
+    pub async fn add_assistant_message_with_events(
+        pool: &SqlitePool,
+        conversation_session_id: Uuid,
+        execution_process_id: Uuid,
+        content: String,
+        event_dispatcher: Option<EventDispatchCallback>,
     ) -> Result<ConversationMessage, ConversationServiceError> {
         let message = ConversationMessage::create(
             pool,
@@ -136,6 +225,13 @@ impl ConversationService {
             },
         )
         .await?;
+
+        Self::dispatch_message_added(
+            event_dispatcher,
+            &message,
+            ConversationMessageEventRole::Assistant,
+        )
+        .await;
 
         Ok(message)
     }

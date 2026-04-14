@@ -1496,7 +1496,16 @@ pub trait ContainerService {
                 ExecutionProcessRunReason::DevServer | ExecutionProcessRunReason::InternalAgent
             )
         {
+            let previous_status = task.status.clone();
             Task::update_status(&self.db().pool, task.id, TaskStatus::InProgress).await?;
+
+            let mut updated_task = task.clone();
+            updated_task.status = TaskStatus::InProgress;
+            self.dispatch_event(DomainEvent::TaskStatusChanged {
+                task: updated_task,
+                previous_status,
+            })
+            .await;
 
             if let Some(publisher) = self.share_publisher()
                 && let Err(err) = publisher.update_shared_task_by_id(task.id).await
@@ -1599,6 +1608,26 @@ pub trait ContainerService {
             }
             Task::update_status(&self.db().pool, task.id, TaskStatus::InReview).await?;
 
+            let mut updated_task = task.clone();
+            updated_task.status = TaskStatus::InReview;
+            self.dispatch_event(DomainEvent::TaskStatusChanged {
+                task: updated_task,
+                previous_status: TaskStatus::InProgress,
+            })
+            .await;
+
+            if let Some(process) =
+                ExecutionProcess::find_by_id(&self.db().pool, execution_process.id).await?
+            {
+                self.dispatch_event(DomainEvent::ExecutionCompleted {
+                    process,
+                    task_id: Some(task.id),
+                    workspace_id: Some(workspace.id),
+                    task_group_id: task.task_group_id,
+                })
+                .await;
+            }
+
             // Emit stderr error message
             let log_message = LogMsg::Stderr(format!("Failed to start execution: {start_error}"));
             if let Ok(json_line) = serde_json::to_string(&log_message) {
@@ -1635,6 +1664,15 @@ pub trait ContainerService {
             };
             return Err(start_error);
         }
+
+        self.dispatch_event(DomainEvent::ExecutionStarted {
+            process: execution_process.clone(),
+            task_id: Some(task.id),
+            workspace_id: Some(workspace.id),
+            task_group_id: task.task_group_id,
+            occurred_at: execution_process.started_at,
+        })
+        .await;
 
         // Start processing normalised logs for executor requests and follow ups
         if let Some(msg_store) = self.get_msg_store_by_id(&execution_process.id).await
@@ -1824,6 +1862,18 @@ pub trait ContainerService {
                 .await;
             }
 
+            if let Some(process) =
+                ExecutionProcess::find_by_id(&self.db().pool, execution_process.id).await?
+            {
+                self.dispatch_event(DomainEvent::ExecutionCompleted {
+                    process,
+                    task_id: None,
+                    workspace_id: None,
+                    task_group_id: None,
+                })
+                .await;
+            }
+
             return Err(start_error);
         }
 
@@ -1866,6 +1916,15 @@ pub trait ContainerService {
         }
 
         self.spawn_stream_raw_logs_to_db(&execution_process.id);
+
+        self.dispatch_event(DomainEvent::ExecutionStarted {
+            process: execution_process.clone(),
+            task_id: None,
+            workspace_id: None,
+            task_group_id: None,
+            occurred_at: execution_process.started_at,
+        })
+        .await;
 
         Ok(execution_process)
     }

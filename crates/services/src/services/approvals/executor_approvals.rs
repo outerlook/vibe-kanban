@@ -58,7 +58,8 @@ impl ExecutorApprovalService for ExecutorApprovalBridge {
         tool_input: Value,
         tool_call_id: &str,
     ) -> Result<ApprovalStatus, ExecutorApprovalError> {
-        super::ensure_task_in_review(&self.db.pool, self.execution_process_id).await;
+        super::ensure_task_in_review(&self.approvals, &self.db.pool, self.execution_process_id)
+            .await;
 
         let request = ApprovalRequest::from_create(
             CreateApprovalRequest {
@@ -113,7 +114,8 @@ impl ExecutorApprovalService for ExecutorApprovalBridge {
         questions: Vec<QuestionData>,
         tool_call_id: &str,
     ) -> Result<ApprovalStatus, ExecutorApprovalError> {
-        super::ensure_task_in_review(&self.db.pool, self.execution_process_id).await;
+        super::ensure_task_in_review(&self.approvals, &self.db.pool, self.execution_process_id)
+            .await;
 
         let request = ApprovalRequest::from_user_question(
             questions.clone(),

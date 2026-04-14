@@ -107,10 +107,19 @@ impl LocalDeployment {
     pub async fn new_with_log_store(
         server_log_store: Arc<ServerLogStore>,
     ) -> Result<Self, DeploymentError> {
-        Self::new_internal(server_log_store).await
+        Self::new_internal(server_log_store, None).await
     }
 
-    async fn new_internal(server_log_store: Arc<ServerLogStore>) -> Result<Self, DeploymentError> {
+    pub async fn new_with_orchestration_event_publisher(
+        publisher: OrchestrationEventPublisherHandle,
+    ) -> Result<Self, DeploymentError> {
+        Self::new_internal(Arc::new(ServerLogStore::new()), Some(publisher)).await
+    }
+
+    async fn new_internal(
+        server_log_store: Arc<ServerLogStore>,
+        orchestration_event_publisher_override: Option<OrchestrationEventPublisherHandle>,
+    ) -> Result<Self, DeploymentError> {
         let mut raw_config = load_config_from_file(&config_path()).await;
 
         let profiles = ExecutorConfigs::get_cached();
@@ -135,7 +144,11 @@ impl LocalDeployment {
         // Always save config (may have been migrated or version updated)
         save_config_to_file(&raw_config, &config_path()).await?;
 
-        let orchestration_event_publisher = build_orchestration_event_publisher(&raw_config)?;
+        let orchestration_event_publisher = if let Some(publisher) = orchestration_event_publisher_override {
+            Some(publisher)
+        } else {
+            build_orchestration_event_publisher(&raw_config)?
+        };
         let config = Arc::new(RwLock::new(raw_config));
         let user_id = generate_user_id();
         let analytics = AnalyticsConfig::new().map(AnalyticsService::new);
@@ -254,6 +267,10 @@ impl LocalDeployment {
             orchestration_event_publisher,
         )
         .await;
+
+        if let Some(dispatcher) = container.event_dispatch_callback() {
+            approvals.set_event_dispatcher(dispatcher).await;
+        }
 
         let events = EventService::new(db.clone(), events_msg_store, events_entry_count);
 
@@ -377,7 +394,7 @@ impl LocalDeployment {
 impl Deployment for LocalDeployment {
     async fn new() -> Result<Self, DeploymentError> {
         // Default implementation creates its own log store
-        Self::new_internal(Arc::new(ServerLogStore::new())).await
+        Self::new_internal(Arc::new(ServerLogStore::new()), None).await
     }
 
     fn user_id(&self) -> &str {

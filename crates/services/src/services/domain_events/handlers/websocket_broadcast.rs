@@ -50,7 +50,8 @@ impl EventHandler for WebSocketBroadcastHandler {
             }
             DomainEvent::ExecutionCompleted { task_id, .. } => {
                 // When execution completes, refresh the task to get latest status.
-                if let Some(task_with_status) =
+                if let Some(task_id) = task_id
+                    && let Some(task_with_status) =
                     Task::find_by_id_with_attempt_status(&ctx.db.pool, task_id).await?
                 {
                     let patch = task_patch::replace(&task_with_status);
@@ -205,7 +206,7 @@ mod tests {
 
         let event = DomainEvent::ExecutionCompleted {
             process,
-            task_id: uuid::Uuid::new_v4(),
+            task_id: Some(uuid::Uuid::new_v4()),
             workspace_id: None,
             task_group_id: None,
         };

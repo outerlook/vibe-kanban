@@ -55,7 +55,7 @@ use git2::BranchType;
 use serde::{Deserialize, Serialize};
 use services::services::{
     container::{ContainerService, StartWorkspaceResult},
-    domain_events::DomainEvent,
+    domain_events::{DomainEvent, MergeQueueTransitionState},
     git::{ConflictOp, GitCliError, GitServiceError},
     github::GitHubService,
     merge_queue_processor::MergeQueueProcessor,
@@ -214,6 +214,13 @@ pub async fn create_task_attempt(
         payload.task_id,
     )
     .await?;
+
+    deployment
+        .container()
+        .dispatch_event(DomainEvent::WorkspaceCreated {
+            workspace: workspace.clone(),
+        })
+        .await;
 
     let workspace_repos: Vec<CreateWorkspaceRepo> = payload
         .repos
@@ -2205,6 +2212,22 @@ pub async fn queue_merge(
         commit_message,
     );
 
+    if let Some(dispatcher) = deployment.container().event_dispatch_callback() {
+        dispatcher(DomainEvent::MergeQueueTransition {
+            entry_id: entry.id,
+            project_id: entry.project_id,
+            workspace_id: entry.workspace_id,
+            task_id: Some(task.id),
+            task_group_id: task.task_group_id,
+            repo_id: entry.repo_id,
+            state: MergeQueueTransitionState::Queued,
+            merge_commit: None,
+            detail: None,
+            occurred_at: entry.queued_at,
+        })
+        .await;
+    }
+
     // Spawn background processor only if one isn't already running for this project.
     // This prevents race conditions where multiple processors could claim the same entries.
     let project_id = task.project_id;
@@ -2274,7 +2297,26 @@ pub async fn cancel_queue_merge(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
-    deployment.merge_queue_store().remove(workspace.id);
+    let removed = deployment.merge_queue_store().remove(workspace.id);
+
+    if let Some(entry) = removed
+        && let Some(task) = workspace.parent_task(&deployment.db().pool).await?
+        && let Some(dispatcher) = deployment.container().event_dispatch_callback()
+    {
+        dispatcher(DomainEvent::MergeQueueTransition {
+            entry_id: entry.id,
+            project_id: entry.project_id,
+            workspace_id: entry.workspace_id,
+            task_id: Some(task.id),
+            task_group_id: task.task_group_id,
+            repo_id: entry.repo_id,
+            state: MergeQueueTransitionState::Removed,
+            merge_commit: None,
+            detail: None,
+            occurred_at: chrono::Utc::now(),
+        })
+        .await;
+    }
 
     deployment
         .track_if_analytics_allowed(
@@ -2364,4 +2406,240 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .nest("/{id}/images", images::router(deployment));
 
     Router::new().nest("/task-attempts", task_attempts_router)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, path::Path, sync::Arc, time::Duration};
+
+    use axum::{Extension, Json, extract::State};
+    use db::models::{
+        project::{CreateProject, Project},
+        project_repo::ProjectRepo,
+        repo::Repo,
+        task::{CreateTask, Task, TaskStatus},
+        workspace::{CreateWorkspace, Workspace},
+        workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
+    };
+    use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
+    use local_deployment::LocalDeployment;
+    use services::services::domain_events::{
+        OrchestrationEventPublisherHandle, OrchestrationEventType,
+        RecordingOrchestrationEventPublisher,
+    };
+    use uuid::Uuid;
+
+    use super::*;
+
+    async fn create_project(deployment: &DeploymentImpl, name: &str) -> Project {
+        Project::create(
+            &deployment.db().pool,
+            &CreateProject {
+                name: name.to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn create_task(deployment: &DeploymentImpl, project_id: Uuid, title: &str) -> Task {
+        Task::create(
+            &deployment.db().pool,
+            &CreateTask {
+                project_id,
+                title: title.to_string(),
+                description: None,
+                status: Some(TaskStatus::Todo),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: None,
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn attach_repo_to_project(
+        deployment: &DeploymentImpl,
+        project_id: Uuid,
+        repo_path: &Path,
+        display_name: &str,
+    ) -> Repo {
+        let repo = Repo::find_or_create(&deployment.db().pool, repo_path, display_name)
+            .await
+            .unwrap();
+        ProjectRepo::create(&deployment.db().pool, project_id, repo.id)
+            .await
+            .unwrap();
+        repo
+    }
+
+
+    async fn wait_for_merge_transition_count(
+        publisher: &RecordingOrchestrationEventPublisher,
+        minimum: usize,
+    ) -> Vec<OrchestrationEventType> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let events = publisher
+                .published()
+                .into_iter()
+                .map(|(_, envelope)| envelope.event_type)
+                .collect::<Vec<_>>();
+            let merge_count = events
+                .iter()
+                .filter(|event_type| **event_type == OrchestrationEventType::MergeQueueTransition)
+                .count();
+            if merge_count >= minimum || tokio::time::Instant::now() >= deadline {
+                return events;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn task_attempt_routes_emit_workspace_and_merge_queue_events() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let publisher = RecordingOrchestrationEventPublisher::default();
+        let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
+        let deployment =
+            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+                .await
+                .unwrap();
+
+        let project = create_project(&deployment, "task-attempt-route-events").await;
+        let task = create_task(&deployment, project.id, "Attempt me").await;
+
+        let repo_path = std::env::temp_dir()
+            .join(format!("vk-task-attempt-repo-{}", Uuid::new_v4()));
+        deployment
+            .git()
+            .initialize_repo_with_main_branch(&repo_path)
+            .unwrap();
+        std::process::Command::new("git")
+            .args([
+                "-C",
+                repo_path.to_str().unwrap(),
+                "config",
+                "core.fsmonitor",
+                "true",
+            ])
+            .status()
+            .unwrap();
+        let repo = attach_repo_to_project(&deployment, project.id, &repo_path, "Attempt Repo").await;
+
+        let workspace = create_task_attempt(
+            State(deployment.clone()),
+            Json(CreateTaskAttemptBody {
+                task_id: task.id,
+                executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+                repos: vec![WorkspaceRepoInput {
+                    repo_id: repo.id,
+                    target_branch: "main".to_string(),
+                }],
+            }),
+        )
+        .await
+        .unwrap()
+        .0
+        .into_data()
+        .unwrap();
+
+        assert_eq!(workspace.task_id, task.id);
+
+        deployment
+            .git()
+            .create_branch(&repo_path, "feature/merge-queue", Some("main"))
+            .unwrap();
+        std::process::Command::new("git")
+            .args([
+                "-C",
+                repo_path.to_str().unwrap(),
+                "checkout",
+                "feature/merge-queue",
+            ])
+            .status()
+            .unwrap();
+        fs::write(repo_path.join("queued.txt"), "feature work\n").unwrap();
+        deployment.git().commit(&repo_path, "feature commit").unwrap();
+        std::process::Command::new("git")
+            .args(["-C", repo_path.to_str().unwrap(), "checkout", "main"])
+            .status()
+            .unwrap();
+        let workspace = Workspace::create(
+            &deployment.db().pool,
+            &CreateWorkspace {
+                branch: "feature/merge-queue".to_string(),
+                agent_working_dir: None,
+            },
+            Uuid::new_v4(),
+            task.id,
+        )
+        .await
+        .unwrap();
+        WorkspaceRepo::create_many(
+            &deployment.db().pool,
+            workspace.id,
+            &[CreateWorkspaceRepo {
+                repo_id: repo.id,
+                target_branch: "main".to_string(),
+            }],
+        )
+        .await
+        .unwrap();
+
+        {
+            let mut active = ACTIVE_MERGE_PROCESSORS.lock().unwrap();
+            active.insert(project.id);
+        }
+
+        let queued_merge = queue_merge(
+            Extension(workspace.clone()),
+            State(deployment.clone()),
+            Json(QueueMergeRequest {
+                repo_id: repo.id,
+                commit_message: Some("queue merge".to_string()),
+                generate_commit_message: Some(false),
+            }),
+        )
+        .await
+        .unwrap()
+        .0
+        .into_data()
+        .unwrap();
+        assert_eq!(queued_merge.workspace_id, workspace.id);
+
+        let queued_event_types = wait_for_merge_transition_count(&publisher, 1).await;
+        assert!(queued_event_types.contains(&OrchestrationEventType::WorkspaceCreated));
+        assert_eq!(
+            queued_event_types
+                .iter()
+                .filter(|event_type| **event_type == OrchestrationEventType::MergeQueueTransition)
+                .count(),
+            1
+        );
+
+        deployment
+            .merge_queue_store()
+            .enqueue(project.id, workspace.id, repo.id, "manual queue".to_string());
+        let _ = cancel_queue_merge(Extension(workspace), State(deployment.clone()))
+            .await
+            .unwrap();
+        ACTIVE_MERGE_PROCESSORS.lock().unwrap().remove(&project.id);
+
+        let event_types = wait_for_merge_transition_count(&publisher, 2).await;
+        assert_eq!(
+            event_types
+                .iter()
+                .filter(|event_type| **event_type == OrchestrationEventType::MergeQueueTransition)
+                .count(),
+            2
+        );
+    }
 }

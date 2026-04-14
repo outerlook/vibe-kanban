@@ -14,7 +14,13 @@ use deployment::Deployment;
 use executors::actions::{
     ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
 };
-use services::services::container::ContainerService;
+use services::services::{
+    container::ContainerService,
+    domain_events::{
+        DomainEvent, DomainEventEntityIds, FollowUpQueueKind, FollowUpScope,
+        FollowUpTransitionState,
+    },
+};
 use utils::approvals::{
     ApprovalResponse, ApprovalStatus, QuestionAnswer, QuestionData, format_qa_as_follow_up_prompt,
 };
@@ -153,6 +159,23 @@ async fn trigger_follow_up_for_answered_question(
             ctx.workspace.id
         );
         ExecutionQueue::create_follow_up(pool, ctx.workspace.id, ctx.session.id, &action).await?;
+        if let Some(dispatcher) = deployment.container().event_dispatch_callback() {
+            dispatcher(DomainEvent::FollowUpTransition {
+                state: FollowUpTransitionState::Queued,
+                scope: FollowUpScope::TaskSession,
+                queue_kind: Some(FollowUpQueueKind::Concurrency),
+                execution_process_id: None,
+                entity_ids: DomainEventEntityIds {
+                    task_id: Some(ctx.task.id),
+                    workspace_id: Some(ctx.workspace.id),
+                    session_id: Some(ctx.session.id),
+                    task_group_id: ctx.task.task_group_id,
+                    ..DomainEventEntityIds::default()
+                },
+                occurred_at: chrono::Utc::now(),
+            })
+            .await;
+        }
     } else {
         tracing::info!(
             "Starting follow-up execution for answered question {} workspace {}",
@@ -169,6 +192,28 @@ async fn trigger_follow_up_for_answered_question(
                 None,
             )
             .await?;
+        if let Some(execution_process) = ExecutionProcess::find_by_session_id(pool, ctx.session.id, false)
+            .await?
+            .into_iter()
+            .next_back()
+            && let Some(dispatcher) = deployment.container().event_dispatch_callback()
+        {
+            dispatcher(DomainEvent::FollowUpTransition {
+                state: FollowUpTransitionState::Started,
+                scope: FollowUpScope::TaskSession,
+                queue_kind: None,
+                execution_process_id: Some(execution_process.id),
+                entity_ids: DomainEventEntityIds {
+                    task_id: Some(ctx.task.id),
+                    workspace_id: Some(ctx.workspace.id),
+                    session_id: Some(ctx.session.id),
+                    execution_process_id: Some(execution_process.id),
+                    task_group_id: ctx.task.task_group_id,
+                },
+                occurred_at: chrono::Utc::now(),
+            })
+            .await;
+        }
     }
 
     Ok(())
@@ -176,4 +221,265 @@ async fn trigger_follow_up_for_answered_question(
 
 pub fn router() -> Router<DeploymentImpl> {
     Router::new().route("/approvals/{id}/respond", post(respond_to_approval))
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::{path::Path, sync::Arc, time::Duration};
+
+    use axum::{Json, extract::{Path as AxumPath, State}};
+    use db::models::{
+        execution_process::{CreateExecutionProcess, ExecutionProcess, ExecutionProcessRunReason},
+        project::{CreateProject, Project},
+        project_repo::ProjectRepo,
+        repo::Repo,
+        session::{CreateSession, Session},
+        task::{CreateTask, Task, TaskStatus},
+        user_question::{CreateUserQuestion, UserQuestion},
+        workspace::{CreateWorkspace, Workspace},
+        workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
+    };
+    use executors::{
+        actions::{ExecutorAction, ExecutorActionType, coding_agent_initial::CodingAgentInitialRequest},
+        executors::BaseCodingAgent,
+        profile::ExecutorProfileId,
+    };
+    use local_deployment::LocalDeployment;
+    use services::services::domain_events::{
+        OrchestrationEventPublisherHandle, OrchestrationEventType,
+        RecordingOrchestrationEventPublisher,
+    };
+    use utils::approvals::{ApprovalResponse, ApprovalStatus, QuestionAnswer, QuestionData, QuestionOption};
+    use uuid::Uuid;
+
+    use super::*;
+
+    async fn create_project(deployment: &DeploymentImpl, name: &str) -> Project {
+        Project::create(
+            &deployment.db().pool,
+            &CreateProject {
+                name: name.to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn create_task(deployment: &DeploymentImpl, project_id: Uuid, title: &str) -> Task {
+        Task::create(
+            &deployment.db().pool,
+            &CreateTask {
+                project_id,
+                title: title.to_string(),
+                description: None,
+                status: Some(TaskStatus::InReview),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: None,
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn create_workspace_for_task(
+        deployment: &DeploymentImpl,
+        task_id: Uuid,
+        branch: &str,
+    ) -> Workspace {
+        Workspace::create(
+            &deployment.db().pool,
+            &CreateWorkspace {
+                branch: branch.to_string(),
+                agent_working_dir: None,
+            },
+            Uuid::new_v4(),
+            task_id,
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn create_session_for_workspace(
+        deployment: &DeploymentImpl,
+        workspace_id: Uuid,
+    ) -> Session {
+        Session::create(
+            &deployment.db().pool,
+            &CreateSession {
+                executor: Some("CLAUDE_CODE".to_string()),
+            },
+            Uuid::new_v4(),
+            workspace_id,
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn attach_repo_to_workspace(
+        deployment: &DeploymentImpl,
+        project_id: Uuid,
+        workspace_id: Uuid,
+        repo_path: &Path,
+        target_branch: &str,
+    ) -> Repo {
+        let repo = Repo::find_or_create(&deployment.db().pool, repo_path, "Approval Repo")
+            .await
+            .unwrap();
+        ProjectRepo::create(&deployment.db().pool, project_id, repo.id)
+            .await
+            .unwrap();
+        WorkspaceRepo::create_many(
+            &deployment.db().pool,
+            workspace_id,
+            &[CreateWorkspaceRepo {
+                repo_id: repo.id,
+                target_branch: target_branch.to_string(),
+            }],
+        )
+        .await
+        .unwrap();
+        repo
+    }
+
+    async fn create_running_coding_agent_process(
+        deployment: &DeploymentImpl,
+        session_id: Uuid,
+    ) -> ExecutionProcess {
+        ExecutionProcess::create(
+            &deployment.db().pool,
+            &CreateExecutionProcess {
+                session_id,
+                executor_action: ExecutorAction::new(
+                    ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+                        prompt: "seed".to_string(),
+                        executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+                        working_dir: None,
+                    }),
+                    None,
+                ),
+                run_reason: ExecutionProcessRunReason::CodingAgent,
+            },
+            Uuid::new_v4(),
+            &[],
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn wait_for_event_types(
+        publisher: &RecordingOrchestrationEventPublisher,
+        minimum: usize,
+    ) -> Vec<OrchestrationEventType> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let events = publisher
+                .published()
+                .into_iter()
+                .map(|(_, envelope)| envelope.event_type)
+                .collect::<Vec<_>>();
+            if events.len() >= minimum || tokio::time::Instant::now() >= deadline {
+                return events;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn approval_route_emits_follow_up_transition_for_answered_question() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let publisher = RecordingOrchestrationEventPublisher::default();
+        let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
+        let deployment =
+            LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+                .await
+                .unwrap();
+        deployment.config().write().await.max_concurrent_agents = 1;
+
+        let project = create_project(&deployment, "approval-route-events").await;
+        let task = create_task(&deployment, project.id, "Need answer").await;
+        let workspace = create_workspace_for_task(&deployment, task.id, "feature/approval-route").await;
+        let session = create_session_for_workspace(&deployment, workspace.id).await;
+
+        let repo_path = std::env::temp_dir()
+            .join(format!("vk-approval-route-repo-{}", Uuid::new_v4()));
+        deployment
+            .git()
+            .initialize_repo_with_main_branch(&repo_path)
+            .unwrap();
+        std::process::Command::new("git")
+            .args([
+                "-C",
+                repo_path.to_str().unwrap(),
+                "config",
+                "core.fsmonitor",
+                "true",
+            ])
+            .status()
+            .unwrap();
+        deployment
+            .git()
+            .create_branch(&repo_path, &workspace.branch, Some("main"))
+            .unwrap();
+        let _repo = attach_repo_to_workspace(
+            &deployment,
+            project.id,
+            workspace.id,
+            &repo_path,
+            "main",
+        )
+        .await;
+
+        let execution_process = create_running_coding_agent_process(&deployment, session.id).await;
+        let approval_id = format!("approval-{}", Uuid::new_v4());
+        let questions = vec![QuestionData {
+            question: "Choose one".to_string(),
+            header: None,
+            multi_select: false,
+            options: vec![QuestionOption {
+                label: "A".to_string(),
+                description: None,
+            }],
+        }];
+        UserQuestion::create(
+            &deployment.db().pool,
+            &CreateUserQuestion {
+                approval_id: approval_id.clone(),
+                execution_process_id: execution_process.id,
+                questions: serde_json::to_string(&questions).unwrap(),
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        let status = respond_to_approval(
+            State(deployment.clone()),
+            AxumPath(approval_id.clone()),
+            Json(ApprovalResponse {
+                execution_process_id: execution_process.id,
+                status: ApprovalStatus::Approved,
+                answers: Some(vec![QuestionAnswer {
+                    question_index: 0,
+                    selected_indices: vec![0],
+                    other_text: None,
+                }]),
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+
+        assert!(matches!(status, ApprovalStatus::Answered { .. }));
+
+        let event_types = wait_for_event_types(&publisher, 2).await;
+        assert!(event_types.contains(&OrchestrationEventType::ApprovalResolved));
+        assert!(event_types.contains(&OrchestrationEventType::FollowUpTransition));
+    }
 }
