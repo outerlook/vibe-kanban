@@ -22,7 +22,6 @@ use services::services::{
     backup_service::BackupService,
     config::{Config, ConfigError},
     container::{ContainerError, ContainerService},
-    domain_events::HookExecutionStore,
     embedding::EmbeddingService,
     embedding_worker::EmbeddingWorker,
     events::{EventError, EventService},
@@ -131,8 +130,6 @@ pub trait Deployment: Clone + Send + Sync + 'static {
     fn operation_status(&self) -> &OperationStatusStore;
 
     fn merge_queue_store(&self) -> &MergeQueueStore;
-
-    fn hook_execution_store(&self) -> &HookExecutionStore;
 
     fn skills_cache(&self) -> &GlobalSkillsCache;
 

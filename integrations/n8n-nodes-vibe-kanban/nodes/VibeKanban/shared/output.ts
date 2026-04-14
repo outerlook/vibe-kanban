@@ -3,10 +3,14 @@ import type {
   VkApprovalStatus,
   VkConversationContext,
   VkExecutionContext,
+  VkFeedbackResponse,
   VkFollowUpResult,
+  VkQueueGenerateAndMergeResult,
   VkQueueStatus,
   VkReadResource,
+  VkReviewAttention,
   VkSendMessageResponse,
+  VkStartWorkspaceExecutionResult,
   VkTaskContext,
   VkTaskGroupContext,
 } from './vk-contracts';
@@ -33,7 +37,15 @@ export function normalizeActionOutput(args: {
   resource: string;
   operation: string;
   identifiers: Record<string, string>;
-  data?: VkFollowUpResult | VkQueueStatus | VkSendMessageResponse | VkApprovalStatus;
+  data?:
+    | VkApprovalStatus
+    | VkFeedbackResponse
+    | VkFollowUpResult
+    | VkQueueGenerateAndMergeResult
+    | VkQueueStatus
+    | VkReviewAttention
+    | VkSendMessageResponse
+    | VkStartWorkspaceExecutionResult;
 }) {
   const base = {
     resource: args.resource,

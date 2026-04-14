@@ -198,10 +198,6 @@ export type OrchestrationEventEnvelope = { event_id: string, schema_version: str
 
 export type OrchestrationEventPayload = TaskLifecycleEventPayload | TaskStatusChangedEventPayload | ExecutionStartedEventPayload | ExecutionCompletedEventPayload | WorkspaceCreatedEventPayload | OrchestrationEmptyPayload | ProjectUpdatedEventPayload | ApprovalRequestedEventPayload | ApprovalResolvedEventPayload | ConversationMessageAddedEventPayload | FollowUpTransitionEventPayload | MergeQueueTransitionEventPayload | TaskGroupTransitionEventPayload | TaskGroupCompletedEventPayload;
 
-export type MqttOrchestrationPublisherConfig = { broker_url: string, topic_namespace: string, client_id?: string, qos: number, retain: boolean, };
-
-export type OrchestrationEventPublisherConfig = { enabled: boolean, mqtt?: MqttOrchestrationPublisherConfig, };
-
 export type OrchestrationEmptyPayload = Record<string, never>;
 
 export type TaskLifecycleEventPayload = { project_id: string, status: TaskStatus, previous_task_group_id: string | null, };
@@ -658,6 +654,16 @@ export type ImageMetadata = { exists: boolean, file_name: string | null, path: s
 
 export type CreateTaskAttemptBody = { task_id: string, executor_profile_id: ExecutorProfileId, repos: Array<WorkspaceRepoInput>, };
 
+export type WorkspaceExecutionRepoSelection = { "repo_selection": "explicit", repos: Array<WorkspaceRepoInput>, } | { "repo_selection": "task_group_default" };
+
+export type StartWorkspaceExecutionCommand = { task_id: string, executor_profile_id: ExecutorProfileId, repo_selection: WorkspaceExecutionRepoSelection, };
+
+export type StartWorkspaceExecutionResult = { "status": "started", workspace: Workspace, execution_process: ExecutionProcess, } | { "status": "queued", workspace: Workspace, queue_entry: ExecutionQueue, };
+
+export type QueueGenerateAndMergeCommand = { repo_id: string, };
+
+export type QueueGenerateAndMergeResult = { "status": "queued", entry: MergeQueueEntry, } | { "status": "rejected", error: QueueMergeError, };
+
 export type WorkspaceRepoInput = { repo_id: string, target_branch: string, };
 
 export type RunAgentSetupRequest = { executor_profile_id: ExecutorProfileId, };
@@ -744,7 +750,7 @@ export type DirectoryEntry = { name: string, path: string, is_directory: boolean
 
 export type DirectoryListResponse = { entries: Array<DirectoryEntry>, current_path: string, };
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, default_clone_directory: string | null, commit_message_auto_generate_enabled: boolean, commit_message_prompt: string | null, commit_message_executor_profile: ExecutorProfileId | null, max_concurrent_agents: number, langfuse_enabled: boolean, langfuse_public_key: string | null, langfuse_secret_key: string | null, langfuse_host: string | null, backup: BackupConfig, review_attention_executor_profile: ExecutorProfileId | null, review_attention_prompt: string | null, autopilot_enabled: boolean, orchestration_event_publisher: OrchestrationEventPublisherConfig, };
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, default_clone_directory: string | null, commit_message_auto_generate_enabled: boolean, commit_message_prompt: string | null, commit_message_executor_profile: ExecutorProfileId | null, max_concurrent_agents: number, langfuse_enabled: boolean, langfuse_public_key: string | null, langfuse_secret_key: string | null, langfuse_host: string | null, backup: BackupConfig, orchestration_event_publisher: OrchestrationEventPublisherConfig, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, error_sound_file: SoundFile, custom_sound_path: string | null, 
 /**
@@ -814,50 +820,6 @@ export type MergeQueueEntry = { id: string, project_id: string, workspace_id: st
 export type MergeQueueStatus = "queued" | "merging";
 
 export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert";
-
-export type HookPoint = "pre_task_create" | "post_task_create" | "pre_task_status_change" | "post_task_status_change" | "post_agent_complete" | "post_dependency_unblocked";
-
-export type HookExecutionStatus = "running" | "completed" | "failed" | "skipped";
-
-export type HookExecution = { 
-/**
- * Unique identifier for this execution instance.
- */
-id: string, 
-/**
- * The task this hook execution relates to.
- */
-task_id: string, 
-/**
- * Name of the handler (e.g., "autopilot", "feedback_collection").
- */
-handler_name: string, 
-/**
- * The hook point that triggered this execution.
- */
-hook_point: HookPoint, 
-/**
- * Current status of the execution.
- */
-status: HookExecutionStatus, 
-/**
- * When the execution started.
- */
-started_at: string, 
-/**
- * When the execution completed (if finished).
- */
-completed_at: string | null, 
-/**
- * Error message if the execution failed.
- */
-error: string | null, 
-/**
- * Linked execution process ID for hooks that spawn execution processes.
- * Used by handlers like `feedback_collection` and `review_attention` that
- * trigger separate execution processes via ExecutionTrigger callback.
- */
-linked_execution_process_id: string | null, };
 
 export type ExecutorAction = { typ: ExecutorActionType, next_action: ExecutorAction | null, };
 
@@ -1041,54 +1003,3 @@ Write a commit message following these guidelines:
 - Body: explain what and why (wrap at 72 chars)
 
 Respond with ONLY the commit message, no other text.`;
-
-export const DEFAULT_REVIEW_ATTENTION_PROMPT = `Analyze whether the completed work successfully addresses the original task.
-
-## Original Task
-{task_description}
-
-## Agent's Work Summary
-{agent_summary}
-
-## Your Role
-You are reviewing whether the task objective was achieved. Check BOTH:
-1. Did the agent report any problems or failures?
-2. Does the work actually address what the original task requested?
-
-## NEEDS ATTENTION if ANY of these are true:
-
-### Agent-reported problems:
-- Errors or failures that weren't resolved
-- Work that is incomplete or partially done
-- Blockers encountered
-- Tests failing
-- Uncertainty about correctness
-
-### Task completion issues:
-- The work does NOT address the original task objective
-- The agent did something tangential (e.g., answered a question but didn't fix the underlying problem)
-- The summary describes work that doesn't match what the task asked for
-- The task requested a fix/implementation but the agent only investigated/explained
-
-## Does NOT need attention if:
-- The work directly addresses what the task requested
-- The agent completed the actual objective (not just related activities)
-- No problems or concerns are mentioned by the agent
-
-## IMPORTANT - Do NOT flag attention for:
-- Normal configuration requirements (env vars, parameters to set)
-- Suggestions for future improvements or additional testing
-- Standard deployment steps
-- Your own hypothetical concerns about the code
-- Things the agent did NOT mention as problems
-
-Key question: Did the agent complete what the task actually asked for, or just do something related?
-
-Respond with JSON:
-
-\`\`\`json
-{
-  "needs_attention": <true if problems OR task objective not addressed>,
-  "reasoning": "<brief explanation - mention if task objective was/wasn't met>"
-}
-\`\`\``;

@@ -4,10 +4,18 @@ import type {
   VkApprovalResponse,
   VkApprovalStatus,
   VkConversationContext,
+  VkCreateAgentFeedback,
+  VkCreateReviewAttention,
   VkExecutionContext,
+  VkFeedbackResponse,
   VkFollowUpResult,
+  VkQueueGenerateAndMergeCommand,
+  VkQueueGenerateAndMergeResult,
   VkQueueStatus,
+  VkReviewAttention,
   VkSendMessageResponse,
+  VkStartWorkspaceExecutionCommand,
+  VkStartWorkspaceExecutionResult,
   VkTaskContext,
   VkTaskGroupContext,
 } from './vk-contracts';
@@ -213,6 +221,68 @@ export async function answerApproval(
   }
 
   return (await response.json()) as VkApprovalStatus;
+}
+
+export async function startWorkspaceExecution(
+  credentials: VkApiCredentialValue,
+  body: VkStartWorkspaceExecutionCommand,
+): Promise<VkStartWorkspaceExecutionResult> {
+  return requestVk<VkStartWorkspaceExecutionResult>(
+    credentials,
+    '/task-attempts/orchestration/workspace-executions',
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export async function queueGenerateAndMerge(
+  credentials: VkApiCredentialValue,
+  workspaceId: string,
+  body: VkQueueGenerateAndMergeCommand,
+): Promise<VkQueueGenerateAndMergeResult> {
+  return requestVk<VkQueueGenerateAndMergeResult>(
+    credentials,
+    `/task-attempts/${workspaceId}/generate-and-merge`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export async function cancelGenerateAndMerge(
+  credentials: VkApiCredentialValue,
+  workspaceId: string,
+): Promise<void> {
+  return requestVk<void>(
+    credentials,
+    `/task-attempts/${workspaceId}/generate-and-merge`,
+    {
+      method: 'DELETE',
+    },
+  );
+}
+
+export async function createFeedback(
+  credentials: VkApiCredentialValue,
+  body: VkCreateAgentFeedback,
+): Promise<VkFeedbackResponse> {
+  return requestVk<VkFeedbackResponse>(credentials, '/feedback', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function createReviewAttention(
+  credentials: VkApiCredentialValue,
+  body: VkCreateReviewAttention,
+): Promise<VkReviewAttention> {
+  return requestVk<VkReviewAttention>(credentials, '/review-attention', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }
 
 export async function stopExecutionProcess(

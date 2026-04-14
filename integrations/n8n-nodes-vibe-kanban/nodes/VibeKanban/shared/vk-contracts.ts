@@ -1,6 +1,10 @@
 import type {
   ApprovalResponse,
   ApprovalStatus,
+  CreateAgentFeedback,
+  CreateReviewAttention,
+  ExecutorProfileId,
+  FeedbackResponse,
   FollowUpResult,
   OrchestrationApprovalContextDto,
   OrchestrationConversationContextDto,
@@ -8,9 +12,14 @@ import type {
   OrchestrationExecutionContextDto,
   OrchestrationTaskContextDto,
   OrchestrationTaskGroupContextDto,
+  QueueGenerateAndMergeCommand,
+  QueueGenerateAndMergeResult,
   QuestionAnswer,
   QueueStatus,
+  ReviewAttention,
   SendMessageResponse,
+  StartWorkspaceExecutionCommand,
+  StartWorkspaceExecutionResult,
 } from '../../../../../shared/types';
 
 export type VkOrchestrationEventEnvelope = OrchestrationEventEnvelope;
@@ -25,6 +34,15 @@ export type VkSendMessageResponse = SendMessageResponse;
 export type VkApprovalResponse = ApprovalResponse;
 export type VkApprovalStatus = ApprovalStatus;
 export type VkQuestionAnswer = QuestionAnswer;
+export type VkExecutorProfileId = ExecutorProfileId;
+export type VkStartWorkspaceExecutionCommand = StartWorkspaceExecutionCommand;
+export type VkStartWorkspaceExecutionResult = StartWorkspaceExecutionResult;
+export type VkQueueGenerateAndMergeCommand = QueueGenerateAndMergeCommand;
+export type VkQueueGenerateAndMergeResult = QueueGenerateAndMergeResult;
+export type VkCreateAgentFeedback = CreateAgentFeedback;
+export type VkCreateReviewAttention = CreateReviewAttention;
+export type VkFeedbackResponse = FeedbackResponse;
+export type VkReviewAttention = ReviewAttention;
 
 export type VkReadResource =
   | 'task'
@@ -34,10 +52,14 @@ export type VkReadResource =
   | 'approval';
 
 export type VkActionResource =
+  | 'task'
+  | 'workspace'
   | 'taskSession'
   | 'conversation'
   | 'approval'
-  | 'execution';
+  | 'execution'
+  | 'feedback'
+  | 'reviewAttention';
 
 export type VkApiCredentialValue = {
   baseUrl: string;

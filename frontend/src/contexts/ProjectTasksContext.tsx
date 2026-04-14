@@ -19,7 +19,7 @@ import {
   type StatusQueryData,
 } from '@/lib/taskCacheHelpers';
 import type { Operation } from 'rfc6902';
-import type { HookExecution, OperationStatus, TaskStatus, TaskWithAttemptStatus } from 'shared/types';
+import type { OperationStatus, TaskStatus, TaskWithAttemptStatus } from 'shared/types';
 
 // Type for operation statuses stored in React Query cache
 type OperationStatusesData = Record<string, OperationStatus>;
@@ -31,7 +31,6 @@ const PAGE_SIZE = 25;
 const ALL_STATUSES: TaskStatus[] = ['todo', 'inprogress', 'inreview', 'done', 'cancelled'];
 const TASK_PATH_PREFIX = '/tasks/';
 const OPERATION_STATUS_PATH_PREFIX = '/operation_status/';
-const HOOK_EXECUTION_PATH_PREFIX = '/hook_executions/';
 
 type WsJsonPatchMsg = { JsonPatch: Operation[] };
 type WsFinishedMsg = { finished: boolean };
@@ -65,7 +64,6 @@ interface ProjectTasksContextValue {
   tasksById: Record<string, TaskWithAttemptStatus>;
   operationStatuses: Record<string, OperationStatus>;
   operationStatusesByTaskId: Record<string, OperationStatus>;
-  hookExecutionsByTaskId: Record<string, HookExecution[]>;
   paginationByStatus: PerStatusPagination;
   isQueriesLoading: boolean;
   isInitialSyncComplete: boolean;
@@ -82,7 +80,6 @@ interface ProjectTasksProviderProps {
 export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
   const { projectId } = useProject();
   const queryClient = useQueryClient();
-  const [hookExecutionsByTaskId, setHookExecutionsByTaskId] = useState<Record<string, HookExecution[]>>({});
   const [paginationByStatus, setPaginationByStatus] = useState<PerStatusPagination>(createInitialPaginationState);
   const [error, setError] = useState<string | null>(null);
 
@@ -130,13 +127,6 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
     }
     return result;
   }, [statusQueries]);
-
-  // Reset hook executions when project changes
-  useEffect(() => {
-    if (!projectId) {
-      setHookExecutionsByTaskId({});
-    }
-  }, [projectId]);
 
   // Sync pagination state from query results when queries complete
   useEffect(() => {
@@ -375,83 +365,6 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
     });
   }, [queryClient]);
 
-  // Apply hook execution patches from WebSocket
-  // Path format: /hook_executions/{task_id}/{execution_id} for incremental patches
-  // Path format: /hook_executions for snapshot (replace op with nested object)
-  const applyHookExecutionPatches = useCallback((patches: Operation[]) => {
-    if (!patches.length) return;
-
-    // Check for snapshot operation first (path is exactly "/hook_executions" with replace op)
-    for (const op of patches) {
-      if (op.path === '/hook_executions' && op.op === 'replace' && op.value) {
-        // Snapshot format: { task_id: { exec_id: HookExecution, ... }, ... }
-        const snapshotData = op.value as Record<string, Record<string, HookExecution>>;
-        const newState: Record<string, HookExecution[]> = {};
-        for (const [taskId, executionsMap] of Object.entries(snapshotData)) {
-          newState[taskId] = Object.values(executionsMap);
-        }
-        setHookExecutionsByTaskId(newState);
-        return; // Snapshot replaces everything, skip incremental processing
-      }
-    }
-
-    setHookExecutionsByTaskId((prev) => {
-      let next = prev;
-
-      for (const op of patches) {
-        if (!op.path.startsWith(HOOK_EXECUTION_PATH_PREFIX)) continue;
-
-        const remainder = op.path.slice(HOOK_EXECUTION_PATH_PREFIX.length);
-        const slashIndex = remainder.indexOf('/');
-        if (slashIndex === -1) continue;
-
-        const taskId = decodePointerSegment(remainder.slice(0, slashIndex));
-        const executionId = decodePointerSegment(remainder.slice(slashIndex + 1));
-        if (!taskId || !executionId) continue;
-
-        if (op.op === 'remove') {
-          const existingList = next[taskId];
-          if (!existingList) continue;
-          const idx = existingList.findIndex((e) => e.id === executionId);
-          if (idx === -1) continue;
-          if (next === prev) next = { ...prev };
-          const newList = existingList.filter((e) => e.id !== executionId);
-          if (newList.length === 0) {
-            delete next[taskId];
-          } else {
-            next[taskId] = newList;
-          }
-          continue;
-        }
-
-        if (op.op !== 'add' && op.op !== 'replace') continue;
-
-        const execution = op.value as HookExecution;
-        if (!execution || typeof execution !== 'object' || !execution.id) continue;
-
-        if (next === prev) next = { ...prev };
-
-        const existingList = next[taskId] ?? [];
-        const idx = existingList.findIndex((e) => e.id === executionId);
-
-        if (op.op === 'add') {
-          if (idx === -1) {
-            next[taskId] = [...existingList, execution];
-          }
-        } else {
-          // replace
-          if (idx !== -1) {
-            const newList = [...existingList];
-            newList[idx] = execution;
-            next[taskId] = newList;
-          }
-        }
-      }
-
-      return next;
-    });
-  }, []);
-
   // Single WebSocket connection for the entire app
   useEffect(() => {
     if (!projectId) {
@@ -491,7 +404,6 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
           if ('JsonPatch' in msg) {
             applyTaskPatches(msg.JsonPatch);
             applyOperationStatusPatches(msg.JsonPatch);
-            applyHookExecutionPatches(msg.JsonPatch);
           }
           if ('finished' in msg) {
             ws?.close(1000, 'finished');
@@ -532,7 +444,7 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
         ws = null;
       }
     };
-  }, [projectId, applyTaskPatches, applyOperationStatusPatches, applyHookExecutionPatches]);
+  }, [projectId, applyTaskPatches, applyOperationStatusPatches]);
 
   // Subscribe to operationStatuses from React Query cache
   // This query has no queryFn - it's only updated via setQueryData from WebSocket patches
@@ -558,14 +470,13 @@ export function ProjectTasksProvider({ children }: ProjectTasksProviderProps) {
       tasksById,
       operationStatuses,
       operationStatusesByTaskId,
-      hookExecutionsByTaskId,
       paginationByStatus,
       isQueriesLoading,
       isInitialSyncComplete,
       error,
       loadMoreForStatus,
     }),
-    [tasksById, operationStatuses, operationStatusesByTaskId, hookExecutionsByTaskId, paginationByStatus, isQueriesLoading, isInitialSyncComplete, error, loadMoreForStatus]
+    [tasksById, operationStatuses, operationStatusesByTaskId, paginationByStatus, isQueriesLoading, isInitialSyncComplete, error, loadMoreForStatus]
   );
 
   return (

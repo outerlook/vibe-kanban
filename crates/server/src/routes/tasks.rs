@@ -439,12 +439,7 @@ async fn handle_tasks_ws(
 ) -> anyhow::Result<()> {
     let stream = deployment
         .events()
-        .stream_tasks_raw(
-            project_id,
-            include_snapshot,
-            deployment.operation_status().clone(),
-            deployment.hook_execution_store().clone(),
-        )
+        .stream_tasks_raw(project_id, include_snapshot, deployment.operation_status().clone())
         .await?;
 
     forward_stream_to_ws(socket, stream).await
@@ -1697,23 +1692,6 @@ mod lifecycle_tests {
                 .all(|task| task.status == TaskStatus::InReview)
         );
 
-        let first_hook_executions = deployment
-            .hook_execution_store()
-            .get_for_task(first_task.id);
-        let second_hook_executions = deployment
-            .hook_execution_store()
-            .get_for_task(second_task.id);
-
-        assert!(
-            first_hook_executions
-                .iter()
-                .any(|execution| execution.handler_name == "review_attention")
-        );
-        assert!(
-            second_hook_executions
-                .iter()
-                .any(|execution| execution.handler_name == "review_attention")
-        );
     }
 
     #[tokio::test]

@@ -5,11 +5,8 @@ use db::DBService;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use utils::msg_store::MsgStore;
-use uuid::Uuid;
 
-use super::{
-    DomainEvent, ExecutionTriggerCallback, HookExecutionStore, OrchestrationEventPublisherHandle,
-};
+use super::{DomainEvent, OrchestrationEventPublisherHandle};
 use crate::services::config::Config;
 
 /// Determines how an event handler should be executed.
@@ -40,18 +37,8 @@ pub struct HandlerContext {
     pub db: DBService,
     pub config: Arc<RwLock<Config>>,
     pub msg_store: Arc<MsgStore>,
-    /// Optional callback for triggering executions from handlers.
-    /// This is None in test contexts where execution triggering is not needed.
-    pub execution_trigger: Option<ExecutionTriggerCallback>,
-    /// Store for tracking hook execution status. Used by the dispatcher
-    /// to track spawned handler executions.
-    pub hook_execution_store: Option<HookExecutionStore>,
     /// Optional publisher for emitting compact orchestration events.
     pub orchestration_event_publisher: Option<OrchestrationEventPublisherHandle>,
-    /// The ID of the hook execution tracking this handler invocation.
-    /// Set by the dispatcher for spawned handlers to enable linking
-    /// triggered execution processes back to the hook execution.
-    pub hook_execution_id: Option<Uuid>,
 }
 
 impl HandlerContext {
@@ -59,23 +46,13 @@ impl HandlerContext {
         db: DBService,
         config: Arc<RwLock<Config>>,
         msg_store: Arc<MsgStore>,
-        execution_trigger: Option<ExecutionTriggerCallback>,
     ) -> Self {
         Self {
             db,
             config,
             msg_store,
-            execution_trigger,
-            hook_execution_store: None,
             orchestration_event_publisher: None,
-            hook_execution_id: None,
         }
-    }
-
-    /// Sets the hook execution store for tracking handler executions.
-    pub fn with_hook_execution_store(mut self, store: HookExecutionStore) -> Self {
-        self.hook_execution_store = Some(store);
-        self
     }
 
     pub fn with_orchestration_event_publisher(

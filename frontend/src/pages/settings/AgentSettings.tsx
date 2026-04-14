@@ -32,7 +32,6 @@ import type {
   ExecutorConfigs,
   ExecutorProfileId,
 } from 'shared/types';
-import { DEFAULT_REVIEW_ATTENTION_PROMPT } from 'shared/types';
 
 type ExecutorsMap = Record<string, Record<string, Record<string, unknown>>>;
 
@@ -77,22 +76,6 @@ export function AgentSettings() {
   // Check agent availability when draft executor changes
   const agentAvailability = useAgentAvailability(executorDraft?.executor);
 
-  // Review attention executor profile state
-  const [reviewAttentionDraft, setReviewAttentionDraft] =
-    useState<ExecutorProfileId | null>(() =>
-      config?.review_attention_executor_profile
-        ? cloneDeep(config.review_attention_executor_profile)
-        : null
-    );
-  const [reviewAttentionPromptDraft, setReviewAttentionPromptDraft] = useState<
-    string | null
-  >(() => config?.review_attention_prompt ?? null);
-  const [reviewAttentionSaving, setReviewAttentionSaving] = useState(false);
-  const [reviewAttentionSuccess, setReviewAttentionSuccess] = useState(false);
-  const [reviewAttentionError, setReviewAttentionError] = useState<
-    string | null
-  >(null);
-
   // Sync server state to local state when not dirty
   useEffect(() => {
     if (!isDirty && serverProfilesContent) {
@@ -127,40 +110,6 @@ export function AgentSettings() {
     }
   }, [config?.executor_profile]);
 
-  // Check if review attention draft differs from saved config
-  const reviewAttentionExecutorDirty =
-    reviewAttentionDraft !== null ||
-    config?.review_attention_executor_profile !== null
-      ? !isEqual(reviewAttentionDraft, config?.review_attention_executor_profile)
-      : false;
-  const reviewAttentionPromptDirty =
-    reviewAttentionPromptDraft !== config?.review_attention_prompt;
-  const reviewAttentionDirty =
-    reviewAttentionExecutorDirty || reviewAttentionPromptDirty;
-
-  // Sync review attention draft when config changes (only if not dirty)
-  useEffect(() => {
-    setReviewAttentionDraft((currentDraft) => {
-      const configValue = config?.review_attention_executor_profile ?? null;
-      // Only update if draft matches the old config (not dirty)
-      if (isEqual(currentDraft, configValue)) {
-        return configValue ? cloneDeep(configValue) : null;
-      }
-      return currentDraft;
-    });
-  }, [config?.review_attention_executor_profile]);
-
-  // Sync review attention prompt draft when config changes
-  useEffect(() => {
-    setReviewAttentionPromptDraft((currentDraft) => {
-      const configValue = config?.review_attention_prompt ?? null;
-      if (currentDraft === configValue) {
-        return configValue;
-      }
-      return currentDraft;
-    });
-  }, [config?.review_attention_prompt]);
-
   // Save executor profile
   const handleSaveExecutorProfile = async () => {
     if (!executorDraft || !config) return;
@@ -178,29 +127,6 @@ export function AgentSettings() {
       console.error('Error saving executor profile:', err);
     } finally {
       setExecutorSaving(false);
-    }
-  };
-
-  // Save review attention profile and prompt
-  const handleSaveReviewAttentionProfile = async () => {
-    if (!config) return;
-
-    setReviewAttentionSaving(true);
-    setReviewAttentionError(null);
-
-    try {
-      await updateAndSaveConfig({
-        review_attention_executor_profile: reviewAttentionDraft,
-        review_attention_prompt: reviewAttentionPromptDraft,
-      });
-      setReviewAttentionSuccess(true);
-      setTimeout(() => setReviewAttentionSuccess(false), 3000);
-      reloadSystem();
-    } catch (err) {
-      setReviewAttentionError(t('settings.general.save.error'));
-      console.error('Error saving review attention profile:', err);
-    } finally {
-      setReviewAttentionSaving(false);
     }
   };
 
@@ -540,20 +466,6 @@ export function AgentSettings() {
         </Alert>
       )}
 
-      {reviewAttentionError && (
-        <Alert variant="destructive">
-          <AlertDescription>{reviewAttentionError}</AlertDescription>
-        </Alert>
-      )}
-
-      {reviewAttentionSuccess && (
-        <Alert variant="success">
-          <AlertDescription className="font-medium">
-            {t('settings.general.save.success')}
-          </AlertDescription>
-        </Alert>
-      )}
-
       <SettingsSection
         id="agent-executor"
         title={t('settings.general.taskExecution.title')}
@@ -580,98 +492,6 @@ export function AgentSettings() {
             disabled={!executorDirty || executorSaving}
           >
             {executorSaving && (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            )}
-            {t('common:buttons.save')}
-          </Button>
-        </div>
-      </SettingsSection>
-
-      <SettingsSection
-        id="review-attention"
-        title={t('settings.general.reviewAttention.title')}
-        description={t('settings.general.reviewAttention.description')}
-      >
-        <SettingsField
-          label={t('settings.general.reviewAttention.enable.label')}
-          htmlFor="review-attention-enabled"
-          description={t('settings.general.reviewAttention.enable.helper')}
-        >
-          <Checkbox
-            id="review-attention-enabled"
-            checked={reviewAttentionDraft !== null}
-            onCheckedChange={(checked) => {
-              if (checked) {
-                setReviewAttentionDraft({
-                  executor: 'CLAUDE_CODE' as BaseCodingAgent,
-                  variant: null,
-                });
-              } else {
-                setReviewAttentionDraft(null);
-              }
-            }}
-          />
-        </SettingsField>
-
-        {reviewAttentionDraft && (
-          <>
-            <SettingsField
-              label={t('settings.general.reviewAttention.executor.label')}
-              htmlFor="review-attention-executor"
-              description={t('settings.general.reviewAttention.executor.helper')}
-            >
-              <ExecutorProfileSelector
-                profiles={profiles}
-                selectedProfile={reviewAttentionDraft}
-                onProfileSelect={setReviewAttentionDraft}
-                showLabel={false}
-              />
-            </SettingsField>
-
-            <SettingsField
-              label={t('settings.general.reviewAttention.customPrompt.label')}
-              htmlFor="review-attention-use-custom-prompt"
-              layout="horizontal"
-            >
-              <Checkbox
-                id="review-attention-use-custom-prompt"
-                checked={reviewAttentionPromptDraft != null}
-                onCheckedChange={(checked: boolean) => {
-                  if (checked) {
-                    setReviewAttentionPromptDraft(DEFAULT_REVIEW_ATTENTION_PROMPT);
-                  } else {
-                    setReviewAttentionPromptDraft(null);
-                  }
-                }}
-              />
-            </SettingsField>
-
-            <SettingsField
-              description={t('settings.general.reviewAttention.customPrompt.helper')}
-            >
-              <textarea
-                id="review-attention-custom-prompt"
-                className={`flex min-h-[200px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 font-mono ${
-                  reviewAttentionPromptDraft == null
-                    ? 'opacity-50 cursor-not-allowed'
-                    : ''
-                }`}
-                value={
-                  reviewAttentionPromptDraft ?? DEFAULT_REVIEW_ATTENTION_PROMPT
-                }
-                disabled={reviewAttentionPromptDraft == null}
-                onChange={(e) => setReviewAttentionPromptDraft(e.target.value)}
-              />
-            </SettingsField>
-          </>
-        )}
-
-        <div className="flex justify-end">
-          <Button
-            onClick={handleSaveReviewAttentionProfile}
-            disabled={!reviewAttentionDirty || reviewAttentionSaving}
-          >
-            {reviewAttentionSaving && (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             )}
             {t('common:buttons.save')}

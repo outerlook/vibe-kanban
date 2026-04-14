@@ -1,0 +1,144 @@
+{
+  "name": "VK Feedback Collection",
+  "nodes": [
+    {
+      "parameters": {
+        "eventTypes": [
+          "execution_completed"
+        ],
+        "schemaVersion": "vk_n8n_orchestration_v1"
+      },
+      "id": "vk-trigger",
+      "name": "VK Trigger",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        280
+      ],
+      "credentials": {
+        "vibeKanbanMqtt": {
+          "name": "Local VK MQTT"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "execution",
+        "executionProcessId": "={{$json.refs.executionContext.executionProcessId}}"
+      },
+      "id": "vk-read-execution",
+      "name": "Read Execution Context",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
+      "typeVersion": 1,
+      "position": [
+        520,
+        280
+      ],
+      "credentials": {
+        "vibeKanbanApi": {
+          "name": "Local VK API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "task-id",
+              "name": "taskId",
+              "type": "string",
+              "value": "={{$json.scope.task.id}}"
+            },
+            {
+              "id": "workspace-id",
+              "name": "workspaceId",
+              "type": "string",
+              "value": "={{$json.scope.workspace.id}}"
+            },
+            {
+              "id": "execution-id",
+              "name": "executionProcessId",
+              "type": "string",
+              "value": "={{$json.execution.id}}"
+            },
+            {
+              "id": "feedback-json",
+              "name": "feedbackJson",
+              "type": "string",
+              "value": "={{JSON.stringify({summary: $json.execution.status, review_attention: $json.review_attention, feedback: $json.feedback})}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-feedback",
+      "name": "Build Feedback Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        800,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "feedback",
+        "operation": "createFeedback",
+        "taskId": "={{$json.taskId}}",
+        "workspaceId": "={{$json.workspaceId}}",
+        "executionProcessId": "={{$json.executionProcessId}}",
+        "feedbackJson": "={{$json.feedbackJson}}"
+      },
+      "id": "vk-create-feedback",
+      "name": "Create Feedback",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
+      "typeVersion": 1,
+      "position": [
+        1090,
+        280
+      ],
+      "credentials": {
+        "vibeKanbanApi": {
+          "name": "Local VK API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "VK Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Execution Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Execution Context": {
+      "main": [
+        [
+          {
+            "node": "Build Feedback Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Feedback Payload": {
+      "main": [
+        [
+          {
+            "node": "Create Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

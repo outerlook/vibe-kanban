@@ -22,7 +22,6 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use super::{
-    autopilot,
     config::Config,
     domain_events::{DomainEvent, EventDispatchCallback},
     git::{GitService, GitServiceError},
@@ -82,7 +81,6 @@ pub struct MergeQueueProcessor {
     git: GitService,
     merge_queue_store: MergeQueueStore,
     operation_status: Option<OperationStatusStore>,
-    config: Arc<RwLock<Config>>,
     event_dispatcher: Option<EventDispatchCallback>,
 }
 
@@ -92,14 +90,13 @@ impl MergeQueueProcessor {
         pool: SqlitePool,
         git: GitService,
         merge_queue_store: MergeQueueStore,
-        config: Arc<RwLock<Config>>,
+        _config: Arc<RwLock<Config>>,
     ) -> Self {
         Self {
             pool,
             git,
             merge_queue_store,
             operation_status: None,
-            config,
             event_dispatcher: None,
         }
     }
@@ -110,14 +107,13 @@ impl MergeQueueProcessor {
         git: GitService,
         merge_queue_store: MergeQueueStore,
         operation_status: OperationStatusStore,
-        config: Arc<RwLock<Config>>,
+        _config: Arc<RwLock<Config>>,
     ) -> Self {
         Self {
             pool,
             git,
             merge_queue_store,
             operation_status: Some(operation_status),
-            config,
             event_dispatcher: None,
         }
     }
@@ -396,145 +392,9 @@ impl MergeQueueProcessor {
                 previous_status,
             })
             .await;
-        } else {
-            self.auto_dequeue_unblocked_dependents(task.id).await;
         }
 
         Ok(merge_commit)
-    }
-
-    /// Auto-dequeue unblocked dependent tasks when autopilot is enabled.
-    ///
-    /// After a task is marked as Done, this method:
-    /// 1. Checks if autopilot is enabled in config
-    /// 2. Finds all tasks that depend on the completed task and are now unblocked
-    /// 3. For each unblocked task that has a workspace, queues it for execution
-    ///
-    /// Returns the number of tasks that were enqueued.
-    async fn auto_dequeue_unblocked_dependents(&self, completed_task_id: Uuid) -> usize {
-        // Check if autopilot is enabled
-        let autopilot_enabled = self.config.read().await.autopilot_enabled;
-        if !autopilot_enabled {
-            debug!(
-                task_id = %completed_task_id,
-                "Autopilot disabled, skipping auto-dequeue of dependents"
-            );
-            return 0;
-        }
-
-        // Find unblocked dependent tasks
-        let unblocked_tasks =
-            match autopilot::find_unblocked_dependents(&self.pool, completed_task_id).await {
-                Ok(tasks) => tasks,
-                Err(e) => {
-                    error!(
-                        task_id = %completed_task_id,
-                        error = %e,
-                        "Failed to find unblocked dependents"
-                    );
-                    return 0;
-                }
-            };
-
-        if unblocked_tasks.is_empty() {
-            debug!(
-                task_id = %completed_task_id,
-                "No unblocked dependent tasks to auto-dequeue"
-            );
-            return 0;
-        }
-
-        info!(
-            completed_task_id = %completed_task_id,
-            unblocked_count = unblocked_tasks.len(),
-            "Auto-dequeueing unblocked dependent tasks"
-        );
-
-        let mut enqueued_count = 0;
-
-        for unblocked_task in unblocked_tasks {
-            // Find the latest workspace for this task
-            let workspace =
-                match Workspace::find_latest_by_task_id(&self.pool, unblocked_task.id).await {
-                    Ok(Some(ws)) => ws,
-                    Ok(None) => {
-                        debug!(
-                            task_id = %unblocked_task.id,
-                            "Skipping auto-dequeue: task has no workspace"
-                        );
-                        continue;
-                    }
-                    Err(e) => {
-                        error!(
-                            task_id = %unblocked_task.id,
-                            error = %e,
-                            "Failed to find workspace for unblocked task"
-                        );
-                        continue;
-                    }
-                };
-
-            // Get the executor profile from the last session
-            let executor_profile_id =
-                match self.get_executor_profile_for_workspace(workspace.id).await {
-                    Some(profile) => profile,
-                    None => {
-                        debug!(
-                            task_id = %unblocked_task.id,
-                            workspace_id = %workspace.id,
-                            "Skipping auto-dequeue: no session found for workspace"
-                        );
-                        continue;
-                    }
-                };
-
-            // Create execution queue entry
-            match ExecutionQueue::create(&self.pool, workspace.id, &executor_profile_id).await {
-                Ok(_) => {
-                    info!(
-                        task_id = %unblocked_task.id,
-                        workspace_id = %workspace.id,
-                        executor = %executor_profile_id,
-                        "Auto-dequeued unblocked dependent task"
-                    );
-                    enqueued_count += 1;
-                }
-                Err(e) => {
-                    error!(
-                        task_id = %unblocked_task.id,
-                        workspace_id = %workspace.id,
-                        error = %e,
-                        "Failed to create execution queue entry for unblocked task"
-                    );
-                }
-            }
-        }
-
-        if enqueued_count > 0 {
-            info!(
-                completed_task_id = %completed_task_id,
-                enqueued_count = enqueued_count,
-                "Auto-dequeued unblocked dependent tasks"
-            );
-        }
-
-        enqueued_count
-    }
-
-    /// Get the executor profile ID from the latest session of a workspace.
-    ///
-    /// Returns None if no session exists or if the executor string cannot be parsed.
-    async fn get_executor_profile_for_workspace(
-        &self,
-        workspace_id: Uuid,
-    ) -> Option<ExecutorProfileId> {
-        let session = Session::find_latest_by_workspace_id(&self.pool, workspace_id)
-            .await
-            .ok()??;
-
-        // The executor field is stored as a JSON string
-        let executor_str = session.executor.as_ref()?;
-        serde_json::from_str(executor_str).ok()
     }
 
     /// Rebase the task branch onto the base branch if needed

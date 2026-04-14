@@ -1,7 +1,4 @@
-//! Domain event types for the hook system.
-//!
-//! These events represent significant state changes in the application
-//! that handlers can respond to.
+//! Domain event types for internal side effects and external workflow publication.
 
 use std::sync::Arc;
 
@@ -13,8 +10,6 @@ use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
-
-use super::HookPoint;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -384,58 +379,7 @@ impl DomainEvent {
             | DomainEvent::TaskGroupCompleted { occurred_at, .. } => *occurred_at,
         }
     }
-
-    /// Returns the hook point associated with this event.
-    pub fn hook_point(&self) -> HookPoint {
-        match self {
-            DomainEvent::TaskLifecycle { action, .. } => match action {
-                TaskLifecycleAction::Created => HookPoint::PostTaskCreate,
-                TaskLifecycleAction::Updated | TaskLifecycleAction::Deleted => {
-                    HookPoint::PostTaskStatusChange
-                }
-            },
-            DomainEvent::TaskStatusChanged { .. } => HookPoint::PostTaskStatusChange,
-            DomainEvent::ExecutionStarted { .. }
-            | DomainEvent::ExecutionCompleted { .. }
-            | DomainEvent::ApprovalRequested { .. }
-            | DomainEvent::ApprovalResolved { .. }
-            | DomainEvent::ConversationMessageAdded { .. }
-            | DomainEvent::FollowUpTransition { .. } => HookPoint::PostAgentComplete,
-            DomainEvent::WorkspaceCreated { .. } => HookPoint::PostTaskCreate,
-            DomainEvent::WorkspaceDeleted { .. }
-            | DomainEvent::ProjectUpdated { .. }
-            | DomainEvent::MergeQueueTransition { .. }
-            | DomainEvent::TaskGroupTransition { .. }
-            | DomainEvent::TaskGroupCompleted { .. } => HookPoint::PostTaskStatusChange,
-        }
-    }
 }
-
-/// Triggers that handlers can return to request execution starts.
-#[derive(Debug, Clone)]
-pub enum ExecutionTrigger {
-    /// Trigger execution for feedback collection from a workspace.
-    FeedbackCollection {
-        workspace_id: Uuid,
-        task_id: Uuid,
-        execution_process_id: Uuid,
-    },
-
-    /// Trigger execution when a task needs review attention.
-    ReviewAttention {
-        task_id: Uuid,
-        execution_process_id: Uuid,
-    },
-
-    /// Trigger processing of the execution queue.
-    /// Used when new items are added to the queue (e.g., by autopilot)
-    /// to ensure they are processed if capacity is available.
-    ProcessQueue,
-}
-
-/// Callback type for triggering executions from handlers.
-pub type ExecutionTriggerCallback =
-    Arc<dyn Fn(ExecutionTrigger) -> BoxFuture<'static, Result<Uuid, anyhow::Error>> + Send + Sync>;
 
 /// Callback type for dispatching domain events.
 pub type EventDispatchCallback = Arc<dyn Fn(DomainEvent) -> BoxFuture<'static, ()> + Send + Sync>;

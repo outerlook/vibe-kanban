@@ -28,10 +28,7 @@ use super::{
     patches::execution_process_patch,
     types::{EventError, EventPatch, RecordTypes},
 };
-use crate::services::{
-    domain_events::{HookExecution, HookExecutionStore},
-    operation_status::{OperationStatus, OperationStatusStore},
-};
+use crate::services::operation_status::{OperationStatus, OperationStatusStore};
 
 static TASK_PROJECT_CACHE: Lazy<Cache<Uuid, Uuid>> = Lazy::new(|| {
     Cache::builder()
@@ -83,12 +80,6 @@ fn task_id_from_path(path: &str) -> Option<Uuid> {
 
 fn workspace_id_from_operation_status_path(path: &str) -> Option<Uuid> {
     let suffix = path.strip_prefix("/operation_status/")?;
-    let id_str = suffix.split('/').next()?;
-    Uuid::parse_str(id_str).ok()
-}
-
-fn task_id_from_hook_execution_path(path: &str) -> Option<Uuid> {
-    let suffix = path.strip_prefix("/hook_executions/")?;
     let id_str = suffix.split('/').next()?;
     Uuid::parse_str(id_str).ok()
 }
@@ -159,21 +150,18 @@ async fn get_task_id_for_execution_process(
 impl EventService {
     /// Stream raw task messages for a specific project with optional snapshot.
     /// Also includes operation_status updates for workspaces belonging to tasks in this project.
-    /// Also includes hook_executions for tasks in this project.
     pub async fn stream_tasks_raw(
         &self,
         project_id: Uuid,
         include_snapshot: bool,
         operation_status_store: OperationStatusStore,
-        hook_execution_store: HookExecutionStore,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, EventError>
     {
         /// Result of building a tasks snapshot, containing the snapshot message,
-        /// workspace IDs (for operation_status filtering), and task IDs (for hook_executions filtering).
+        /// and workspace IDs (for operation_status filtering).
         struct TasksSnapshotResult {
             msg: LogMsg,
             workspace_ids: Vec<Uuid>,
-            task_ids: Vec<Uuid>,
         }
 
         async fn build_tasks_snapshot(
@@ -182,7 +170,7 @@ impl EventService {
         ) -> Result<TasksSnapshotResult, sqlx::Error> {
             let tasks = Task::find_by_project_id_with_attempt_status(db_pool, project_id).await?;
 
-            // Collect task IDs and workspace IDs for filtering
+            // Collect workspace IDs for filtering operation-status updates.
             let task_ids: Vec<Uuid> = tasks.iter().map(|t| t.id).collect();
             let mut workspace_ids = Vec::new();
             for task_id in &task_ids {
@@ -213,7 +201,6 @@ impl EventService {
             Ok(TasksSnapshotResult {
                 msg: LogMsg::JsonPatch(serde_json::from_value(patch).unwrap()),
                 workspace_ids,
-                task_ids,
             })
         }
 
@@ -232,44 +219,6 @@ impl EventService {
                 "op": "replace",
                 "path": "/operation_status",
                 "value": status_map
-            }]);
-
-            LogMsg::JsonPatch(serde_json::from_value(patch).unwrap())
-        }
-
-        fn build_hook_executions_snapshot(
-            executions: Vec<HookExecution>,
-            task_ids: &[Uuid],
-        ) -> LogMsg {
-            // Filter executions to only those belonging to tasks in this project
-            let task_id_set: std::collections::HashSet<Uuid> = task_ids.iter().copied().collect();
-            let filtered_executions: Vec<HookExecution> = executions
-                .into_iter()
-                .filter(|exec| task_id_set.contains(&exec.task_id))
-                .collect();
-
-            // Group executions by task_id
-            let mut executions_by_task: serde_json::Map<String, serde_json::Value> =
-                serde_json::Map::new();
-
-            for exec in filtered_executions {
-                let task_id_str = exec.task_id.to_string();
-                let exec_id_str = exec.id.to_string();
-
-                // Get or create the task's execution map
-                let task_executions = executions_by_task
-                    .entry(task_id_str)
-                    .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-
-                if let serde_json::Value::Object(map) = task_executions {
-                    map.insert(exec_id_str, serde_json::to_value(exec).unwrap());
-                }
-            }
-
-            let patch = json!([{
-                "op": "replace",
-                "path": "/hook_executions",
-                "value": executions_by_task
             }]);
 
             LogMsg::JsonPatch(serde_json::from_value(patch).unwrap())
@@ -398,65 +347,6 @@ impl EventService {
                                             _ => {}
                                         }
                                     }
-                                }
-                                // Handle hook_executions patches
-                                else if patch_op.path().starts_with("/hook_executions/") {
-                                    // Extract task_id from path and check if it belongs to this project
-                                    if let Some(task_id) =
-                                        task_id_from_hook_execution_path(patch_op.path())
-                                    {
-                                        // Helper to check if execution belongs to project via task_id in value
-                                        async fn check_execution_belongs_to_project(
-                                            db_pool: &SqlitePool,
-                                            value: &serde_json::Value,
-                                            project_id: Uuid,
-                                        ) -> bool {
-                                            if let Ok(execution) =
-                                                serde_json::from_value::<HookExecution>(
-                                                    value.clone(),
-                                                )
-                                            {
-                                                if let Some(task_project_id) =
-                                                    get_project_for_task(db_pool, execution.task_id)
-                                                        .await
-                                                {
-                                                    return task_project_id == project_id;
-                                                }
-                                            }
-                                            false
-                                        }
-
-                                        match patch_op {
-                                            json_patch::PatchOperation::Add(op) => {
-                                                if check_execution_belongs_to_project(
-                                                    &db_pool, &op.value, project_id,
-                                                )
-                                                .await
-                                                {
-                                                    return Some(Ok(LogMsg::JsonPatch(patch)));
-                                                }
-                                            }
-                                            json_patch::PatchOperation::Replace(op) => {
-                                                if check_execution_belongs_to_project(
-                                                    &db_pool, &op.value, project_id,
-                                                )
-                                                .await
-                                                {
-                                                    return Some(Ok(LogMsg::JsonPatch(patch)));
-                                                }
-                                            }
-                                            json_patch::PatchOperation::Remove(_) => {
-                                                // For remove, check if task belongs to project
-                                                if let Some(task_project_id) =
-                                                    get_project_for_task(&db_pool, task_id).await
-                                                    && task_project_id == project_id
-                                                {
-                                                    return Some(Ok(LogMsg::JsonPatch(patch)));
-                                                }
-                                            }
-                                            _ => {}
-                                        }
-                                    }
                                 } else if let Ok(event_patch_value) = serde_json::to_value(patch_op)
                                     && let Ok(event_patch) =
                                         serde_json::from_value::<EventPatch>(event_patch_value)
@@ -521,8 +411,8 @@ impl EventService {
                             );
 
                             // Note: For lag resync, we only resync tasks.
-                            // Operation status and hook executions are ephemeral
-                            // and clients should handle missing updates gracefully.
+                            // Operation status is ephemeral and clients should
+                            // handle missing updates gracefully.
                             match build_tasks_snapshot(&db_pool, project_id).await {
                                 Ok(snapshot_result) => Some(Ok(snapshot_result.msg)),
                                 Err(err) => {
@@ -544,7 +434,7 @@ impl EventService {
             return Ok(filtered_stream.boxed());
         }
 
-        // Get initial snapshot of tasks, workspace IDs, and task IDs
+        // Get initial snapshot of tasks and workspace IDs.
         let snapshot_result = build_tasks_snapshot(&self.db.pool, project_id).await?;
 
         // Get operation statuses for workspaces in this project
@@ -552,16 +442,10 @@ impl EventService {
             operation_status_store.get_by_workspace_ids(&snapshot_result.workspace_ids);
         let operation_status_msg = build_operation_status_snapshot(operation_statuses);
 
-        // Get hook executions for tasks in this project
-        let all_hook_executions = hook_execution_store.get_all();
-        let hook_executions_msg =
-            build_hook_executions_snapshot(all_hook_executions, &snapshot_result.task_ids);
-
-        // Start with initial snapshots (tasks, operation_status, hook_executions), then live updates
+        // Start with initial snapshots (tasks and operation_status), then live updates.
         let initial_stream = futures::stream::iter(vec![
             Ok(snapshot_result.msg),
             Ok(operation_status_msg),
-            Ok(hook_executions_msg),
         ]);
         let combined_stream = initial_stream.chain(filtered_stream).boxed();
 

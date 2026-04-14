@@ -1,0 +1,92 @@
+{
+  "name": "VK Autopilot Continuation",
+  "nodes": [
+    {
+      "parameters": {
+        "eventTypes": [
+          "task_status_changed"
+        ],
+        "schemaVersion": "vk_n8n_orchestration_v1"
+      },
+      "id": "vk-trigger",
+      "name": "VK Trigger",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        280
+      ],
+      "credentials": {
+        "vibeKanbanMqtt": {
+          "name": "Local VK MQTT"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "task",
+        "projectId": "={{$json.refs.taskContext.projectId}}",
+        "taskId": "={{$json.refs.taskContext.taskId}}"
+      },
+      "id": "vk-read-task",
+      "name": "Read Task Context",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
+      "typeVersion": 1,
+      "position": [
+        520,
+        280
+      ],
+      "credentials": {
+        "vibeKanbanApi": {
+          "name": "Local VK API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "task",
+        "operation": "startWorkspaceExecution",
+        "taskId": "={{$json.task.id}}",
+        "executorProfileJson": "={\"executor\":\"CLAUDE_CODE\",\"variant\":null}",
+        "repoSelection": "taskGroupDefault"
+      },
+      "id": "vk-start-execution",
+      "name": "Start Workspace Execution",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
+      "typeVersion": 1,
+      "position": [
+        820,
+        280
+      ],
+      "credentials": {
+        "vibeKanbanApi": {
+          "name": "Local VK API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "VK Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Task Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Task Context": {
+      "main": [
+        [
+          {
+            "node": "Start Workspace Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

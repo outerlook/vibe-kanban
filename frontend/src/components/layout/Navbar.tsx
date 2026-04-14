@@ -21,7 +21,6 @@ import {
   LogIn,
   BarChart3,
   GitPullRequest,
-  Zap,
   KanbanSquare,
   Layers,
 } from 'lucide-react';
@@ -86,7 +85,7 @@ export function Navbar() {
   const { projectId, project } = useProject();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
   const { data: onlineCount } = useDiscordOnlineCount();
-  const { config, loginStatus, reloadSystem, updateAndSaveConfig } = useUserSystem();
+  const { loginStatus, reloadSystem } = useUserSystem();
 
   const { data: repos } = useProjectRepos(projectId);
   const isSingleRepoProject = repos?.length === 1;
@@ -142,13 +141,6 @@ export function Navbar() {
       console.error('Error logging out:', err);
     }
   };
-
-  const handleAutopilotToggle = useCallback(
-    (checked: boolean) => {
-      updateAndSaveConfig({ autopilot_enabled: checked });
-    },
-    [updateAndSaveConfig]
-  );
 
   const isOAuthLoggedIn = loginStatus?.status === 'loggedin';
   const isXL = useMediaQuery('(min-width: 1280px)');
@@ -387,23 +379,6 @@ export function Navbar() {
                       Sign in
                     </DropdownMenuItem>
                   )}
-
-                  <DropdownMenuSeparator />
-
-                  <DropdownMenuItem
-                    onSelect={(e) => e.preventDefault()}
-                    className="flex items-center justify-between"
-                  >
-                    <div className="flex items-center">
-                      <Zap className="mr-2 h-4 w-4" />
-                      Autopilot
-                    </div>
-                    <Switch
-                      checked={config?.autopilot_enabled ?? false}
-                      onCheckedChange={handleAutopilotToggle}
-                      aria-label="Toggle Autopilot"
-                    />
-                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>

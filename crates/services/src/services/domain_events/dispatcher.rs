@@ -7,10 +7,7 @@ use std::sync::Arc;
 
 use tracing::{debug, warn};
 
-use super::{
-    DomainEvent, EventHandler, ExecutionMode, ExecutionTriggerCallback, HandlerContext,
-    HookExecutionStore,
-};
+use super::{DomainEvent, EventHandler, ExecutionMode, HandlerContext};
 
 /// Dispatches domain events to registered handlers.
 ///
@@ -62,26 +59,10 @@ impl DomainEventDispatcher {
                     "Spawning handler"
                 );
 
-                // Track hook execution if we have a store and task_id
-                let execution_id = self.track_execution_start(&event, handler.name());
-
-                // Create a context with hook_execution_id set for this handler
-                let mut handler_ctx = (*self.ctx).clone();
-                handler_ctx.hook_execution_id = execution_id;
-                let handler_ctx = Arc::new(handler_ctx);
+                let handler_ctx = Arc::clone(&self.ctx);
 
                 tokio::spawn(async move {
                     let result = handler.handle(event, &handler_ctx).await;
-
-                    // Update execution status if we were tracking
-                    if let Some(exec_id) = execution_id
-                        && let Some(store) = &handler_ctx.hook_execution_store
-                    {
-                        match &result {
-                            Ok(()) => store.complete_execution(exec_id),
-                            Err(e) => store.fail_execution(exec_id, e.to_string()),
-                        }
-                    }
 
                     if let Err(e) = result {
                         warn!(
@@ -94,25 +75,12 @@ impl DomainEventDispatcher {
             }
         }
     }
-
-    /// Starts tracking a hook execution if the store is available and event has a task_id.
-    /// Returns the execution ID if tracking was started, None otherwise.
-    /// Also returns None if the handler is not in the tracked handlers whitelist.
-    fn track_execution_start(&self, event: &DomainEvent, handler_name: &str) -> Option<uuid::Uuid> {
-        let store = self.ctx.hook_execution_store.as_ref()?;
-        let task_id = event.task_id()?;
-        let hook_point = event.hook_point();
-
-        store.start_execution(task_id, handler_name, hook_point)
-    }
 }
 
 /// Builder for constructing a `DomainEventDispatcher`.
 pub struct DispatcherBuilder {
     handlers: Vec<Arc<dyn EventHandler>>,
     ctx: Option<HandlerContext>,
-    execution_trigger: Option<ExecutionTriggerCallback>,
-    hook_execution_store: Option<HookExecutionStore>,
     orchestration_event_publisher: Option<super::OrchestrationEventPublisherHandle>,
 }
 
@@ -122,8 +90,6 @@ impl DispatcherBuilder {
         Self {
             handlers: Vec::new(),
             ctx: None,
-            execution_trigger: None,
-            hook_execution_store: None,
             orchestration_event_publisher: None,
         }
     }
@@ -140,24 +106,6 @@ impl DispatcherBuilder {
         self
     }
 
-    /// Sets the execution trigger callback.
-    ///
-    /// The callback will be passed to the `HandlerContext`, allowing handlers
-    /// to trigger new executions.
-    pub fn with_execution_trigger(mut self, callback: ExecutionTriggerCallback) -> Self {
-        self.execution_trigger = Some(callback);
-        self
-    }
-
-    /// Sets the hook execution store for tracking spawned handler executions.
-    ///
-    /// When set, the dispatcher will track the status of spawned handlers
-    /// and broadcast updates via SSE.
-    pub fn with_hook_execution_store(mut self, store: HookExecutionStore) -> Self {
-        self.hook_execution_store = Some(store);
-        self
-    }
-
     pub fn with_orchestration_event_publisher(
         mut self,
         publisher: super::OrchestrationEventPublisherHandle,
@@ -168,28 +116,12 @@ impl DispatcherBuilder {
 
     /// Builds the dispatcher.
     ///
-    /// If `with_execution_trigger` was called, the callback will be set on the
-    /// context, overriding any existing execution_trigger in the provided context.
-    ///
-    /// Similarly, if `with_hook_execution_store` was called, the store will be
-    /// set on the context for tracking spawned handler executions.
-    ///
     /// # Panics
     /// Panics if no context was provided.
     pub fn build(mut self) -> DomainEventDispatcher {
         let mut ctx = self
             .ctx
             .expect("HandlerContext is required to build DomainEventDispatcher");
-
-        // Apply execution_trigger if set via with_execution_trigger
-        if let Some(callback) = self.execution_trigger {
-            ctx.execution_trigger = Some(callback);
-        }
-
-        // Apply hook_execution_store if set via with_hook_execution_store
-        if let Some(store) = self.hook_execution_store {
-            ctx.hook_execution_store = Some(store);
-        }
 
         if let Some(publisher) = self.orchestration_event_publisher {
             ctx.orchestration_event_publisher = Some(publisher);
@@ -609,38 +541,6 @@ mod tests {
         assert!(builder.handlers.is_empty());
     }
 
-    #[tokio::test]
-    async fn test_builder_with_execution_trigger() {
-        use futures::FutureExt;
-
-        let callback_called = Arc::new(AtomicBool::new(false));
-        let called_clone = Arc::clone(&callback_called);
-
-        let callback: ExecutionTriggerCallback = Arc::new(move |_trigger| {
-            called_clone.store(true, Ordering::SeqCst);
-            async { Ok(uuid::Uuid::new_v4()) }.boxed()
-        });
-
-        let dispatcher = DispatcherBuilder::new()
-            .with_context(test_context())
-            .with_execution_trigger(callback)
-            .build();
-
-        // Verify the callback is set in the context
-        assert!(dispatcher.ctx.execution_trigger.is_some());
-    }
-
-    #[tokio::test]
-    async fn test_builder_without_execution_trigger_has_none() {
-        let dispatcher = DispatcherBuilder::new()
-            .with_context(test_context())
-            .build();
-
-        // Without with_execution_trigger, the callback should be None
-        // (since test_context() creates context with None)
-        assert!(dispatcher.ctx.execution_trigger.is_none());
-    }
-
     #[test]
     fn test_handles_event_filters_correctly() {
         // Test that dispatch only routes to handlers that match
@@ -675,215 +575,4 @@ mod tests {
         assert!(!TaskOnlyHandler::handles(&workspace_event));
     }
 
-    #[tokio::test]
-    async fn test_hook_execution_tracking_for_spawned_handlers() {
-        use crate::services::domain_events::{HookExecutionStatus, HookPoint};
-
-        let msg_store = Arc::new(MsgStore::default());
-        let hook_store = HookExecutionStore::new(msg_store.clone());
-
-        // Use a tracked handler name (autopilot) for the test
-        struct SpawnedTrackingHandler;
-
-        #[async_trait]
-        impl EventHandler for SpawnedTrackingHandler {
-            fn name(&self) -> &'static str {
-                "autopilot" // Must be in TRACKED_HANDLERS
-            }
-
-            fn execution_mode(&self) -> ExecutionMode {
-                ExecutionMode::Spawned
-            }
-
-            fn handles(&self, _event: &DomainEvent) -> bool {
-                true
-            }
-
-            async fn handle(
-                &self,
-                _event: DomainEvent,
-                _ctx: &HandlerContext,
-            ) -> Result<(), HandlerError> {
-                tokio::time::sleep(Duration::from_millis(50)).await;
-                Ok(())
-            }
-        }
-
-        let task = test_task();
-        let task_id = task.id;
-        let event = DomainEvent::TaskStatusChanged {
-            task,
-            previous_status: TaskStatus::Todo,
-        };
-
-        let dispatcher = DispatcherBuilder::new()
-            .with_handler(SpawnedTrackingHandler)
-            .with_context(test_context())
-            .with_hook_execution_store(hook_store.clone())
-            .build();
-
-        // Before dispatch, no executions
-        assert!(hook_store.get_for_task(task_id).is_empty());
-
-        // Dispatch the event
-        dispatcher.dispatch(event).await;
-
-        // Give the spawned task a moment to start
-        tokio::time::sleep(Duration::from_millis(10)).await;
-
-        // Should have a running execution
-        let execs = hook_store.get_for_task(task_id);
-        assert_eq!(execs.len(), 1);
-        assert_eq!(execs[0].handler_name, "autopilot");
-        assert_eq!(execs[0].hook_point, HookPoint::PostTaskStatusChange);
-        assert_eq!(execs[0].status, HookExecutionStatus::Running);
-
-        // Wait for completion
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // Should be completed now
-        let execs = hook_store.get_for_task(task_id);
-        assert_eq!(execs.len(), 1);
-        assert_eq!(execs[0].status, HookExecutionStatus::Completed);
-    }
-
-    #[tokio::test]
-    async fn test_hook_execution_tracking_records_failure() {
-        use crate::services::domain_events::{HookExecutionStatus, HookPoint};
-
-        let msg_store = Arc::new(MsgStore::default());
-        let hook_store = HookExecutionStore::new(msg_store.clone());
-
-        // Use a tracked handler name (feedback_collection) for the test
-        struct FailingSpawnedHandler;
-
-        #[async_trait]
-        impl EventHandler for FailingSpawnedHandler {
-            fn name(&self) -> &'static str {
-                "feedback_collection" // Must be in TRACKED_HANDLERS
-            }
-
-            fn execution_mode(&self) -> ExecutionMode {
-                ExecutionMode::Spawned
-            }
-
-            fn handles(&self, _event: &DomainEvent) -> bool {
-                true
-            }
-
-            async fn handle(
-                &self,
-                _event: DomainEvent,
-                _ctx: &HandlerContext,
-            ) -> Result<(), HandlerError> {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-                Err(HandlerError::Failed("intentional failure".to_string()))
-            }
-        }
-
-        let task = test_task();
-        let task_id = task.id;
-        let event = DomainEvent::TaskStatusChanged {
-            task,
-            previous_status: TaskStatus::Todo,
-        };
-
-        let dispatcher = DispatcherBuilder::new()
-            .with_handler(FailingSpawnedHandler)
-            .with_context(test_context())
-            .with_hook_execution_store(hook_store.clone())
-            .build();
-
-        dispatcher.dispatch(event).await;
-
-        // Wait for the handler to fail
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // Should be marked as failed
-        let execs = hook_store.get_for_task(task_id);
-        assert_eq!(execs.len(), 1);
-        assert_eq!(execs[0].handler_name, "feedback_collection");
-        assert_eq!(execs[0].hook_point, HookPoint::PostTaskStatusChange);
-        assert_eq!(execs[0].status, HookExecutionStatus::Failed);
-        assert!(
-            execs[0]
-                .error
-                .as_ref()
-                .unwrap()
-                .contains("intentional failure")
-        );
-    }
-
-    #[tokio::test]
-    async fn test_hook_execution_skipped_for_events_without_task_id() {
-        let msg_store = Arc::new(MsgStore::default());
-        let hook_store = HookExecutionStore::new(msg_store.clone());
-
-        let call_count = Arc::new(AtomicUsize::new(0));
-
-        struct SpawnedCountingHandler {
-            count: Arc<AtomicUsize>,
-        }
-
-        #[async_trait]
-        impl EventHandler for SpawnedCountingHandler {
-            fn name(&self) -> &'static str {
-                "spawned_counting"
-            }
-
-            fn execution_mode(&self) -> ExecutionMode {
-                ExecutionMode::Spawned
-            }
-
-            fn handles(&self, _event: &DomainEvent) -> bool {
-                true
-            }
-
-            async fn handle(
-                &self,
-                _event: DomainEvent,
-                _ctx: &HandlerContext,
-            ) -> Result<(), HandlerError> {
-                self.count.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            }
-        }
-
-        let project = db::models::project::Project {
-            id: uuid::Uuid::new_v4(),
-            name: "Test project".to_string(),
-            dev_script: None,
-            dev_script_working_dir: None,
-            default_agent_working_dir: None,
-            remote_project_id: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        };
-
-        // ProjectUpdated event has no task_id
-        let event = DomainEvent::ProjectUpdated { project };
-
-        let dispatcher = DispatcherBuilder::new()
-            .with_handler(SpawnedCountingHandler {
-                count: Arc::clone(&call_count),
-            })
-            .with_context(test_context())
-            .with_hook_execution_store(hook_store.clone())
-            .build();
-
-        dispatcher.dispatch(event).await;
-
-        // Wait for the handler to complete
-        tokio::time::sleep(Duration::from_millis(20)).await;
-
-        // Handler should have been called
-        assert_eq!(call_count.load(Ordering::SeqCst), 1);
-
-        // But no hook executions should be tracked (since event has no task_id)
-        let all_execs = hook_store.get_all();
-        assert!(
-            all_execs.is_empty(),
-            "No executions should be tracked for events without task_id"
-        );
-    }
 }

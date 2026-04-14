@@ -1,0 +1,151 @@
+{
+  "name": "VK Review Attention",
+  "nodes": [
+    {
+      "parameters": {
+        "eventTypes": [
+          "execution_completed"
+        ],
+        "schemaVersion": "vk_n8n_orchestration_v1"
+      },
+      "id": "vk-trigger",
+      "name": "VK Trigger",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        280
+      ],
+      "credentials": {
+        "vibeKanbanMqtt": {
+          "name": "Local VK MQTT"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "execution",
+        "executionProcessId": "={{$json.refs.executionContext.executionProcessId}}"
+      },
+      "id": "vk-read-execution",
+      "name": "Read Execution Context",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
+      "typeVersion": 1,
+      "position": [
+        520,
+        280
+      ],
+      "credentials": {
+        "vibeKanbanApi": {
+          "name": "Local VK API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "task-id",
+              "name": "taskId",
+              "type": "string",
+              "value": "={{$json.scope.task.id}}"
+            },
+            {
+              "id": "workspace-id",
+              "name": "workspaceId",
+              "type": "string",
+              "value": "={{$json.scope.workspace.id}}"
+            },
+            {
+              "id": "execution-id",
+              "name": "executionProcessId",
+              "type": "string",
+              "value": "={{$json.execution.id}}"
+            },
+            {
+              "id": "needs-attention",
+              "name": "needsAttention",
+              "type": "boolean",
+              "value": "={{$json.execution.status !== 'completed' || $json.pending_questions.length > 0}}"
+            },
+            {
+              "id": "reasoning",
+              "name": "reasoning",
+              "type": "string",
+              "value": "={{$json.pending_questions.length > 0 ? 'Pending AskUser or approval resolution remains open.' : 'Execution completed without follow-up blockers.'}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-review-attention",
+      "name": "Build Review Attention Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        800,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "reviewAttention",
+        "operation": "createReviewAttention",
+        "taskId": "={{$json.taskId}}",
+        "workspaceId": "={{$json.workspaceId}}",
+        "executionProcessId": "={{$json.executionProcessId}}",
+        "needsAttention": "={{$json.needsAttention}}",
+        "reasoning": "={{$json.reasoning}}"
+      },
+      "id": "vk-create-review-attention",
+      "name": "Create Review Attention",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        280
+      ],
+      "credentials": {
+        "vibeKanbanApi": {
+          "name": "Local VK API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "VK Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Execution Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Execution Context": {
+      "main": [
+        [
+          {
+            "node": "Build Review Attention Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Review Attention Payload": {
+      "main": [
+        [
+          {
+            "node": "Create Review Attention",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

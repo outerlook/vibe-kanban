@@ -31,7 +31,7 @@ import { useTaskSelection } from '@/contexts/TaskSelectionContext';
 import { useTaskGroupsContext } from '@/contexts/TaskGroupsContext';
 import { TaskGroupBadge } from './TaskGroupBadge';
 import { OperationStatusBadge } from './OperationStatusBadge';
-import { HookStatusBadge } from './HookStatusBadge';
+import { WorkflowAssociationBadge } from './WorkflowAssociationBadge';
 import { TaskGroupFormDialog } from '@/components/dialogs';
 import { useIsCompactView } from '@/stores/useKanbanViewStore';
 import { useLongPress } from '@/hooks/useLongPress';
@@ -254,7 +254,7 @@ function TaskCardComponent({
           </Badge>
         )}
         <OperationStatusBadge taskId={task.id} />
-        <HookStatusBadge taskId={task.id} />
+        <WorkflowAssociationBadge taskId={task.id} />
         <TaskGroupBadge
           groupId={task.task_group_id}
           groupName={groupName}

@@ -4,7 +4,6 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, generate::SchemaSettings};
 use server::routes::task_attempts::pr::{
     DEFAULT_COMMIT_MESSAGE_PROMPT, DEFAULT_PR_DESCRIPTION_PROMPT,
 };
-use services::services::review_attention::DEFAULT_REVIEW_ATTENTION_PROMPT;
 use ts_rs::TS;
 
 fn generate_types_content() -> String {
@@ -134,8 +133,6 @@ fn generate_types_content() -> String {
         services::services::domain_events::MergeQueueTransitionState::decl(),
         services::services::domain_events::TaskLifecycleAction::decl(),
         services::services::domain_events::TaskGroupTransitionAction::decl(),
-        services::services::domain_events::MqttOrchestrationPublisherConfig::decl(),
-        services::services::domain_events::OrchestrationEventPublisherConfig::decl(),
         server::routes::conversations::CreateConversationRequest::decl(),
         server::routes::conversations::CreateConversationResponse::decl(),
         server::routes::conversations::UpdateConversationRequest::decl(),
@@ -288,6 +285,11 @@ fn generate_types_content() -> String {
         server::routes::images::ImageResponse::decl(),
         server::routes::images::ImageMetadata::decl(),
         server::routes::task_attempts::CreateTaskAttemptBody::decl(),
+        server::routes::task_attempts::WorkspaceExecutionRepoSelection::decl(),
+        server::routes::task_attempts::StartWorkspaceExecutionCommand::decl(),
+        server::routes::task_attempts::StartWorkspaceExecutionResult::decl(),
+        server::routes::task_attempts::QueueGenerateAndMergeCommand::decl(),
+        server::routes::task_attempts::QueueGenerateAndMergeResult::decl(),
         server::routes::task_attempts::WorkspaceRepoInput::decl(),
         server::routes::task_attempts::RunAgentSetupRequest::decl(),
         server::routes::task_attempts::RunAgentSetupResponse::decl(),
@@ -338,9 +340,6 @@ fn generate_types_content() -> String {
         services::services::merge_queue_store::MergeQueueEntry::decl(),
         services::services::merge_queue_store::MergeQueueStatus::decl(),
         services::services::git::ConflictOp::decl(),
-        services::services::domain_events::HookPoint::decl(),
-        services::services::domain_events::HookExecutionStatus::decl(),
-        services::services::domain_events::HookExecution::decl(),
         executors::actions::ExecutorAction::decl(),
         executors::mcp_config::McpConfig::decl(),
         executors::actions::ExecutorActionType::decl(),
@@ -413,12 +412,9 @@ fn generate_types_content() -> String {
     let commit_prompt_escaped = DEFAULT_COMMIT_MESSAGE_PROMPT
         .replace('\\', "\\\\")
         .replace('`', "\\`");
-    let review_attention_prompt_escaped = DEFAULT_REVIEW_ATTENTION_PROMPT
-        .replace('\\', "\\\\")
-        .replace('`', "\\`");
     let constants = format!(
-        "export const DEFAULT_PR_DESCRIPTION_PROMPT = `{}`;\n\nexport const DEFAULT_COMMIT_MESSAGE_PROMPT = `{}`;\n\nexport const DEFAULT_REVIEW_ATTENTION_PROMPT = `{}`;",
-        pr_prompt_escaped, commit_prompt_escaped, review_attention_prompt_escaped
+        "export const DEFAULT_PR_DESCRIPTION_PROMPT = `{}`;\n\nexport const DEFAULT_COMMIT_MESSAGE_PROMPT = `{}`;",
+        pr_prompt_escaped, commit_prompt_escaped
     );
 
     format!("{HEADER}\n\n{body}\n\n{constants}")

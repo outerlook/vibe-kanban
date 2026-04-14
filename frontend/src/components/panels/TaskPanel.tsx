@@ -10,7 +10,7 @@ import type { TaskWithAttemptStatus, WorkspaceWithSession } from 'shared/types';
 import { NewCardContent } from '../ui/new-card';
 import { Button } from '../ui/button';
 import { PlusIcon, MessageSquare } from 'lucide-react';
-import { HookStatusDetails } from '@/components/tasks/HookStatusDetails';
+import { WorkflowAssociationDetails } from '@/components/tasks/WorkflowAssociationDetails';
 import { CreateAttemptDialog } from '@/components/dialogs/tasks/CreateAttemptDialog';
 import WYSIWYGEditor from '@/components/ui/wysiwyg';
 import { DataTable, type ColumnDef } from '@/components/ui/table';
@@ -179,10 +179,10 @@ const TaskPanel = ({ task }: TaskPanelProps) => {
 
             <div className="rounded-lg border bg-card">
               <div className="px-4 py-2 border-b text-sm font-medium">
-                Automation
+                Workflows
               </div>
               <div className="px-4">
-                <HookStatusDetails taskId={task.id} />
+                <WorkflowAssociationDetails taskId={task.id} />
               </div>
             </div>
           </div>
