@@ -3,6 +3,22 @@
   "nodes": [
     {
       "parameters": {
+        "content": "## Purpose\\nUses an LLM to decide whether a completed coding-agent execution deserves human review attention, then stores that decision back in Vibe Kanban.\\n\\nUse this as a reference for combining Vibe Kanban execution events with LLM classification. The workflow only evaluates coding-agent executions and produces a structured `reviewAttention` payload.",
+        "height": 260,
+        "width": 450,
+        "color": 1
+      },
+      "id": "review-attention-note",
+      "name": "Workflow Description",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        80
+      ]
+    },
+    {
+      "parameters": {
         "eventTypes": [
           "execution_completed"
         ],

@@ -3,6 +3,22 @@
   "nodes": [
     {
       "parameters": {
+        "content": "## Purpose\\nQueues a generate-and-merge follow-up after an approval is resolved in Vibe Kanban.\\n\\nUse this as an example of turning approval outcomes into follow-up execution. The `Resolve Merge Inputs` step is where you adapt project, repo, and execution details to your own merge flow.",
+        "height": 240,
+        "width": 430,
+        "color": 1
+      },
+      "id": "generate-and-merge-note",
+      "name": "Workflow Description",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -20,
+        80
+      ]
+    },
+    {
+      "parameters": {
         "eventTypes": [
           "approval_resolved"
         ],

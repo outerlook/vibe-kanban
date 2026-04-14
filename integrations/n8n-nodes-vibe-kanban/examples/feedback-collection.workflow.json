@@ -3,6 +3,22 @@
   "nodes": [
     {
       "parameters": {
+        "content": "## Purpose\\nCreates feedback records automatically after an execution finishes in Vibe Kanban.\\n\\nUse this as a minimal example of: trigger on execution completion, read execution context, shape the payload, then write feedback back to Vibe Kanban.",
+        "height": 220,
+        "width": 420,
+        "color": 1
+      },
+      "id": "feedback-collection-note",
+      "name": "Workflow Description",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -20,
+        100
+      ]
+    },
+    {
+      "parameters": {
         "eventTypes": [
           "execution_completed"
         ],

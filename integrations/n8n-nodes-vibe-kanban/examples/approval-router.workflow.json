@@ -3,6 +3,22 @@
   "nodes": [
     {
       "parameters": {
+        "content": "## Purpose\\nAutomatically answers incoming Vibe Kanban approval requests with an approval response.\\n\\nUse this as the smallest possible example of: trigger on approval events, read approval context, then send an answer. Replace the hardcoded approval with real routing logic before using it in production.",
+        "height": 240,
+        "width": 420,
+        "color": 1
+      },
+      "id": "approval-router-note",
+      "name": "Workflow Description",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -20,
+        80
+      ]
+    },
+    {
+      "parameters": {
         "eventTypes": [
           "approval_requested"
         ],

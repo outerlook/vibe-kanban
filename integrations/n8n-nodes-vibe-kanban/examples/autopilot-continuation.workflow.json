@@ -3,6 +3,22 @@
   "nodes": [
     {
       "parameters": {
+        "content": "## Purpose\\nStarts a workspace execution when Vibe Kanban reports a task status change.\\n\\nUse this as a reference for task-driven automation that reads task context and launches an executor. Add task filters, executor selection rules, or branch logic before using it broadly.",
+        "height": 220,
+        "width": 420,
+        "color": 1
+      },
+      "id": "autopilot-continuation-note",
+      "name": "Workflow Description",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -20,
+        100
+      ]
+    },
+    {
+      "parameters": {
         "eventTypes": [
           "task_status_changed"
         ],

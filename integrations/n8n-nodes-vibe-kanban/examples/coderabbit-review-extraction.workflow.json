@@ -2,6 +2,22 @@
   "name": "GitHub CodeRabbit Unresolved Thread Polling",
   "nodes": [
     {
+      "parameters": {
+        "content": "## Purpose\\nPolls GitHub for open pull requests in the repos selected from Vibe Kanban project workflow associations. It returns only unresolved review threads that contain new CodeRabbit comments since the last poll checkpoint.\\n\\nUse this when you want personal monitoring without configuring GitHub webhooks. Configure `GITHUB_TOKEN`, `workflowId`, and the optional allow/ignore repo filters in `Build Poll Config`.",
+        "height": 280,
+        "width": 460,
+        "color": 1
+      },
+      "id": "coderabbit-polling-note",
+      "name": "Workflow Description",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        20
+      ]
+    },
+    {
       "parameters": {},
       "id": "manual-poll-trigger",
       "name": "Manual Poll Trigger",
