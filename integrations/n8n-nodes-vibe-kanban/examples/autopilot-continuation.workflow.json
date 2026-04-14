@@ -47,7 +47,8 @@
         "resource": "task",
         "operation": "startWorkspaceExecution",
         "taskId": "={{$json.task.id}}",
-        "executorProfileJson": "={\"executor\":\"CLAUDE_CODE\",\"variant\":null}",
+        "executor": "CLAUDE_CODE",
+        "executorVariant": "",
         "repoSelection": "taskGroupDefault"
       },
       "id": "vk-start-execution",

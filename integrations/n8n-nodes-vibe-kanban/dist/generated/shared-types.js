@@ -96,4 +96,4 @@ Write a commit message following these guidelines:
 - Body: explain what and why (wrap at 72 chars)
 
 Respond with ONLY the commit message, no other text.`;
-//# sourceMappingURL=types.js.map
+//# sourceMappingURL=shared-types.js.map

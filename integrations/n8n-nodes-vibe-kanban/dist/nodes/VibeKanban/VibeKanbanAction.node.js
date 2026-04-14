@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.VibeKanbanAction = void 0;
 const n8n_workflow_1 = require("n8n-workflow");
 const api_1 = require("./shared/api");
+const executor_profiles_1 = require("./shared/executor-profiles");
 const output_1 = require("./shared/output");
 function parseAnswersJson(raw) {
     if (!raw.trim()) {
@@ -23,6 +24,21 @@ function parseJsonValue(raw, label) {
     }
 }
 class VibeKanbanAction {
+    methods = {
+        loadOptions: {
+            async getAvailableExecutors() {
+                const credentials = await this.getCredentials('vibeKanbanApi');
+                const profiles = await (0, api_1.getExecutorProfiles)(credentials);
+                return (0, executor_profiles_1.toExecutorOptions)(profiles);
+            },
+            async getAvailableExecutorVariants() {
+                const credentials = await this.getCredentials('vibeKanbanApi');
+                const profiles = await (0, api_1.getExecutorProfiles)(credentials);
+                const executor = this.getCurrentNodeParameter('executor') || '';
+                return (0, executor_profiles_1.toExecutorVariantOptions)(profiles, executor);
+            },
+        },
+    };
     description = {
         displayName: 'Vibe Kanban Action',
         name: 'vibeKanbanAction',
@@ -172,12 +188,33 @@ class VibeKanbanAction {
                 },
             },
             {
-                displayName: 'Executor Profile JSON',
-                name: 'executorProfileJson',
-                type: 'string',
-                typeOptions: { rows: 3 },
-                default: '{"executor":"CLAUDE_CODE","variant":null}',
-                required: true,
+                displayName: 'Executor',
+                name: 'executor',
+                type: 'options',
+                default: '',
+                required: false,
+                typeOptions: {
+                    loadOptionsMethod: 'getAvailableExecutors',
+                },
+                description: 'Choose the VK executor. Leave empty on Create Conversation to use the VK default executor.',
+                displayOptions: {
+                    show: {
+                        resource: ['task', 'conversation'],
+                        operation: ['startWorkspaceExecution', 'createConversation'],
+                    },
+                },
+            },
+            {
+                displayName: 'Executor Variant',
+                name: 'executorVariant',
+                type: 'options',
+                default: '',
+                required: false,
+                typeOptions: {
+                    loadOptionsMethod: 'getAvailableExecutorVariants',
+                    loadOptionsDependsOn: ['executor'],
+                },
+                description: 'Leave empty to use the default variant of the selected executor.',
                 displayOptions: {
                     show: {
                         resource: ['task', 'conversation'],
@@ -509,9 +546,13 @@ class VibeKanbanAction {
                 switch (resource) {
                     case 'task': {
                         const taskId = this.getNodeParameter('taskId', itemIndex);
-                        const executorProfileJson = this.getNodeParameter('executorProfileJson', itemIndex);
+                        const executor = this.getNodeParameter('executor', itemIndex, '');
+                        const executorVariant = this.getNodeParameter('executorVariant', itemIndex, '');
                         const repoSelection = this.getNodeParameter('repoSelection', itemIndex);
-                        const executorProfile = parseJsonValue(executorProfileJson, 'Executor Profile JSON');
+                        const executorProfile = (0, executor_profiles_1.buildExecutorProfileId)(executor, executorVariant);
+                        if (!executorProfile) {
+                            throw new Error('Executor is required for Start Workspace Execution');
+                        }
                         const command = repoSelection === 'explicit'
                             ? {
                                 task_id: taskId,
@@ -609,15 +650,14 @@ class VibeKanbanAction {
                             const projectId = this.getNodeParameter('projectId', itemIndex);
                             const title = this.getNodeParameter('title', itemIndex);
                             const initialMessage = this.getNodeParameter('initialMessage', itemIndex);
-                            const executorProfileJson = this.getNodeParameter('executorProfileJson', itemIndex, '');
+                            const executor = this.getNodeParameter('executor', itemIndex, '');
+                            const executorVariant = this.getNodeParameter('executorVariant', itemIndex, '');
                             const worktreePath = this.getNodeParameter('worktreePath', itemIndex, '');
                             const worktreeBranch = this.getNodeParameter('worktreeBranch', itemIndex, '');
                             const body = {
                                 title,
                                 initial_message: initialMessage,
-                                executor_profile_id: executorProfileJson.trim()
-                                    ? parseJsonValue(executorProfileJson, 'Executor Profile JSON')
-                                    : null,
+                                executor_profile_id: (0, executor_profiles_1.buildExecutorProfileId)(executor, executorVariant),
                                 worktree_path: worktreePath || null,
                                 worktree_branch: worktreeBranch || null,
                             };

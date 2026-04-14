@@ -1,10 +1,12 @@
 import type {
   ApprovalResponse,
   ApprovalStatus,
+  BaseCodingAgent,
   CreateConversationRequest,
   CreateConversationResponse,
   CreateAgentFeedback,
   CreateReviewAttention,
+  ExecutorConfigs,
   ExecutorProfileId,
   FeedbackResponse,
   FollowUpResult,
@@ -22,7 +24,7 @@ import type {
   SendMessageResponse,
   StartWorkspaceExecutionCommand,
   StartWorkspaceExecutionResult,
-} from '../../../../../shared/types';
+} from '../../../generated/shared-types';
 
 export type VkOrchestrationEventEnvelope = OrchestrationEventEnvelope;
 export type VkTaskContext = OrchestrationTaskContextDto;
@@ -36,6 +38,8 @@ export type VkSendMessageResponse = SendMessageResponse;
 export type VkApprovalResponse = ApprovalResponse;
 export type VkApprovalStatus = ApprovalStatus;
 export type VkQuestionAnswer = QuestionAnswer;
+export type VkBaseCodingAgent = BaseCodingAgent;
+export type VkExecutorConfigs = ExecutorConfigs;
 export type VkExecutorProfileId = ExecutorProfileId;
 export type VkCreateConversationRequest = CreateConversationRequest;
 export type VkCreateConversationResponse = CreateConversationResponse;

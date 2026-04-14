@@ -9,11 +9,16 @@
     "vibe-kanban"
   ],
   "scripts": {
-    "build": "n8n-node build",
+    "sync:shared-types": "node ./scripts/sync-shared-types.mjs",
+    "prebuild": "pnpm run sync:shared-types",
+    "verify:package-layout": "node ./scripts/verify-package-layout.mjs",
+    "build": "rm -rf dist && n8n-node build && pnpm run verify:package-layout",
+    "predev": "pnpm run sync:shared-types",
     "dev": "n8n-node dev",
     "docker:build": "docker build -f Dockerfile.n8n --build-arg N8N_VERSION=${N8N_VERSION:-2.16.0} -t vibe-kanban-n8n:${N8N_VERSION:-local} ../..",
     "docker:compose:up": "docker compose -f compose.example.yml up --build",
     "lint": "n8n-node lint",
+    "pretest": "pnpm run sync:shared-types",
     "test": "vitest run",
     "test:smoke": "vitest run test/smoke.test.ts"
   },

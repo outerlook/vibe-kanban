@@ -9,6 +9,7 @@ import type {
   VkCreateAgentFeedback,
   VkCreateReviewAttention,
   VkExecutionContext,
+  VkExecutorConfigs,
   VkFeedbackResponse,
   VkFollowUpResult,
   VkQueueGenerateAndMergeCommand,
@@ -21,12 +22,18 @@ import type {
   VkTaskContext,
   VkTaskGroupContext,
 } from './vk-contracts';
+import { parseExecutorConfigs } from './executor-profiles';
 
 type ApiEnvelope<T> = {
   success: boolean;
   data?: T;
   error_data?: unknown;
   message?: string;
+};
+
+type VkProfilesContent = {
+  content: string;
+  path: string;
 };
 
 function normalizeBaseUrl(baseUrl: string): string {
@@ -125,6 +132,13 @@ export async function createConversation(
       body: JSON.stringify(body),
     },
   );
+}
+
+export async function getExecutorProfiles(
+  credentials: VkApiCredentialValue,
+): Promise<VkExecutorConfigs> {
+  const data = await requestVk<VkProfilesContent>(credentials, '/profiles');
+  return parseExecutorConfigs(data.content);
 }
 
 export async function getExecutionContext(

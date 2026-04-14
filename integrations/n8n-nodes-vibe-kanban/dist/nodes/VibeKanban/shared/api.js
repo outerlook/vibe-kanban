@@ -4,6 +4,7 @@ exports.getTaskContext = getTaskContext;
 exports.getTaskGroupContext = getTaskGroupContext;
 exports.getConversationContext = getConversationContext;
 exports.createConversation = createConversation;
+exports.getExecutorProfiles = getExecutorProfiles;
 exports.getExecutionContext = getExecutionContext;
 exports.getApprovalContext = getApprovalContext;
 exports.startTaskFollowUp = startTaskFollowUp;
@@ -19,6 +20,7 @@ exports.cancelGenerateAndMerge = cancelGenerateAndMerge;
 exports.createFeedback = createFeedback;
 exports.createReviewAttention = createReviewAttention;
 exports.stopExecutionProcess = stopExecutionProcess;
+const executor_profiles_1 = require("./executor-profiles");
 function normalizeBaseUrl(baseUrl) {
     return `${baseUrl.replace(/\/+$/, '')}/api`;
 }
@@ -69,6 +71,10 @@ async function createConversation(credentials, projectId, body) {
         method: 'POST',
         body: JSON.stringify(body),
     });
+}
+async function getExecutorProfiles(credentials) {
+    const data = await requestVk(credentials, '/profiles');
+    return (0, executor_profiles_1.parseExecutorConfigs)(data.content);
 }
 async function getExecutionContext(credentials, executionProcessId) {
     return requestVk(credentials, `/execution-processes/${executionProcessId}/orchestration-context`);

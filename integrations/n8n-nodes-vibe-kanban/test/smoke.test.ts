@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   answerApproval,
   createConversation,
+  getExecutorProfiles,
   getApprovalContext,
 } from '../nodes/VibeKanban/shared/api';
 import {
@@ -77,6 +78,51 @@ describe('VK n8n smoke harness', () => {
 
     httpServer = createServer(
       async (request: IncomingMessage, response: ServerResponse) => {
+        if (
+          request.method === 'GET' &&
+          request.url === '/api/profiles'
+        ) {
+          response.setHeader('content-type', 'application/json');
+          response.end(
+            JSON.stringify({
+              success: true,
+              data: {
+                content: JSON.stringify({
+                  executors: {
+                    CLAUDE_CODE: {
+                      DEFAULT: {
+                        CLAUDE_CODE: {
+                          dangerously_skip_permissions: true,
+                        },
+                      },
+                      PLAN: {
+                        CLAUDE_CODE: {
+                          plan: true,
+                        },
+                      },
+                    },
+                    CODEX: {
+                      DEFAULT: {
+                        CODEX: {
+                          model: 'gpt-5.2-codex',
+                        },
+                      },
+                      HIGH: {
+                        CODEX: {
+                          model: 'gpt-5.2-codex',
+                          model_reasoning_effort: 'high',
+                        },
+                      },
+                    },
+                  },
+                }),
+                path: '/tmp/profiles.json',
+              },
+            }),
+          );
+          return;
+        }
+
         if (
           request.method === 'POST' &&
           request.url === '/api/projects/project-1/conversations'
@@ -251,5 +297,15 @@ describe('VK n8n smoke harness', () => {
       worktree_path: 'services/webhooks',
       worktree_branch: 'feature/webhook-debug',
     });
+  });
+
+  it('loads executor profiles through the VK control plane', async () => {
+    const profiles = await getExecutorProfiles(apiCredentials);
+
+    expect(Object.keys(profiles.executors)).toEqual(['CLAUDE_CODE', 'CODEX']);
+    expect(Object.keys(profiles.executors.CODEX ?? {})).toEqual([
+      'DEFAULT',
+      'HIGH',
+    ]);
   });
 });

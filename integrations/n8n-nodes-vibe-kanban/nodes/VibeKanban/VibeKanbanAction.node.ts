@@ -1,6 +1,8 @@
 import type {
   IExecuteFunctions,
+  ILoadOptionsFunctions,
   INodeExecutionData,
+  INodePropertyOptions,
   INodeType,
   INodeTypeDescription,
 } from 'n8n-workflow';
@@ -14,6 +16,7 @@ import {
   createConversation,
   createFeedback,
   createReviewAttention,
+  getExecutorProfiles,
   queueGenerateAndMerge,
   queueConversationFollowUp,
   queueTaskFollowUp,
@@ -22,13 +25,17 @@ import {
   startTaskFollowUp,
   stopExecutionProcess,
 } from './shared/api';
+import {
+  buildExecutorProfileId,
+  toExecutorOptions,
+  toExecutorVariantOptions,
+} from './shared/executor-profiles';
 import { normalizeActionOutput } from './shared/output';
 import type {
   VkActionResource,
   VkApiCredentialValue,
   VkApprovalResponse,
   VkCreateConversationRequest,
-  VkExecutorProfileId,
   VkQuestionAnswer,
 } from './shared/vk-contracts';
 
@@ -55,6 +62,31 @@ function parseJsonValue<T>(raw: string, label: string): T {
 }
 
 export class VibeKanbanAction implements INodeType {
+  methods = {
+    loadOptions: {
+      async getAvailableExecutors(
+        this: ILoadOptionsFunctions,
+      ): Promise<INodePropertyOptions[]> {
+        const credentials = await this.getCredentials<VkApiCredentialValue>(
+          'vibeKanbanApi',
+        );
+        const profiles = await getExecutorProfiles(credentials);
+        return toExecutorOptions(profiles);
+      },
+
+      async getAvailableExecutorVariants(
+        this: ILoadOptionsFunctions,
+      ): Promise<INodePropertyOptions[]> {
+        const credentials = await this.getCredentials<VkApiCredentialValue>(
+          'vibeKanbanApi',
+        );
+        const profiles = await getExecutorProfiles(credentials);
+        const executor = (this.getCurrentNodeParameter('executor') as string) || '';
+        return toExecutorVariantOptions(profiles, executor);
+      },
+    },
+  };
+
   description: INodeTypeDescription = {
     displayName: 'Vibe Kanban Action',
     name: 'vibeKanbanAction',
@@ -204,12 +236,34 @@ export class VibeKanbanAction implements INodeType {
         },
       },
       {
-        displayName: 'Executor Profile JSON',
-        name: 'executorProfileJson',
-        type: 'string',
-        typeOptions: { rows: 3 },
-        default: '{"executor":"CLAUDE_CODE","variant":null}',
-        required: true,
+        displayName: 'Executor',
+        name: 'executor',
+        type: 'options',
+        default: '',
+        required: false,
+        typeOptions: {
+          loadOptionsMethod: 'getAvailableExecutors',
+        },
+        description:
+          'Choose the VK executor. Leave empty on Create Conversation to use the VK default executor.',
+        displayOptions: {
+          show: {
+            resource: ['task', 'conversation'],
+            operation: ['startWorkspaceExecution', 'createConversation'],
+          },
+        },
+      },
+      {
+        displayName: 'Executor Variant',
+        name: 'executorVariant',
+        type: 'options',
+        default: '',
+        required: false,
+        typeOptions: {
+          loadOptionsMethod: 'getAvailableExecutorVariants',
+          loadOptionsDependsOn: ['executor'],
+        },
+        description: 'Leave empty to use the default variant of the selected executor.',
         displayOptions: {
           show: {
             resource: ['task', 'conversation'],
@@ -547,15 +601,24 @@ export class VibeKanbanAction implements INodeType {
         switch (resource) {
           case 'task': {
             const taskId = this.getNodeParameter('taskId', itemIndex) as string;
-            const executorProfileJson = this.getNodeParameter(
-              'executorProfileJson',
+            const executor = this.getNodeParameter(
+              'executor',
               itemIndex,
+              '',
+            ) as string;
+            const executorVariant = this.getNodeParameter(
+              'executorVariant',
+              itemIndex,
+              '',
             ) as string;
             const repoSelection = this.getNodeParameter('repoSelection', itemIndex) as string;
-            const executorProfile = parseJsonValue<VkExecutorProfileId>(
-              executorProfileJson,
-              'Executor Profile JSON',
+            const executorProfile = buildExecutorProfileId(
+              executor,
+              executorVariant,
             );
+            if (!executorProfile) {
+              throw new Error('Executor is required for Start Workspace Execution');
+            }
             const command =
               repoSelection === 'explicit'
                 ? {
@@ -669,8 +732,13 @@ export class VibeKanbanAction implements INodeType {
                 'initialMessage',
                 itemIndex,
               ) as string;
-              const executorProfileJson = this.getNodeParameter(
-                'executorProfileJson',
+              const executor = this.getNodeParameter(
+                'executor',
+                itemIndex,
+                '',
+              ) as string;
+              const executorVariant = this.getNodeParameter(
+                'executorVariant',
                 itemIndex,
                 '',
               ) as string;
@@ -687,12 +755,10 @@ export class VibeKanbanAction implements INodeType {
               const body: VkCreateConversationRequest = {
                 title,
                 initial_message: initialMessage,
-                executor_profile_id: executorProfileJson.trim()
-                  ? parseJsonValue<VkExecutorProfileId>(
-                      executorProfileJson,
-                      'Executor Profile JSON',
-                    )
-                  : null,
+                executor_profile_id: buildExecutorProfileId(
+                  executor,
+                  executorVariant,
+                ),
                 worktree_path: worktreePath || null,
                 worktree_branch: worktreeBranch || null,
               };
