@@ -38,6 +38,7 @@ use db::models::{
     repo::{Repo, RepoError},
     session::{CreateSession, Session},
     task::{Task, TaskRelationships, TaskStatus},
+    task_group::TaskGroup,
     workspace::{CreateWorkspace, Workspace, WorkspaceError, WorkspaceWithSession},
     workspace_repo::{CreateWorkspaceRepo, RepoWithTargetBranch, WorkspaceRepo},
 };
@@ -155,10 +156,52 @@ pub struct CreateTaskAttemptBody {
     pub repos: Vec<WorkspaceRepoInput>,
 }
 
-#[derive(Debug, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct WorkspaceRepoInput {
     pub repo_id: Uuid,
     pub target_branch: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "repo_selection", rename_all = "snake_case")]
+#[ts(tag = "repo_selection", rename_all = "snake_case")]
+pub enum WorkspaceExecutionRepoSelection {
+    Explicit { repos: Vec<WorkspaceRepoInput> },
+    TaskGroupDefault,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct StartWorkspaceExecutionCommand {
+    pub task_id: Uuid,
+    pub executor_profile_id: ExecutorProfileId,
+    pub repo_selection: WorkspaceExecutionRepoSelection,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "status", rename_all = "snake_case")]
+#[ts(tag = "status", rename_all = "snake_case")]
+pub enum StartWorkspaceExecutionResult {
+    Started {
+        workspace: Workspace,
+        execution_process: ExecutionProcess,
+    },
+    Queued {
+        workspace: Workspace,
+        queue_entry: ExecutionQueue,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct QueueGenerateAndMergeCommand {
+    pub repo_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "status", rename_all = "snake_case")]
+#[ts(tag = "status", rename_all = "snake_case")]
+pub enum QueueGenerateAndMergeResult {
+    Queued { entry: MergeQueueEntry },
+    Rejected { error: QueueMergeError },
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -169,23 +212,72 @@ pub struct RunAgentSetupRequest {
 #[derive(Debug, Serialize, TS)]
 pub struct RunAgentSetupResponse {}
 
-#[axum::debug_handler]
-pub async fn create_task_attempt(
-    State(deployment): State<DeploymentImpl>,
-    Json(payload): Json<CreateTaskAttemptBody>,
-) -> Result<ResponseJson<ApiResponse<Workspace>>, ApiError> {
-    let executor_profile_id = payload.executor_profile_id.clone();
+async fn resolve_workspace_repos(
+    pool: &sqlx::SqlitePool,
+    task: &Task,
+    repo_selection: WorkspaceExecutionRepoSelection,
+) -> Result<Vec<WorkspaceRepoInput>, ApiError> {
+    match repo_selection {
+        WorkspaceExecutionRepoSelection::Explicit { repos } => {
+            if repos.is_empty() {
+                return Err(ApiError::BadRequest(
+                    "At least one repository is required".to_string(),
+                ));
+            }
+            Ok(repos)
+        }
+        WorkspaceExecutionRepoSelection::TaskGroupDefault => {
+            let task_group_id = task.task_group_id.ok_or_else(|| {
+                ApiError::BadRequest(
+                    "Task group default repo selection requires the task to belong to a task group"
+                        .to_string(),
+                )
+            })?;
 
-    if payload.repos.is_empty() {
-        return Err(ApiError::BadRequest(
-            "At least one repository is required".to_string(),
-        ));
+            let task_group = TaskGroup::find_by_id(pool, task_group_id)
+                .await?
+                .ok_or_else(|| {
+                    ApiError::BadRequest(
+                        "Task group default repo selection requires an existing task group"
+                            .to_string(),
+                    )
+                })?;
+
+            let base_branch = task_group.base_branch.ok_or_else(|| {
+                ApiError::BadRequest(
+                    "Task group default repo selection requires the task group to define a base branch"
+                        .to_string(),
+                )
+            })?;
+
+            let repos = ProjectRepo::find_repos_for_project(pool, task.project_id).await?;
+            if repos.is_empty() {
+                return Err(ApiError::BadRequest(
+                    "Task group default repo selection requires the project to have repositories"
+                        .to_string(),
+                ));
+            }
+
+            Ok(repos
+                .into_iter()
+                .map(|repo| WorkspaceRepoInput {
+                    repo_id: repo.id,
+                    target_branch: base_branch.clone(),
+                })
+                .collect())
+        }
     }
+}
 
+async fn create_workspace_execution(
+    deployment: &DeploymentImpl,
+    command: StartWorkspaceExecutionCommand,
+) -> Result<StartWorkspaceExecutionResult, ApiError> {
     let pool = &deployment.db().pool;
-    let task = Task::find_by_id(&deployment.db().pool, payload.task_id)
+    let task = Task::find_by_id(pool, command.task_id)
         .await?
         .ok_or(SqlxError::RowNotFound)?;
+    let repos = resolve_workspace_repos(pool, &task, command.repo_selection).await?;
 
     let project = task
         .parent_project(pool)
@@ -198,20 +290,20 @@ pub async fn create_task_attempt(
         .filter(|dir| !dir.is_empty())
         .cloned();
 
-    let attempt_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
     let git_branch_name = deployment
         .container()
-        .git_branch_from_workspace(&attempt_id, &task.title)
+        .git_branch_from_workspace(&workspace_id, &task.title)
         .await;
 
     let workspace = Workspace::create(
         pool,
         &CreateWorkspace {
-            branch: git_branch_name.clone(),
+            branch: git_branch_name,
             agent_working_dir,
         },
-        attempt_id,
-        payload.task_id,
+        workspace_id,
+        task.id,
     )
     .await?;
 
@@ -222,19 +314,18 @@ pub async fn create_task_attempt(
         })
         .await;
 
-    let workspace_repos: Vec<CreateWorkspaceRepo> = payload
-        .repos
+    let workspace_repos: Vec<CreateWorkspaceRepo> = repos
         .iter()
-        .map(|r| CreateWorkspaceRepo {
-            repo_id: r.repo_id,
-            target_branch: r.target_branch.clone(),
+        .map(|repo| CreateWorkspaceRepo {
+            repo_id: repo.repo_id,
+            target_branch: repo.target_branch.clone(),
         })
         .collect();
-
     WorkspaceRepo::create_many(pool, workspace.id, &workspace_repos).await?;
-    match deployment
+
+    let result = match deployment
         .container()
-        .start_workspace(&workspace, executor_profile_id.clone())
+        .start_workspace(&workspace, command.executor_profile_id.clone())
         .await
     {
         Ok(StartWorkspaceResult::Started(execution_process)) => {
@@ -243,6 +334,10 @@ pub async fn create_task_attempt(
                 workspace.id,
                 execution_process.id
             );
+            StartWorkspaceExecutionResult::Started {
+                workspace,
+                execution_process,
+            }
         }
         Ok(StartWorkspaceResult::Queued(queue_entry)) => {
             tracing::info!(
@@ -250,28 +345,72 @@ pub async fn create_task_attempt(
                 workspace.id,
                 queue_entry.id
             );
+            StartWorkspaceExecutionResult::Queued {
+                workspace,
+                queue_entry,
+            }
         }
         Err(err) => {
             tracing::error!("Failed to start task attempt {}: {}", workspace.id, err);
+            return Err(ApiError::Container(err));
         }
-    }
+    };
+
+    let (workspace, repository_count) = match &result {
+        StartWorkspaceExecutionResult::Started { workspace, .. }
+        | StartWorkspaceExecutionResult::Queued { workspace, .. } => (workspace, repos.len()),
+    };
 
     deployment
         .track_if_analytics_allowed(
             "task_attempt_started",
             serde_json::json!({
                 "task_id": workspace.task_id.to_string(),
-                "variant": &executor_profile_id.variant,
-                "executor": &executor_profile_id.executor,
+                "variant": &command.executor_profile_id.variant,
+                "executor": &command.executor_profile_id.executor,
                 "workspace_id": workspace.id.to_string(),
-                "repository_count": payload.repos.len(),
+                "repository_count": repository_count,
             }),
         )
         .await;
 
     tracing::info!("Created attempt for task {}", task.id);
 
+    Ok(result)
+}
+
+#[axum::debug_handler]
+pub async fn create_task_attempt(
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<CreateTaskAttemptBody>,
+) -> Result<ResponseJson<ApiResponse<Workspace>>, ApiError> {
+    let result = create_workspace_execution(
+        &deployment,
+        StartWorkspaceExecutionCommand {
+            task_id: payload.task_id,
+            executor_profile_id: payload.executor_profile_id,
+            repo_selection: WorkspaceExecutionRepoSelection::Explicit {
+                repos: payload.repos,
+            },
+        },
+    )
+    .await?;
+
+    let workspace = match result {
+        StartWorkspaceExecutionResult::Started { workspace, .. }
+        | StartWorkspaceExecutionResult::Queued { workspace, .. } => workspace,
+    };
+
     Ok(ResponseJson(ApiResponse::success(workspace)))
+}
+
+#[axum::debug_handler]
+pub async fn start_workspace_execution(
+    State(deployment): State<DeploymentImpl>,
+    Json(command): Json<StartWorkspaceExecutionCommand>,
+) -> Result<ResponseJson<ApiResponse<StartWorkspaceExecutionResult>>, ApiError> {
+    let result = create_workspace_execution(&deployment, command).await?;
+    Ok(ResponseJson(ApiResponse::success(result)))
 }
 
 #[axum::debug_handler]
@@ -2084,7 +2223,7 @@ pub struct QueueMergeRequest {
     pub generate_commit_message: Option<bool>,
 }
 
-#[derive(Debug, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(tag = "type", rename_all = "snake_case")]
 pub enum QueueMergeError {
@@ -2291,6 +2430,32 @@ pub async fn queue_merge(
     Ok(ResponseJson(ApiResponse::success(entry)))
 }
 
+#[axum::debug_handler]
+pub async fn queue_generate_and_merge(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    Json(command): Json<QueueGenerateAndMergeCommand>,
+) -> Result<ResponseJson<ApiResponse<QueueGenerateAndMergeResult>>, ApiError> {
+    let response = queue_merge(
+        Extension(workspace),
+        State(deployment),
+        Json(QueueMergeRequest {
+            repo_id: command.repo_id,
+            commit_message: None,
+            generate_commit_message: Some(true),
+        }),
+    )
+    .await?
+    .0;
+
+    let result = match response.into_result() {
+        Ok(entry) => QueueGenerateAndMergeResult::Queued { entry },
+        Err(error) => QueueGenerateAndMergeResult::Rejected { error },
+    };
+
+    Ok(ResponseJson(ApiResponse::success(result)))
+}
+
 /// DELETE /task-attempts/{id}/queue-merge - Cancel a queued merge
 #[axum::debug_handler]
 pub async fn cancel_queue_merge(
@@ -2328,6 +2493,14 @@ pub async fn cancel_queue_merge(
         .await;
 
     Ok(ResponseJson(ApiResponse::success(())))
+}
+
+#[axum::debug_handler]
+pub async fn cancel_generate_and_merge(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    cancel_queue_merge(Extension(workspace), State(deployment)).await
 }
 
 /// DELETE /task-attempts/{id}/execution-queue - Cancel a queued execution
@@ -2392,6 +2565,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/rename-branch", post(rename_branch))
         .route("/repos", get(get_task_attempt_repos))
         .route("/queue-merge", post(queue_merge).delete(cancel_queue_merge))
+        .route(
+            "/generate-and-merge",
+            post(queue_generate_and_merge).delete(cancel_generate_and_merge),
+        )
         .route("/queue-status", get(get_queue_status))
         .route("/execution-queue", delete(cancel_execution_queue))
         .layer(from_fn_with_state(
@@ -2401,6 +2578,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 
     let task_attempts_router = Router::new()
         .route("/", get(get_task_attempts).post(create_task_attempt))
+        .route("/orchestration/workspace-executions", post(start_workspace_execution))
         .route("/stream/ws", get(stream_workspaces_ws))
         .nest("/{id}", task_attempt_id_router)
         .nest("/{id}/images", images::router(deployment));
@@ -2414,14 +2592,24 @@ mod tests {
 
     use axum::{Extension, Json, extract::State};
     use db::models::{
+        execution_process::{CreateExecutionProcess, ExecutionProcess, ExecutionProcessRunReason},
         project::{CreateProject, Project},
         project_repo::ProjectRepo,
         repo::Repo,
+        session::{CreateSession, Session},
         task::{CreateTask, Task, TaskStatus},
+        task_group::TaskGroup,
         workspace::{CreateWorkspace, Workspace},
         workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
     };
-    use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
+    use executors::{
+        actions::{
+            ExecutorAction, ExecutorActionType,
+            script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+        },
+        executors::BaseCodingAgent,
+        profile::ExecutorProfileId,
+    };
     use local_deployment::LocalDeployment;
     use services::services::domain_events::{
         OrchestrationEventPublisherHandle, OrchestrationEventType,
@@ -2463,6 +2651,30 @@ mod tests {
         .unwrap()
     }
 
+    async fn create_task_in_group(
+        deployment: &DeploymentImpl,
+        project_id: Uuid,
+        task_group_id: Uuid,
+        title: &str,
+    ) -> Task {
+        Task::create(
+            &deployment.db().pool,
+            &CreateTask {
+                project_id,
+                title: title.to_string(),
+                description: None,
+                status: Some(TaskStatus::Todo),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: Some(task_group_id),
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap()
+    }
+
     async fn attach_repo_to_project(
         deployment: &DeploymentImpl,
         project_id: Uuid,
@@ -2476,6 +2688,52 @@ mod tests {
             .await
             .unwrap();
         repo
+    }
+
+    async fn create_running_agent_process(deployment: &DeploymentImpl, task_id: Uuid) {
+        let workspace = Workspace::create(
+            &deployment.db().pool,
+            &CreateWorkspace {
+                branch: format!("feature/running-{}", Uuid::new_v4()),
+                agent_working_dir: None,
+            },
+            Uuid::new_v4(),
+            task_id,
+        )
+        .await
+        .unwrap();
+
+        let session = Session::create(
+            &deployment.db().pool,
+            &CreateSession {
+                executor: Some("CLAUDE_CODE".to_string()),
+            },
+            Uuid::new_v4(),
+            workspace.id,
+        )
+        .await
+        .unwrap();
+
+        let _ = ExecutionProcess::create(
+            &deployment.db().pool,
+            &CreateExecutionProcess {
+                session_id: session.id,
+                executor_action: ExecutorAction::new(
+                    ExecutorActionType::ScriptRequest(ScriptRequest {
+                        script: "echo busy".to_string(),
+                        language: ScriptRequestLanguage::Bash,
+                        context: ScriptContext::SetupScript,
+                        working_dir: None,
+                    }),
+                    None,
+                ),
+                run_reason: ExecutionProcessRunReason::CodingAgent,
+            },
+            Uuid::new_v4(),
+            &[],
+        )
+        .await
+        .unwrap();
     }
 
     async fn wait_for_merge_transition_count(
@@ -2645,5 +2903,140 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn start_workspace_execution_supports_task_group_default_repo_selection() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let deployment = LocalDeployment::new().await.unwrap();
+        deployment.config().write().await.max_concurrent_agents = 1;
+
+        let project = create_project(&deployment, "workspace-execution-defaults").await;
+        let task_group = TaskGroup::create(
+            &deployment.db().pool,
+            project.id,
+            "Backend".to_string(),
+            None,
+            Some("main".to_string()),
+        )
+        .await
+        .unwrap();
+        let task = create_task_in_group(&deployment, project.id, task_group.id, "Ship it").await;
+        create_running_agent_process(&deployment, task.id).await;
+
+        let repo_path = std::env::temp_dir()
+            .join(format!("vk-start-workspace-default-repo-{}", Uuid::new_v4()));
+        deployment
+            .git()
+            .initialize_repo_with_main_branch(&repo_path)
+            .unwrap();
+        std::process::Command::new("git")
+            .args([
+                "-C",
+                repo_path.to_str().unwrap(),
+                "config",
+                "core.fsmonitor",
+                "true",
+            ])
+            .status()
+            .unwrap();
+        let repo =
+            attach_repo_to_project(&deployment, project.id, &repo_path, "Workspace Repo").await;
+
+        let result = start_workspace_execution(
+            State(deployment.clone()),
+            Json(StartWorkspaceExecutionCommand {
+                task_id: task.id,
+                executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+                repo_selection: WorkspaceExecutionRepoSelection::TaskGroupDefault,
+            }),
+        )
+        .await
+        .unwrap()
+        .0
+        .into_data()
+        .unwrap();
+
+        let workspace = match result {
+            StartWorkspaceExecutionResult::Started { workspace, .. }
+            | StartWorkspaceExecutionResult::Queued { workspace, .. } => workspace,
+        };
+
+        let attached_repos = WorkspaceRepo::find_repos_with_target_branch_for_workspace(
+            &deployment.db().pool,
+            workspace.id,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(attached_repos.len(), 1);
+        assert_eq!(attached_repos[0].repo.id, repo.id);
+        assert_eq!(attached_repos[0].target_branch, "main");
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn queue_generate_and_merge_returns_typed_rejection() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let deployment = LocalDeployment::new().await.unwrap();
+
+        let project = create_project(&deployment, "generate-and-merge").await;
+        let task = create_task(&deployment, project.id, "Merge me").await;
+
+        let repo_path =
+            std::env::temp_dir().join(format!("vk-generate-merge-repo-{}", Uuid::new_v4()));
+        deployment
+            .git()
+            .initialize_repo_with_main_branch(&repo_path)
+            .unwrap();
+        let repo = attach_repo_to_project(&deployment, project.id, &repo_path, "Merge Repo").await;
+
+        let workspace = Workspace::create(
+            &deployment.db().pool,
+            &CreateWorkspace {
+                branch: "feature/generate-and-merge".to_string(),
+                agent_working_dir: None,
+            },
+            Uuid::new_v4(),
+            task.id,
+        )
+        .await
+        .unwrap();
+        WorkspaceRepo::create_many(
+            &deployment.db().pool,
+            workspace.id,
+            &[CreateWorkspaceRepo {
+                repo_id: repo.id,
+                target_branch: "main".to_string(),
+            }],
+        )
+        .await
+        .unwrap();
+
+        deployment.merge_queue_store().enqueue(
+            project.id,
+            workspace.id,
+            repo.id,
+            "already queued".to_string(),
+        );
+
+        let result = queue_generate_and_merge(
+            Extension(workspace),
+            State(deployment),
+            Json(QueueGenerateAndMergeCommand { repo_id: repo.id }),
+        )
+        .await
+        .unwrap()
+        .0
+        .into_data()
+        .unwrap();
+
+        assert!(matches!(
+            result,
+            QueueGenerateAndMergeResult::Rejected {
+                error: QueueMergeError::AlreadyQueued
+            }
+        ));
     }
 }

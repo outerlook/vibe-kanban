@@ -325,3 +325,125 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 
     Router::new().nest("/execution-processes", workspaces_router)
 }
+
+#[cfg(test)]
+mod tests {
+    use axum::{Extension, extract::State};
+    use db::models::{
+        execution_process::{CreateExecutionProcess, ExecutionProcessRunReason},
+        project::{CreateProject, Project},
+        session::{CreateSession, Session},
+        task::{CreateTask, Task, TaskStatus},
+        workspace::{CreateWorkspace, Workspace},
+    };
+    use executors::actions::{
+        ExecutorAction, ExecutorActionType,
+        script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+    };
+    use local_deployment::LocalDeployment;
+    use uuid::Uuid;
+
+    use super::*;
+
+    async fn create_project(deployment: &DeploymentImpl, name: &str) -> Project {
+        Project::create(
+            &deployment.db().pool,
+            &CreateProject {
+                name: name.to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn create_task(deployment: &DeploymentImpl, project_id: Uuid, title: &str) -> Task {
+        Task::create(
+            &deployment.db().pool,
+            &CreateTask {
+                project_id,
+                title: title.to_string(),
+                description: None,
+                status: Some(TaskStatus::Todo),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: None,
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn create_workspace(deployment: &DeploymentImpl, task_id: Uuid) -> Workspace {
+        Workspace::create(
+            &deployment.db().pool,
+            &CreateWorkspace {
+                branch: "feature/stop-execution".to_string(),
+                agent_working_dir: None,
+            },
+            Uuid::new_v4(),
+            task_id,
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn create_session(deployment: &DeploymentImpl, workspace_id: Uuid) -> Session {
+        Session::create(
+            &deployment.db().pool,
+            &CreateSession {
+                executor: Some("CLAUDE_CODE".to_string()),
+            },
+            Uuid::new_v4(),
+            workspace_id,
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn stop_execution_process_marks_execution_as_killed() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let deployment = LocalDeployment::new().await.unwrap();
+
+        let project = create_project(&deployment, "execution-stop").await;
+        let task = create_task(&deployment, project.id, "Kill me").await;
+        let workspace = create_workspace(&deployment, task.id).await;
+        let session = create_session(&deployment, workspace.id).await;
+
+        let execution = ExecutionProcess::create(
+            &deployment.db().pool,
+            &CreateExecutionProcess {
+                session_id: session.id,
+                executor_action: ExecutorAction::new(
+                    ExecutorActionType::ScriptRequest(ScriptRequest {
+                        script: "echo test".to_string(),
+                        language: ScriptRequestLanguage::Bash,
+                        context: ScriptContext::SetupScript,
+                        working_dir: None,
+                    }),
+                    None,
+                ),
+                run_reason: ExecutionProcessRunReason::CodingAgent,
+            },
+            Uuid::new_v4(),
+            &[],
+        )
+        .await
+        .unwrap();
+
+        let _ = stop_execution_process(Extension(execution.clone()), State(deployment.clone()))
+            .await
+            .unwrap();
+
+        let updated = ExecutionProcess::find_by_id(&deployment.db().pool, execution.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.status, ExecutionProcessStatus::Killed);
+    }
+}

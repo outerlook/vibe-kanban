@@ -49,6 +49,20 @@ impl<T, E> ApiResponse<T, E> {
         self.data
     }
 
+    /// Consumes the response and returns the typed error payload if present.
+    pub fn into_error_data(self) -> Option<E> {
+        self.error_data
+    }
+
+    /// Consumes the response and returns either the success payload or the typed error payload.
+    pub fn into_result(self) -> Result<T, E> {
+        match (self.data, self.error_data) {
+            (Some(data), _) => Ok(data),
+            (None, Some(error)) => Err(error),
+            (None, None) => panic!("ApiResponse missing both data and error_data"),
+        }
+    }
+
     /// Returns a reference to the error message if present.
     pub fn message(&self) -> Option<&str> {
         self.message.as_deref()

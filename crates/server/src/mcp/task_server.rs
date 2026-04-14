@@ -23,11 +23,20 @@ use rmcp::{
 use schemars;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json;
+use services::services::{
+    conversation::SendMessageResponse,
+    queued_message::QueueStatus,
+};
+use utils::approvals::{ApprovalResponse, ApprovalStatus};
 use uuid::Uuid;
 
 use crate::routes::{
     containers::ContainerQuery,
-    task_attempts::{CreateTaskAttemptBody, WorkspaceRepoInput},
+    task_attempts::{
+        CreateTaskAttemptBody, QueueGenerateAndMergeCommand, QueueGenerateAndMergeResult,
+        StartWorkspaceExecutionCommand, StartWorkspaceExecutionResult, WorkspaceExecutionRepoSelection,
+        WorkspaceRepoInput,
+    },
 };
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -303,6 +312,160 @@ pub struct StartWorkspaceSessionRequest {
 pub struct StartWorkspaceSessionResponse {
     pub task_id: String,
     pub workspace_id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "repo_selection", rename_all = "snake_case")]
+pub enum McpWorkspaceExecutionRepoSelection {
+    Explicit {
+        #[schemars(description = "Base branch for each repository in the project")]
+        repos: Vec<McpWorkspaceRepoInput>,
+    },
+    TaskGroupDefault,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct StartWorkspaceExecutionRequest {
+    #[schemars(description = "The ID of the task to start")]
+    pub task_id: Uuid,
+    #[schemars(
+        description = "The coding agent executor to run ('CLAUDE_CODE', 'CODEX', 'GEMINI', 'CURSOR_AGENT', 'OPENCODE')"
+    )]
+    pub executor: String,
+    #[schemars(description = "Optional executor variant, if needed")]
+    pub variant: Option<String>,
+    #[schemars(description = "How repository target branches should be selected")]
+    pub repo_selection: McpWorkspaceExecutionRepoSelection,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum StartWorkspaceExecutionResponse {
+    Started {
+        workspace_id: String,
+        task_id: String,
+        execution_process_id: String,
+    },
+    Queued {
+        workspace_id: String,
+        task_id: String,
+        execution_queue_id: String,
+    },
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetTaskOrchestrationContextRequest {
+    pub task_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetTaskGroupOrchestrationContextRequest {
+    pub task_group_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetConversationOrchestrationContextRequest {
+    pub conversation_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetExecutionOrchestrationContextRequest {
+    pub execution_process_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetApprovalOrchestrationContextRequest {
+    pub approval_id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct StopExecutionProcessRequest {
+    pub execution_process_id: Uuid,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct StopExecutionProcessResponse {
+    pub execution_process_id: String,
+    pub stopped: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CreateTaskFollowUpRequest {
+    pub session_id: Uuid,
+    pub prompt: String,
+    pub variant: Option<String>,
+    pub retry_process_id: Option<Uuid>,
+    pub force_when_dirty: Option<bool>,
+    pub perform_git_reset: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct QueueTaskFollowUpRequest {
+    pub session_id: Uuid,
+    pub message: String,
+    pub variant: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CancelTaskFollowUpRequest {
+    pub session_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetTaskFollowUpQueueStatusRequest {
+    pub session_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SendConversationMessageToolRequest {
+    pub conversation_id: Uuid,
+    pub content: String,
+    pub variant: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct QueueConversationFollowUpRequest {
+    pub conversation_id: Uuid,
+    pub message: String,
+    pub variant: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CancelConversationFollowUpRequest {
+    pub conversation_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetConversationFollowUpQueueStatusRequest {
+    pub conversation_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AnswerApprovalRequest {
+    pub approval_id: String,
+    pub execution_process_id: Uuid,
+    #[schemars(description = "Resolution to apply: 'approved', 'denied', or 'pending'")]
+    pub status: String,
+    pub reason: Option<String>,
+    pub answers: Option<Vec<McpQuestionAnswer>>,
+}
+
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
+pub struct McpQuestionAnswer {
+    pub question_index: usize,
+    pub selected_indices: Vec<usize>,
+    pub other_text: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct QueueGenerateAndMergeToolRequest {
+    pub workspace_id: Uuid,
+    pub repo_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CancelGenerateAndMergeToolRequest {
+    pub workspace_id: Uuid,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -814,9 +977,11 @@ impl TaskServer {
 }
 
 #[derive(Debug, Deserialize)]
-struct ApiResponseEnvelope<T> {
+struct ApiResponseEnvelope<T, E = serde_json::Value> {
     success: bool,
     data: Option<T>,
+    #[allow(dead_code)]
+    error_data: Option<E>,
     message: Option<String>,
 }
 
@@ -871,6 +1036,22 @@ impl TaskServer {
         &self,
         rb: reqwest::RequestBuilder,
     ) -> Result<T, CallToolResult> {
+        let api_response = self.send_envelope::<T, serde_json::Value>(rb).await?;
+
+        if !api_response.success {
+            let msg = api_response.message.as_deref().unwrap_or("Unknown error");
+            return Err(Self::err("VK API returned error", Some(msg)).unwrap());
+        }
+
+        api_response
+            .data
+            .ok_or_else(|| Self::err("VK API response missing data field", None).unwrap())
+    }
+
+    async fn send_envelope<T: DeserializeOwned, E: DeserializeOwned>(
+        &self,
+        rb: reqwest::RequestBuilder,
+    ) -> Result<ApiResponseEnvelope<T, E>, CallToolResult> {
         let resp = rb
             .send()
             .await
@@ -883,18 +1064,31 @@ impl TaskServer {
             );
         }
 
-        let api_response = resp.json::<ApiResponseEnvelope<T>>().await.map_err(|e| {
+        resp.json::<ApiResponseEnvelope<T, E>>().await.map_err(|e| {
             Self::err("Failed to parse VK API response", Some(&e.to_string())).unwrap()
-        })?;
+        })
+    }
 
-        if !api_response.success {
-            let msg = api_response.message.as_deref().unwrap_or("Unknown error");
-            return Err(Self::err("VK API returned error", Some(msg)).unwrap());
+    async fn send_raw_json<T: DeserializeOwned>(
+        &self,
+        rb: reqwest::RequestBuilder,
+    ) -> Result<T, CallToolResult> {
+        let resp = rb
+            .send()
+            .await
+            .map_err(|e| Self::err("Failed to connect to VK API", Some(&e.to_string())).unwrap())?;
+
+        if !resp.status().is_success() {
+            return Err(Self::err(
+                format!("VK API returned error status: {}", resp.status()),
+                None::<String>,
+            )
+            .unwrap());
         }
 
-        api_response
-            .data
-            .ok_or_else(|| Self::err("VK API response missing data field", None).unwrap())
+        resp.json::<T>().await.map_err(|e| {
+            Self::err("Failed to parse VK API response", Some(&e.to_string())).unwrap()
+        })
     }
 
     async fn send_json_no_data(
@@ -998,6 +1192,73 @@ impl TaskServer {
             let url = self.url(&format!("/api/tasks/{}", task.id));
             let _ = self.client.delete(&url).send().await;
         }
+    }
+
+    fn executor_profile_from_parts(
+        executor: &str,
+        variant: Option<String>,
+    ) -> Result<ExecutorProfileId, CallToolResult> {
+        let executor_trimmed = executor.trim();
+        if executor_trimmed.is_empty() {
+            return Err(Self::err("Executor must not be empty.", None::<&str>).unwrap());
+        }
+
+        let normalized_executor = executor_trimmed.replace('-', "_").to_ascii_uppercase();
+        let base_executor = BaseCodingAgent::from_str(&normalized_executor).map_err(|_| {
+            Self::err(
+                format!("Unknown executor '{executor_trimmed}'."),
+                None::<String>,
+            )
+            .unwrap()
+        })?;
+
+        let variant = variant.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
+
+        Ok(ExecutorProfileId {
+            executor: base_executor,
+            variant,
+        })
+    }
+
+    fn approval_status_from_request(
+        request: &AnswerApprovalRequest,
+    ) -> Result<ApprovalResponse, CallToolResult> {
+        let status = match request.status.trim().to_ascii_lowercase().as_str() {
+            "approved" => ApprovalStatus::Approved,
+            "denied" => ApprovalStatus::Denied {
+                reason: request.reason.clone(),
+            },
+            "pending" => ApprovalStatus::Pending,
+            other => {
+                return Err(Self::err(
+                    format!("Unsupported approval status '{other}'."),
+                    Some("expected one of: approved, denied, pending".to_string()),
+                )
+                .unwrap());
+            }
+        };
+
+        Ok(ApprovalResponse {
+            execution_process_id: request.execution_process_id,
+            status,
+            answers: request.answers.as_ref().map(|answers| {
+                answers
+                    .iter()
+                    .map(|answer| utils::approvals::QuestionAnswer {
+                        question_index: answer.question_index,
+                        selected_indices: answer.selected_indices.clone(),
+                        other_text: answer.other_text.clone(),
+                    })
+                    .collect()
+            }),
+        })
     }
 }
 
@@ -1440,34 +1701,9 @@ impl TaskServer {
             );
         }
 
-        let executor_trimmed = executor.trim();
-        if executor_trimmed.is_empty() {
-            return Self::err("Executor must not be empty.".to_string(), None::<String>);
-        }
-
-        let normalized_executor = executor_trimmed.replace('-', "_").to_ascii_uppercase();
-        let base_executor = match BaseCodingAgent::from_str(&normalized_executor) {
-            Ok(exec) => exec,
-            Err(_) => {
-                return Self::err(
-                    format!("Unknown executor '{executor_trimmed}'."),
-                    None::<String>,
-                );
-            }
-        };
-
-        let variant = variant.and_then(|v| {
-            let trimmed = v.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        });
-
-        let executor_profile_id = ExecutorProfileId {
-            executor: base_executor,
-            variant,
+        let executor_profile_id = match Self::executor_profile_from_parts(&executor, variant) {
+            Ok(profile) => profile,
+            Err(error) => return Ok(error),
         };
 
         let workspace_repos: Vec<WorkspaceRepoInput> = repos
@@ -1497,6 +1733,407 @@ impl TaskServer {
         };
 
         TaskServer::success(&response)
+    }
+
+    #[tool(
+        description = "Start a workspace execution for a task. You can either pass explicit repository base branches or use the task group's default base branch configuration."
+    )]
+    async fn start_workspace_execution(
+        &self,
+        Parameters(StartWorkspaceExecutionRequest {
+            task_id,
+            executor,
+            variant,
+            repo_selection,
+        }): Parameters<StartWorkspaceExecutionRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let executor_profile_id = match Self::executor_profile_from_parts(&executor, variant) {
+            Ok(profile) => profile,
+            Err(error) => return Ok(error),
+        };
+
+        let repo_selection = match repo_selection {
+            McpWorkspaceExecutionRepoSelection::Explicit { repos } => {
+                WorkspaceExecutionRepoSelection::Explicit {
+                    repos: repos
+                        .into_iter()
+                        .map(|repo| WorkspaceRepoInput {
+                            repo_id: repo.repo_id,
+                            target_branch: repo.base_branch,
+                        })
+                        .collect(),
+                }
+            }
+            McpWorkspaceExecutionRepoSelection::TaskGroupDefault => {
+                WorkspaceExecutionRepoSelection::TaskGroupDefault
+            }
+        };
+
+        let payload = StartWorkspaceExecutionCommand {
+            task_id,
+            executor_profile_id,
+            repo_selection,
+        };
+
+        let url = self.url("/api/task-attempts/orchestration/workspace-executions");
+        let result: StartWorkspaceExecutionResult =
+            match self.send_json(self.client.post(&url).json(&payload)).await {
+                Ok(result) => result,
+                Err(error) => return Ok(error),
+            };
+
+        let response = match result {
+            StartWorkspaceExecutionResult::Started {
+                workspace,
+                execution_process,
+            } => StartWorkspaceExecutionResponse::Started {
+                workspace_id: workspace.id.to_string(),
+                task_id: workspace.task_id.to_string(),
+                execution_process_id: execution_process.id.to_string(),
+            },
+            StartWorkspaceExecutionResult::Queued {
+                workspace,
+                queue_entry,
+            } => StartWorkspaceExecutionResponse::Queued {
+                workspace_id: workspace.id.to_string(),
+                task_id: workspace.task_id.to_string(),
+                execution_queue_id: queue_entry.id.to_string(),
+            },
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(description = "Get the orchestration context for a task.")]
+    async fn get_task_orchestration_context(
+        &self,
+        Parameters(GetTaskOrchestrationContextRequest { task_id }): Parameters<
+            GetTaskOrchestrationContextRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/tasks/{task_id}/orchestration-context"));
+        let context: serde_json::Value = match self.send_json(self.client.get(&url)).await {
+            Ok(context) => context,
+            Err(error) => return Ok(error),
+        };
+
+        TaskServer::success(&context)
+    }
+
+    #[tool(description = "Get the orchestration context for a task group.")]
+    async fn get_task_group_orchestration_context(
+        &self,
+        Parameters(GetTaskGroupOrchestrationContextRequest { task_group_id }): Parameters<
+            GetTaskGroupOrchestrationContextRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/task-groups/{task_group_id}/orchestration-context"));
+        let context: serde_json::Value = match self.send_json(self.client.get(&url)).await {
+                Ok(context) => context,
+                Err(error) => return Ok(error),
+            };
+
+        TaskServer::success(&context)
+    }
+
+    #[tool(description = "Get the orchestration context for a conversation.")]
+    async fn get_conversation_orchestration_context(
+        &self,
+        Parameters(GetConversationOrchestrationContextRequest { conversation_id }): Parameters<
+            GetConversationOrchestrationContextRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/conversations/{conversation_id}/orchestration-context"));
+        let context: serde_json::Value = match self.send_json(self.client.get(&url)).await {
+                Ok(context) => context,
+                Err(error) => return Ok(error),
+            };
+
+        TaskServer::success(&context)
+    }
+
+    #[tool(description = "Get the orchestration context for an execution process.")]
+    async fn get_execution_orchestration_context(
+        &self,
+        Parameters(GetExecutionOrchestrationContextRequest { execution_process_id }): Parameters<
+            GetExecutionOrchestrationContextRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!(
+            "/api/execution-processes/{execution_process_id}/orchestration-context"
+        ));
+        let context: serde_json::Value = match self.send_json(self.client.get(&url)).await {
+                Ok(context) => context,
+                Err(error) => return Ok(error),
+            };
+
+        TaskServer::success(&context)
+    }
+
+    #[tool(description = "Get the orchestration context for an approval or user question.")]
+    async fn get_approval_orchestration_context(
+        &self,
+        Parameters(GetApprovalOrchestrationContextRequest { approval_id }): Parameters<
+            GetApprovalOrchestrationContextRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/approvals/{approval_id}/orchestration-context"));
+        let context: serde_json::Value = match self.send_json(self.client.get(&url)).await {
+                Ok(context) => context,
+                Err(error) => return Ok(error),
+            };
+
+        TaskServer::success(&context)
+    }
+
+    #[tool(description = "Stop a running execution process.")]
+    async fn stop_execution_process(
+        &self,
+        Parameters(StopExecutionProcessRequest { execution_process_id }): Parameters<
+            StopExecutionProcessRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/execution-processes/{execution_process_id}/stop"));
+        if let Err(error) = self.send_json::<()>(self.client.post(&url)).await {
+            return Ok(error);
+        }
+
+        TaskServer::success(&StopExecutionProcessResponse {
+            execution_process_id: execution_process_id.to_string(),
+            stopped: true,
+        })
+    }
+
+    #[tool(description = "Create a task-session follow-up execution immediately or queue it if concurrency is full.")]
+    async fn create_task_follow_up(
+        &self,
+        Parameters(CreateTaskFollowUpRequest {
+            session_id,
+            prompt,
+            variant,
+            retry_process_id,
+            force_when_dirty,
+            perform_git_reset,
+        }): Parameters<CreateTaskFollowUpRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/sessions/{session_id}/follow-up"));
+        let response: crate::routes::sessions::FollowUpResult = match self
+            .send_json(self.client.post(&url).json(&serde_json::json!({
+                "prompt": prompt,
+                "variant": variant,
+                "retry_process_id": retry_process_id,
+                "force_when_dirty": force_when_dirty,
+                "perform_git_reset": perform_git_reset,
+            })))
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => return Ok(error),
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(description = "Queue a task-session follow-up to run after the current execution.")]
+    async fn queue_task_follow_up(
+        &self,
+        Parameters(QueueTaskFollowUpRequest {
+            session_id,
+            message,
+            variant,
+        }): Parameters<QueueTaskFollowUpRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/sessions/{session_id}/queue"));
+        let status: QueueStatus = match self
+            .send_json(
+                self.client
+                    .post(&url)
+                    .json(&serde_json::json!({ "message": message, "variant": variant })),
+            )
+            .await
+        {
+            Ok(status) => status,
+            Err(error) => return Ok(error),
+        };
+
+        TaskServer::success(&status)
+    }
+
+    #[tool(description = "Cancel a queued task-session follow-up.")]
+    async fn cancel_task_follow_up(
+        &self,
+        Parameters(CancelTaskFollowUpRequest { session_id }): Parameters<
+            CancelTaskFollowUpRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/sessions/{session_id}/queue"));
+        let status: QueueStatus = match self.send_json(self.client.delete(&url)).await {
+            Ok(status) => status,
+            Err(error) => return Ok(error),
+        };
+
+        TaskServer::success(&status)
+    }
+
+    #[tool(description = "Get the queued follow-up status for a task session.")]
+    async fn get_task_follow_up_queue_status(
+        &self,
+        Parameters(GetTaskFollowUpQueueStatusRequest { session_id }): Parameters<
+            GetTaskFollowUpQueueStatusRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/sessions/{session_id}/queue"));
+        let status: QueueStatus = match self.send_json(self.client.get(&url)).await {
+            Ok(status) => status,
+            Err(error) => return Ok(error),
+        };
+
+        TaskServer::success(&status)
+    }
+
+    #[tool(description = "Send a message to a conversation and start the next execution.")]
+    async fn send_conversation_message(
+        &self,
+        Parameters(SendConversationMessageToolRequest {
+            conversation_id,
+            content,
+            variant,
+        }): Parameters<SendConversationMessageToolRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/conversations/{conversation_id}/messages"));
+        let response: SendMessageResponse = match self
+            .send_json(
+                self.client
+                    .post(&url)
+                    .json(&serde_json::json!({ "content": content, "variant": variant })),
+            )
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => return Ok(error),
+        };
+
+        TaskServer::success(&response)
+    }
+
+    #[tool(description = "Queue a conversation follow-up message to run after the current execution.")]
+    async fn queue_conversation_follow_up(
+        &self,
+        Parameters(QueueConversationFollowUpRequest {
+            conversation_id,
+            message,
+            variant,
+        }): Parameters<QueueConversationFollowUpRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/conversations/{conversation_id}/queue"));
+        let status: QueueStatus = match self
+            .send_json(
+                self.client
+                    .post(&url)
+                    .json(&serde_json::json!({ "message": message, "variant": variant })),
+            )
+            .await
+        {
+            Ok(status) => status,
+            Err(error) => return Ok(error),
+        };
+
+        TaskServer::success(&status)
+    }
+
+    #[tool(description = "Cancel a queued conversation follow-up.")]
+    async fn cancel_conversation_follow_up(
+        &self,
+        Parameters(CancelConversationFollowUpRequest { conversation_id }): Parameters<
+            CancelConversationFollowUpRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/conversations/{conversation_id}/queue"));
+        let status: QueueStatus = match self.send_json(self.client.delete(&url)).await {
+            Ok(status) => status,
+            Err(error) => return Ok(error),
+        };
+
+        TaskServer::success(&status)
+    }
+
+    #[tool(description = "Get the queued follow-up status for a conversation.")]
+    async fn get_conversation_follow_up_queue_status(
+        &self,
+        Parameters(GetConversationFollowUpQueueStatusRequest { conversation_id }): Parameters<
+            GetConversationFollowUpQueueStatusRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/conversations/{conversation_id}/queue"));
+        let status: QueueStatus = match self.send_json(self.client.get(&url)).await {
+            Ok(status) => status,
+            Err(error) => return Ok(error),
+        };
+
+        TaskServer::success(&status)
+    }
+
+    #[tool(description = "Answer an approval or user question.")]
+    async fn answer_approval(
+        &self,
+        Parameters(request): Parameters<AnswerApprovalRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let approval_id = request.approval_id.clone();
+        let payload = match Self::approval_status_from_request(&request) {
+            Ok(payload) => payload,
+            Err(error) => return Ok(error),
+        };
+
+        let url = self.url(&format!("/api/approvals/{approval_id}/respond"));
+        let status: ApprovalStatus = match self
+            .send_raw_json(self.client.post(&url).json(&payload))
+            .await
+        {
+            Ok(status) => status,
+            Err(error) => return Ok(error),
+        };
+
+        TaskServer::success(&status)
+    }
+
+    #[tool(description = "Queue a generate-and-merge operation for a workspace.")]
+    async fn queue_generate_and_merge(
+        &self,
+        Parameters(QueueGenerateAndMergeToolRequest {
+            workspace_id,
+            repo_id,
+        }): Parameters<QueueGenerateAndMergeToolRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/task-attempts/{workspace_id}/generate-and-merge"));
+        let result: QueueGenerateAndMergeResult =
+            match self.send_json(self.client.post(&url).json(&QueueGenerateAndMergeCommand {
+                repo_id,
+            }))
+            .await
+        {
+            Ok(result) => result,
+            Err(error) => return Ok(error),
+        };
+
+        TaskServer::success(&result)
+    }
+
+    #[tool(description = "Cancel a queued generate-and-merge operation for a workspace.")]
+    async fn cancel_generate_and_merge(
+        &self,
+        Parameters(CancelGenerateAndMergeToolRequest { workspace_id }): Parameters<
+            CancelGenerateAndMergeToolRequest,
+        >,
+    ) -> Result<CallToolResult, ErrorData> {
+        let url = self.url(&format!("/api/task-attempts/{workspace_id}/generate-and-merge"));
+        if let Err(error) = self.send_json::<()>(self.client.delete(&url)).await {
+            return Ok(error);
+        }
+
+        TaskServer::success(&serde_json::json!({
+            "workspace_id": workspace_id,
+            "cancelled": true
+        }))
     }
 
     #[tool(
@@ -2079,7 +2716,7 @@ impl TaskServer {
 #[tool_handler]
 impl ServerHandler for TaskServer {
     fn get_info(&self) -> ServerInfo {
-        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`. TOOLS: 'health_check', 'list_projects', 'list_tasks', 'search_similar_tasks', 'create_task', 'bulk_create_tasks', 'create_task_with_dependencies', 'start_workspace_session', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree', 'get_task_dependency_context', 'list_task_groups', 'create_task_group', 'get_task_group', 'update_task_group', 'delete_task_group', 'bulk_assign_tasks_to_group', 'get_task_feedback', 'get_recent_feedback'. Make sure to pass `project_id`, `task_id`, or `group_id` where required. You can use list tools to get the available ids.".to_string();
+        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`. TOOLS: 'health_check', 'list_projects', 'list_tasks', 'search_similar_tasks', 'create_task', 'bulk_create_tasks', 'create_task_with_dependencies', 'start_workspace_session', 'start_workspace_execution', 'get_task_orchestration_context', 'get_task_group_orchestration_context', 'get_conversation_orchestration_context', 'get_execution_orchestration_context', 'get_approval_orchestration_context', 'create_task_follow_up', 'queue_task_follow_up', 'cancel_task_follow_up', 'get_task_follow_up_queue_status', 'send_conversation_message', 'queue_conversation_follow_up', 'cancel_conversation_follow_up', 'get_conversation_follow_up_queue_status', 'answer_approval', 'stop_execution_process', 'queue_generate_and_merge', 'cancel_generate_and_merge', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree', 'get_task_dependency_context', 'list_task_groups', 'create_task_group', 'get_task_group', 'update_task_group', 'delete_task_group', 'bulk_assign_tasks_to_group', 'get_task_feedback', 'get_recent_feedback'. Make sure to pass `project_id`, `task_id`, or `group_id` where required. You can use list tools to get the available ids.".to_string();
         if self.context.is_some() {
             let context_instruction = "When working on a task, VK_TASK_ID env var is set. Use 'get_context' to fetch your current task details including task_id. Use 'get_task_dependency_context' with your task_id to see what tasks must complete before yours (ancestors) and what tasks are waiting on you (descendants). This helps understand your position in the workflow.";
             instruction = format!("{} {}", context_instruction, instruction);
@@ -2100,8 +2737,31 @@ impl ServerHandler for TaskServer {
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
+    use db::models::{
+        execution_process::{CreateExecutionProcess, ExecutionProcess, ExecutionProcessRunReason},
+        project::{CreateProject, Project},
+        project_repo::ProjectRepo,
+        repo::Repo,
+        session::{CreateSession, Session},
+        task::{CreateTask, Task},
+        task_group::TaskGroup,
+        user_question::{CreateUserQuestion, UserQuestion},
+        workspace::{CreateWorkspace, Workspace},
+        workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
+    };
+    use deployment::Deployment;
+    use executors::{
+        actions::{
+            ExecutorAction, ExecutorActionType,
+            script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+        },
+    };
+    use local_deployment::LocalDeployment;
+    use tokio::{net::TcpListener, task::JoinHandle};
+    use utils::approvals::{QuestionData, QuestionOption};
 
     use super::*;
+    use crate::DeploymentImpl;
     use crate::routes::tasks::{SearchTasksResponse, TaskMatchWithScore};
 
     #[test]
@@ -2147,5 +2807,335 @@ mod tests {
         assert_eq!(first_match.task_group_id, Some(task_group_id));
         assert!(first_match.has_in_progress_attempt);
         assert_eq!(first_match.similarity_score, 0.77);
+    }
+
+    async fn spawn_api_server(deployment: DeploymentImpl) -> (String, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, crate::routes::router(deployment))
+                .await
+                .unwrap();
+        });
+        (format!("http://{}", addr), handle)
+    }
+
+    fn parse_tool_json(result: CallToolResult) -> serde_json::Value {
+        let value = serde_json::to_value(result).unwrap();
+        let text = value["content"][0]["text"].as_str().unwrap();
+        serde_json::from_str(text).unwrap()
+    }
+
+    async fn create_project(deployment: &DeploymentImpl, name: &str) -> Project {
+        Project::create(
+            &deployment.db().pool,
+            &CreateProject {
+                name: name.to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn create_task(
+        deployment: &DeploymentImpl,
+        project_id: Uuid,
+        task_group_id: Option<Uuid>,
+        title: &str,
+    ) -> Task {
+        Task::create(
+            &deployment.db().pool,
+            &CreateTask {
+                project_id,
+                title: title.to_string(),
+                description: None,
+                status: Some(TaskStatus::Todo),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id,
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn attach_repo_to_project(
+        deployment: &DeploymentImpl,
+        project_id: Uuid,
+        repo_path: &std::path::Path,
+        name: &str,
+    ) -> Repo {
+        let repo = Repo::find_or_create(&deployment.db().pool, repo_path, name)
+            .await
+            .unwrap();
+        ProjectRepo::create(&deployment.db().pool, project_id, repo.id)
+            .await
+            .unwrap();
+        repo
+    }
+
+    async fn create_workspace_and_session(
+        deployment: &DeploymentImpl,
+        task_id: Uuid,
+        branch: &str,
+    ) -> (Workspace, Session) {
+        let workspace = Workspace::create(
+            &deployment.db().pool,
+            &CreateWorkspace {
+                branch: branch.to_string(),
+                agent_working_dir: None,
+            },
+            Uuid::new_v4(),
+            task_id,
+        )
+        .await
+        .unwrap();
+
+        let session = Session::create(
+            &deployment.db().pool,
+            &CreateSession {
+                executor: Some("CLAUDE_CODE".to_string()),
+            },
+            Uuid::new_v4(),
+            workspace.id,
+        )
+        .await
+        .unwrap();
+
+        (workspace, session)
+    }
+
+    async fn create_running_agent_process(deployment: &DeploymentImpl, task_id: Uuid) {
+        let (_workspace, session) =
+            create_workspace_and_session(deployment, task_id, "feature/running-agent").await;
+
+        let _ = ExecutionProcess::create(
+            &deployment.db().pool,
+            &CreateExecutionProcess {
+                session_id: session.id,
+                executor_action: ExecutorAction::new(
+                    ExecutorActionType::ScriptRequest(ScriptRequest {
+                        script: "echo busy".to_string(),
+                        language: ScriptRequestLanguage::Bash,
+                        context: ScriptContext::SetupScript,
+                        working_dir: None,
+                    }),
+                    None,
+                ),
+                run_reason: ExecutionProcessRunReason::CodingAgent,
+            },
+            Uuid::new_v4(),
+            &[],
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn start_workspace_execution_tool_supports_task_group_default() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let deployment = LocalDeployment::new().await.unwrap();
+        deployment.config().write().await.max_concurrent_agents = 1;
+        let project = create_project(&deployment, "mcp-workspace-execution").await;
+        let task_group = TaskGroup::create(
+            &deployment.db().pool,
+            project.id,
+            "Group".to_string(),
+            None,
+            Some("main".to_string()),
+        )
+        .await
+        .unwrap();
+        let task = create_task(&deployment, project.id, Some(task_group.id), "Tool start").await;
+        create_running_agent_process(&deployment, task.id).await;
+
+        let repo_path = std::env::temp_dir().join(format!("vk-mcp-start-{}", Uuid::new_v4()));
+        deployment
+            .git()
+            .initialize_repo_with_main_branch(&repo_path)
+            .unwrap();
+        std::process::Command::new("git")
+            .args([
+                "-C",
+                repo_path.to_str().unwrap(),
+                "config",
+                "core.fsmonitor",
+                "true",
+            ])
+            .status()
+            .unwrap();
+        let _repo = attach_repo_to_project(&deployment, project.id, &repo_path, "Main Repo").await;
+
+        let (base_url, handle) = spawn_api_server(deployment.clone()).await;
+        let server = TaskServer::new(&base_url);
+
+        let result = server
+            .start_workspace_execution(Parameters(StartWorkspaceExecutionRequest {
+                task_id: task.id,
+                executor: "CLAUDE_CODE".to_string(),
+                variant: None,
+                repo_selection: McpWorkspaceExecutionRepoSelection::TaskGroupDefault,
+            }))
+            .await
+            .unwrap();
+
+        let json = parse_tool_json(result);
+        assert_eq!(json["task_id"], task.id.to_string());
+        assert!(json["workspace_id"].as_str().is_some());
+        handle.abort();
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn get_task_orchestration_context_tool_returns_hydrated_task() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let deployment = LocalDeployment::new().await.unwrap();
+        let project = create_project(&deployment, "mcp-task-context").await;
+        let task = create_task(&deployment, project.id, None, "Hydrate me").await;
+
+        let (base_url, handle) = spawn_api_server(deployment).await;
+        let server = TaskServer::new(&base_url);
+
+        let result = server
+            .get_task_orchestration_context(Parameters(GetTaskOrchestrationContextRequest {
+                task_id: task.id,
+            }))
+            .await
+            .unwrap();
+
+        let json = parse_tool_json(result);
+        assert_eq!(json["task"]["id"], task.id.to_string());
+        assert_eq!(json["task"]["title"], "Hydrate me");
+        handle.abort();
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn queue_generate_and_merge_tool_normalizes_rejected_payload() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let deployment = LocalDeployment::new().await.unwrap();
+        let project = create_project(&deployment, "mcp-generate-merge").await;
+        let task = create_task(&deployment, project.id, None, "Reject merge").await;
+
+        let repo_path =
+            std::env::temp_dir().join(format!("vk-mcp-generate-merge-{}", Uuid::new_v4()));
+        deployment
+            .git()
+            .initialize_repo_with_main_branch(&repo_path)
+            .unwrap();
+        let repo = attach_repo_to_project(&deployment, project.id, &repo_path, "Merge Repo").await;
+        let (workspace, _) = create_workspace_and_session(&deployment, task.id, "feature/reject").await;
+        WorkspaceRepo::create_many(
+            &deployment.db().pool,
+            workspace.id,
+            &[CreateWorkspaceRepo {
+                repo_id: repo.id,
+                target_branch: "main".to_string(),
+            }],
+        )
+        .await
+        .unwrap();
+        deployment.merge_queue_store().enqueue(
+            project.id,
+            workspace.id,
+            repo.id,
+            "already queued".to_string(),
+        );
+
+        let (base_url, handle) = spawn_api_server(deployment).await;
+        let server = TaskServer::new(&base_url);
+
+        let result = server
+            .queue_generate_and_merge(Parameters(QueueGenerateAndMergeToolRequest {
+                workspace_id: workspace.id,
+                repo_id: repo.id,
+            }))
+            .await
+            .unwrap();
+
+        let json = parse_tool_json(result);
+        assert_eq!(json["status"], "rejected");
+        assert_eq!(json["error"]["type"], "already_queued");
+        handle.abort();
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn answer_approval_tool_returns_answered_status() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let deployment = LocalDeployment::new().await.unwrap();
+        let project = create_project(&deployment, "mcp-approval").await;
+        let task = create_task(&deployment, project.id, None, "Answer me").await;
+        let (_workspace, session) = create_workspace_and_session(&deployment, task.id, "feature/approval").await;
+
+        let execution = ExecutionProcess::create(
+            &deployment.db().pool,
+            &CreateExecutionProcess {
+                session_id: session.id,
+                executor_action: ExecutorAction::new(
+                    ExecutorActionType::ScriptRequest(ScriptRequest {
+                        script: "echo approval".to_string(),
+                        language: ScriptRequestLanguage::Bash,
+                        context: ScriptContext::SetupScript,
+                        working_dir: None,
+                    }),
+                    None,
+                ),
+                run_reason: ExecutionProcessRunReason::CodingAgent,
+            },
+            Uuid::new_v4(),
+            &[],
+        )
+        .await
+        .unwrap();
+
+        let approval_id = format!("approval-{}", Uuid::new_v4());
+        UserQuestion::create(
+            &deployment.db().pool,
+            &CreateUserQuestion {
+                approval_id: approval_id.clone(),
+                execution_process_id: execution.id,
+                questions: serde_json::to_string(&vec![QuestionData {
+                    question: "Choose one".to_string(),
+                    header: None,
+                    multi_select: false,
+                    options: vec![QuestionOption {
+                        label: "A".to_string(),
+                        description: None,
+                    }],
+                }])
+                .unwrap(),
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        let (base_url, handle) = spawn_api_server(deployment).await;
+        let server = TaskServer::new(&base_url);
+
+        let result = server
+            .answer_approval(Parameters(AnswerApprovalRequest {
+                approval_id,
+                execution_process_id: execution.id,
+                status: "approved".to_string(),
+                reason: None,
+                answers: Some(vec![McpQuestionAnswer {
+                    question_index: 0,
+                    selected_indices: vec![0],
+                    other_text: None,
+                }]),
+            }))
+            .await
+            .unwrap();
+
+        let json = parse_tool_json(result);
+        assert_eq!(json["status"], "answered");
+        handle.abort();
     }
 }

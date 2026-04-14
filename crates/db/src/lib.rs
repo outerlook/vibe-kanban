@@ -1,4 +1,5 @@
 use std::{
+    path::PathBuf,
     str::FromStr,
     sync::{Arc, Once},
     time::Duration,
@@ -81,6 +82,51 @@ pub struct DBService {
 }
 
 impl DBService {
+    fn database_lock_dir() -> PathBuf {
+        asset_dir().join(".db-init-lock")
+    }
+
+    fn acquire_database_init_lock() -> Result<DatabaseInitLockGuard, Error> {
+        const LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(60);
+        const STALE_LOCK_AGE: Duration = Duration::from_secs(120);
+        const RETRY_DELAY: Duration = Duration::from_millis(50);
+
+        let lock_dir = Self::database_lock_dir();
+        let deadline = std::time::Instant::now() + LOCK_WAIT_TIMEOUT;
+
+        loop {
+            match std::fs::create_dir(&lock_dir) {
+                Ok(()) => return Ok(DatabaseInitLockGuard { path: lock_dir }),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let is_stale = std::fs::metadata(&lock_dir)
+                        .and_then(|meta| meta.modified())
+                        .ok()
+                        .and_then(|modified| modified.elapsed().ok())
+                        .map(|age| age > STALE_LOCK_AGE)
+                        .unwrap_or(false);
+
+                    if is_stale {
+                        let _ = std::fs::remove_dir_all(&lock_dir);
+                        continue;
+                    }
+
+                    if std::time::Instant::now() >= deadline {
+                        return Err(Error::Io(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            format!(
+                                "Timed out waiting for database initialization lock at {}",
+                                lock_dir.display()
+                            ),
+                        )));
+                    }
+
+                    std::thread::sleep(RETRY_DELAY);
+                }
+                Err(error) => return Err(Error::Io(error)),
+            }
+        }
+    }
+
     fn pool_options() -> SqlitePoolOptions {
         SqlitePoolOptions::new()
             .max_connections(20)
@@ -190,6 +236,11 @@ impl DBService {
         // Initialize sqlite-vec before creating any connections
         init_sqlite_vec();
 
+        // Multiple test binaries can initialize local deployments at the same time.
+        // SQLite migrations are not safe when several processes bootstrap the same file in
+        // parallel, so we serialize the entire connect+migrate window with a filesystem lock.
+        let _lock = Self::acquire_database_init_lock()?;
+
         let pool = Self::pool_options()
             .connect_with(Self::connect_options()?)
             .await?;
@@ -211,6 +262,8 @@ impl DBService {
         // Initialize sqlite-vec before creating any connections
         init_sqlite_vec();
 
+        let _lock = Self::acquire_database_init_lock()?;
+
         let after_connect = Arc::new(after_connect);
         let pool = Self::pool_options()
             .after_connect(move |conn, _meta| {
@@ -225,6 +278,16 @@ impl DBService {
         Self::run_migrations_with_repair(&pool).await?;
         sqlx::query("PRAGMA optimize").execute(&pool).await?;
         Ok(DBService { pool })
+    }
+}
+
+struct DatabaseInitLockGuard {
+    path: PathBuf,
+}
+
+impl Drop for DatabaseInitLockGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
     }
 }
 
