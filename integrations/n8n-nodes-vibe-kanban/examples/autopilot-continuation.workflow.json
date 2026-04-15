@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Production Workflow\\nWhen a task is marked `done`, read the completed task orchestration context, inspect its raw `dependents`, and let the workflow decide which dependents are runnable.\\n\\nA dependent is started only when it is still `todo`, not blocked, not already running, and not already queued. Each dependent execution uses VK task-level building blocks: `latest_or_create` for workspace reuse and the configured VK default executor unless the workflow explicitly overrides it, with task-group defaults for repository branches.",
+        "content": "## Production Workflow\nWhen a task is marked `done`, read the completed task orchestration context, inspect its raw `dependents`, and let the workflow decide which dependents are runnable.\n\nA dependent is started only when it is still `todo`, not blocked, not already running, and not already queued. Each dependent execution uses VK task-level building blocks: `latest_or_create` for workspace reuse and the configured VK default executor unless the workflow explicitly overrides it, with task-group defaults for repository branches.",
         "height": 240,
         "width": 460,
         "color": 1
@@ -12,18 +12,26 @@
       "name": "Workflow Description",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-20, 100]
+      "position": [
+        -20,
+        100
+      ]
     },
     {
       "parameters": {
-        "eventTypes": ["task_status_changed"],
+        "eventTypes": [
+          "task_status_changed"
+        ],
         "schemaVersion": "vk_n8n_orchestration_v1"
       },
       "id": "vk-trigger",
       "name": "VK Trigger",
       "type": "n8n-nodes-vibe-kanban.vibeKanbanTrigger",
       "typeVersion": 1,
-      "position": [220, 280],
+      "position": [
+        220,
+        280
+      ],
       "credentials": {
         "vibeKanbanMqtt": {
           "name": "Local VK MQTT"
@@ -32,15 +40,18 @@
     },
     {
       "parameters": {
-        "mode": "runOnceForEachItem",
+        "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "if (($json.payload?.status || '') !== 'done') {\n  return [];\n}\n\nreturn [{ json: $json }];"
+        "jsCode": "return $input\n  .all()\n  .filter((item) => (item.json.payload?.status || '') === 'done');"
       },
       "id": "keep-done-tasks",
       "name": "Keep Done Tasks",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [500, 280]
+      "position": [
+        500,
+        280
+      ]
     },
     {
       "parameters": {
@@ -51,7 +62,10 @@
       "name": "Read Task Context",
       "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
       "typeVersion": 1,
-      "position": [780, 280],
+      "position": [
+        780,
+        280
+      ],
       "credentials": {
         "vibeKanbanApi": {
           "name": "Local VK API"
@@ -60,15 +74,18 @@
     },
     {
       "parameters": {
-        "mode": "runOnceForEachItem",
+        "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const dependents = $json.dependency_context?.dependents ?? [];\n\nreturn dependents\n  .filter((task) => (\n    task.status === 'todo' &&\n    !task.is_blocked &&\n    !task.has_in_progress_attempt &&\n    !task.is_queued\n  ))\n  .map((dependentTask) => ({\n    json: {\n      completedTask: $json.task,\n      dependentTask,\n    },\n  }));"
+        "jsCode": "return $input.all().flatMap((item) => {\n  const dependents = item.json.dependency_context?.dependents ?? [];\n\n  return dependents\n    .filter((task) => (\n      task.status === 'todo' &&\n      !task.is_blocked &&\n      !task.has_in_progress_attempt &&\n      !task.is_queued\n    ))\n    .map((dependentTask) => ({\n      json: {\n        completedTask: item.json.task,\n        dependentTask,\n      },\n    }));\n});"
       },
       "id": "select-runnable-dependents",
       "name": "Select Runnable Dependents",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1060, 280]
+      "position": [
+        1060,
+        280
+      ]
     },
     {
       "parameters": {
@@ -85,7 +102,10 @@
       "name": "Start Task Execution",
       "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
       "typeVersion": 1,
-      "position": [1340, 280],
+      "position": [
+        1340,
+        280
+      ],
       "credentials": {
         "vibeKanbanApi": {
           "name": "Local VK API"

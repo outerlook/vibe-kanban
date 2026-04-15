@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Production Workflow\\nPolls GitHub for open pull requests in the repos selected from Vibe Kanban project workflow associations. It returns only unresolved review threads that contain new CodeRabbit comments since the last poll checkpoint.\\n\\nThis workflow is intended to be used in production when you want personal monitoring without configuring GitHub webhooks. Configure `GITHUB_TOKEN`, `workflowId`, and the optional allow/ignore repo filters in `Build Poll Config`.",
+        "content": "## Production Workflow\nPolls GitHub for open pull requests in the repos selected from Vibe Kanban project workflow associations. It returns only unresolved review threads that contain new CodeRabbit comments since the last poll checkpoint.\n\nThis workflow is intended to be used in production when you want personal monitoring without configuring GitHub webhooks. Configure `GITHUB_TOKEN`, `workflowId`, and the optional allow/ignore repo filters in `Build Poll Config`.",
         "height": 280,
         "width": 460,
         "color": 1

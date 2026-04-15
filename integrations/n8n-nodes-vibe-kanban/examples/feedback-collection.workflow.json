@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Production Workflow\\nCreates feedback records after task-backed executions finish in Vibe Kanban.\\n\\nThis workflow is intended to be used in production. It skips conversation-only executions because feedback records require both task and workspace scope.",
+        "content": "## Production Workflow\nCreates feedback records after task-backed executions finish in Vibe Kanban.\n\nThis workflow is intended to be used in production. It skips conversation-only executions because feedback records require both task and workspace scope.",
         "height": 240,
         "width": 440,
         "color": 1
@@ -59,9 +59,9 @@
     },
     {
       "parameters": {
-        "mode": "runOnceForEachItem",
+        "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "if (!$json.scope?.task?.id || !$json.scope?.workspace?.id) {\n  return [];\n}\n\nreturn [{ json: $json }];"
+        "jsCode": "return $input\n  .all()\n  .filter((item) => item.json.scope?.task?.id && item.json.scope?.workspace?.id);"
       },
       "id": "keep-task-workspace-executions",
       "name": "Keep Task Workspace Executions",
