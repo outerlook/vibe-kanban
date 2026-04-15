@@ -68,6 +68,7 @@ coverage/
 .env
 frontend/dist
 remote-frontend/dist
+integrations/n8n-nodes-vibe-kanban/dist/
 
 build-npm-package-codesign.sh
 

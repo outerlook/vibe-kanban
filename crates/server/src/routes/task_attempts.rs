@@ -8,6 +8,7 @@ pub mod util;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
+    str::FromStr,
     sync::{LazyLock, Mutex},
     time::Duration,
 };
@@ -48,7 +49,7 @@ use executors::{
         ExecutorAction, ExecutorActionType,
         script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
     },
-    executors::{CodingAgent, ExecutorError},
+    executors::{BaseCodingAgent, CodingAgent, ExecutorError},
     logs::NormalizedEntryType,
     profile::{ExecutorConfigs, ExecutorProfileId},
 };
@@ -165,28 +166,68 @@ pub struct WorkspaceRepoInput {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "repo_selection", rename_all = "snake_case")]
 #[ts(tag = "repo_selection", rename_all = "snake_case")]
-pub enum WorkspaceExecutionRepoSelection {
+pub enum TaskExecutionRepoSelection {
     Explicit { repos: Vec<WorkspaceRepoInput> },
     TaskGroupDefault,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-pub struct StartWorkspaceExecutionCommand {
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum TaskExecutionWorkspaceStrategy {
+    LatestOrCreate,
+    CreateNew,
+}
+
+impl Default for TaskExecutionWorkspaceStrategy {
+    fn default() -> Self {
+        Self::LatestOrCreate
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "executor_selection", rename_all = "snake_case")]
+#[ts(tag = "executor_selection", rename_all = "snake_case")]
+pub enum TaskExecutionExecutorStrategy {
+    Default,
+    LatestOrDefault,
+    Explicit {
+        executor_profile_id: ExecutorProfileId,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum TaskExecutionWorkspaceResolution {
+    Created,
+    Reused,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct StartTaskExecutionCommand {
     pub task_id: Uuid,
-    pub executor_profile_id: ExecutorProfileId,
-    pub repo_selection: WorkspaceExecutionRepoSelection,
+    #[serde(default)]
+    pub workspace_strategy: TaskExecutionWorkspaceStrategy,
+    pub executor_strategy: TaskExecutionExecutorStrategy,
+    #[serde(default)]
+    pub repo_selection: TaskExecutionRepoSelection,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "status", rename_all = "snake_case")]
 #[ts(tag = "status", rename_all = "snake_case")]
-pub enum StartWorkspaceExecutionResult {
+pub enum StartTaskExecutionResult {
     Started {
         workspace: Workspace,
+        workspace_resolution: TaskExecutionWorkspaceResolution,
+        executor_profile_id: ExecutorProfileId,
         execution_process: ExecutionProcess,
     },
     Queued {
         workspace: Workspace,
+        workspace_resolution: TaskExecutionWorkspaceResolution,
+        executor_profile_id: ExecutorProfileId,
         queue_entry: ExecutionQueue,
     },
 }
@@ -215,10 +256,10 @@ pub struct RunAgentSetupResponse {}
 async fn resolve_workspace_repos(
     pool: &sqlx::SqlitePool,
     task: &Task,
-    repo_selection: WorkspaceExecutionRepoSelection,
+    repo_selection: TaskExecutionRepoSelection,
 ) -> Result<Vec<WorkspaceRepoInput>, ApiError> {
     match repo_selection {
-        WorkspaceExecutionRepoSelection::Explicit { repos } => {
+        TaskExecutionRepoSelection::Explicit { repos } => {
             if repos.is_empty() {
                 return Err(ApiError::BadRequest(
                     "At least one repository is required".to_string(),
@@ -226,7 +267,7 @@ async fn resolve_workspace_repos(
             }
             Ok(repos)
         }
-        WorkspaceExecutionRepoSelection::TaskGroupDefault => {
+        TaskExecutionRepoSelection::TaskGroupDefault => {
             let task_group_id = task.task_group_id.ok_or_else(|| {
                 ApiError::BadRequest(
                     "Task group default repo selection requires the task to belong to a task group"
@@ -269,16 +310,19 @@ async fn resolve_workspace_repos(
     }
 }
 
-async fn create_workspace_execution(
-    deployment: &DeploymentImpl,
-    command: StartWorkspaceExecutionCommand,
-) -> Result<StartWorkspaceExecutionResult, ApiError> {
-    let pool = &deployment.db().pool;
-    let task = Task::find_by_id(pool, command.task_id)
-        .await?
-        .ok_or(SqlxError::RowNotFound)?;
-    let repos = resolve_workspace_repos(pool, &task, command.repo_selection).await?;
+impl Default for TaskExecutionRepoSelection {
+    fn default() -> Self {
+        Self::TaskGroupDefault
+    }
+}
 
+async fn create_workspace_for_task_execution(
+    deployment: &DeploymentImpl,
+    task: &Task,
+    repo_selection: TaskExecutionRepoSelection,
+) -> Result<(Workspace, usize), ApiError> {
+    let pool = &deployment.db().pool;
+    let repos = resolve_workspace_repos(pool, task, repo_selection).await?;
     let project = task
         .parent_project(pool)
         .await?
@@ -323,9 +367,107 @@ async fn create_workspace_execution(
         .collect();
     WorkspaceRepo::create_many(pool, workspace.id, &workspace_repos).await?;
 
+    Ok((workspace, repos.len()))
+}
+
+fn executor_profile_from_session(session: &Session) -> Option<ExecutorProfileId> {
+    let executor = session.executor.as_deref()?;
+    // Sessions persist the last base executor name, not a full profile payload, so
+    // workflow-side "latest_or_default" can safely reuse the agent choice but not a
+    // variant that was never recorded. Missing or invalid values deliberately fall back.
+    BaseCodingAgent::from_str(executor).ok().map(ExecutorProfileId::new)
+}
+
+async fn resolve_task_executor_profile(
+    deployment: &DeploymentImpl,
+    workspace: &Workspace,
+    executor_strategy: TaskExecutionExecutorStrategy,
+) -> Result<ExecutorProfileId, ApiError> {
+    let default_executor_profile = deployment.config().read().await.executor_profile.clone();
+
+    match executor_strategy {
+        TaskExecutionExecutorStrategy::Default => Ok(default_executor_profile),
+        TaskExecutionExecutorStrategy::LatestOrDefault => {
+            let latest_session =
+                Session::find_latest_by_workspace_id(&deployment.db().pool, workspace.id).await?;
+            Ok(latest_session
+                .as_ref()
+                .and_then(executor_profile_from_session)
+                .unwrap_or(default_executor_profile))
+        }
+        TaskExecutionExecutorStrategy::Explicit { executor_profile_id } => {
+            Ok(executor_profile_id)
+        }
+    }
+}
+
+async fn start_task_execution_internal(
+    deployment: &DeploymentImpl,
+    command: StartTaskExecutionCommand,
+) -> Result<StartTaskExecutionResult, ApiError> {
+    let StartTaskExecutionCommand {
+        task_id,
+        workspace_strategy,
+        executor_strategy,
+        repo_selection,
+    } = command;
+    let pool = &deployment.db().pool;
+    let task = Task::find_by_id(pool, task_id)
+        .await?
+        .ok_or(SqlxError::RowNotFound)?;
+
+    let (workspace, workspace_resolution, repository_count) = match workspace_strategy {
+        // Repo selection only matters when VK needs to create a workspace. Reused workspaces
+        // keep their existing repository mapping so workflows can choose policy without
+        // reimplementing workspace mutation semantics.
+        TaskExecutionWorkspaceStrategy::LatestOrCreate => {
+            match Workspace::find_latest_by_task_id(pool, task.id).await? {
+                Some(workspace) => {
+                    let repository_count =
+                        WorkspaceRepo::find_repos_with_target_branch_for_workspace(
+                            pool,
+                            workspace.id,
+                        )
+                        .await?
+                        .len();
+                    (
+                        workspace,
+                        TaskExecutionWorkspaceResolution::Reused,
+                        repository_count,
+                    )
+                }
+                None => {
+                    let (workspace, repository_count) = create_workspace_for_task_execution(
+                        deployment,
+                        &task,
+                        repo_selection.clone(),
+                    )
+                    .await?;
+                    (
+                        workspace,
+                        TaskExecutionWorkspaceResolution::Created,
+                        repository_count,
+                    )
+                }
+            }
+        }
+        TaskExecutionWorkspaceStrategy::CreateNew => {
+            let (workspace, repository_count) =
+                create_workspace_for_task_execution(deployment, &task, repo_selection).await?;
+            (
+                workspace,
+                TaskExecutionWorkspaceResolution::Created,
+                repository_count,
+            )
+        }
+    };
+
+    let executor_profile_id =
+        resolve_task_executor_profile(deployment, &workspace, executor_strategy).await?;
+
     let result = match deployment
         .container()
-        .start_workspace(&workspace, command.executor_profile_id.clone())
+        .start_workspace(&workspace, executor_profile_id.clone())
         .await
     {
         Ok(StartWorkspaceResult::Started(execution_process)) => {
@@ -334,8 +476,10 @@ async fn create_workspace_execution(
                 workspace.id,
                 execution_process.id
             );
-            StartWorkspaceExecutionResult::Started {
+            StartTaskExecutionResult::Started {
                 workspace,
+                workspace_resolution,
+                executor_profile_id,
                 execution_process,
             }
         }
@@ -345,8 +489,10 @@ async fn create_workspace_execution(
                 workspace.id,
                 queue_entry.id
             );
-            StartWorkspaceExecutionResult::Queued {
+            StartTaskExecutionResult::Queued {
                 workspace,
+                workspace_resolution,
+                executor_profile_id,
                 queue_entry,
             }
         }
@@ -356,25 +502,42 @@ async fn create_workspace_execution(
         }
     };
 
-    let (workspace, repository_count) = match &result {
-        StartWorkspaceExecutionResult::Started { workspace, .. }
-        | StartWorkspaceExecutionResult::Queued { workspace, .. } => (workspace, repos.len()),
+    let (workspace, executor_profile_id) = match &result {
+        StartTaskExecutionResult::Started {
+            workspace,
+            executor_profile_id,
+            ..
+        }
+        | StartTaskExecutionResult::Queued {
+            workspace,
+            executor_profile_id,
+            ..
+        } => (workspace, executor_profile_id),
     };
 
     deployment
         .track_if_analytics_allowed(
-            "task_attempt_started",
+            "task_execution_started",
             serde_json::json!({
                 "task_id": workspace.task_id.to_string(),
-                "variant": &command.executor_profile_id.variant,
-                "executor": &command.executor_profile_id.executor,
+                "variant": &executor_profile_id.variant,
+                "executor": &executor_profile_id.executor,
                 "workspace_id": workspace.id.to_string(),
+                "workspace_resolution": match &result {
+                    StartTaskExecutionResult::Started { workspace_resolution, .. }
+                    | StartTaskExecutionResult::Queued { workspace_resolution, .. } => {
+                        match workspace_resolution {
+                            TaskExecutionWorkspaceResolution::Created => "created",
+                            TaskExecutionWorkspaceResolution::Reused => "reused",
+                        }
+                    }
+                },
                 "repository_count": repository_count,
             }),
         )
         .await;
 
-    tracing::info!("Created attempt for task {}", task.id);
+    tracing::info!("Started task execution for task {}", task.id);
 
     Ok(result)
 }
@@ -384,12 +547,15 @@ pub async fn create_task_attempt(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateTaskAttemptBody>,
 ) -> Result<ResponseJson<ApiResponse<Workspace>>, ApiError> {
-    let result = create_workspace_execution(
+    let result = start_task_execution_internal(
         &deployment,
-        StartWorkspaceExecutionCommand {
+        StartTaskExecutionCommand {
             task_id: payload.task_id,
-            executor_profile_id: payload.executor_profile_id,
-            repo_selection: WorkspaceExecutionRepoSelection::Explicit {
+            workspace_strategy: TaskExecutionWorkspaceStrategy::CreateNew,
+            executor_strategy: TaskExecutionExecutorStrategy::Explicit {
+                executor_profile_id: payload.executor_profile_id,
+            },
+            repo_selection: TaskExecutionRepoSelection::Explicit {
                 repos: payload.repos,
             },
         },
@@ -397,19 +563,19 @@ pub async fn create_task_attempt(
     .await?;
 
     let workspace = match result {
-        StartWorkspaceExecutionResult::Started { workspace, .. }
-        | StartWorkspaceExecutionResult::Queued { workspace, .. } => workspace,
+        StartTaskExecutionResult::Started { workspace, .. }
+        | StartTaskExecutionResult::Queued { workspace, .. } => workspace,
     };
 
     Ok(ResponseJson(ApiResponse::success(workspace)))
 }
 
 #[axum::debug_handler]
-pub async fn start_workspace_execution(
+pub async fn start_task_execution(
     State(deployment): State<DeploymentImpl>,
-    Json(command): Json<StartWorkspaceExecutionCommand>,
-) -> Result<ResponseJson<ApiResponse<StartWorkspaceExecutionResult>>, ApiError> {
-    let result = create_workspace_execution(&deployment, command).await?;
+    Json(command): Json<StartTaskExecutionCommand>,
+) -> Result<ResponseJson<ApiResponse<StartTaskExecutionResult>>, ApiError> {
+    let result = start_task_execution_internal(&deployment, command).await?;
     Ok(ResponseJson(ApiResponse::success(result)))
 }
 
@@ -2578,7 +2744,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 
     let task_attempts_router = Router::new()
         .route("/", get(get_task_attempts).post(create_task_attempt))
-        .route("/orchestration/workspace-executions", post(start_workspace_execution))
+        .route("/orchestration/task-executions", post(start_task_execution))
         .route("/stream/ws", get(stream_workspaces_ws))
         .nest("/{id}", task_attempt_id_router)
         .nest("/{id}/images", images::router(deployment));
@@ -2734,6 +2900,37 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    async fn create_workspace_with_session_executor(
+        deployment: &DeploymentImpl,
+        task_id: Uuid,
+        executor: &str,
+    ) -> Workspace {
+        let workspace = Workspace::create(
+            &deployment.db().pool,
+            &CreateWorkspace {
+                branch: format!("feature/existing-{}", Uuid::new_v4()),
+                agent_working_dir: None,
+            },
+            Uuid::new_v4(),
+            task_id,
+        )
+        .await
+        .unwrap();
+
+        Session::create(
+            &deployment.db().pool,
+            &CreateSession {
+                executor: Some(executor.to_string()),
+            },
+            Uuid::new_v4(),
+            workspace.id,
+        )
+        .await
+        .unwrap();
+
+        workspace
     }
 
     async fn wait_for_merge_transition_count(
@@ -2907,7 +3104,7 @@ mod tests {
 
     #[tokio::test]
     #[allow(clippy::await_holding_lock)]
-    async fn start_workspace_execution_supports_task_group_default_repo_selection() {
+    async fn start_task_execution_supports_task_group_default_repo_selection() {
         let _lock = crate::TEST_DB_LOCK.lock().unwrap();
         let deployment = LocalDeployment::new().await.unwrap();
         deployment.config().write().await.max_concurrent_agents = 1;
@@ -2925,8 +3122,10 @@ mod tests {
         let task = create_task_in_group(&deployment, project.id, task_group.id, "Ship it").await;
         create_running_agent_process(&deployment, task.id).await;
 
-        let repo_path = std::env::temp_dir()
-            .join(format!("vk-start-workspace-default-repo-{}", Uuid::new_v4()));
+        let repo_path = std::env::temp_dir().join(format!(
+            "vk-start-workspace-default-repo-{}",
+            Uuid::new_v4()
+        ));
         deployment
             .git()
             .initialize_repo_with_main_branch(&repo_path)
@@ -2944,12 +3143,15 @@ mod tests {
         let repo =
             attach_repo_to_project(&deployment, project.id, &repo_path, "Workspace Repo").await;
 
-        let result = start_workspace_execution(
+        let result = start_task_execution(
             State(deployment.clone()),
-            Json(StartWorkspaceExecutionCommand {
+            Json(StartTaskExecutionCommand {
                 task_id: task.id,
-                executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
-                repo_selection: WorkspaceExecutionRepoSelection::TaskGroupDefault,
+                workspace_strategy: TaskExecutionWorkspaceStrategy::CreateNew,
+                executor_strategy: TaskExecutionExecutorStrategy::Explicit {
+                    executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+                },
+                repo_selection: TaskExecutionRepoSelection::TaskGroupDefault,
             }),
         )
         .await
@@ -2959,8 +3161,8 @@ mod tests {
         .unwrap();
 
         let workspace = match result {
-            StartWorkspaceExecutionResult::Started { workspace, .. }
-            | StartWorkspaceExecutionResult::Queued { workspace, .. } => workspace,
+            StartTaskExecutionResult::Started { workspace, .. }
+            | StartTaskExecutionResult::Queued { workspace, .. } => workspace,
         };
 
         let attached_repos = WorkspaceRepo::find_repos_with_target_branch_for_workspace(
@@ -2973,6 +3175,58 @@ mod tests {
         assert_eq!(attached_repos.len(), 1);
         assert_eq!(attached_repos[0].repo.id, repo.id);
         assert_eq!(attached_repos[0].target_branch, "main");
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn start_task_execution_reuses_latest_workspace_and_executor_when_requested() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let deployment = LocalDeployment::new().await.unwrap();
+        deployment.config().write().await.max_concurrent_agents = 1;
+        deployment.config().write().await.executor_profile =
+            ExecutorProfileId::new(BaseCodingAgent::ClaudeCode);
+
+        let project = create_project(&deployment, "task-execution-reuse").await;
+        let busy_task = create_task(&deployment, project.id, "Busy").await;
+        create_running_agent_process(&deployment, busy_task.id).await;
+
+        let task = create_task(&deployment, project.id, "Reuse me").await;
+        let existing_workspace =
+            create_workspace_with_session_executor(&deployment, task.id, "CODEX").await;
+
+        let result = start_task_execution(
+            State(deployment),
+            Json(StartTaskExecutionCommand {
+                task_id: task.id,
+                workspace_strategy: TaskExecutionWorkspaceStrategy::LatestOrCreate,
+                executor_strategy: TaskExecutionExecutorStrategy::LatestOrDefault,
+                repo_selection: TaskExecutionRepoSelection::TaskGroupDefault,
+            }),
+        )
+        .await
+        .unwrap()
+        .0
+        .into_data()
+        .unwrap();
+
+        match result {
+            StartTaskExecutionResult::Queued {
+                workspace,
+                workspace_resolution,
+                executor_profile_id,
+                ..
+            } => {
+                assert_eq!(workspace.id, existing_workspace.id);
+                assert!(matches!(
+                    workspace_resolution,
+                    TaskExecutionWorkspaceResolution::Reused
+                ));
+                assert_eq!(executor_profile_id, ExecutorProfileId::new(BaseCodingAgent::Codex));
+            }
+            StartTaskExecutionResult::Started { .. } => {
+                panic!("expected queued task execution to avoid spawning a live executor")
+            }
+        }
     }
 
     #[tokio::test]

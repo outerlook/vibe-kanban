@@ -3,9 +3,9 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Purpose\\nCreates feedback records automatically after an execution finishes in Vibe Kanban.\\n\\nUse this as a minimal example of: trigger on execution completion, read execution context, shape the payload, then write feedback back to Vibe Kanban.",
-        "height": 220,
-        "width": 420,
+        "content": "## Production Workflow\\nCreates feedback records after task-backed executions finish in Vibe Kanban.\\n\\nThis workflow is intended to be used in production. It skips conversation-only executions because feedback records require both task and workspace scope.",
+        "height": 240,
+        "width": 440,
         "color": 1
       },
       "id": "feedback-collection-note",
@@ -29,7 +29,7 @@
       "type": "n8n-nodes-vibe-kanban.vibeKanbanTrigger",
       "typeVersion": 1,
       "position": [
-        240,
+        220,
         280
       ],
       "credentials": {
@@ -48,7 +48,7 @@
       "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
       "typeVersion": 1,
       "position": [
-        520,
+        500,
         280
       ],
       "credentials": {
@@ -56,6 +56,21 @@
           "name": "Local VK API"
         }
       }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "if (!$json.scope?.task?.id || !$json.scope?.workspace?.id) {\n  return [];\n}\n\nreturn [{ json: $json }];"
+      },
+      "id": "keep-task-workspace-executions",
+      "name": "Keep Task Workspace Executions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        280
+      ]
     },
     {
       "parameters": {
@@ -94,7 +109,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        800,
+        1060,
         280
       ]
     },
@@ -112,7 +127,7 @@
       "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
       "typeVersion": 1,
       "position": [
-        1090,
+        1350,
         280
       ],
       "credentials": {
@@ -135,6 +150,17 @@
       ]
     },
     "Read Execution Context": {
+      "main": [
+        [
+          {
+            "node": "Keep Task Workspace Executions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep Task Workspace Executions": {
       "main": [
         [
           {

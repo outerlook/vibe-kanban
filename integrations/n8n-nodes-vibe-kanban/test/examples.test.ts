@@ -4,15 +4,14 @@ import { describe, expect, it } from 'vitest';
 
 const examplesDir = join(import.meta.dirname, '..', 'examples');
 
-describe('workflow examples', () => {
-  it('ships first-party examples for the cutover flows', () => {
+describe('production workflows', () => {
+  it('ships first-party workflows for the supported VK and GitHub automations', () => {
     const exampleFiles = readdirSync(examplesDir)
       .filter((file) => file.endsWith('.workflow.json'))
       .sort();
 
     expect(exampleFiles).toEqual(
       expect.arrayContaining([
-        'approval-router.workflow.json',
         'autopilot-continuation.workflow.json',
         'coderabbit-review-extraction.workflow.json',
         'feedback-collection.workflow.json',
@@ -22,7 +21,7 @@ describe('workflow examples', () => {
     );
   });
 
-  it('keeps VK-backed examples on the VK n8n contract', () => {
+  it('keeps VK-backed workflows on the VK n8n contract', () => {
     for (const file of readdirSync(examplesDir).filter((entry) =>
       entry.endsWith('.workflow.json')
     )) {
@@ -49,6 +48,25 @@ describe('workflow examples', () => {
     }
   });
 
+  it('marks every shipped workflow as production-ready in the canvas note', () => {
+    for (const file of readdirSync(examplesDir).filter((entry) =>
+      entry.endsWith('.workflow.json')
+    )) {
+      const workflow = JSON.parse(
+        readFileSync(join(examplesDir, file), 'utf8'),
+      ) as {
+        nodes: Array<{ type: string; parameters?: Record<string, unknown> }>;
+      };
+
+      const descriptionNode = workflow.nodes.find(
+        (node) => node.type === 'n8n-nodes-base.stickyNote',
+      );
+
+      expect(descriptionNode?.parameters?.content).toContain('Production Workflow');
+      expect(descriptionNode?.parameters?.content).not.toContain('Use this as');
+    }
+  });
+
   it('routes review attention through an AI review step fed by the coding turn', () => {
     const workflow = JSON.parse(
       readFileSync(join(examplesDir, 'review-attention.workflow.json'), 'utf8'),
@@ -65,7 +83,56 @@ describe('workflow examples', () => {
     const serialized = JSON.stringify(workflow);
     expect(serialized).toContain('coding_agent_turn.summary');
     expect(serialized).toContain('coding_agent_turn.prompt');
+    expect(serialized).toContain('Keep Task Workspace Executions');
     expect(serialized).not.toContain('pending_questions.length > 0');
+  });
+
+  it('starts autopilot only when tasks enter done and filters dependents in workflow code', () => {
+    const workflow = JSON.parse(
+      readFileSync(join(examplesDir, 'autopilot-continuation.workflow.json'), 'utf8'),
+    ) as {
+      nodes: Array<{ type: string; parameters?: Record<string, unknown> }>;
+    };
+
+    const serialized = JSON.stringify(workflow);
+    expect(
+      workflow.nodes.some((node) => node.type === 'n8n-nodes-base.code'),
+    ).toBe(true);
+    expect(serialized).toContain("payload?.status || '') !== 'done'");
+    expect(serialized).toContain('dependency_context?.dependents');
+    expect(serialized).toContain("task.status === 'todo'");
+    expect(serialized).toContain("operation\":\"startTaskExecution");
+    expect(serialized).toContain('latest_or_create');
+    expect(serialized).toContain('latest_or_default');
+  });
+
+  it('keeps feedback and review-attention task-scoped', () => {
+    for (const file of [
+      'feedback-collection.workflow.json',
+      'review-attention.workflow.json',
+    ]) {
+      const workflow = JSON.parse(
+        readFileSync(join(examplesDir, file), 'utf8'),
+      ) as {
+        nodes: Array<{ type: string; parameters?: Record<string, unknown> }>;
+      };
+
+      const serialized = JSON.stringify(workflow);
+      expect(serialized).toContain('scope?.task?.id');
+      expect(serialized).toContain('scope?.workspace?.id');
+    }
+  });
+
+  it('queues generate-and-merge only for approved workspace approvals', () => {
+    const workflow = JSON.parse(
+      readFileSync(join(examplesDir, 'generate-and-merge-follow-up.workflow.json'), 'utf8'),
+    ) as {
+      nodes: Array<{ type: string; parameters?: Record<string, unknown> }>;
+    };
+
+    const serialized = JSON.stringify(workflow);
+    expect(serialized).toContain("$json.approval?.status !== 'approved'");
+    expect(serialized).toContain('!$json.workspace?.id');
   });
 
   it('polls open PRs and keeps only unresolved CodeRabbit review threads', () => {

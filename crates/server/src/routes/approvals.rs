@@ -516,7 +516,7 @@ mod orchestration_hydration_tests {
             blocker.id.to_string()
         );
         assert_eq!(
-            task_context["dependency_context"]["ready_dependents"][0]["id"],
+            task_context["dependency_context"]["dependents"][0]["id"],
             ready_dependent.id.to_string()
         );
         assert_eq!(

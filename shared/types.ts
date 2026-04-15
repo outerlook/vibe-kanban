@@ -168,7 +168,7 @@ export type QuestionOptionSnapshotDto = { label: string, description: string | n
 
 export type QuestionAnswerSnapshotDto = { question_index: number, selected_indices: Array<number>, other_text: string | null, };
 
-export type TaskDependencyContextDto = { blocked_by: Array<TaskListItemDto>, blocking: Array<TaskListItemDto>, ready_dependents: Array<TaskListItemDto>, };
+export type TaskDependencyContextDto = { blocked_by: Array<TaskListItemDto>, dependents: Array<TaskListItemDto>, };
 
 export type TaskQueueStateDto = { execution_queue: ExecutionQueueSnapshotDto | null, merge_queue: MergeQueueEntrySnapshotDto | null, };
 
@@ -204,7 +204,7 @@ export type OrchestrationEmptyPayload = Record<string, never>;
 
 export type TaskLifecycleEventPayload = { project_id: string, status: TaskStatus, previous_task_group_id: string | null, };
 
-export type TaskStatusChangedEventPayload = { status: TaskStatus, previous_status: TaskStatus, };
+export type TaskStatusChangedEventPayload = { project_id: string, status: TaskStatus, previous_status: TaskStatus, };
 
 export type ExecutionStartedEventPayload = { status: ExecutionProcessStatus, run_reason: string, conversation_session_id: string | null, };
 
@@ -656,11 +656,17 @@ export type ImageMetadata = { exists: boolean, file_name: string | null, path: s
 
 export type CreateTaskAttemptBody = { task_id: string, executor_profile_id: ExecutorProfileId, repos: Array<WorkspaceRepoInput>, };
 
-export type WorkspaceExecutionRepoSelection = { "repo_selection": "explicit", repos: Array<WorkspaceRepoInput>, } | { "repo_selection": "task_group_default" };
+export type TaskExecutionRepoSelection = { "repo_selection": "explicit", repos: Array<WorkspaceRepoInput>, } | { "repo_selection": "task_group_default" };
 
-export type StartWorkspaceExecutionCommand = { task_id: string, executor_profile_id: ExecutorProfileId, repo_selection: WorkspaceExecutionRepoSelection, };
+export type TaskExecutionWorkspaceStrategy = "latest_or_create" | "create_new";
 
-export type StartWorkspaceExecutionResult = { "status": "started", workspace: Workspace, execution_process: ExecutionProcess, } | { "status": "queued", workspace: Workspace, queue_entry: ExecutionQueue, };
+export type TaskExecutionExecutorStrategy = { "executor_selection": "default" } | { "executor_selection": "latest_or_default" } | { "executor_selection": "explicit", executor_profile_id: ExecutorProfileId, };
+
+export type TaskExecutionWorkspaceResolution = "created" | "reused";
+
+export type StartTaskExecutionCommand = { task_id: string, workspace_strategy: TaskExecutionWorkspaceStrategy, executor_strategy: TaskExecutionExecutorStrategy, repo_selection: TaskExecutionRepoSelection, };
+
+export type StartTaskExecutionResult = { "status": "started", workspace: Workspace, workspace_resolution: TaskExecutionWorkspaceResolution, executor_profile_id: ExecutorProfileId, execution_process: ExecutionProcess, } | { "status": "queued", workspace: Workspace, workspace_resolution: TaskExecutionWorkspaceResolution, executor_profile_id: ExecutorProfileId, queue_entry: ExecutionQueue, };
 
 export type QueueGenerateAndMergeCommand = { repo_id: string, };
 

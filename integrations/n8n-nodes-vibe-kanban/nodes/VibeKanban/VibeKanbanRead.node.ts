@@ -50,18 +50,6 @@ export class VibeKanbanRead implements INodeType {
         ],
       },
       {
-        displayName: 'Project ID',
-        name: 'projectId',
-        type: 'string',
-        default: '',
-        required: true,
-        displayOptions: {
-          show: {
-            resource: ['task'],
-          },
-        },
-      },
-      {
         displayName: 'Task ID',
         name: 'taskId',
         type: 'string',
@@ -140,9 +128,8 @@ export class VibeKanbanRead implements INodeType {
         let data;
         switch (resource) {
           case 'task': {
-            const projectId = this.getNodeParameter('projectId', itemIndex) as string;
             const taskId = this.getNodeParameter('taskId', itemIndex) as string;
-            data = await getTaskContext(credentials, projectId, taskId);
+            data = await getTaskContext(credentials, taskId);
             break;
           }
           case 'taskGroup': {

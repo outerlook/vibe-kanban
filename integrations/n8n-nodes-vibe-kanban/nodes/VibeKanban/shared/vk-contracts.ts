@@ -22,8 +22,8 @@ import type {
   QueueStatus,
   ReviewAttention,
   SendMessageResponse,
-  StartWorkspaceExecutionCommand,
-  StartWorkspaceExecutionResult,
+  StartTaskExecutionCommand,
+  StartTaskExecutionResult,
 } from '../../../generated/shared-types';
 
 export type VkOrchestrationEventEnvelope = OrchestrationEventEnvelope;
@@ -43,8 +43,8 @@ export type VkExecutorConfigs = ExecutorConfigs;
 export type VkExecutorProfileId = ExecutorProfileId;
 export type VkCreateConversationRequest = CreateConversationRequest;
 export type VkCreateConversationResponse = CreateConversationResponse;
-export type VkStartWorkspaceExecutionCommand = StartWorkspaceExecutionCommand;
-export type VkStartWorkspaceExecutionResult = StartWorkspaceExecutionResult;
+export type VkStartTaskExecutionCommand = StartTaskExecutionCommand;
+export type VkStartTaskExecutionResult = StartTaskExecutionResult;
 export type VkQueueGenerateAndMergeCommand = QueueGenerateAndMergeCommand;
 export type VkQueueGenerateAndMergeResult = QueueGenerateAndMergeResult;
 export type VkCreateAgentFeedback = CreateAgentFeedback;

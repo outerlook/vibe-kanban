@@ -18,8 +18,7 @@ describe('node response mapping', () => {
       pending_questions: [],
       dependency_context: {
         blocked_by: [],
-        blocking: [],
-        ready_dependents: [],
+        dependents: [],
       },
       latest_review_attention: null,
       latest_feedback: null,

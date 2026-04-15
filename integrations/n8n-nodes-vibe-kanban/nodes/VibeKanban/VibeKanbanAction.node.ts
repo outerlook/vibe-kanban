@@ -21,7 +21,7 @@ import {
   queueConversationFollowUp,
   queueTaskFollowUp,
   sendConversationMessage,
-  startWorkspaceExecution,
+  startTaskExecution,
   startTaskFollowUp,
   stopExecutionProcess,
 } from './shared/api';
@@ -126,9 +126,9 @@ export class VibeKanbanAction implements INodeType {
         displayName: 'Operation',
         name: 'operation',
         type: 'options',
-        default: 'startWorkspaceExecution',
+        default: 'startTaskExecution',
         displayOptions: { show: { resource: ['task'] } },
-        options: [{ name: 'Start Workspace Execution', value: 'startWorkspaceExecution' }],
+        options: [{ name: 'Start Task Execution', value: 'startTaskExecution' }],
       },
       {
         displayName: 'Operation',
@@ -236,6 +236,39 @@ export class VibeKanbanAction implements INodeType {
         },
       },
       {
+        displayName: 'Workspace Strategy',
+        name: 'workspaceStrategy',
+        type: 'options',
+        default: 'latest_or_create',
+        displayOptions: {
+          show: {
+            resource: ['task'],
+            operation: ['startTaskExecution'],
+          },
+        },
+        options: [
+          { name: 'Latest Or Create', value: 'latest_or_create' },
+          { name: 'Create New', value: 'create_new' },
+        ],
+      },
+      {
+        displayName: 'Executor Strategy',
+        name: 'executorStrategy',
+        type: 'options',
+        default: 'default',
+        displayOptions: {
+          show: {
+            resource: ['task'],
+            operation: ['startTaskExecution'],
+          },
+        },
+        options: [
+          { name: 'VK Default', value: 'default' },
+          { name: 'Latest Or Default', value: 'latest_or_default' },
+          { name: 'Explicit', value: 'explicit' },
+        ],
+      },
+      {
         displayName: 'Executor',
         name: 'executor',
         type: 'options',
@@ -245,11 +278,11 @@ export class VibeKanbanAction implements INodeType {
           loadOptionsMethod: 'getAvailableExecutors',
         },
         description:
-          'Choose the VK executor. Leave empty on Create Conversation to use the VK default executor.',
+          'Choose the VK executor. For task execution this is only used when Executor Strategy is Explicit. Leave empty on Create Conversation to use the VK default executor.',
         displayOptions: {
           show: {
             resource: ['task', 'conversation'],
-            operation: ['startWorkspaceExecution', 'createConversation'],
+            operation: ['startTaskExecution', 'createConversation'],
           },
         },
       },
@@ -267,7 +300,7 @@ export class VibeKanbanAction implements INodeType {
         displayOptions: {
           show: {
             resource: ['task', 'conversation'],
-            operation: ['startWorkspaceExecution', 'createConversation'],
+            operation: ['startTaskExecution', 'createConversation'],
           },
         },
       },
@@ -279,7 +312,7 @@ export class VibeKanbanAction implements INodeType {
         displayOptions: {
           show: {
             resource: ['task'],
-            operation: ['startWorkspaceExecution'],
+            operation: ['startTaskExecution'],
           },
         },
         options: [
@@ -297,7 +330,7 @@ export class VibeKanbanAction implements INodeType {
         displayOptions: {
           show: {
             resource: ['task'],
-            operation: ['startWorkspaceExecution'],
+            operation: ['startTaskExecution'],
             repoSelection: ['explicit'],
           },
         },
@@ -601,6 +634,14 @@ export class VibeKanbanAction implements INodeType {
         switch (resource) {
           case 'task': {
             const taskId = this.getNodeParameter('taskId', itemIndex) as string;
+            const workspaceStrategy = this.getNodeParameter(
+              'workspaceStrategy',
+              itemIndex,
+            ) as string;
+            const executorStrategy = this.getNodeParameter(
+              'executorStrategy',
+              itemIndex,
+            ) as string;
             const executor = this.getNodeParameter(
               'executor',
               itemIndex,
@@ -616,27 +657,47 @@ export class VibeKanbanAction implements INodeType {
               executor,
               executorVariant,
             );
-            if (!executorProfile) {
-              throw new Error('Executor is required for Start Workspace Execution');
-            }
-            const command =
-              repoSelection === 'explicit'
-                ? {
-                    task_id: taskId,
-                    executor_profile_id: executorProfile,
-                    repo_selection: 'explicit',
-                    repos: parseJsonValue<{ repo_id: string; target_branch: string }[]>(
-                      this.getNodeParameter('reposJson', itemIndex) as string,
-                      'Repos JSON',
-                    ),
-                  }
-                : {
-                    task_id: taskId,
-                    executor_profile_id: executorProfile,
-                    repo_selection: 'task_group_default',
-                  };
+            let executorStrategyBody:
+              | { executor_selection: 'default' }
+              | { executor_selection: 'latest_or_default' }
+              | {
+                  executor_selection: 'explicit';
+                  executor_profile_id: NonNullable<typeof executorProfile>;
+                };
 
-            const data = await startWorkspaceExecution(credentials, command as never);
+            if (executorStrategy === 'explicit') {
+              if (!executorProfile) {
+                throw new Error('Executor is required when Executor Strategy is Explicit');
+              }
+              executorStrategyBody = {
+                executor_selection: 'explicit',
+                executor_profile_id: executorProfile,
+              };
+            } else if (executorStrategy === 'latest_or_default') {
+              executorStrategyBody = { executor_selection: 'latest_or_default' };
+            } else {
+              executorStrategyBody = { executor_selection: 'default' };
+            }
+
+            const command = {
+              task_id: taskId,
+              workspace_strategy: workspaceStrategy,
+              executor_strategy: executorStrategyBody,
+              repo_selection:
+                repoSelection === 'explicit'
+                  ? {
+                      repo_selection: 'explicit',
+                      repos: parseJsonValue<{ repo_id: string; target_branch: string }[]>(
+                        this.getNodeParameter('reposJson', itemIndex) as string,
+                        'Repos JSON',
+                      ),
+                    }
+                  : {
+                      repo_selection: 'task_group_default',
+                    },
+            };
+
+            const data = await startTaskExecution(credentials, command as never);
             output = normalizeActionOutput({
               resource,
               operation,

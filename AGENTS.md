@@ -17,6 +17,14 @@ ts-rs allows you to derive TypeScript types from Rust structs/enums. By annotati
 When making changes to the types, you can regenerate them using `pnpm run generate-types`
 Do not manually edit shared/types.ts, instead edit crates/server/src/bin/generate_types.rs
 
+## VK API Design Principles
+
+- Keep the VK API surface small but powerful. Prefer a few composable primitives with variants and parameters over many workflow-specific endpoints.
+- VK should expose explicit state and execution building blocks: task groups, dependencies, orchestration context, and execution commands.
+- Workflow policy must live outside VK. Decisions such as when to start dependent tasks, how to react to reviews, or how to route orchestration belong in workflows, not in VK.
+- Prefer exposing raw context that workflows can compose themselves over opinionated derived concepts. For example, expose dependents plus task state instead of a special-purpose "ready dependents" concept.
+- When new workflow needs appear, first try to extend an existing VK primitive with parameters or variants before adding a new top-level concept.
+
 ## Build, Test, and Development Commands
 - Install dependencies: `pnpm i`
 - Install Tauri CLI: `cargo install tauri-cli@2.0`

@@ -120,6 +120,7 @@ pub struct TaskLifecycleEventPayload {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 #[ts(export)]
 pub struct TaskStatusChangedEventPayload {
+    pub project_id: Uuid,
     pub status: TaskStatus,
     pub previous_status: TaskStatus,
 }
@@ -490,6 +491,7 @@ impl OrchestrationEventMapper {
                 event,
                 OrchestrationEventType::TaskStatusChanged,
                 OrchestrationEventPayload::TaskStatusChanged(TaskStatusChangedEventPayload {
+                    project_id: task.project_id,
                     status: task.status.clone(),
                     previous_status: previous_status.clone(),
                 }),
@@ -939,6 +941,7 @@ mod tests {
         assert!(json.get("event_id").is_some());
         assert!(json.get("task").is_none());
         assert!(json.get("process").is_none());
+        assert_eq!(json["payload"]["project_id"], project.id.to_string());
         assert_eq!(json["payload"]["status"], "done");
         assert_eq!(json["payload"]["previous_status"], "inreview");
     }
@@ -1118,6 +1121,7 @@ mod tests {
             execution_process_id: None,
             task_group_id: None,
             payload: OrchestrationEventPayload::TaskStatusChanged(TaskStatusChangedEventPayload {
+                project_id: Uuid::new_v4(),
                 status: TaskStatus::Done,
                 previous_status: TaskStatus::InProgress,
             }),

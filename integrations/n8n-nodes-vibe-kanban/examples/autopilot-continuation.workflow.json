@@ -3,9 +3,9 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Purpose\\nStarts a workspace execution when Vibe Kanban reports a task status change.\\n\\nUse this as a reference for task-driven automation that reads task context and launches an executor. Add task filters, executor selection rules, or branch logic before using it broadly.",
-        "height": 220,
-        "width": 420,
+        "content": "## Production Workflow\\nWhen a task is marked `done`, read the completed task orchestration context, inspect its raw `dependents`, and let the workflow decide which dependents are runnable.\\n\\nA dependent is started only when it is still `todo`, not blocked, not already running, and not already queued. Each dependent execution uses VK task-level building blocks: `latest_or_create` for workspace reuse and `latest_or_default` for executor selection, with task-group defaults for repository branches.",
+        "height": 240,
+        "width": 460,
         "color": 1
       },
       "id": "autopilot-continuation-note",
@@ -29,7 +29,7 @@
       "type": "n8n-nodes-vibe-kanban.vibeKanbanTrigger",
       "typeVersion": 1,
       "position": [
-        240,
+        220,
         280
       ],
       "credentials": {
@@ -40,8 +40,22 @@
     },
     {
       "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "if (($json.payload?.status || '') !== 'done') {\n  return [];\n}\n\nreturn [{ json: $json }];"
+      },
+      "id": "keep-done-tasks",
+      "name": "Keep Done Tasks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        280
+      ]
+    },
+    {
+      "parameters": {
         "resource": "task",
-        "projectId": "={{$json.refs.taskContext.projectId}}",
         "taskId": "={{$json.refs.taskContext.taskId}}"
       },
       "id": "vk-read-task",
@@ -49,7 +63,7 @@
       "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
       "typeVersion": 1,
       "position": [
-        520,
+        780,
         280
       ],
       "credentials": {
@@ -60,19 +74,36 @@
     },
     {
       "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const dependents = $json.dependency_context?.dependents ?? [];\n\nreturn dependents\n  .filter((task) => (\n    task.status === 'todo' &&\n    !task.is_blocked &&\n    !task.has_in_progress_attempt &&\n    !task.is_queued\n  ))\n  .map((dependentTask) => ({\n    json: {\n      completedTask: $json.task,\n      dependentTask,\n    },\n  }));"
+      },
+      "id": "select-runnable-dependents",
+      "name": "Select Runnable Dependents",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        280
+      ]
+    },
+    {
+      "parameters": {
         "resource": "task",
-        "operation": "startWorkspaceExecution",
-        "taskId": "={{$json.task.id}}",
-        "executor": "CLAUDE_CODE",
+        "operation": "startTaskExecution",
+        "taskId": "={{$json.dependentTask.id}}",
+        "workspaceStrategy": "latest_or_create",
+        "executorStrategy": "latest_or_default",
+        "executor": "",
         "executorVariant": "",
         "repoSelection": "taskGroupDefault"
       },
       "id": "vk-start-execution",
-      "name": "Start Workspace Execution",
+      "name": "Start Task Execution",
       "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
       "typeVersion": 1,
       "position": [
-        820,
+        1340,
         280
       ],
       "credentials": {
@@ -87,6 +118,17 @@
       "main": [
         [
           {
+            "node": "Keep Done Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep Done Tasks": {
+      "main": [
+        [
+          {
             "node": "Read Task Context",
             "type": "main",
             "index": 0
@@ -98,7 +140,18 @@
       "main": [
         [
           {
-            "node": "Start Workspace Execution",
+            "node": "Select Runnable Dependents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Runnable Dependents": {
+      "main": [
+        [
+          {
+            "node": "Start Task Execution",
             "type": "main",
             "index": 0
           }

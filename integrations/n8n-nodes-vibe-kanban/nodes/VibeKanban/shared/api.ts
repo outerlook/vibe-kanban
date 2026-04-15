@@ -17,8 +17,8 @@ import type {
   VkQueueStatus,
   VkReviewAttention,
   VkSendMessageResponse,
-  VkStartWorkspaceExecutionCommand,
-  VkStartWorkspaceExecutionResult,
+  VkStartTaskExecutionCommand,
+  VkStartTaskExecutionResult,
   VkTaskContext,
   VkTaskGroupContext,
 } from './vk-contracts';
@@ -90,13 +90,9 @@ async function requestVk<T>(
 
 export async function getTaskContext(
   credentials: VkApiCredentialValue,
-  projectId: string,
   taskId: string,
 ): Promise<VkTaskContext> {
-  return requestVk<VkTaskContext>(
-    credentials,
-    `/projects/${projectId}/tasks/${taskId}/orchestration-context`,
-  );
+  return requestVk<VkTaskContext>(credentials, `/tasks/${taskId}/orchestration-context`);
 }
 
 export async function getTaskGroupContext(
@@ -254,13 +250,13 @@ export async function answerApproval(
   return (await response.json()) as VkApprovalStatus;
 }
 
-export async function startWorkspaceExecution(
+export async function startTaskExecution(
   credentials: VkApiCredentialValue,
-  body: VkStartWorkspaceExecutionCommand,
-): Promise<VkStartWorkspaceExecutionResult> {
-  return requestVk<VkStartWorkspaceExecutionResult>(
+  body: VkStartTaskExecutionCommand,
+): Promise<VkStartTaskExecutionResult> {
+  return requestVk<VkStartTaskExecutionResult>(
     credentials,
-    '/task-attempts/orchestration/workspace-executions',
+    '/task-attempts/orchestration/task-executions',
     {
       method: 'POST',
       body: JSON.stringify(body),

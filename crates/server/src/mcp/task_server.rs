@@ -23,10 +23,7 @@ use rmcp::{
 use schemars;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json;
-use services::services::{
-    conversation::SendMessageResponse,
-    queued_message::QueueStatus,
-};
+use services::services::{conversation::SendMessageResponse, queued_message::QueueStatus};
 use utils::approvals::{ApprovalResponse, ApprovalStatus};
 use uuid::Uuid;
 
@@ -34,8 +31,8 @@ use crate::routes::{
     containers::ContainerQuery,
     task_attempts::{
         CreateTaskAttemptBody, QueueGenerateAndMergeCommand, QueueGenerateAndMergeResult,
-        StartWorkspaceExecutionCommand, StartWorkspaceExecutionResult, WorkspaceExecutionRepoSelection,
-        WorkspaceRepoInput,
+        StartTaskExecutionCommand, StartTaskExecutionResult, TaskExecutionExecutorStrategy,
+        TaskExecutionRepoSelection, TaskExecutionWorkspaceStrategy, WorkspaceRepoInput,
     },
 };
 
@@ -316,7 +313,7 @@ pub struct StartWorkspaceSessionResponse {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "repo_selection", rename_all = "snake_case")]
-pub enum McpWorkspaceExecutionRepoSelection {
+pub enum McpTaskExecutionRepoSelection {
     Explicit {
         #[schemars(description = "Base branch for each repository in the project")]
         repos: Vec<McpWorkspaceRepoInput>,
@@ -325,30 +322,36 @@ pub enum McpWorkspaceExecutionRepoSelection {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct StartWorkspaceExecutionRequest {
+pub struct StartTaskExecutionRequest {
     #[schemars(description = "The ID of the task to start")]
     pub task_id: Uuid,
-    #[schemars(
-        description = "The coding agent executor to run ('CLAUDE_CODE', 'CODEX', 'GEMINI', 'CURSOR_AGENT', 'OPENCODE')"
-    )]
-    pub executor: String,
-    #[schemars(description = "Optional executor variant, if needed")]
+    #[schemars(description = "Whether to reuse the latest workspace when present or always create a new one")]
+    pub workspace_strategy: Option<String>,
+    #[schemars(description = "How executor selection should work: 'default', 'latest_or_default', or 'explicit'")]
+    pub executor_strategy: String,
+    #[schemars(description = "The coding agent executor to run when executor_strategy is 'explicit'")]
+    pub executor: Option<String>,
+    #[schemars(description = "Optional executor variant when executor_strategy is 'explicit'")]
     pub variant: Option<String>,
     #[schemars(description = "How repository target branches should be selected")]
-    pub repo_selection: McpWorkspaceExecutionRepoSelection,
+    pub repo_selection: Option<McpTaskExecutionRepoSelection>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 #[serde(tag = "status", rename_all = "snake_case")]
-pub enum StartWorkspaceExecutionResponse {
+pub enum StartTaskExecutionResponse {
     Started {
         workspace_id: String,
         task_id: String,
+        workspace_resolution: String,
+        executor_profile_id: String,
         execution_process_id: String,
     },
     Queued {
         workspace_id: String,
         task_id: String,
+        workspace_resolution: String,
+        executor_profile_id: String,
         execution_queue_id: String,
     },
 }
@@ -1736,25 +1739,61 @@ impl TaskServer {
     }
 
     #[tool(
-        description = "Start a workspace execution for a task. You can either pass explicit repository base branches or use the task group's default base branch configuration."
+        description = "Start execution for a task using VK task-level strategies. The workflow chooses whether to reuse the latest workspace, whether to use the default or latest executor, and whether repository branches come from task-group defaults or explicit repo inputs."
     )]
-    async fn start_workspace_execution(
+    async fn start_task_execution(
         &self,
-        Parameters(StartWorkspaceExecutionRequest {
+        Parameters(StartTaskExecutionRequest {
             task_id,
+            workspace_strategy,
+            executor_strategy,
             executor,
             variant,
             repo_selection,
-        }): Parameters<StartWorkspaceExecutionRequest>,
+        }): Parameters<StartTaskExecutionRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let executor_profile_id = match Self::executor_profile_from_parts(&executor, variant) {
-            Ok(profile) => profile,
-            Err(error) => return Ok(error),
+        let workspace_strategy = match workspace_strategy
+            .as_deref()
+            .unwrap_or("latest_or_create")
+        {
+            "latest_or_create" => TaskExecutionWorkspaceStrategy::LatestOrCreate,
+            "create_new" => TaskExecutionWorkspaceStrategy::CreateNew,
+            other => {
+                return TaskServer::success(&serde_json::json!({
+                    "error": format!("Unsupported workspace_strategy '{other}'. Use 'latest_or_create' or 'create_new'."),
+                }));
+            }
         };
 
-        let repo_selection = match repo_selection {
-            McpWorkspaceExecutionRepoSelection::Explicit { repos } => {
-                WorkspaceExecutionRepoSelection::Explicit {
+        let executor_strategy = match executor_strategy.as_str() {
+            "default" => TaskExecutionExecutorStrategy::Default,
+            "latest_or_default" => TaskExecutionExecutorStrategy::LatestOrDefault,
+            "explicit" => {
+                let executor = match executor {
+                    Some(executor) => executor,
+                    None => {
+                        return TaskServer::success(&serde_json::json!({
+                            "error": "executor is required when executor_strategy is 'explicit'",
+                        }));
+                    }
+                };
+                let executor_profile_id =
+                    match Self::executor_profile_from_parts(&executor, variant) {
+                        Ok(profile) => profile,
+                        Err(error) => return Ok(error),
+                    };
+                TaskExecutionExecutorStrategy::Explicit { executor_profile_id }
+            }
+            other => {
+                return TaskServer::success(&serde_json::json!({
+                    "error": format!("Unsupported executor_strategy '{other}'. Use 'default', 'latest_or_default', or 'explicit'."),
+                }));
+            }
+        };
+
+        let repo_selection = match repo_selection.unwrap_or(McpTaskExecutionRepoSelection::TaskGroupDefault) {
+            McpTaskExecutionRepoSelection::Explicit { repos } => {
+                TaskExecutionRepoSelection::Explicit {
                     repos: repos
                         .into_iter()
                         .map(|repo| WorkspaceRepoInput {
@@ -1764,39 +1803,54 @@ impl TaskServer {
                         .collect(),
                 }
             }
-            McpWorkspaceExecutionRepoSelection::TaskGroupDefault => {
-                WorkspaceExecutionRepoSelection::TaskGroupDefault
+            McpTaskExecutionRepoSelection::TaskGroupDefault => {
+                TaskExecutionRepoSelection::TaskGroupDefault
             }
         };
 
-        let payload = StartWorkspaceExecutionCommand {
+        let payload = StartTaskExecutionCommand {
             task_id,
-            executor_profile_id,
+            workspace_strategy,
+            executor_strategy,
             repo_selection,
         };
 
-        let url = self.url("/api/task-attempts/orchestration/workspace-executions");
-        let result: StartWorkspaceExecutionResult =
+        let url = self.url("/api/task-attempts/orchestration/task-executions");
+        let result: StartTaskExecutionResult =
             match self.send_json(self.client.post(&url).json(&payload)).await {
                 Ok(result) => result,
                 Err(error) => return Ok(error),
             };
 
         let response = match result {
-            StartWorkspaceExecutionResult::Started {
+            StartTaskExecutionResult::Started {
                 workspace,
+                workspace_resolution,
+                executor_profile_id,
                 execution_process,
-            } => StartWorkspaceExecutionResponse::Started {
+            } => StartTaskExecutionResponse::Started {
                 workspace_id: workspace.id.to_string(),
                 task_id: workspace.task_id.to_string(),
+                workspace_resolution: serde_json::to_string(&workspace_resolution)
+                    .unwrap()
+                    .trim_matches('"')
+                    .to_string(),
+                executor_profile_id: executor_profile_id.to_string(),
                 execution_process_id: execution_process.id.to_string(),
             },
-            StartWorkspaceExecutionResult::Queued {
+            StartTaskExecutionResult::Queued {
                 workspace,
+                workspace_resolution,
+                executor_profile_id,
                 queue_entry,
-            } => StartWorkspaceExecutionResponse::Queued {
+            } => StartTaskExecutionResponse::Queued {
                 workspace_id: workspace.id.to_string(),
                 task_id: workspace.task_id.to_string(),
+                workspace_resolution: serde_json::to_string(&workspace_resolution)
+                    .unwrap()
+                    .trim_matches('"')
+                    .to_string(),
+                executor_profile_id: executor_profile_id.to_string(),
                 execution_queue_id: queue_entry.id.to_string(),
             },
         };
@@ -1827,11 +1881,13 @@ impl TaskServer {
             GetTaskGroupOrchestrationContextRequest,
         >,
     ) -> Result<CallToolResult, ErrorData> {
-        let url = self.url(&format!("/api/task-groups/{task_group_id}/orchestration-context"));
+        let url = self.url(&format!(
+            "/api/task-groups/{task_group_id}/orchestration-context"
+        ));
         let context: serde_json::Value = match self.send_json(self.client.get(&url)).await {
-                Ok(context) => context,
-                Err(error) => return Ok(error),
-            };
+            Ok(context) => context,
+            Err(error) => return Ok(error),
+        };
 
         TaskServer::success(&context)
     }
@@ -1843,11 +1899,13 @@ impl TaskServer {
             GetConversationOrchestrationContextRequest,
         >,
     ) -> Result<CallToolResult, ErrorData> {
-        let url = self.url(&format!("/api/conversations/{conversation_id}/orchestration-context"));
+        let url = self.url(&format!(
+            "/api/conversations/{conversation_id}/orchestration-context"
+        ));
         let context: serde_json::Value = match self.send_json(self.client.get(&url)).await {
-                Ok(context) => context,
-                Err(error) => return Ok(error),
-            };
+            Ok(context) => context,
+            Err(error) => return Ok(error),
+        };
 
         TaskServer::success(&context)
     }
@@ -1855,17 +1913,17 @@ impl TaskServer {
     #[tool(description = "Get the orchestration context for an execution process.")]
     async fn get_execution_orchestration_context(
         &self,
-        Parameters(GetExecutionOrchestrationContextRequest { execution_process_id }): Parameters<
-            GetExecutionOrchestrationContextRequest,
-        >,
+        Parameters(GetExecutionOrchestrationContextRequest {
+            execution_process_id,
+        }): Parameters<GetExecutionOrchestrationContextRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let url = self.url(&format!(
             "/api/execution-processes/{execution_process_id}/orchestration-context"
         ));
         let context: serde_json::Value = match self.send_json(self.client.get(&url)).await {
-                Ok(context) => context,
-                Err(error) => return Ok(error),
-            };
+            Ok(context) => context,
+            Err(error) => return Ok(error),
+        };
 
         TaskServer::success(&context)
     }
@@ -1877,11 +1935,13 @@ impl TaskServer {
             GetApprovalOrchestrationContextRequest,
         >,
     ) -> Result<CallToolResult, ErrorData> {
-        let url = self.url(&format!("/api/approvals/{approval_id}/orchestration-context"));
+        let url = self.url(&format!(
+            "/api/approvals/{approval_id}/orchestration-context"
+        ));
         let context: serde_json::Value = match self.send_json(self.client.get(&url)).await {
-                Ok(context) => context,
-                Err(error) => return Ok(error),
-            };
+            Ok(context) => context,
+            Err(error) => return Ok(error),
+        };
 
         TaskServer::success(&context)
     }
@@ -1889,11 +1949,13 @@ impl TaskServer {
     #[tool(description = "Stop a running execution process.")]
     async fn stop_execution_process(
         &self,
-        Parameters(StopExecutionProcessRequest { execution_process_id }): Parameters<
-            StopExecutionProcessRequest,
-        >,
+        Parameters(StopExecutionProcessRequest {
+            execution_process_id,
+        }): Parameters<StopExecutionProcessRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let url = self.url(&format!("/api/execution-processes/{execution_process_id}/stop"));
+        let url = self.url(&format!(
+            "/api/execution-processes/{execution_process_id}/stop"
+        ));
         if let Err(error) = self.send_json::<()>(self.client.post(&url)).await {
             return Ok(error);
         }
@@ -1904,7 +1966,9 @@ impl TaskServer {
         })
     }
 
-    #[tool(description = "Create a task-session follow-up execution immediately or queue it if concurrency is full.")]
+    #[tool(
+        description = "Create a task-session follow-up execution immediately or queue it if concurrency is full."
+    )]
     async fn create_task_follow_up(
         &self,
         Parameters(CreateTaskFollowUpRequest {
@@ -1962,9 +2026,7 @@ impl TaskServer {
     #[tool(description = "Cancel a queued task-session follow-up.")]
     async fn cancel_task_follow_up(
         &self,
-        Parameters(CancelTaskFollowUpRequest { session_id }): Parameters<
-            CancelTaskFollowUpRequest,
-        >,
+        Parameters(CancelTaskFollowUpRequest { session_id }): Parameters<CancelTaskFollowUpRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let url = self.url(&format!("/api/sessions/{session_id}/queue"));
         let status: QueueStatus = match self.send_json(self.client.delete(&url)).await {
@@ -2016,7 +2078,9 @@ impl TaskServer {
         TaskServer::success(&response)
     }
 
-    #[tool(description = "Queue a conversation follow-up message to run after the current execution.")]
+    #[tool(
+        description = "Queue a conversation follow-up message to run after the current execution."
+    )]
     async fn queue_conversation_follow_up(
         &self,
         Parameters(QueueConversationFollowUpRequest {
@@ -2104,11 +2168,15 @@ impl TaskServer {
             repo_id,
         }): Parameters<QueueGenerateAndMergeToolRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let url = self.url(&format!("/api/task-attempts/{workspace_id}/generate-and-merge"));
-        let result: QueueGenerateAndMergeResult =
-            match self.send_json(self.client.post(&url).json(&QueueGenerateAndMergeCommand {
-                repo_id,
-            }))
+        let url = self.url(&format!(
+            "/api/task-attempts/{workspace_id}/generate-and-merge"
+        ));
+        let result: QueueGenerateAndMergeResult = match self
+            .send_json(
+                self.client
+                    .post(&url)
+                    .json(&QueueGenerateAndMergeCommand { repo_id }),
+            )
             .await
         {
             Ok(result) => result,
@@ -2125,7 +2193,9 @@ impl TaskServer {
             CancelGenerateAndMergeToolRequest,
         >,
     ) -> Result<CallToolResult, ErrorData> {
-        let url = self.url(&format!("/api/task-attempts/{workspace_id}/generate-and-merge"));
+        let url = self.url(&format!(
+            "/api/task-attempts/{workspace_id}/generate-and-merge"
+        ));
         if let Err(error) = self.send_json::<()>(self.client.delete(&url)).await {
             return Ok(error);
         }
@@ -2716,7 +2786,7 @@ impl TaskServer {
 #[tool_handler]
 impl ServerHandler for TaskServer {
     fn get_info(&self) -> ServerInfo {
-        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`. TOOLS: 'health_check', 'list_projects', 'list_tasks', 'search_similar_tasks', 'create_task', 'bulk_create_tasks', 'create_task_with_dependencies', 'start_workspace_session', 'start_workspace_execution', 'get_task_orchestration_context', 'get_task_group_orchestration_context', 'get_conversation_orchestration_context', 'get_execution_orchestration_context', 'get_approval_orchestration_context', 'create_task_follow_up', 'queue_task_follow_up', 'cancel_task_follow_up', 'get_task_follow_up_queue_status', 'send_conversation_message', 'queue_conversation_follow_up', 'cancel_conversation_follow_up', 'get_conversation_follow_up_queue_status', 'answer_approval', 'stop_execution_process', 'queue_generate_and_merge', 'cancel_generate_and_merge', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree', 'get_task_dependency_context', 'list_task_groups', 'create_task_group', 'get_task_group', 'update_task_group', 'delete_task_group', 'bulk_assign_tasks_to_group', 'get_task_feedback', 'get_recent_feedback'. Make sure to pass `project_id`, `task_id`, or `group_id` where required. You can use list tools to get the available ids.".to_string();
+        let mut instruction = "A task and project management server. If you need to create or update tickets or tasks then use these tools. Most of them absolutely require that you pass the `project_id` of the project that you are currently working on. You can get project ids by using `list projects`. Call `list_tasks` to fetch the `task_ids` of all the tasks in a project`. TOOLS: 'health_check', 'list_projects', 'list_tasks', 'search_similar_tasks', 'create_task', 'bulk_create_tasks', 'create_task_with_dependencies', 'start_workspace_session', 'start_task_execution', 'get_task_orchestration_context', 'get_task_group_orchestration_context', 'get_conversation_orchestration_context', 'get_execution_orchestration_context', 'get_approval_orchestration_context', 'create_task_follow_up', 'queue_task_follow_up', 'cancel_task_follow_up', 'get_task_follow_up_queue_status', 'send_conversation_message', 'queue_conversation_follow_up', 'cancel_conversation_follow_up', 'get_conversation_follow_up_queue_status', 'answer_approval', 'stop_execution_process', 'queue_generate_and_merge', 'cancel_generate_and_merge', 'get_task', 'update_task', 'delete_task', 'list_repos', 'add_task_dependency', 'remove_task_dependency', 'get_task_dependencies', 'get_task_dependency_tree', 'get_task_dependency_context', 'list_task_groups', 'create_task_group', 'get_task_group', 'update_task_group', 'delete_task_group', 'bulk_assign_tasks_to_group', 'get_task_feedback', 'get_recent_feedback'. Make sure to pass `project_id`, `task_id`, or `group_id` where required. You can use list tools to get the available ids.".to_string();
         if self.context.is_some() {
             let context_instruction = "When working on a task, VK_TASK_ID env var is set. Use 'get_context' to fetch your current task details including task_id. Use 'get_task_dependency_context' with your task_id to see what tasks must complete before yours (ancestors) and what tasks are waiting on you (descendants). This helps understand your position in the workflow.";
             instruction = format!("{} {}", context_instruction, instruction);
@@ -2750,19 +2820,19 @@ mod tests {
         workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
     };
     use deployment::Deployment;
-    use executors::{
-        actions::{
-            ExecutorAction, ExecutorActionType,
-            script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
-        },
+    use executors::actions::{
+        ExecutorAction, ExecutorActionType,
+        script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
     };
     use local_deployment::LocalDeployment;
     use tokio::{net::TcpListener, task::JoinHandle};
     use utils::approvals::{QuestionData, QuestionOption};
 
     use super::*;
-    use crate::DeploymentImpl;
-    use crate::routes::tasks::{SearchTasksResponse, TaskMatchWithScore};
+    use crate::{
+        DeploymentImpl,
+        routes::tasks::{SearchTasksResponse, TaskMatchWithScore},
+    };
 
     #[test]
     fn api_search_response_decodes_non_empty_route_payload() {
@@ -2937,7 +3007,7 @@ mod tests {
 
     #[tokio::test]
     #[allow(clippy::await_holding_lock)]
-    async fn start_workspace_execution_tool_supports_task_group_default() {
+    async fn start_task_execution_tool_supports_task_group_default() {
         let _lock = crate::TEST_DB_LOCK.lock().unwrap();
         let deployment = LocalDeployment::new().await.unwrap();
         deployment.config().write().await.max_concurrent_agents = 1;
@@ -2975,11 +3045,13 @@ mod tests {
         let server = TaskServer::new(&base_url);
 
         let result = server
-            .start_workspace_execution(Parameters(StartWorkspaceExecutionRequest {
+            .start_task_execution(Parameters(StartTaskExecutionRequest {
                 task_id: task.id,
-                executor: "CLAUDE_CODE".to_string(),
+                workspace_strategy: Some("create_new".to_string()),
+                executor_strategy: "explicit".to_string(),
+                executor: Some("CLAUDE_CODE".to_string()),
                 variant: None,
-                repo_selection: McpWorkspaceExecutionRepoSelection::TaskGroupDefault,
+                repo_selection: Some(McpTaskExecutionRepoSelection::TaskGroupDefault),
             }))
             .await
             .unwrap();
@@ -3029,7 +3101,8 @@ mod tests {
             .initialize_repo_with_main_branch(&repo_path)
             .unwrap();
         let repo = attach_repo_to_project(&deployment, project.id, &repo_path, "Merge Repo").await;
-        let (workspace, _) = create_workspace_and_session(&deployment, task.id, "feature/reject").await;
+        let (workspace, _) =
+            create_workspace_and_session(&deployment, task.id, "feature/reject").await;
         WorkspaceRepo::create_many(
             &deployment.db().pool,
             workspace.id,
@@ -3071,7 +3144,8 @@ mod tests {
         let deployment = LocalDeployment::new().await.unwrap();
         let project = create_project(&deployment, "mcp-approval").await;
         let task = create_task(&deployment, project.id, None, "Answer me").await;
-        let (_workspace, session) = create_workspace_and_session(&deployment, task.id, "feature/approval").await;
+        let (_workspace, session) =
+            create_workspace_and_session(&deployment, task.id, "feature/approval").await;
 
         let execution = ExecutionProcess::create(
             &deployment.db().pool,

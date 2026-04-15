@@ -25,7 +25,6 @@ use uuid::Uuid;
 
 use super::{
     approvals::Approvals,
-    autopilot,
     feedback::{FeedbackHydrationSummary, FeedbackService},
     merge_queue_store::{MergeQueueEntry, MergeQueueStore},
     review_attention::{ReviewAttentionHydrationSummary, ReviewAttentionService},
@@ -265,8 +264,7 @@ pub struct QuestionAnswerSnapshotDto {
 #[ts(export)]
 pub struct TaskDependencyContextDto {
     pub blocked_by: Vec<TaskListItemDto>,
-    pub blocking: Vec<TaskListItemDto>,
-    pub ready_dependents: Vec<TaskListItemDto>,
+    pub dependents: Vec<TaskListItemDto>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, TS)]
@@ -423,12 +421,7 @@ impl OrchestrationService {
         let pending_tool_approvals = collect_tool_approvals(approvals, &session_processes);
         let pending_questions = collect_pending_questions(pool, &session_processes).await?;
         let blocked_by = TaskDependency::find_blocked_by(pool, task.id).await?;
-        let blocking = TaskDependency::find_blocking(pool, task.id).await?;
-        let ready_dependents = if task.status == TaskStatus::Done {
-            autopilot::find_unblocked_dependents(pool, task.id).await?
-        } else {
-            Vec::new()
-        };
+        let dependents = TaskDependency::find_blocking(pool, task.id).await?;
         let latest_review_attention = ReviewAttention::find_latest_by_task_id(pool, task.id)
             .await?
             .map(|entry| ReviewAttentionService::summarize_record(&entry));
@@ -464,11 +457,7 @@ impl OrchestrationService {
             pending_questions,
             dependency_context: TaskDependencyContextDto {
                 blocked_by: blocked_by.into_iter().map(TaskListItemDto::from).collect(),
-                blocking: blocking.into_iter().map(TaskListItemDto::from).collect(),
-                ready_dependents: ready_dependents
-                    .into_iter()
-                    .map(TaskListItemDto::from)
-                    .collect(),
+                dependents: dependents.into_iter().map(TaskListItemDto::from).collect(),
             },
             latest_review_attention,
             latest_feedback,

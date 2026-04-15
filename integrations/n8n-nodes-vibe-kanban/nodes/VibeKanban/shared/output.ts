@@ -11,7 +11,7 @@ import type {
   VkReadResource,
   VkReviewAttention,
   VkSendMessageResponse,
-  VkStartWorkspaceExecutionResult,
+  VkStartTaskExecutionResult,
   VkTaskContext,
   VkTaskGroupContext,
 } from './vk-contracts';
@@ -47,7 +47,7 @@ export function normalizeActionOutput(args: {
     | VkQueueStatus
     | VkReviewAttention
     | VkSendMessageResponse
-    | VkStartWorkspaceExecutionResult;
+    | VkStartTaskExecutionResult;
 }) {
   const base = {
     resource: args.resource,
@@ -67,6 +67,25 @@ export function normalizeActionOutput(args: {
       queueEntry:
         followUp.status === 'queued'
           ? followUp.queue_entry
+          : null,
+    };
+  }
+
+  if (args.operation === 'startTaskExecution' && args.data) {
+    const taskExecution = args.data as VkStartTaskExecutionResult;
+    return {
+      ...base,
+      taskExecution,
+      workspace: taskExecution.workspace,
+      workspaceResolution: taskExecution.workspace_resolution,
+      executorProfileId: taskExecution.executor_profile_id,
+      executionProcess:
+        taskExecution.status === 'started'
+          ? taskExecution.execution_process
+          : null,
+      queueEntry:
+        taskExecution.status === 'queued'
+          ? taskExecution.queue_entry
           : null,
     };
   }

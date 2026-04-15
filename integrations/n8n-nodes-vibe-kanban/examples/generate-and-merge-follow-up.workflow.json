@@ -3,9 +3,9 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Purpose\\nQueues a generate-and-merge follow-up after an approval is resolved in Vibe Kanban.\\n\\nUse this as an example of turning approval outcomes into follow-up execution. The `Resolve Merge Inputs` step is where you adapt project, repo, and execution details to your own merge flow.",
-        "height": 240,
-        "width": 430,
+        "content": "## Production Workflow\\nQueues a generate-and-merge follow-up after an approval is resolved in Vibe Kanban.\\n\\nThis workflow is intended to be used in production. It only reacts to approved approvals with workspace scope, then resolves the target repo and enqueues the merge follow-up.",
+        "height": 260,
+        "width": 460,
         "color": 1
       },
       "id": "generate-and-merge-note",
@@ -29,7 +29,7 @@
       "type": "n8n-nodes-vibe-kanban.vibeKanbanTrigger",
       "typeVersion": 1,
       "position": [
-        240,
+        220,
         260
       ],
       "credentials": {
@@ -48,7 +48,7 @@
       "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
       "typeVersion": 1,
       "position": [
-        520,
+        500,
         260
       ],
       "credentials": {
@@ -56,6 +56,21 @@
           "name": "Local VK API"
         }
       }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "if ($json.approval?.status !== 'approved' || !$json.workspace?.id) {\n  return [];\n}\n\nreturn [{ json: $json }];"
+      },
+      "id": "keep-approved-workspace-approvals",
+      "name": "Keep Approved Workspace Approvals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        260
+      ]
     },
     {
       "parameters": {
@@ -82,7 +97,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        800,
+        1060,
         260
       ]
     },
@@ -98,7 +113,7 @@
       "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
       "typeVersion": 1,
       "position": [
-        1080,
+        1340,
         260
       ],
       "credentials": {
@@ -121,6 +136,17 @@
       ]
     },
     "Read Approval Context": {
+      "main": [
+        [
+          {
+            "node": "Keep Approved Workspace Approvals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep Approved Workspace Approvals": {
       "main": [
         [
           {
