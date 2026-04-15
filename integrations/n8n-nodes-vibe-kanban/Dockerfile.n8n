@@ -38,6 +38,8 @@ RUN cd /opt/n8n-custom \
  && chown -R node:node /opt/n8n-custom
 
 # Keep custom extensions outside /home/node/.n8n so the runtime volume does not mask them.
-ENV N8N_CUSTOM_EXTENSIONS=/opt/n8n-custom/node_modules/n8n-nodes-vibe-kanban
+# n8n scans directories that contain installed custom node packages, not the package
+# directory itself.
+ENV N8N_CUSTOM_EXTENSIONS=/opt/n8n-custom/node_modules
 
 USER node

@@ -1,14 +1,15 @@
 {
   "name": "GitHub CodeRabbit Unresolved Thread Polling",
+  "active": false,
   "nodes": [
     {
       "parameters": {
-        "content": "## Production Workflow\nPolls GitHub for open pull requests in the repos selected from Vibe Kanban project workflow associations. It returns only unresolved review threads that contain new CodeRabbit comments since the last poll checkpoint.\n\nThis workflow is intended to be used in production when you want personal monitoring without configuring GitHub webhooks. Configure `GITHUB_TOKEN`, `workflowId`, and the optional allow/ignore repo filters in `Build Poll Config`.",
+        "content": "## Production Workflow\nPolls GitHub for open pull requests in the repos selected from Vibe Kanban project workflow associations. It returns only unresolved review threads that contain new CodeRabbit comments since the last poll checkpoint.\n\nThis workflow is intended to be used in production when you want personal monitoring without configuring GitHub webhooks. Configure `workflowId` and the optional allow/ignore repo filters in `Build Poll Config`, then attach a GitHub API credential to `Fetch Repo Review Threads`.",
         "height": 280,
-        "width": 460,
+        "width": 500,
         "color": 1
       },
-      "id": "coderabbit-polling-note",
+      "id": "workflow-description",
       "name": "Workflow Description",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
@@ -19,7 +20,7 @@
     },
     {
       "parameters": {},
-      "id": "manual-poll-trigger",
+      "id": "manual-trigger",
       "name": "Manual Poll Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -39,7 +40,7 @@
           ]
         }
       },
-      "id": "scheduled-poll-trigger",
+      "id": "schedule-trigger",
       "name": "Scheduled Poll Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.3,
@@ -63,12 +64,6 @@
               "name": "workflowId",
               "type": "string",
               "value": "wf-coderabbit-review-extraction"
-            },
-            {
-              "id": "github-token",
-              "name": "githubToken",
-              "type": "string",
-              "value": "={{$env.GITHUB_TOKEN || ''}}"
             },
             {
               "id": "reviewers",
@@ -129,15 +124,91 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const config = $input.first().json;\n\nconst parseJsonArray = (value, fieldName) => {\n  if (typeof value !== 'string' || value.trim() === '') {\n    return [];\n  }\n\n  try {\n    const parsed = JSON.parse(value);\n    if (!Array.isArray(parsed)) {\n      throw new Error(`${fieldName} must be a JSON array`);\n    }\n\n    return parsed\n      .map((entry) => String(entry).trim())\n      .filter(Boolean);\n  } catch (error) {\n    throw new Error(`Invalid ${fieldName}: ${error.message}`);\n  }\n};\n\nconst parsePositiveInteger = (value, fieldName, fallback) => {\n  if (value === undefined || value === null || value === '') {\n    return fallback;\n  }\n\n  const parsed = Number(value);\n  if (!Number.isFinite(parsed) || parsed <= 0) {\n    throw new Error(`${fieldName} must be a positive number`);\n  }\n\n  return Math.floor(parsed);\n};\n\nconst vkBaseUrl = String(config.vkBaseUrl || '').trim().replace(/\\/+$/, '');\nconst workflowId = String(config.workflowId || '').trim();\nconst githubToken = String(config.githubToken || '').trim();\n\nif (!vkBaseUrl) {\n  throw new Error('vkBaseUrl is required');\n}\n\nif (!workflowId) {\n  throw new Error('workflowId is required');\n}\n\nif (!githubToken) {\n  throw new Error('githubToken is required. Set GITHUB_TOKEN in n8n or hardcode the value in Build Poll Config.');\n}\n\nconst reviewerLogins = new Set(\n  parseJsonArray(config.reviewerLoginsJson, 'reviewerLoginsJson').map((entry) =>\n    entry.toLowerCase(),\n  ),\n);\nif (reviewerLogins.size === 0) {\n  throw new Error('reviewerLoginsJson must contain at least one login');\n}\n\nconst allowedProjectIds = new Set(\n  parseJsonArray(config.allowedProjectIdsJson, 'allowedProjectIdsJson'),\n);\nconst allowedRepos = new Set(\n  parseJsonArray(config.allowedReposJson, 'allowedReposJson').map((entry) =>\n    entry.toLowerCase(),\n  ),\n);\nconst ignoredRepos = new Set(\n  parseJsonArray(config.ignoredReposJson, 'ignoredReposJson').map((entry) =>\n    entry.toLowerCase(),\n  ),\n);\n\nconst bootstrapLookbackHours = parsePositiveInteger(\n  config.bootstrapLookbackHours,\n  'bootstrapLookbackHours',\n  24,\n);\nconst maxPullRequestsPerRepo = parsePositiveInteger(\n  config.maxPullRequestsPerRepo,\n  'maxPullRequestsPerRepo',\n  25,\n);\nconst rememberedCommentIds = parsePositiveInteger(\n  config.rememberedCommentIds,\n  'rememberedCommentIds',\n  1000,\n);\nconst githubApiBase = 'https://api.github.com';\nconst githubHeaders = {\n  Accept: 'application/vnd.github+json',\n  Authorization: `Bearer ${githubToken}`,\n  'X-GitHub-Api-Version': '2022-11-28',\n  'User-Agent': 'n8n-coderabbit-thread-polling',\n};\n\nconst requestVk = async (path) => {\n  const response = await $helpers.httpRequest({\n    method: 'GET',\n    url: `${vkBaseUrl}${path}`,\n    json: true,\n  });\n\n  if (!response || response.success !== true) {\n    throw new Error(\n      `VK request failed for ${path}: ${response?.error || 'unknown error'}`,\n    );\n  }\n\n  return response.data;\n};\n\nconst normalizeGitHubError = (error) => ({\n  status:\n    error?.statusCode ||\n    error?.response?.statusCode ||\n    error?.response?.status ||\n    null,\n  message:\n    error?.message ||\n    error?.description ||\n    error?.response?.body?.message ||\n    'unknown GitHub error',\n});\n\nconst requestGitHubPage = async (path, query = {}) => {\n  return $helpers.httpRequest({\n    method: 'GET',\n    url: `${githubApiBase}${path}`,\n    qs: query,\n    headers: githubHeaders,\n    json: true,\n  });\n};\n\nconst requestGitHubGraphQL = async (query, variables) => {\n  const response = await $helpers.httpRequest({\n    method: 'POST',\n    url: `${githubApiBase}/graphql`,\n    headers: {\n      ...githubHeaders,\n      'Content-Type': 'application/json',\n    },\n    body: {\n      query,\n      variables,\n    },\n    json: true,\n  });\n\n  if (Array.isArray(response?.errors) && response.errors.length > 0) {\n    const message = response.errors\n      .map((entry) => entry?.message || 'unknown GraphQL error')\n      .join(', ');\n    throw new Error(message);\n  }\n\n  return response?.data || null;\n};\n\nconst listPaginatedGitHub = async ({ path, query = {}, stopWhen, mapItem }) => {\n  const collected = [];\n  let page = 1;\n\n  while (true) {\n    const pageItems = await requestGitHubPage(path, {\n      ...query,\n      per_page: 100,\n      page,\n    });\n\n    if (!Array.isArray(pageItems) || pageItems.length === 0) {\n      break;\n    }\n\n    for (const item of pageItems) {\n      if (stopWhen && stopWhen(item, collected)) {\n        return collected;\n      }\n\n      collected.push(mapItem ? mapItem(item) : item);\n    }\n\n    if (pageItems.length < 100) {\n      break;\n    }\n\n    page += 1;\n  }\n\n  return collected;\n};\n\nconst REVIEW_THREADS_QUERY = `\n  query($owner: String!, $repo: String!, $pr: Int!, $after: String) {\n    repository(owner: $owner, name: $repo) {\n      pullRequest(number: $pr) {\n        reviewThreads(first: 100, after: $after) {\n          pageInfo {\n            hasNextPage\n            endCursor\n          }\n          nodes {\n            id\n            isResolved\n            isOutdated\n            path\n            line\n            comments(first: 100) {\n              nodes {\n                id\n                body\n                createdAt\n                url\n                path\n                line\n                originalLine\n                diffHunk\n                author {\n                  login\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n`;\n\nconst listOpenReviewThreads = async (owner, repo, pullNumber) => {\n  const threads = [];\n  let after = null;\n\n  while (true) {\n    const data = await requestGitHubGraphQL(REVIEW_THREADS_QUERY, {\n      owner,\n      repo,\n      pr: pullNumber,\n      after,\n    });\n\n    const reviewThreads = data?.repository?.pullRequest?.reviewThreads;\n    if (!reviewThreads) {\n      return threads;\n    }\n\n    for (const thread of reviewThreads.nodes || []) {\n      if (!thread || thread.isResolved) {\n        continue;\n      }\n\n      threads.push({\n        threadId: thread.id,\n        isResolved: Boolean(thread.isResolved),\n        isOutdated: Boolean(thread.isOutdated),\n        path: thread.path || '',\n        line: thread.line ?? null,\n        comments: (thread.comments?.nodes || []).map((comment) => ({\n          id: String(comment?.id || ''),\n          authorLogin: String(comment?.author?.login || ''),\n          body: String(comment?.body || ''),\n          createdAt: String(comment?.createdAt || ''),\n          url: String(comment?.url || ''),\n          path: String(comment?.path || thread.path || ''),\n          line: comment?.line ?? comment?.originalLine ?? thread.line ?? null,\n          originalLine: comment?.originalLine ?? null,\n          diffHunk: String(comment?.diffHunk || ''),\n        })),\n      });\n    }\n\n    if (!reviewThreads.pageInfo?.hasNextPage || !reviewThreads.pageInfo?.endCursor) {\n      return threads;\n    }\n\n    after = reviewThreads.pageInfo.endCursor;\n  }\n};\n\nconst projects = await requestVk('/api/projects');\nconst selectedRepoMap = new Map();\n\nfor (const project of projects) {\n  const projectId = String(project.id);\n\n  if (allowedProjectIds.size > 0 && !allowedProjectIds.has(projectId)) {\n    continue;\n  }\n\n  const workflowAssociation = await requestVk(\n    `/api/projects/${projectId}/workflow-association`,\n  );\n\n  if (!workflowAssociation || workflowAssociation.workflow_id !== workflowId) {\n    continue;\n  }\n\n  const githubRepositories = await requestVk(\n    `/api/projects/${projectId}/github-repositories`,\n  );\n\n  for (const repository of githubRepositories) {\n    const fullName = String(repository.github_full_name || '').toLowerCase();\n\n    if (!fullName) {\n      continue;\n    }\n\n    if (allowedRepos.size > 0 && !allowedRepos.has(fullName)) {\n      continue;\n    }\n\n    if (ignoredRepos.has(fullName)) {\n      continue;\n    }\n\n    const existing = selectedRepoMap.get(fullName);\n    if (existing) {\n      existing.projectIds.push(projectId);\n      existing.projectNames.push(project.name);\n      continue;\n    }\n\n    selectedRepoMap.set(fullName, {\n      repoId: repository.repo_id,\n      repoName: repository.repo_name,\n      displayName: repository.display_name,\n      path: repository.path,\n      githubOwner: repository.github_owner,\n      githubRepoName: repository.github_repo_name,\n      githubFullName: repository.github_full_name,\n      projectIds: [projectId],\n      projectNames: [project.name],\n    });\n  }\n}\n\nconst selectedRepos = Array.from(selectedRepoMap.values()).sort((left, right) =>\n  left.githubFullName.localeCompare(right.githubFullName),\n);\n\nconst staticData = $getWorkflowStaticData('global');\nconst state = staticData.coderabbitReviewExtraction || {};\nconst pollStartedAt = new Date().toISOString();\nconst bootstrapAnchor = new Date(\n  Date.now() - bootstrapLookbackHours * 60 * 60 * 1000,\n).toISOString();\nconst pollAfter = typeof state.lastPolledAt === 'string' ? state.lastPolledAt : bootstrapAnchor;\nconst pollAfterMs = Date.parse(pollAfter);\nconst knownCommentIds = new Set(\n  Array.isArray(state.processedThreadCommentIds)\n    ? state.processedThreadCommentIds.map((entry) => String(entry))\n    : [],\n);\n\nconst inaccessibleRepos = [];\nconst extractedPullRequests = [];\nconst newCommentIds = [];\nlet inspectedPullRequests = 0;\nlet inspectedThreads = 0;\n\nfor (const selectedRepo of selectedRepos) {\n  const repoPath = `/repos/${selectedRepo.githubOwner}/${selectedRepo.githubRepoName}`;\n\n  let pullRequests;\n  try {\n    pullRequests = await listPaginatedGitHub({\n      path: `${repoPath}/pulls`,\n      query: {\n        state: 'open',\n        sort: 'updated',\n        direction: 'desc',\n      },\n      stopWhen: (pullRequest, collected) => {\n        const updatedAt = Date.parse(String(pullRequest.updated_at || ''));\n        if (Number.isFinite(updatedAt) && updatedAt < pollAfterMs) {\n          return true;\n        }\n\n        return collected.length >= maxPullRequestsPerRepo;\n      },\n      mapItem: (pullRequest) => ({\n        number: pullRequest.number,\n        title: pullRequest.title,\n        url: pullRequest.html_url,\n        updatedAt: pullRequest.updated_at,\n      }),\n    });\n  } catch (error) {\n    const githubError = normalizeGitHubError(error);\n    if (githubError.status === 403 || githubError.status === 404) {\n      inaccessibleRepos.push({\n        repo: selectedRepo.githubFullName,\n        status: githubError.status,\n        message: githubError.message,\n      });\n      continue;\n    }\n\n    throw new Error(\n      `Failed to list pull requests for ${selectedRepo.githubFullName}: ${githubError.message}`,\n    );\n  }\n\n  inspectedPullRequests += pullRequests.length;\n\n  for (const pullRequest of pullRequests) {\n    const threads = await listOpenReviewThreads(\n      selectedRepo.githubOwner,\n      selectedRepo.githubRepoName,\n      pullRequest.number,\n    );\n    inspectedThreads += threads.length;\n\n    const matchingThreads = [];\n\n    for (const thread of threads) {\n      const matchingCommentIds = [];\n      const serializedComments = thread.comments.map((comment) => {\n        const createdAtMs = Date.parse(comment.createdAt);\n        const isNewCoderabbitComment =\n          reviewerLogins.has(comment.authorLogin.toLowerCase()) &&\n          Number.isFinite(createdAtMs) &&\n          createdAtMs >= pollAfterMs &&\n          !knownCommentIds.has(comment.id);\n\n        if (isNewCoderabbitComment) {\n          matchingCommentIds.push(comment.id);\n        }\n\n        return {\n          id: comment.id,\n          authorLogin: comment.authorLogin,\n          body: comment.body,\n          createdAt: comment.createdAt,\n          url: comment.url,\n          path: comment.path,\n          line: comment.line,\n          originalLine: comment.originalLine,\n          diffHunk: comment.diffHunk,\n          isNewCoderabbitComment,\n        };\n      });\n\n      if (matchingCommentIds.length === 0) {\n        continue;\n      }\n\n      matchingThreads.push({\n        threadId: thread.threadId,\n        path: thread.path,\n        line: thread.line,\n        isResolved: thread.isResolved,\n        isOutdated: thread.isOutdated,\n        matchingCommentCount: matchingCommentIds.length,\n        comments: serializedComments,\n      });\n\n      for (const commentId of matchingCommentIds) {\n        newCommentIds.push(commentId);\n        knownCommentIds.add(commentId);\n      }\n    }\n\n    if (matchingThreads.length === 0) {\n      continue;\n    }\n\n    extractedPullRequests.push({\n      repo: selectedRepo.githubFullName,\n      owner: selectedRepo.githubOwner,\n      repoName: selectedRepo.githubRepoName,\n      pullNumber: pullRequest.number,\n      pullRequestTitle: pullRequest.title,\n      pullRequestUrl: pullRequest.url,\n      selectedProjects: selectedRepo.projectNames,\n      threadCount: matchingThreads.length,\n      matchingCommentCount: matchingThreads.reduce(\n        (total, thread) => total + thread.matchingCommentCount,\n        0,\n      ),\n      threads: matchingThreads,\n    });\n  }\n}\n\nconst nextProcessedThreadCommentIds = Array.from(\n  new Set([\n    ...newCommentIds,\n    ...(Array.isArray(state.processedThreadCommentIds)\n      ? state.processedThreadCommentIds.map((entry) => String(entry))\n      : []),\n  ]),\n).slice(0, rememberedCommentIds);\n\nstaticData.coderabbitReviewExtraction = {\n  workflowId,\n  lastPolledAt: pollStartedAt,\n  selectedReposByFullName: Object.fromEntries(\n    selectedRepos.map((repo) => [repo.githubFullName.toLowerCase(), repo]),\n  ),\n  processedThreadCommentIds: nextProcessedThreadCommentIds,\n};\n\nreturn [\n  {\n    json: {\n      status: extractedPullRequests.length > 0 ? 'captured' : 'no_matches',\n      workflowId,\n      pollStartedAt,\n      previousPollCheckpoint: pollAfter,\n      selectedRepoCount: selectedRepos.length,\n      selectedRepos: selectedRepos.map((repo) => ({\n        repo: repo.githubFullName,\n        projects: repo.projectNames,\n      })),\n      inaccessibleRepos,\n      inspectedPullRequestCount: inspectedPullRequests,\n      inspectedThreadCount: inspectedThreads,\n      pullRequestCount: extractedPullRequests.length,\n      matchingCommentCount: extractedPullRequests.reduce(\n        (total, pullRequest) => total + pullRequest.matchingCommentCount,\n        0,\n      ),\n      pullRequests: extractedPullRequests,\n    },\n  },\n];"
+        "jsCode": "const config = $input.first().json;\n\nconst parseJsonArray = (value, fieldName) => {\n  if (typeof value !== 'string' || value.trim() === '') {\n    return [];\n  }\n\n  try {\n    const parsed = JSON.parse(value);\n    if (!Array.isArray(parsed)) {\n      throw new Error(`${fieldName} must be a JSON array`);\n    }\n\n    return parsed\n      .map((entry) => String(entry).trim())\n      .filter(Boolean);\n  } catch (error) {\n    throw new Error(`Invalid ${fieldName}: ${error.message}`);\n  }\n};\n\nconst parsePositiveInteger = (value, fieldName, fallback) => {\n  if (value === undefined || value === null || value === '') {\n    return fallback;\n  }\n\n  const parsed = Number(value);\n  if (!Number.isFinite(parsed) || parsed <= 0) {\n    throw new Error(`${fieldName} must be a positive number`);\n  }\n\n  return Math.floor(parsed);\n};\n\nconst vkBaseUrl = String(config.vkBaseUrl || '').trim().replace(/\\/+$/, '');\nconst workflowId = String(config.workflowId || '').trim();\n\nif (!vkBaseUrl) {\n  throw new Error('vkBaseUrl is required');\n}\n\nif (!workflowId) {\n  throw new Error('workflowId is required');\n}\n\nconst reviewerLogins = new Set(\n  parseJsonArray(config.reviewerLoginsJson, 'reviewerLoginsJson').map((entry) =>\n    entry.toLowerCase(),\n  ),\n);\nif (reviewerLogins.size === 0) {\n  throw new Error('reviewerLoginsJson must contain at least one login');\n}\n\nconst allowedProjectIds = new Set(\n  parseJsonArray(config.allowedProjectIdsJson, 'allowedProjectIdsJson'),\n);\nconst allowedRepos = new Set(\n  parseJsonArray(config.allowedReposJson, 'allowedReposJson').map((entry) =>\n    entry.toLowerCase(),\n  ),\n);\nconst ignoredRepos = new Set(\n  parseJsonArray(config.ignoredReposJson, 'ignoredReposJson').map((entry) =>\n    entry.toLowerCase(),\n  ),\n);\n\nconst bootstrapLookbackHours = parsePositiveInteger(\n  config.bootstrapLookbackHours,\n  'bootstrapLookbackHours',\n  24,\n);\nconst maxPullRequestsPerRepo = Math.min(\n  parsePositiveInteger(\n    config.maxPullRequestsPerRepo,\n    'maxPullRequestsPerRepo',\n    25,\n  ),\n  100,\n);\nconst rememberedCommentIds = parsePositiveInteger(\n  config.rememberedCommentIds,\n  'rememberedCommentIds',\n  1000,\n);\n\nconst requestVk = async (path) => {\n  const response = await $helpers.httpRequest({\n    method: 'GET',\n    url: `${vkBaseUrl}${path}`,\n    json: true,\n  });\n\n  if (!response || response.success !== true) {\n    throw new Error(\n      `VK request failed for ${path}: ${response?.error || 'unknown error'}`,\n    );\n  }\n\n  return response.data;\n};\n\nconst projects = await requestVk('/api/projects');\nconst selectedRepoMap = new Map();\n\nfor (const project of projects) {\n  const projectId = String(project.id);\n\n  if (allowedProjectIds.size > 0 && !allowedProjectIds.has(projectId)) {\n    continue;\n  }\n\n  const workflowAssociation = await requestVk(\n    `/api/projects/${projectId}/workflow-association`,\n  );\n\n  if (!workflowAssociation || workflowAssociation.workflow_id !== workflowId) {\n    continue;\n  }\n\n  const githubRepositories = await requestVk(\n    `/api/projects/${projectId}/github-repositories`,\n  );\n\n  for (const repository of githubRepositories) {\n    const fullName = String(repository.github_full_name || '').toLowerCase();\n\n    if (!fullName) {\n      continue;\n    }\n\n    if (allowedRepos.size > 0 && !allowedRepos.has(fullName)) {\n      continue;\n    }\n\n    if (ignoredRepos.has(fullName)) {\n      continue;\n    }\n\n    const existing = selectedRepoMap.get(fullName);\n    if (existing) {\n      existing.projectIds.push(projectId);\n      existing.projectNames.push(project.name);\n      continue;\n    }\n\n    selectedRepoMap.set(fullName, {\n      repoId: repository.repo_id,\n      repoName: repository.repo_name,\n      displayName: repository.display_name,\n      path: repository.path,\n      githubOwner: repository.github_owner,\n      githubRepoName: repository.github_repo_name,\n      githubFullName: repository.github_full_name,\n      projectIds: [projectId],\n      projectNames: [project.name],\n    });\n  }\n}\n\nconst selectedRepos = Array.from(selectedRepoMap.values()).sort((left, right) =>\n  left.githubFullName.localeCompare(right.githubFullName),\n);\n\nconst staticData = $getWorkflowStaticData('global');\nconst state = staticData.coderabbitReviewExtraction || {};\nconst pollStartedAt = new Date().toISOString();\nconst bootstrapAnchor = new Date(\n  Date.now() - bootstrapLookbackHours * 60 * 60 * 1000,\n).toISOString();\nconst pollAfter = typeof state.lastPolledAt === 'string' ? state.lastPolledAt : bootstrapAnchor;\n\nstaticData.coderabbitReviewExtractionRun = {\n  workflowId,\n  pollStartedAt,\n  pollAfter,\n  selectedRepoCount: selectedRepos.length,\n  selectedReposSummary: selectedRepos.map((repo) => ({\n    repo: repo.githubFullName,\n    projects: repo.projectNames,\n  })),\n  selectedReposByFullName: Object.fromEntries(\n    selectedRepos.map((repo) => [repo.githubFullName.toLowerCase(), repo]),\n  ),\n  reviewerLogins: Array.from(reviewerLogins),\n  rememberedCommentIds,\n  knownCommentIds: Array.isArray(state.processedThreadCommentIds)\n    ? state.processedThreadCommentIds.map((entry) => String(entry))\n    : [],\n  newCommentIds: [],\n  inaccessibleRepos: [],\n  extractedPullRequests: [],\n  inspectedPullRequestCount: 0,\n  inspectedThreadCount: 0,\n};\n\nreturn selectedRepos.map((repo) => ({\n  json: {\n    githubOwner: repo.githubOwner,\n    githubRepoName: repo.githubRepoName,\n    githubFullName: repo.githubFullName,\n    projectNames: repo.projectNames,\n    maxPullRequestsPerRepo,\n  },\n}));"
       },
-      "id": "poll-selected-coderabbit-threads",
-      "name": "Poll Selected CodeRabbit Threads",
+      "id": "prepare-repo-poll-state",
+      "name": "Prepare Repo Poll State",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        820,
+        760,
         260
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop-selected-repos",
+      "name": "Loop Selected Repos",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1040,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.github.com/graphql",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{({ query: `query ($owner: String!, $repo: String!, $pullRequestsFirst: Int!) { repository(owner: $owner, name: $repo) { pullRequests(states: OPEN, first: $pullRequestsFirst, orderBy: { field: UPDATED_AT, direction: DESC }) { nodes { number title url updatedAt reviewThreads(first: 100) { nodes { id isResolved isOutdated path line comments(first: 100) { nodes { id body createdAt url path line originalLine diffHunk author { login } } } } } } } } }`, variables: { owner: $('Loop Selected Repos').item.json.githubOwner, repo: $('Loop Selected Repos').item.json.githubRepoName, pullRequestsFirst: Math.min(Number($('Loop Selected Repos').item.json.maxPullRequestsPerRepo || 25), 100) } })}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "fetch-repo-review-threads",
+      "name": "Fetch Repo Review Threads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1320,
+        260
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "githubApi": {
+          "name": "GitHub API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst run = staticData.coderabbitReviewExtractionRun || {};\nrun.inaccessibleRepos ??= [];\nrun.extractedPullRequests ??= [];\nrun.newCommentIds ??= [];\n\nconst repo = $('Loop Selected Repos').item.json;\nconst payload = $input.first().json;\nconst pollAfterMs = Date.parse(String(run.pollAfter || ''));\nconst reviewerLogins = new Set(\n  Array.isArray(run.reviewerLogins)\n    ? run.reviewerLogins.map((entry) => String(entry).toLowerCase())\n    : [],\n);\nconst knownCommentIds = new Set(\n  Array.isArray(run.knownCommentIds)\n    ? run.knownCommentIds.map((entry) => String(entry))\n    : [],\n);\n\nconst recordInaccessible = (status, message) => {\n  run.inaccessibleRepos.push({\n    repo: repo.githubFullName,\n    status: status ?? null,\n    message: message || 'unknown GitHub error',\n  });\n  staticData.coderabbitReviewExtractionRun = run;\n  return $input.all();\n};\n\nif (Array.isArray(payload?.errors) && payload.errors.length > 0) {\n  return recordInaccessible(\n    null,\n    payload.errors.map((entry) => entry?.message || 'unknown GraphQL error').join(', '),\n  );\n}\n\nif (payload?.error || payload?.message === 'Not Found') {\n  return recordInaccessible(\n    payload?.statusCode || payload?.httpCode || null,\n    payload?.message || payload?.error?.message || 'GitHub request failed',\n  );\n}\n\nconst pullRequests = payload?.data?.repository?.pullRequests?.nodes || [];\nrun.inspectedPullRequestCount += pullRequests.length;\n\nfor (const pullRequest of pullRequests) {\n  const updatedAtMs = Date.parse(String(pullRequest?.updatedAt || ''));\n  if (Number.isFinite(updatedAtMs) && Number.isFinite(pollAfterMs) && updatedAtMs < pollAfterMs) {\n    continue;\n  }\n\n  const unresolvedThreads = (pullRequest?.reviewThreads?.nodes || []).filter((thread) =>\n    thread && !thread.isResolved,\n  );\n  run.inspectedThreadCount += unresolvedThreads.length;\n\n  const matchingThreads = [];\n\n  for (const thread of unresolvedThreads) {\n    const matchingCommentIds = [];\n    const serializedComments = (thread.comments?.nodes || []).map((comment) => {\n      const createdAtMs = Date.parse(String(comment?.createdAt || ''));\n      const authorLogin = String(comment?.author?.login || '');\n      const id = String(comment?.id || '');\n      const isNewCoderabbitComment =\n        reviewerLogins.has(authorLogin.toLowerCase()) &&\n        Number.isFinite(createdAtMs) &&\n        createdAtMs >= pollAfterMs &&\n        !knownCommentIds.has(id);\n\n      if (isNewCoderabbitComment) {\n        matchingCommentIds.push(id);\n        knownCommentIds.add(id);\n        run.newCommentIds.push(id);\n      }\n\n      return {\n        id,\n        authorLogin,\n        body: String(comment?.body || ''),\n        createdAt: String(comment?.createdAt || ''),\n        url: String(comment?.url || ''),\n        path: String(comment?.path || thread?.path || ''),\n        line: comment?.line ?? comment?.originalLine ?? thread?.line ?? null,\n        originalLine: comment?.originalLine ?? null,\n        diffHunk: String(comment?.diffHunk || ''),\n        isNewCoderabbitComment,\n      };\n    });\n\n    if (matchingCommentIds.length === 0) {\n      continue;\n    }\n\n    matchingThreads.push({\n      threadId: String(thread?.id || ''),\n      path: String(thread?.path || ''),\n      line: thread?.line ?? null,\n      isResolved: Boolean(thread?.isResolved),\n      isOutdated: Boolean(thread?.isOutdated),\n      matchingCommentCount: matchingCommentIds.length,\n      comments: serializedComments,\n    });\n  }\n\n  if (matchingThreads.length === 0) {\n    continue;\n  }\n\n  run.extractedPullRequests.push({\n    repo: repo.githubFullName,\n    owner: repo.githubOwner,\n    repoName: repo.githubRepoName,\n    pullNumber: pullRequest.number,\n    pullRequestTitle: pullRequest.title,\n    pullRequestUrl: pullRequest.url,\n    selectedProjects: repo.projectNames,\n    threadCount: matchingThreads.length,\n    matchingCommentCount: matchingThreads.reduce(\n      (total, thread) => total + thread.matchingCommentCount,\n      0,\n    ),\n    threads: matchingThreads,\n  });\n}\n\nrun.knownCommentIds = Array.from(knownCommentIds);\nstaticData.coderabbitReviewExtractionRun = run;\n\nreturn $input.all();"
+      },
+      "id": "accumulate-repo-matches",
+      "name": "Accumulate Repo Matches",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst run = staticData.coderabbitReviewExtractionRun || {};\nconst persistedState = staticData.coderabbitReviewExtraction || {};\nconst nextProcessedThreadCommentIds = Array.from(\n  new Set([\n    ...(Array.isArray(run.newCommentIds)\n      ? run.newCommentIds.map((entry) => String(entry))\n      : []),\n    ...(Array.isArray(persistedState.processedThreadCommentIds)\n      ? persistedState.processedThreadCommentIds.map((entry) => String(entry))\n      : []),\n  ]),\n).slice(0, Number(run.rememberedCommentIds || 1000));\n\nstaticData.coderabbitReviewExtraction = {\n  workflowId: run.workflowId || '',\n  lastPolledAt: run.pollStartedAt || new Date().toISOString(),\n  selectedReposByFullName: run.selectedReposByFullName || {},\n  processedThreadCommentIds: nextProcessedThreadCommentIds,\n};\ndelete staticData.coderabbitReviewExtractionRun;\n\nconst pullRequests = Array.isArray(run.extractedPullRequests)\n  ? run.extractedPullRequests\n  : [];\n\nreturn [\n  {\n    json: {\n      status: pullRequests.length > 0 ? 'captured' : 'no_matches',\n      workflowId: run.workflowId || '',\n      pollStartedAt: run.pollStartedAt || new Date().toISOString(),\n      previousPollCheckpoint: run.pollAfter || null,\n      selectedRepoCount: Number(run.selectedRepoCount || 0),\n      selectedRepos: Array.isArray(run.selectedReposSummary)\n        ? run.selectedReposSummary\n        : [],\n      inaccessibleRepos: Array.isArray(run.inaccessibleRepos)\n        ? run.inaccessibleRepos\n        : [],\n      inspectedPullRequestCount: Number(run.inspectedPullRequestCount || 0),\n      inspectedThreadCount: Number(run.inspectedThreadCount || 0),\n      pullRequestCount: pullRequests.length,\n      matchingCommentCount: pullRequests.reduce(\n        (total, pullRequest) => total + Number(pullRequest.matchingCommentCount || 0),\n        0,\n      ),\n      pullRequests,\n    },\n  },\n];"
+      },
+      "id": "finalize-poll-results",
+      "name": "Finalize Poll Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        80
       ]
     }
   ],
@@ -168,7 +239,58 @@
       "main": [
         [
           {
-            "node": "Poll Selected CodeRabbit Threads",
+            "node": "Prepare Repo Poll State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Repo Poll State": {
+      "main": [
+        [
+          {
+            "node": "Loop Selected Repos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Selected Repos": {
+      "main": [
+        [
+          {
+            "node": "Finalize Poll Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Repo Review Threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Repo Review Threads": {
+      "main": [
+        [
+          {
+            "node": "Accumulate Repo Matches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Accumulate Repo Matches": {
+      "main": [
+        [
+          {
+            "node": "Loop Selected Repos",
             "type": "main",
             "index": 0
           }
@@ -176,7 +298,6 @@
       ]
     }
   },
-  "active": false,
   "settings": {},
   "versionId": "00000000-0000-0000-0000-000000000003",
   "meta": {

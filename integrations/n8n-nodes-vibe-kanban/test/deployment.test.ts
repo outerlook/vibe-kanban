@@ -10,7 +10,7 @@ describe('deployment assets', () => {
 
     expect(dockerfile).toContain('FROM docker.n8n.io/n8nio/n8n:${N8N_VERSION}');
     expect(dockerfile).toContain(
-      'ENV N8N_CUSTOM_EXTENSIONS=/opt/n8n-custom/node_modules/n8n-nodes-vibe-kanban',
+      'ENV N8N_CUSTOM_EXTENSIONS=/opt/n8n-custom/node_modules',
     );
     expect(dockerfile).toContain(
       'npm install --omit=dev /tmp/n8n-nodes-vibe-kanban-*.tgz',

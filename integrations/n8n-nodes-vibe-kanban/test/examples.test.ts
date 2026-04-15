@@ -205,14 +205,17 @@ describe("production workflows", () => {
 
     const serialized = JSON.stringify(workflow);
     expect(serialized).toContain("/graphql");
+    expect(serialized).toContain('"nodeCredentialType":"githubApi"');
+    expect(serialized).toContain('"authentication":"predefinedCredentialType"');
     expect(serialized).toContain("reviewThreads(first: 100");
     expect(serialized).toContain("isResolved");
-    expect(serialized).toContain("state: 'open'");
+    expect(serialized).toContain("pullRequests(states: OPEN");
     expect(serialized).toContain("coderabbitai[bot]");
     expect(serialized).toContain("/api/projects/");
     expect(serialized).toContain("/github-repositories");
     expect(serialized).toContain("/workflow-association");
     expect(serialized).toContain("$getWorkflowStaticData");
     expect(serialized).toContain("processedThreadCommentIds");
+    expect(serialized).not.toContain("GITHUB_TOKEN");
   });
 });
