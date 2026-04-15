@@ -22,7 +22,7 @@
         "eventTypes": [
           "task_status_changed"
         ],
-        "schemaVersion": "vk_n8n_orchestration_v1"
+        "schemaVersion": "vk_orchestration_v1"
       },
       "id": "vk-trigger",
       "name": "VK Trigger",

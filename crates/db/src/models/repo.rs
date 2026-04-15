@@ -21,9 +21,7 @@ pub struct Repo {
     pub path: PathBuf,
     pub name: String,
     pub display_name: String,
-    #[ts(type = "Date")]
     pub created_at: DateTime<Utc>,
-    #[ts(type = "Date")]
     pub updated_at: DateTime<Utc>,
 }
 

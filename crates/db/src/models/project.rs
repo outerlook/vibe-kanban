@@ -25,9 +25,7 @@ pub struct Project {
     pub dev_script_working_dir: Option<String>,
     pub default_agent_working_dir: Option<String>,
     pub remote_project_id: Option<Uuid>,
-    #[ts(type = "Date")]
     pub created_at: DateTime<Utc>,
-    #[ts(type = "Date")]
     pub updated_at: DateTime<Utc>,
 }
 

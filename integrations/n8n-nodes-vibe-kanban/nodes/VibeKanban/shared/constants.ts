@@ -1,4 +1,4 @@
-export const VK_ORCHESTRATION_SCHEMA_VERSION = 'vk_n8n_orchestration_v1';
+export const VK_ORCHESTRATION_SCHEMA_VERSION = 'vk_orchestration_v1';
 
 export const VK_EVENT_TYPES = [
   'task_created',

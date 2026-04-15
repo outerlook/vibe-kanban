@@ -19,8 +19,12 @@
     "declaration": false,
     "sourceMap": true,
     "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "shared-contracts": ["../../shared/types.generated.d.ts"]
+    },
     "rootDir": ".",
     "outDir": "./dist/"
   },
-  "include": ["credentials/**/*", "generated/**/*", "nodes/**/*", "package.json"]
+  "include": ["credentials/**/*", "nodes/**/*", "package.json"]
 }

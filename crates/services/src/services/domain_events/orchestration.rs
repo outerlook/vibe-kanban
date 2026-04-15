@@ -19,25 +19,18 @@ use uuid::Uuid;
 
 use super::{DomainEvent, TaskGroupTransitionAction, TaskLifecycleAction};
 
-pub const DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION: &str = "vk_n8n_orchestration_v1";
+pub const DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION: &str = "vk_orchestration_v1";
 
 pub fn default_topic_namespace() -> String {
     "vk/orchestration".to_string()
 }
 
-fn run_reason_name(
-    run_reason: &db::models::execution_process::ExecutionProcessRunReason,
-) -> &'static str {
-    match run_reason {
-        db::models::execution_process::ExecutionProcessRunReason::SetupScript => "setup_script",
-        db::models::execution_process::ExecutionProcessRunReason::CleanupScript => "cleanup_script",
-        db::models::execution_process::ExecutionProcessRunReason::CodingAgent => "coding_agent",
-        db::models::execution_process::ExecutionProcessRunReason::DevServer => "dev_server",
-        db::models::execution_process::ExecutionProcessRunReason::InternalAgent => "internal_agent",
-        db::models::execution_process::ExecutionProcessRunReason::DisposableConversation => {
-            "disposable_conversation"
-        }
-    }
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export)]
+pub enum OrchestrationSchemaVersion {
+    #[serde(rename = "vk_orchestration_v1")]
+    #[ts(rename = "vk_orchestration_v1")]
+    V1,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
@@ -62,24 +55,136 @@ pub enum OrchestrationEventType {
     TaskGroupCompleted,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[ts(export)]
-pub struct OrchestrationEventEnvelope {
+pub struct OrchestrationEventMetadata {
     pub event_id: Uuid,
-    pub schema_version: String,
+    pub schema_version: OrchestrationSchemaVersion,
     pub occurred_at: DateTime<Utc>,
-    pub event_type: OrchestrationEventType,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub task_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub execution_process_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub task_group_id: Option<Uuid>,
-    pub payload: OrchestrationEventPayload,
+}
+
+impl OrchestrationEventMetadata {
+    fn new(event: &DomainEvent) -> Self {
+        let ids = event.entity_ids();
+
+        Self {
+            event_id: Uuid::new_v4(),
+            schema_version: OrchestrationSchemaVersion::V1,
+            occurred_at: event.occurred_at(),
+            task_id: ids.task_id,
+            workspace_id: ids.workspace_id,
+            session_id: ids.session_id,
+            execution_process_id: ids.execution_process_id,
+            task_group_id: ids.task_group_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(tag = "event_type", rename_all = "snake_case")]
+pub enum OrchestrationEventEnvelope {
+    TaskCreated {
+        #[serde(flatten)]
+        #[ts(flatten)]
+        metadata: OrchestrationEventMetadata,
+        payload: TaskLifecycleEventPayload,
+    },
+    TaskUpdated {
+        #[serde(flatten)]
+        #[ts(flatten)]
+        metadata: OrchestrationEventMetadata,
+        payload: TaskLifecycleEventPayload,
+    },
+    TaskDeleted {
+        #[serde(flatten)]
+        #[ts(flatten)]
+        metadata: OrchestrationEventMetadata,
+        payload: TaskLifecycleEventPayload,
+    },
+    TaskStatusChanged {
+        #[serde(flatten)]
+        #[ts(flatten)]
+        metadata: OrchestrationEventMetadata,
+        payload: TaskStatusChangedEventPayload,
+    },
+    ExecutionStarted {
+        #[serde(flatten)]
+        #[ts(flatten)]
+        metadata: OrchestrationEventMetadata,
+        payload: ExecutionStartedEventPayload,
+    },
+    ExecutionCompleted {
+        #[serde(flatten)]
+        #[ts(flatten)]
+        metadata: OrchestrationEventMetadata,
+        payload: ExecutionCompletedEventPayload,
+    },
+    WorkspaceCreated {
+        #[serde(flatten)]
+        #[ts(flatten)]
+        metadata: OrchestrationEventMetadata,
+        payload: WorkspaceCreatedEventPayload,
+    },
+    WorkspaceDeleted {
+        #[serde(flatten)]
+        #[ts(flatten)]
+        metadata: OrchestrationEventMetadata,
+        payload: OrchestrationEmptyPayload,
+    },
+    ProjectUpdated {
+        #[serde(flatten)]
+        #[ts(flatten)]
+        metadata: OrchestrationEventMetadata,
+        payload: ProjectUpdatedEventPayload,
+    },
+    ApprovalRequested {
+        #[serde(flatten)]
+        #[ts(flatten)]
+        metadata: OrchestrationEventMetadata,
+        payload: ApprovalRequestedEventPayload,
+    },
+    ApprovalResolved {
+        #[serde(flatten)]
+        #[ts(flatten)]
+        metadata: OrchestrationEventMetadata,
+        payload: ApprovalResolvedEventPayload,
+    },
+    ConversationMessageAdded {
+        #[serde(flatten)]
+        #[ts(flatten)]
+        metadata: OrchestrationEventMetadata,
+        payload: ConversationMessageAddedEventPayload,
+    },
+    FollowUpTransition {
+        #[serde(flatten)]
+        #[ts(flatten)]
+        metadata: OrchestrationEventMetadata,
+        payload: FollowUpTransitionEventPayload,
+    },
+    MergeQueueTransition {
+        #[serde(flatten)]
+        #[ts(flatten)]
+        metadata: OrchestrationEventMetadata,
+        payload: MergeQueueTransitionEventPayload,
+    },
+    TaskGroupTransition {
+        #[serde(flatten)]
+        #[ts(flatten)]
+        metadata: OrchestrationEventMetadata,
+        payload: TaskGroupTransitionEventPayload,
+    },
+    TaskGroupCompleted {
+        #[serde(flatten)]
+        #[ts(flatten)]
+        metadata: OrchestrationEventMetadata,
+        payload: TaskGroupCompletedEventPayload,
+    },
 }
 
 impl OrchestrationEventEnvelope {
@@ -88,19 +193,94 @@ impl OrchestrationEventEnvelope {
         event_type: OrchestrationEventType,
         payload: OrchestrationEventPayload,
     ) -> Self {
-        let ids = event.entity_ids();
+        let metadata = OrchestrationEventMetadata::new(event);
 
-        Self {
-            event_id: Uuid::new_v4(),
-            schema_version: DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION.to_string(),
-            occurred_at: event.occurred_at(),
-            event_type,
-            task_id: ids.task_id,
-            workspace_id: ids.workspace_id,
-            session_id: ids.session_id,
-            execution_process_id: ids.execution_process_id,
-            task_group_id: ids.task_group_id,
-            payload,
+        match (event_type, payload) {
+            (OrchestrationEventType::TaskCreated, OrchestrationEventPayload::TaskLifecycle(payload)) => {
+                Self::TaskCreated { metadata, payload }
+            }
+            (OrchestrationEventType::TaskUpdated, OrchestrationEventPayload::TaskLifecycle(payload)) => {
+                Self::TaskUpdated { metadata, payload }
+            }
+            (OrchestrationEventType::TaskDeleted, OrchestrationEventPayload::TaskLifecycle(payload)) => {
+                Self::TaskDeleted { metadata, payload }
+            }
+            (
+                OrchestrationEventType::TaskStatusChanged,
+                OrchestrationEventPayload::TaskStatusChanged(payload),
+            ) => Self::TaskStatusChanged { metadata, payload },
+            (
+                OrchestrationEventType::ExecutionStarted,
+                OrchestrationEventPayload::ExecutionStarted(payload),
+            ) => Self::ExecutionStarted { metadata, payload },
+            (
+                OrchestrationEventType::ExecutionCompleted,
+                OrchestrationEventPayload::ExecutionCompleted(payload),
+            ) => Self::ExecutionCompleted { metadata, payload },
+            (
+                OrchestrationEventType::WorkspaceCreated,
+                OrchestrationEventPayload::WorkspaceCreated(payload),
+            ) => Self::WorkspaceCreated { metadata, payload },
+            (
+                OrchestrationEventType::WorkspaceDeleted,
+                OrchestrationEventPayload::WorkspaceDeleted(payload),
+            ) => Self::WorkspaceDeleted { metadata, payload },
+            (
+                OrchestrationEventType::ProjectUpdated,
+                OrchestrationEventPayload::ProjectUpdated(payload),
+            ) => Self::ProjectUpdated { metadata, payload },
+            (
+                OrchestrationEventType::ApprovalRequested,
+                OrchestrationEventPayload::ApprovalRequested(payload),
+            ) => Self::ApprovalRequested { metadata, payload },
+            (
+                OrchestrationEventType::ApprovalResolved,
+                OrchestrationEventPayload::ApprovalResolved(payload),
+            ) => Self::ApprovalResolved { metadata, payload },
+            (
+                OrchestrationEventType::ConversationMessageAdded,
+                OrchestrationEventPayload::ConversationMessageAdded(payload),
+            ) => Self::ConversationMessageAdded { metadata, payload },
+            (
+                OrchestrationEventType::FollowUpTransition,
+                OrchestrationEventPayload::FollowUpTransition(payload),
+            ) => Self::FollowUpTransition { metadata, payload },
+            (
+                OrchestrationEventType::MergeQueueTransition,
+                OrchestrationEventPayload::MergeQueueTransition(payload),
+            ) => Self::MergeQueueTransition { metadata, payload },
+            (
+                OrchestrationEventType::TaskGroupTransition,
+                OrchestrationEventPayload::TaskGroupTransition(payload),
+            ) => Self::TaskGroupTransition { metadata, payload },
+            (
+                OrchestrationEventType::TaskGroupCompleted,
+                OrchestrationEventPayload::TaskGroupCompleted(payload),
+            ) => Self::TaskGroupCompleted { metadata, payload },
+            (event_type, payload) => unreachable!(
+                "orchestration event type {event_type:?} does not match payload {payload:?}"
+            ),
+        }
+    }
+
+    pub fn event_type(&self) -> OrchestrationEventType {
+        match self {
+            Self::TaskCreated { .. } => OrchestrationEventType::TaskCreated,
+            Self::TaskUpdated { .. } => OrchestrationEventType::TaskUpdated,
+            Self::TaskDeleted { .. } => OrchestrationEventType::TaskDeleted,
+            Self::TaskStatusChanged { .. } => OrchestrationEventType::TaskStatusChanged,
+            Self::ExecutionStarted { .. } => OrchestrationEventType::ExecutionStarted,
+            Self::ExecutionCompleted { .. } => OrchestrationEventType::ExecutionCompleted,
+            Self::WorkspaceCreated { .. } => OrchestrationEventType::WorkspaceCreated,
+            Self::WorkspaceDeleted { .. } => OrchestrationEventType::WorkspaceDeleted,
+            Self::ProjectUpdated { .. } => OrchestrationEventType::ProjectUpdated,
+            Self::ApprovalRequested { .. } => OrchestrationEventType::ApprovalRequested,
+            Self::ApprovalResolved { .. } => OrchestrationEventType::ApprovalResolved,
+            Self::ConversationMessageAdded { .. } => OrchestrationEventType::ConversationMessageAdded,
+            Self::FollowUpTransition { .. } => OrchestrationEventType::FollowUpTransition,
+            Self::MergeQueueTransition { .. } => OrchestrationEventType::MergeQueueTransition,
+            Self::TaskGroupTransition { .. } => OrchestrationEventType::TaskGroupTransition,
+            Self::TaskGroupCompleted { .. } => OrchestrationEventType::TaskGroupCompleted,
         }
     }
 }
@@ -129,7 +309,7 @@ pub struct TaskStatusChangedEventPayload {
 #[ts(export)]
 pub struct ExecutionStartedEventPayload {
     pub status: db::models::execution_process::ExecutionProcessStatus,
-    pub run_reason: String,
+    pub run_reason: db::models::execution_process::ExecutionProcessRunReason,
     pub conversation_session_id: Option<Uuid>,
 }
 
@@ -137,7 +317,7 @@ pub struct ExecutionStartedEventPayload {
 #[ts(export)]
 pub struct ExecutionCompletedEventPayload {
     pub status: db::models::execution_process::ExecutionProcessStatus,
-    pub run_reason: String,
+    pub run_reason: db::models::execution_process::ExecutionProcessRunReason,
     pub exit_code: Option<i64>,
     pub conversation_session_id: Option<Uuid>,
 }
@@ -501,7 +681,7 @@ impl OrchestrationEventMapper {
                 OrchestrationEventType::ExecutionStarted,
                 OrchestrationEventPayload::ExecutionStarted(ExecutionStartedEventPayload {
                     status: process.status.clone(),
-                    run_reason: run_reason_name(&process.run_reason).to_string(),
+                    run_reason: process.run_reason.clone(),
                     conversation_session_id: process.conversation_session_id,
                 }),
             ),
@@ -510,7 +690,7 @@ impl OrchestrationEventMapper {
                 OrchestrationEventType::ExecutionCompleted,
                 OrchestrationEventPayload::ExecutionCompleted(ExecutionCompletedEventPayload {
                     status: process.status.clone(),
-                    run_reason: run_reason_name(&process.run_reason).to_string(),
+                    run_reason: process.run_reason.clone(),
                     exit_code: process.exit_code,
                     conversation_session_id: process.conversation_session_id,
                 }),
@@ -937,6 +1117,10 @@ mod tests {
         assert_eq!(json["event_type"], "task_status_changed");
         assert_eq!(json["task_id"], task.id.to_string());
         assert_eq!(json["task_group_id"], task_group.id.to_string());
+        assert!(json.get("workspace_id").is_some());
+        assert_eq!(json["workspace_id"], serde_json::Value::Null);
+        assert!(json.get("session_id").is_some());
+        assert_eq!(json["session_id"], serde_json::Value::Null);
         assert!(json.get("occurred_at").is_some());
         assert!(json.get("event_id").is_some());
         assert!(json.get("task").is_none());
@@ -1018,7 +1202,7 @@ mod tests {
 
         let derived = envelopes
             .iter()
-            .find(|envelope| envelope.event_type == OrchestrationEventType::TaskGroupCompleted)
+            .find(|envelope| envelope.event_type() == OrchestrationEventType::TaskGroupCompleted)
             .expect("derived task_group_completed envelope");
         let json = serde_json::to_value(derived).expect("serialize derived envelope");
 
@@ -1077,7 +1261,7 @@ mod tests {
 
         let derived = envelopes
             .iter()
-            .find(|envelope| envelope.event_type == OrchestrationEventType::TaskGroupCompleted)
+            .find(|envelope| envelope.event_type() == OrchestrationEventType::TaskGroupCompleted)
             .expect("derived task_group_completed envelope");
         let json = serde_json::to_value(derived).expect("serialize derived envelope");
 
@@ -1110,21 +1294,22 @@ mod tests {
             })
             .expect("build MQTT publisher");
 
-        let envelope = OrchestrationEventEnvelope {
-            event_id: Uuid::new_v4(),
-            schema_version: DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION.to_string(),
-            occurred_at: Utc::now(),
-            event_type: OrchestrationEventType::TaskStatusChanged,
-            task_id: Some(Uuid::new_v4()),
-            workspace_id: None,
-            session_id: None,
-            execution_process_id: None,
-            task_group_id: None,
-            payload: OrchestrationEventPayload::TaskStatusChanged(TaskStatusChangedEventPayload {
+        let envelope = OrchestrationEventEnvelope::TaskStatusChanged {
+            metadata: OrchestrationEventMetadata {
+                event_id: Uuid::new_v4(),
+                schema_version: OrchestrationSchemaVersion::V1,
+                occurred_at: Utc::now(),
+                task_id: Some(Uuid::new_v4()),
+                workspace_id: None,
+                session_id: None,
+                execution_process_id: None,
+                task_group_id: None,
+            },
+            payload: TaskStatusChangedEventPayload {
                 project_id: Uuid::new_v4(),
                 status: TaskStatus::Done,
                 previous_status: TaskStatus::InProgress,
-            }),
+            },
         };
 
         // The publish call proves the concrete MQTT transport is bound into the seam.
@@ -1172,7 +1357,7 @@ mod tests {
 
         assert_eq!(envelopes.len(), 1);
         assert_eq!(
-            envelopes[0].event_type,
+            envelopes[0].event_type(),
             OrchestrationEventType::TaskStatusChanged
         );
     }
@@ -1199,10 +1384,11 @@ mod tests {
             occurred_at: now,
         });
         assert_eq!(
-            approval.event_type,
+            approval.event_type(),
             OrchestrationEventType::ApprovalRequested
         );
-        assert_eq!(approval.payload["question_count"], 2);
+        let approval_json = serde_json::to_value(&approval).expect("serialize approval event");
+        assert_eq!(approval_json["payload"]["question_count"], 2);
 
         let conversation = mapper.map_primary_event(&DomainEvent::ConversationMessageAdded {
             conversation_session_id: Uuid::new_v4(),
@@ -1213,10 +1399,12 @@ mod tests {
             occurred_at: now,
         });
         assert_eq!(
-            conversation.event_type,
+            conversation.event_type(),
             OrchestrationEventType::ConversationMessageAdded
         );
-        assert_eq!(conversation.payload["role"], "assistant");
+        let conversation_json =
+            serde_json::to_value(&conversation).expect("serialize conversation event");
+        assert_eq!(conversation_json["payload"]["role"], "assistant");
 
         let merge_queue = mapper.map_primary_event(&DomainEvent::MergeQueueTransition {
             entry_id: Uuid::new_v4(),
@@ -1231,10 +1419,12 @@ mod tests {
             occurred_at: now,
         });
         assert_eq!(
-            merge_queue.event_type,
+            merge_queue.event_type(),
             OrchestrationEventType::MergeQueueTransition
         );
-        assert_eq!(merge_queue.payload["state"], "claimed");
+        let merge_queue_json =
+            serde_json::to_value(&merge_queue).expect("serialize merge queue event");
+        assert_eq!(merge_queue_json["payload"]["state"], "claimed");
 
         let resolved = mapper.map_primary_event(&DomainEvent::ApprovalResolved {
             approval_id: "approval-1".to_string(),
@@ -1244,9 +1434,10 @@ mod tests {
             occurred_at: now,
         });
         assert_eq!(
-            resolved.event_type,
+            resolved.event_type(),
             OrchestrationEventType::ApprovalResolved
         );
-        assert_eq!(resolved.payload["resolution"], "answered");
+        let resolved_json = serde_json::to_value(&resolved).expect("serialize resolved event");
+        assert_eq!(resolved_json["payload"]["resolution"], "answered");
     }
 }

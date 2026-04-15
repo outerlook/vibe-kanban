@@ -214,7 +214,7 @@ mod tests {
                     .await
                     .expect("map orchestration event");
                 for envelope in envelopes {
-                    let event_name = serde_json::to_string(&envelope.event_type)
+                    let event_name = serde_json::to_string(&envelope.event_type())
                         .expect("event type serialization cannot fail")
                         .trim_matches('"')
                         .to_string();
@@ -316,7 +316,7 @@ mod tests {
         let event_types = publisher
             .published()
             .into_iter()
-            .map(|(_, envelope)| envelope.event_type)
+            .map(|(_, envelope)| envelope.event_type())
             .collect::<Vec<_>>();
         assert_eq!(event_types, vec![OrchestrationEventType::TaskStatusChanged]);
     }

@@ -44,7 +44,7 @@ impl EventHandler for OrchestrationEventPublisherHandler {
         let envelopes = mapper.map_event(&event).await?;
 
         for envelope in envelopes {
-            let event_name = serde_json::to_string(&envelope.event_type)
+            let event_name = serde_json::to_string(&envelope.event_type())
                 .expect("event type serialization cannot fail")
                 .trim_matches('"')
                 .to_string();

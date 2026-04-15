@@ -49,7 +49,8 @@ pub enum ExecutionProcessStatus {
 
 #[derive(Debug, Clone, Type, Serialize, Deserialize, PartialEq, TS)]
 #[sqlx(type_name = "execution_process_run_reason", rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
 pub enum ExecutionProcessRunReason {
     SetupScript,
     CleanupScript,

@@ -21,7 +21,7 @@ describe("production workflows", () => {
     );
   });
 
-  it("keeps VK-backed workflows on the VK n8n contract", () => {
+  it("keeps VK-backed workflows on the neutral orchestration contract", () => {
     for (const file of readdirSync(examplesDir).filter((entry) =>
       entry.endsWith(".workflow.json"),
     )) {
@@ -43,7 +43,7 @@ describe("production workflows", () => {
       for (const node of vkNodes) {
         if (node.type === "CUSTOM.vibeKanbanTrigger") {
           expect(node.parameters?.schemaVersion).toBe(
-            "vk_n8n_orchestration_v1",
+            "vk_orchestration_v1",
           );
         }
       }

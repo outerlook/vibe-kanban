@@ -56,7 +56,7 @@ fn test_context(pool: SqlitePool) -> HandlerContext {
     let db = db::DBService { pool };
     let config = Arc::new(RwLock::new(services::services::config::Config::default()));
     let msg_store = Arc::new(MsgStore::default());
-    HandlerContext::new(db, config, msg_store, None)
+    HandlerContext::new(db, config, msg_store)
 }
 
 /// Creates a test Task for use in events.

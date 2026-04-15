@@ -108,7 +108,9 @@ fn generate_types_content() -> String {
         services::services::orchestration::ConversationMessageSnapshotDto::decl(),
         services::services::orchestration::ExecutionScopeDto::decl(),
         services::services::orchestration::ExecutionRepoStateSnapshotDto::decl(),
+        services::services::domain_events::OrchestrationSchemaVersion::decl(),
         services::services::domain_events::OrchestrationEventType::decl(),
+        services::services::domain_events::OrchestrationEventMetadata::decl(),
         services::services::domain_events::OrchestrationEventEnvelope::decl(),
         services::services::domain_events::OrchestrationEventPayload::decl(),
         services::services::domain_events::OrchestrationEmptyPayload::decl(),
@@ -395,7 +397,8 @@ fn generate_types_content() -> String {
         serde_json::Value::decl(),
     ];
 
-    let body = decls
+    let body = normalize_json_transport_types(
+        decls
         .into_iter()
         .map(|d| {
             let trimmed = d.trim_start();
@@ -406,7 +409,8 @@ fn generate_types_content() -> String {
             }
         })
         .collect::<Vec<_>>()
-        .join("\n\n");
+        .join("\n\n"),
+    );
 
     // Append exported constants
     let pr_prompt_escaped = DEFAULT_PR_DESCRIPTION_PROMPT
@@ -416,11 +420,24 @@ fn generate_types_content() -> String {
         .replace('\\', "\\\\")
         .replace('`', "\\`");
     let constants = format!(
-        "export const DEFAULT_PR_DESCRIPTION_PROMPT = `{}`;\n\nexport const DEFAULT_COMMIT_MESSAGE_PROMPT = `{}`;",
+        "export const DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION = \"{}\";\n\nexport const DEFAULT_PR_DESCRIPTION_PROMPT = `{}`;\n\nexport const DEFAULT_COMMIT_MESSAGE_PROMPT = `{}`;",
+        services::services::domain_events::DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION,
         pr_prompt_escaped, commit_prompt_escaped
     );
 
     format!("{HEADER}\n\n{body}\n\n{constants}")
+}
+
+fn generate_types_declaration_content(types_content: &str) -> String {
+    types_content
+        .split("\n\nexport const DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION")
+        .next()
+        .unwrap_or(types_content)
+        .to_string()
+}
+
+fn normalize_json_transport_types(content: String) -> String {
+    content.replace("bigint", "number")
 }
 
 fn generate_json_schema<T: JsonSchema>() -> Result<String, serde_json::Error> {
@@ -525,6 +542,7 @@ fn main() {
     println!("Generating TypeScript types…");
 
     let generated_types = generate_types_content();
+    let generated_type_declarations = generate_types_declaration_content(&generated_types);
     let schema_content = match generate_schemas() {
         Ok(s) => s,
         Err(e) => {
@@ -534,6 +552,7 @@ fn main() {
     };
 
     let types_path = shared_path.join("types.ts");
+    let type_declarations_path = shared_path.join("types.generated.d.ts");
     let schemas_path = shared_path.join("schemas");
 
     if check_mode {
@@ -547,25 +566,32 @@ fn main() {
             false
         };
 
+        let current_declarations = fs::read_to_string(&type_declarations_path).unwrap_or_default();
+        let declarations_up_to_date = if current_declarations == generated_type_declarations {
+            println!("✅ shared/types.generated.d.ts is up to date.");
+            true
+        } else {
+            eprintln!("❌ shared/types.generated.d.ts is not up to date.");
+            false
+        };
+
         // Check JSON schemas
         let schemas_up_to_date = schemas_up_to_date(&schemas_path, &schema_content);
 
         // Exit with appropriate code
-        if types_up_to_date && schemas_up_to_date {
+        if types_up_to_date && declarations_up_to_date && schemas_up_to_date {
             std::process::exit(0);
         } else {
             eprintln!("Please run 'npm run generate-types' and commit the changes.");
             std::process::exit(1);
         }
     } else {
-        // Wipe existing shared
-        fs::remove_dir_all(shared_path).ok();
-
-        // Recreate folder
         fs::create_dir_all(shared_path).expect("cannot create shared");
+        fs::remove_dir_all(&schemas_path).ok();
 
-        // Write the file as before
         fs::write(&types_path, generated_types).expect("unable to write types.ts");
+        fs::write(&type_declarations_path, generated_type_declarations)
+            .expect("unable to write types.generated.d.ts");
         println!("✅ TypeScript types generated in shared/");
 
         write_schemas(&schemas_path, schema_content).expect("unable to write schemas");

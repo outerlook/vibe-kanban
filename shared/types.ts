@@ -12,11 +12,11 @@ export type SharedTask = { id: string, organization_id: string, project_id: stri
 
 export type UserData = { user_id: string, first_name: string | null, last_name: string | null, username: string | null, };
 
-export type Project = { id: string, name: string, dev_script: string | null, dev_script_working_dir: string | null, default_agent_working_dir: string | null, remote_project_id: string | null, created_at: Date, updated_at: Date, };
+export type Project = { id: string, name: string, dev_script: string | null, dev_script_working_dir: string | null, default_agent_working_dir: string | null, remote_project_id: string | null, created_at: string, updated_at: string, };
 
-export type ProjectTaskCounts = { inprogress: bigint, inreview: bigint, };
+export type ProjectTaskCounts = { inprogress: number, inreview: number, };
 
-export type ProjectWithTaskCounts = { task_counts: ProjectTaskCounts, id: string, name: string, dev_script: string | null, dev_script_working_dir: string | null, default_agent_working_dir: string | null, remote_project_id: string | null, created_at: Date, updated_at: Date, };
+export type ProjectWithTaskCounts = { task_counts: ProjectTaskCounts, id: string, name: string, dev_script: string | null, dev_script_working_dir: string | null, default_agent_working_dir: string | null, remote_project_id: string | null, created_at: string, updated_at: string, };
 
 export type CreateProject = { name: string, repositories: Array<CreateProjectRepo>, };
 
@@ -24,7 +24,7 @@ export type UpdateProject = { name: string | null, dev_script: string | null, de
 
 export type WorkflowAssociationScope = "repository_default" | "task_group_default" | "task_override";
 
-export type WorkflowAssociation = { id: string, project_id: string | null, task_group_id: string | null, task_id: string | null, scope: WorkflowAssociationScope, workflow_id: string, label: string, url: string, created_at: Date, updated_at: Date, };
+export type WorkflowAssociation = { id: string, project_id: string | null, task_group_id: string | null, task_id: string | null, scope: WorkflowAssociationScope, workflow_id: string, label: string, url: string, created_at: string, updated_at: string, };
 
 export type UpsertWorkflowAssociation = { workflow_id: string, label: string, url: string, };
 
@@ -40,7 +40,7 @@ export type SearchResult = { path: string, is_file: boolean, match_type: SearchM
 
 export type SearchMatchType = "FileName" | "DirectoryName" | "FullPath";
 
-export type Repo = { id: string, path: string, name: string, display_name: string, created_at: Date, updated_at: Date, };
+export type Repo = { id: string, path: string, name: string, display_name: string, created_at: string, updated_at: string, };
 
 export type ProjectRepo = { id: string, project_id: string, repo_id: string, setup_script: string | null, cleanup_script: string | null, copy_files: string | null, parallel_setup_script: boolean, merge_target_branch: string | null, };
 
@@ -48,11 +48,11 @@ export type CreateProjectRepo = { display_name: string, git_repo_path: string, }
 
 export type UpdateProjectRepo = { setup_script: string | null, cleanup_script: string | null, copy_files: string | null, parallel_setup_script: boolean | null, merge_target_branch: string | null, };
 
-export type WorkspaceRepo = { id: string, workspace_id: string, repo_id: string, target_branch: string, created_at: Date, updated_at: Date, };
+export type WorkspaceRepo = { id: string, workspace_id: string, repo_id: string, target_branch: string, created_at: string, updated_at: string, };
 
 export type CreateWorkspaceRepo = { repo_id: string, target_branch: string, };
 
-export type RepoWithTargetBranch = { target_branch: string, id: string, path: string, name: string, display_name: string, created_at: Date, updated_at: Date, };
+export type RepoWithTargetBranch = { target_branch: string, id: string, path: string, name: string, display_name: string, created_at: string, updated_at: string, };
 
 export type Tag = { id: string, tag_name: string, content: string, created_at: string, updated_at: string, };
 
@@ -74,7 +74,7 @@ export type TaskDependency = { id: string, task_id: string, depends_on_id: strin
 
 export type TaskGroup = { id: string, project_id: string, name: string, description: string | null, base_branch: string | null, created_at: string, updated_at: string, };
 
-export type TaskStatusCounts = { todo: bigint, inprogress: bigint, inreview: bigint, done: bigint, cancelled: bigint, };
+export type TaskStatusCounts = { todo: number, inprogress: number, inreview: number, done: number, cancelled: number, };
 
 export type TaskGroupWithStats = { task_counts: TaskStatusCounts, id: string, project_id: string, name: string, description: string | null, base_branch: string | null, created_at: string, updated_at: string, };
 
@@ -86,7 +86,7 @@ export type CreateNotification = { project_id: string | null, notification_type:
 
 export type UpdateNotification = { title: string | null, message: string | null, is_read: boolean | null, metadata: JsonValue | null, };
 
-export type NotificationStats = { total: bigint, unread: bigint, };
+export type NotificationStats = { total: number, unread: number, };
 
 export type AgentFeedback = { id: string, execution_process_id: string, task_id: string, workspace_id: string, feedback_json: string | null, collected_at: string, created_at: string, updated_at: string, };
 
@@ -98,9 +98,9 @@ export type CreateReviewAttention = { execution_process_id: string, task_id: str
 
 export type FeedbackResponse = { id: string, task_id: string, workspace_id: string, execution_process_id: string, feedback: JsonValue | null, collected_at: string, };
 
-export type GanttTask = { id: string, name: string, start: string, end: string, progress: number, dependencies: Array<string>, task_status: TaskStatus, task_group_id: string | null, total_input_tokens: bigint | null, total_output_tokens: bigint | null, token_usage_metadata: JsonValue | null, };
+export type GanttTask = { id: string, name: string, start: string, end: string, progress: number, dependencies: Array<string>, task_status: TaskStatus, task_group_id: string | null, total_input_tokens: number | null, total_output_tokens: number | null, token_usage_metadata: JsonValue | null, };
 
-export type PaginatedGanttTasks = { tasks: Array<GanttTask>, total: bigint, hasMore: boolean, };
+export type PaginatedGanttTasks = { tasks: Array<GanttTask>, total: number, hasMore: boolean, };
 
 export type CreateTaskGroup = { project_id: string, name: string, description: string | null, base_branch: string | null, };
 
@@ -146,13 +146,13 @@ export type TaskSnapshotDto = { id: string, project_id: string, title: string, d
 
 export type TaskListItemDto = { id: string, title: string, status: string, task_group_id: string | null, is_blocked: boolean, has_in_progress_attempt: boolean, is_queued: boolean, needs_attention: boolean | null, };
 
-export type ImageSnapshotDto = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, created_at: string, };
+export type ImageSnapshotDto = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: number, created_at: string, };
 
 export type WorkspaceSnapshotDto = { id: string, task_id: string, branch: string, agent_working_dir: string | null, setup_completed_at: string | null, created_at: string, updated_at: string, };
 
 export type SessionSnapshotDto = { id: string, workspace_id: string, executor: string | null, created_at: string, updated_at: string, };
 
-export type ExecutionSnapshotDto = { id: string, session_id: string | null, conversation_session_id: string | null, run_reason: string, status: string, action_type: string, executor_profile: string | null, exit_code: bigint | null, dropped: boolean, input_tokens: bigint | null, output_tokens: bigint | null, started_at: string, completed_at: string | null, created_at: string, updated_at: string, };
+export type ExecutionSnapshotDto = { id: string, session_id: string | null, conversation_session_id: string | null, run_reason: string, status: string, action_type: string, executor_profile: string | null, exit_code: number | null, dropped: boolean, input_tokens: number | null, output_tokens: number | null, started_at: string, completed_at: string | null, created_at: string, updated_at: string, };
 
 export type CodingAgentTurnSnapshotDto = { prompt: string | null, summary: string | null, };
 
@@ -178,7 +178,7 @@ export type MergeQueueEntrySnapshotDto = { id: string, project_id: string, works
 
 export type TaskGroupSnapshotDto = { id: string, project_id: string, name: string, description: string | null, base_branch: string | null, created_at: string, updated_at: string, };
 
-export type TaskGroupStatsDto = { todo: bigint, in_progress: bigint, in_review: bigint, done: bigint, cancelled: bigint, };
+export type TaskGroupStatsDto = { todo: number, in_progress: number, in_review: number, done: number, cancelled: number, };
 
 export type TaskGroupDependencyContextDto = { blocked_tasks: Array<TaskListItemDto>, };
 
@@ -194,9 +194,13 @@ export type ExecutionScopeDto = { task: TaskSnapshotDto | null, workspace: Works
 
 export type ExecutionRepoStateSnapshotDto = { id: string, execution_process_id: string, repo_id: string, before_head_commit: string | null, after_head_commit: string | null, merge_commit: string | null, created_at: string, updated_at: string, };
 
+export type OrchestrationSchemaVersion = "vk_orchestration_v1";
+
 export type OrchestrationEventType = "task_created" | "task_updated" | "task_deleted" | "task_status_changed" | "execution_started" | "execution_completed" | "workspace_created" | "workspace_deleted" | "project_updated" | "approval_requested" | "approval_resolved" | "conversation_message_added" | "follow_up_transition" | "merge_queue_transition" | "task_group_transition" | "task_group_completed";
 
-export type OrchestrationEventEnvelope = { event_id: string, schema_version: string, occurred_at: string, event_type: OrchestrationEventType, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, payload: OrchestrationEventPayload, };
+export type OrchestrationEventMetadata = { event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, };
+
+export type OrchestrationEventEnvelope = { "event_type": "task_created", payload: TaskLifecycleEventPayload, event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, } | { "event_type": "task_updated", payload: TaskLifecycleEventPayload, event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, } | { "event_type": "task_deleted", payload: TaskLifecycleEventPayload, event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, } | { "event_type": "task_status_changed", payload: TaskStatusChangedEventPayload, event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, } | { "event_type": "execution_started", payload: ExecutionStartedEventPayload, event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, } | { "event_type": "execution_completed", payload: ExecutionCompletedEventPayload, event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, } | { "event_type": "workspace_created", payload: WorkspaceCreatedEventPayload, event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, } | { "event_type": "workspace_deleted", payload: OrchestrationEmptyPayload, event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, } | { "event_type": "project_updated", payload: ProjectUpdatedEventPayload, event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, } | { "event_type": "approval_requested", payload: ApprovalRequestedEventPayload, event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, } | { "event_type": "approval_resolved", payload: ApprovalResolvedEventPayload, event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, } | { "event_type": "conversation_message_added", payload: ConversationMessageAddedEventPayload, event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, } | { "event_type": "follow_up_transition", payload: FollowUpTransitionEventPayload, event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, } | { "event_type": "merge_queue_transition", payload: MergeQueueTransitionEventPayload, event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, } | { "event_type": "task_group_transition", payload: TaskGroupTransitionEventPayload, event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, } | { "event_type": "task_group_completed", payload: TaskGroupCompletedEventPayload, event_id: string, schema_version: OrchestrationSchemaVersion, occurred_at: string, task_id: string | null, workspace_id: string | null, session_id: string | null, execution_process_id: string | null, task_group_id: string | null, };
 
 export type OrchestrationEventPayload = TaskLifecycleEventPayload | TaskStatusChangedEventPayload | ExecutionStartedEventPayload | ExecutionCompletedEventPayload | WorkspaceCreatedEventPayload | OrchestrationEmptyPayload | ProjectUpdatedEventPayload | ApprovalRequestedEventPayload | ApprovalResolvedEventPayload | ConversationMessageAddedEventPayload | FollowUpTransitionEventPayload | MergeQueueTransitionEventPayload | TaskGroupTransitionEventPayload | TaskGroupCompletedEventPayload;
 
@@ -206,9 +210,9 @@ export type TaskLifecycleEventPayload = { project_id: string, status: TaskStatus
 
 export type TaskStatusChangedEventPayload = { project_id: string, status: TaskStatus, previous_status: TaskStatus, };
 
-export type ExecutionStartedEventPayload = { status: ExecutionProcessStatus, run_reason: string, conversation_session_id: string | null, };
+export type ExecutionStartedEventPayload = { status: ExecutionProcessStatus, run_reason: ExecutionProcessRunReason, conversation_session_id: string | null, };
 
-export type ExecutionCompletedEventPayload = { status: ExecutionProcessStatus, run_reason: string, exit_code: bigint | null, conversation_session_id: string | null, };
+export type ExecutionCompletedEventPayload = { status: ExecutionProcessStatus, run_reason: ExecutionProcessRunReason, exit_code: number | null, conversation_session_id: string | null, };
 
 export type WorkspaceCreatedEventPayload = { branch: string, };
 
@@ -282,9 +286,9 @@ export type CreateScratch = { payload: ScratchPayload, };
 
 export type UpdateScratch = { payload: ScratchPayload, };
 
-export type Image = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, created_at: string, updated_at: string, };
+export type Image = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: number, hash: string, created_at: string, updated_at: string, };
 
-export type CreateImage = { file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, };
+export type CreateImage = { file_path: string, original_name: string, mime_type: string | null, size_bytes: number, hash: string, };
 
 export type GitHubSettingsStatus = { configured: boolean, };
 
@@ -306,19 +310,19 @@ session_id: string | null,
 /**
  * Conversation session ID for disposable conversations (nullable for workspace-based)
  */
-conversation_session_id: string | null, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: bigint | null, 
+conversation_session_id: string | null, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: number | null, 
 /**
  * dropped: true if this process is excluded from the current
  * history view (due to restore/trimming). Hidden from logs/timeline;
  * still listed in the Processes tab.
  */
-dropped: boolean, input_tokens: bigint | null, output_tokens: bigint | null, started_at: string, completed_at: string | null, created_at: string, updated_at: string, };
+dropped: boolean, input_tokens: number | null, output_tokens: number | null, started_at: string, completed_at: string | null, created_at: string, updated_at: string, };
 
 export enum ExecutionProcessStatus { running = "running", completed = "completed", failed = "failed", killed = "killed" }
 
-export type ExecutionProcessRunReason = "setupscript" | "cleanupscript" | "codingagent" | "devserver" | "internalagent" | "disposableconversation";
+export type ExecutionProcessRunReason = "setup_script" | "cleanup_script" | "coding_agent" | "dev_server" | "internal_agent" | "disposable_conversation";
 
-export type ExecutionProcessRepoState = { id: string, execution_process_id: string, repo_id: string, before_head_commit: string | null, after_head_commit: string | null, merge_commit: string | null, created_at: Date, updated_at: Date, };
+export type ExecutionProcessRepoState = { id: string, execution_process_id: string, repo_id: string, before_head_commit: string | null, after_head_commit: string | null, merge_commit: string | null, created_at: string, updated_at: string, };
 
 export type Merge = { "type": "direct" } & DirectMerge | { "type": "pr" } & PrMerge;
 
@@ -328,7 +332,7 @@ export type PrMerge = { id: string, workspace_id: string, repo_id: string, creat
 
 export type MergeStatus = "open" | "merged" | "closed" | "unknown";
 
-export type PullRequestInfo = { number: bigint, url: string, status: MergeStatus, merged_at: string | null, merge_commit_sha: string | null, };
+export type PullRequestInfo = { number: number, url: string, status: MergeStatus, merged_at: string | null, merge_commit_sha: string | null, };
 
 export type ApprovalStatus = { "status": "pending" } | { "status": "approved" } | { "status": "denied", reason?: string, } | { "status": "answered", answers: Array<QuestionAnswer>, } | { "status": "timed_out" };
 
@@ -474,7 +478,7 @@ export type GetProjectPrPageQuery = { cursor: string | null, limit: number | nul
 
 export type ProjectGitHubRepository = { project_id: string, project_name: string, repo_id: string, repo_name: string, display_name: string, path: string, github_owner: string, github_repo_name: string, github_full_name: string, };
 
-export type ProjectPrSummary = { unresolved_count: number | null, number: bigint, title: string, url: string, author: string, head_branch: string, base_branch: string, created_at: string, updated_at: string, };
+export type ProjectPrSummary = { unresolved_count: number | null, number: number, title: string, url: string, author: string, head_branch: string, base_branch: string, created_at: string, updated_at: string, };
 
 export type ProjectRepoPrPage = { repo_id: string, repo_name: string, display_name: string, pull_requests: Array<ProjectPrSummary>, };
 
@@ -482,7 +486,7 @@ export type ProjectPrPage = { limit: number, next_cursor: string | null, has_mor
 
 export type ProjectPrPageResponse = { repos: Array<ProjectRepoPrPage>, page: ProjectPrPage, };
 
-export type PrUnresolvedCount = { repo_id: string, pr_number: bigint, unresolved_count: number, };
+export type PrUnresolvedCount = { repo_id: string, pr_number: number, unresolved_count: number, };
 
 export type PrUnresolvedCountsResponse = { counts: Array<PrUnresolvedCount>, };
 
@@ -652,9 +656,9 @@ export type CreateAndStartTaskRequest = { task: CreateTask, executor_profile_id:
 
 export type CreateGitHubPrRequest = { title: string, body: string | null, target_branch: string | null, draft: boolean | null, repo_id: string, auto_generate_description: boolean, };
 
-export type ImageResponse = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, created_at: string, updated_at: string, };
+export type ImageResponse = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: number, hash: string, created_at: string, updated_at: string, };
 
-export type ImageMetadata = { exists: boolean, file_name: string | null, path: string | null, size_bytes: bigint | null, format: string | null, proxy_url: string | null, };
+export type ImageMetadata = { exists: boolean, file_name: string | null, path: string | null, size_bytes: number | null, format: string | null, proxy_url: string | null, };
 
 export type CreateTaskAttemptBody = { task_id: string, executor_profile_id: ExecutorProfileId, repos: Array<WorkspaceRepoInput>, };
 
@@ -712,7 +716,7 @@ export type GitStateChangedMessage = { type: string, workspace_id: string, };
 
 export type RunScriptError = { "type": "no_script_configured" } | { "type": "process_already_running" };
 
-export type AttachPrResponse = { pr_attached: boolean, pr_url: string | null, pr_number: bigint | null, pr_status: MergeStatus | null, };
+export type AttachPrResponse = { pr_attached: boolean, pr_url: string | null, pr_number: number | null, pr_status: MergeStatus | null, };
 
 export type AttachExistingPrRequest = { repo_id: string, };
 
@@ -722,9 +726,9 @@ export type GetPrCommentsError = { "type": "no_pr_attached" } | { "type": "githu
 
 export type GetPrCommentsQuery = { repo_id: string, };
 
-export type UnifiedPrComment = { "comment_type": "general", id: string, author: string, author_association: string, body: string, created_at: string, url: string, } | { "comment_type": "review", id: bigint, author: string, author_association: string, body: string, created_at: string, url: string, path: string, line: bigint | null, diff_hunk: string, };
+export type UnifiedPrComment = { "comment_type": "general", id: string, author: string, author_association: string, body: string, created_at: string, url: string, } | { "comment_type": "review", id: number, author: string, author_association: string, body: string, created_at: string, url: string, path: string, line: number | null, diff_hunk: string, };
 
-export type PullRequestSummary = { number: bigint, title: string, url: string, author: string, head_branch: string, base_branch: string, created_at: string, updated_at: string, };
+export type PullRequestSummary = { number: number, title: string, url: string, author: string, head_branch: string, base_branch: string, created_at: string, updated_at: string, };
 
 export type RepoBranchStatus = { repo_id: string, repo_name: string, commits_behind: number | null, commits_ahead: number | null, has_uncommitted_changes: boolean | null, head_oid: string | null, uncommitted_count: number | null, untracked_count: number | null, target_branch_name: string, remote_commits_behind: number | null, remote_commits_ahead: number | null, merges: Array<Merge>, 
 /**
@@ -750,9 +754,9 @@ export type QueueMergeRequest = { repo_id: string, commit_message: string | null
 
 export type QueueMergeError = { "type": "no_commits_ahead" } | { "type": "has_conflicts" } | { "type": "already_merged" } | { "type": "already_queued" } | { "type": "workspace_repo_not_found" };
 
-export type MergeQueueCountResponse = { count: bigint, };
+export type MergeQueueCountResponse = { count: number, };
 
-export type DirectoryEntry = { name: string, path: string, is_directory: boolean, is_git_repo: boolean, last_modified: bigint | null, };
+export type DirectoryEntry = { name: string, path: string, is_directory: boolean, is_git_repo: boolean, last_modified: number | null, };
 
 export type DirectoryListResponse = { entries: Array<DirectoryEntry>, current_path: string, };
 
@@ -789,7 +793,7 @@ export type ShowcaseState = { seen_features: Array<string>, };
 
 export type BackupConfig = { enabled: boolean, interval_hours: number, retention_hours_all: number, retention_daily_days: number, retention_weekly_weeks: number, retention_monthly_months: number, };
 
-export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, last_commit_date: Date, };
+export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, last_commit_date: string, };
 
 export type GitStateChange = { kind: GitStateChangeKind, 
 /**
@@ -848,7 +852,7 @@ export enum BaseCodingAgent { CLAUDE_CODE = "CLAUDE_CODE", AMP = "AMP", GEMINI =
 
 export type CodingAgent = { "CLAUDE_CODE": ClaudeCode } | { "AMP": Amp } | { "GEMINI": Gemini } | { "CODEX": Codex } | { "OPENCODE": Opencode } | { "CURSOR_AGENT": CursorAgent } | { "QWEN_CODE": QwenCode } | { "COPILOT": Copilot } | { "DROID": Droid };
 
-export type AvailabilityInfo = { "type": "LOGIN_DETECTED", last_auth_timestamp: bigint, } | { "type": "INSTALLATION_FOUND" } | { "type": "NOT_FOUND" };
+export type AvailabilityInfo = { "type": "LOGIN_DETECTED", last_auth_timestamp: number, } | { "type": "INSTALLATION_FOUND" } | { "type": "NOT_FOUND" };
 
 export type CommandBuilder = { 
 /**
@@ -946,7 +950,7 @@ export type CommandRunResult = { exit_status: CommandExitStatus | null, output: 
 
 export type NormalizedEntry = { timestamp: string | null, entry_type: NormalizedEntryType, content: string, metadata: JsonValue | null, };
 
-export type NormalizedEntryType = { "type": "user_message" } | { "type": "user_feedback", denied_tool: string, } | { "type": "assistant_message" } | { "type": "tool_use", tool_name: string, action_type: ActionType, status: ToolStatus, } | { "type": "system_message" } | { "type": "error_message", error_type: NormalizedEntryError, } | { "type": "thinking" } | { "type": "loading" } | { "type": "next_action", failed: boolean, execution_processes: number, needs_setup: boolean, setup_help_text: string | null, } | { "type": "token_usage", input_tokens: bigint, output_tokens: bigint, };
+export type NormalizedEntryType = { "type": "user_message" } | { "type": "user_feedback", denied_tool: string, } | { "type": "assistant_message" } | { "type": "tool_use", tool_name: string, action_type: ActionType, status: ToolStatus, } | { "type": "system_message" } | { "type": "error_message", error_type: NormalizedEntryError, } | { "type": "thinking" } | { "type": "loading" } | { "type": "next_action", failed: boolean, execution_processes: number, needs_setup: boolean, setup_help_text: string | null, } | { "type": "token_usage", input_tokens: number, output_tokens: number, };
 
 export type FileChange = { "action": "write", content: string, } | { "action": "delete" } | { "action": "rename", new_path: string, } | { "action": "edit", 
 /**
@@ -981,6 +985,8 @@ export type EntryGroup = { entries: Array<NormalizedEntry>, summary: GroupSummar
 export type PatchType = { "type": "NORMALIZED_ENTRY", "content": NormalizedEntry } | { "type": "STDOUT", "content": string } | { "type": "STDERR", "content": string } | { "type": "DIFF", "content": Diff } | { "type": "ENTRY_GROUP", "content": EntryGroup };
 
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]?: JsonValue } | null;
+
+export const DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION = "vk_orchestration_v1";
 
 export const DEFAULT_PR_DESCRIPTION_PROMPT = `Update the GitHub PR that was just created with a better title and description.
 The PR number is #{pr_number} and the URL is {pr_url}.

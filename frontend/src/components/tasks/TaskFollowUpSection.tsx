@@ -180,7 +180,7 @@ export function TaskFollowUpSection({
         .slice()
         .reverse()
         // Only consider CodingAgent processes, not InternalAgent (commit, PR description, etc.)
-        .filter((p) => p.run_reason === 'codingagent')
+        .filter((p) => p.run_reason === 'coding_agent')
         .map((p) => extractProfile(p.executor_action ?? null))
         .find((pid) => pid !== null) ?? null
     );

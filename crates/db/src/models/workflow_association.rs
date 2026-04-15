@@ -29,9 +29,7 @@ pub struct WorkflowAssociation {
     pub workflow_id: String,
     pub label: String,
     pub url: String,
-    #[ts(type = "Date")]
     pub created_at: DateTime<Utc>,
-    #[ts(type = "Date")]
     pub updated_at: DateTime<Utc>,
 }
 

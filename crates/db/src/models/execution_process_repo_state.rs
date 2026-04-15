@@ -12,9 +12,7 @@ pub struct ExecutionProcessRepoState {
     pub before_head_commit: Option<String>,
     pub after_head_commit: Option<String>,
     pub merge_commit: Option<String>,
-    #[ts(type = "Date")]
     pub created_at: DateTime<Utc>,
-    #[ts(type = "Date")]
     pub updated_at: DateTime<Utc>,
 }
 

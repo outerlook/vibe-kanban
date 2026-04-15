@@ -1209,6 +1209,7 @@ impl From<UserQuestion> for UserQuestionSnapshotDto {
 #[cfg(test)]
 mod tests {
     use chrono::TimeZone;
+    use db::models::task::TaskStatus;
 
     use super::*;
 

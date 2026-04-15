@@ -1,16 +1,33 @@
-import { connect, type MqttClient } from 'mqtt';
-
-import {
-  VK_EVENT_TYPES,
-  VK_ORCHESTRATION_SCHEMA_VERSION,
-  type VkEventType,
-} from './constants';
 import type {
-  VkMqttCredentialValue,
-  VkOrchestrationEventEnvelope,
-} from './vk-contracts';
+  FollowUpScope,
+  OrchestrationEventEnvelope,
+  OrchestrationEventType,
+} from './types';
+import { DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION } from './types';
 
-export type VkTriggerRefs = {
+export const ORCHESTRATION_SCHEMA_VERSION =
+  DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION;
+
+export const ORCHESTRATION_EVENT_TYPES = [
+  'task_created',
+  'task_updated',
+  'task_deleted',
+  'task_status_changed',
+  'execution_started',
+  'execution_completed',
+  'workspace_created',
+  'workspace_deleted',
+  'project_updated',
+  'approval_requested',
+  'approval_resolved',
+  'conversation_message_added',
+  'follow_up_transition',
+  'merge_queue_transition',
+  'task_group_transition',
+  'task_group_completed',
+] as const satisfies ReadonlyArray<OrchestrationEventType>;
+
+export type OrchestrationTriggerRefs = {
   taskContext: { taskId: string; projectId: string | null } | null;
   taskGroupContext: { taskGroupId: string } | null;
   conversationContext: { conversationId: string } | null;
@@ -19,12 +36,12 @@ export type VkTriggerRefs = {
   taskSession: { sessionId: string } | null;
 };
 
-export type VkTriggerItem = {
+export type OrchestrationTriggerItem = {
   topic: string;
   eventId: string;
   schemaVersion: string;
   occurredAt: string;
-  eventType: VkEventType;
+  eventType: OrchestrationEventType;
   entityIds: {
     taskId: string | null;
     workspaceId: string | null;
@@ -32,8 +49,8 @@ export type VkTriggerItem = {
     executionProcessId: string | null;
     taskGroupId: string | null;
   };
-  payload: unknown;
-  refs: VkTriggerRefs;
+  payload: OrchestrationEventEnvelope['payload'];
+  refs: OrchestrationTriggerRefs;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -47,7 +64,7 @@ function asOptionalString(value: unknown): string | null {
 function readStringField(record: Record<string, unknown>, field: string): string {
   const value = record[field];
   if (typeof value !== 'string') {
-    throw new Error(`VK orchestration event is missing ${field}`);
+    throw new Error(`Orchestration event is missing ${field}`);
   }
 
   return value;
@@ -63,38 +80,41 @@ function readNullableStringField(
   }
 
   if (typeof value !== 'string') {
-    throw new Error(`VK orchestration event has invalid ${field}`);
+    throw new Error(`Orchestration event has invalid ${field}`);
   }
 
   return value;
 }
 
-function readEventType(record: Record<string, unknown>): VkEventType {
+function readEventType(record: Record<string, unknown>): OrchestrationEventType {
   const eventType = readStringField(record, 'event_type');
-  if (!VK_EVENT_TYPES.includes(eventType as VkEventType)) {
-    throw new Error(`Unsupported VK orchestration event type '${eventType}'`);
+  if (!ORCHESTRATION_EVENT_TYPES.includes(eventType as OrchestrationEventType)) {
+    throw new Error(`Unsupported orchestration event type '${eventType}'`);
   }
 
-  return eventType as VkEventType;
+  return eventType as OrchestrationEventType;
 }
 
 function topicSuffix(topic: string): string {
   return topic.split('/').filter(Boolean).at(-1) ?? '';
 }
 
-export function topicForEvent(topicNamespace: string, eventType: VkEventType): string {
+export function topicForOrchestrationEvent(
+  topicNamespace: string,
+  eventType: OrchestrationEventType,
+): string {
   return `${topicNamespace.replace(/\/+$/, '')}/${eventType}`;
 }
 
-export function parseVkOrchestrationEvent(
+export function parseOrchestrationEvent(
   raw: Buffer | string,
   topic: string,
-  expectedSchemaVersion = VK_ORCHESTRATION_SCHEMA_VERSION,
-): VkTriggerItem {
-  const parsed = JSON.parse(raw.toString()) as VkOrchestrationEventEnvelope;
+  expectedSchemaVersion = ORCHESTRATION_SCHEMA_VERSION,
+): OrchestrationTriggerItem {
+  const parsed = JSON.parse(raw.toString()) as OrchestrationEventEnvelope;
 
   if (!isRecord(parsed)) {
-    throw new Error('VK orchestration event must be a JSON object');
+    throw new Error('Orchestration event must be a JSON object');
   }
 
   const schemaVersion = readStringField(parsed, 'schema_version');
@@ -104,18 +124,18 @@ export function parseVkOrchestrationEvent(
 
   if (schemaVersion !== expectedSchemaVersion) {
     throw new Error(
-      `Unsupported VK orchestration schema '${schemaVersion}', expected '${expectedSchemaVersion}'`,
+      `Unsupported orchestration schema '${schemaVersion}', expected '${expectedSchemaVersion}'`,
     );
   }
 
   if (topicSuffix(topic) !== eventType) {
     throw new Error(
-      `VK orchestration topic '${topic}' does not match event type '${eventType}'`,
+      `Orchestration topic '${topic}' does not match event type '${eventType}'`,
     );
   }
 
   if (!isRecord(parsed.payload)) {
-    throw new Error('VK orchestration event payload must be a JSON object');
+    throw new Error('Orchestration event payload must be a JSON object');
   }
 
   const payload = parsed.payload as Record<string, unknown>;
@@ -124,11 +144,11 @@ export function parseVkOrchestrationEvent(
   const sessionId = readNullableStringField(parsed, 'session_id');
   const executionProcessId = readNullableStringField(parsed, 'execution_process_id');
   const taskGroupId = readNullableStringField(parsed, 'task_group_id');
-  const followUpScope = asOptionalString(payload.scope);
+  const followUpScope = asOptionalString(payload.scope) as FollowUpScope | null;
+  const payloadExecutionProcessId = asOptionalString(payload.execution_process_id);
   const conversationId =
     asOptionalString(payload.conversation_session_id) ??
     (followUpScope === 'conversation' ? sessionId : null);
-  const payloadExecutionProcessId = asOptionalString(payload.execution_process_id);
 
   return {
     topic,
@@ -151,9 +171,7 @@ export function parseVkOrchestrationEvent(
             projectId: asOptionalString(payload.project_id),
           }
         : null,
-      taskGroupContext: taskGroupId
-        ? { taskGroupId }
-        : null,
+      taskGroupContext: taskGroupId ? { taskGroupId } : null,
       conversationContext: conversationId ? { conversationId } : null,
       executionContext: executionProcessId ?? payloadExecutionProcessId
         ? {
@@ -168,76 +186,4 @@ export function parseVkOrchestrationEvent(
         followUpScope === 'task_session' && sessionId ? { sessionId } : null,
     },
   };
-}
-
-export async function createVkMqttClient(
-  credentials: VkMqttCredentialValue,
-): Promise<MqttClient> {
-  return await new Promise<MqttClient>((resolve, reject) => {
-    const client = connect(credentials.brokerUrl, {
-      username: credentials.username || undefined,
-      password: credentials.password || undefined,
-      clientId: credentials.clientId || undefined,
-      clean: credentials.clean ?? true,
-    });
-
-    const onConnect = () => {
-      client.off('error', onError);
-      resolve(client);
-    };
-
-    const onError = (error: Error) => {
-      client.off('connect', onConnect);
-      client.end(true);
-      reject(error);
-    };
-
-    client.once('connect', onConnect);
-    client.once('error', onError);
-  });
-}
-
-export async function subscribeToVkEvents(args: {
-  client: MqttClient;
-  eventTypes: VkEventType[];
-  topicNamespace: string;
-  schemaVersion?: string;
-  onEvent: (event: VkTriggerItem) => void;
-  onError?: (error: Error) => void;
-}): Promise<void> {
-  const topics = args.eventTypes.map((eventType) =>
-    topicForEvent(args.topicNamespace, eventType),
-  );
-
-  await new Promise<void>((resolve, reject) => {
-    args.client.subscribe(topics, { qos: 0 }, (error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve();
-    });
-  });
-
-  args.client.on('message', (topic, payload) => {
-    try {
-      args.onEvent(
-        parseVkOrchestrationEvent(
-          payload,
-          topic,
-          args.schemaVersion ?? VK_ORCHESTRATION_SCHEMA_VERSION,
-        ),
-      );
-    } catch (error) {
-      args.onError?.(
-        error instanceof Error ? error : new Error('Failed to parse VK event'),
-      );
-    }
-  });
-}
-
-export async function closeVkMqttClient(client: MqttClient): Promise<void> {
-  await new Promise<void>((resolve) => {
-    client.end(true, {}, () => resolve());
-  });
 }

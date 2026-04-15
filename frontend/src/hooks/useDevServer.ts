@@ -22,14 +22,14 @@ export function useDevServer(
   const runningDevServer = useMemo<ExecutionProcess | undefined>(() => {
     return attemptData.processes.find(
       (process) =>
-        process.run_reason === 'devserver' && process.status === 'running'
+        process.run_reason === 'dev_server' && process.status === 'running'
     );
   }, [attemptData.processes]);
 
   // Find latest dev server process (for logs viewing)
   const latestDevServerProcess = useMemo<ExecutionProcess | undefined>(() => {
     return [...attemptData.processes]
-      .filter((process) => process.run_reason === 'devserver')
+      .filter((process) => process.run_reason === 'dev_server')
       .sort(
         (a, b) =>
           new Date(b.started_at).getTime() - new Date(a.started_at).getTime()

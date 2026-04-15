@@ -14,9 +14,7 @@ pub struct WorkspaceRepo {
     pub workspace_id: Uuid,
     pub repo_id: Uuid,
     pub target_branch: String,
-    #[ts(type = "Date")]
     pub created_at: DateTime<Utc>,
-    #[ts(type = "Date")]
     pub updated_at: DateTime<Utc>,
 }
 

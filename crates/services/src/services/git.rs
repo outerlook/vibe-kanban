@@ -63,7 +63,6 @@ pub struct GitBranch {
     pub name: String,
     pub is_current: bool,
     pub is_remote: bool,
-    #[ts(type = "Date")]
     pub last_commit_date: DateTime<Utc>,
 }
 

@@ -30,7 +30,7 @@ import type {
   StartTaskExecutionCommand,
   StartTaskExecutionResult,
   WorkflowAssociation,
-} from "../../../generated/shared-types";
+} from 'shared-contracts';
 
 export type VkOrchestrationEventEnvelope = OrchestrationEventEnvelope;
 export type VkTaskContext = OrchestrationTaskContextDto;

@@ -209,7 +209,7 @@ mod tests {
         let db = db::DBService { pool };
         let config = Arc::new(RwLock::new(Config::default()));
         let msg_store = Arc::new(MsgStore::default());
-        HandlerContext::new(db, config, msg_store, None)
+        HandlerContext::new(db, config, msg_store)
     }
 
     #[tokio::test]
