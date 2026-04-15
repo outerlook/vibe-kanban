@@ -69,6 +69,8 @@ coverage/
 frontend/dist
 remote-frontend/dist
 integrations/n8n-nodes-vibe-kanban/dist/
+integrations/trigger-vibe-kanban/.trigger/
+integrations/trigger-vibe-kanban/data/
 
 build-npm-package-codesign.sh
 
