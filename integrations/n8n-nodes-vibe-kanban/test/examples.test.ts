@@ -75,17 +75,38 @@ describe("production workflows", () => {
     const workflow = JSON.parse(
       readFileSync(join(examplesDir, "review-attention.workflow.json"), "utf8"),
     ) as {
-      nodes: Array<{ type: string; parameters?: Record<string, unknown> }>;
+      nodes: Array<{
+        name?: string;
+        type: string;
+        parameters?: Record<string, unknown>;
+      }>;
     };
 
     const serialized = JSON.stringify(workflow);
-    expect(serialized).toContain("payload?.status || '') !== 'in_review'");
+    const promptNode = workflow.nodes.find(
+      (node) => node.name === "Build Review Conversation Input",
+    );
+    const promptAssignments = promptNode?.parameters?.assignments as
+      | {
+          assignments?: Array<{
+            name?: string;
+            value?: string;
+          }>;
+        }
+      | undefined;
+    const initialMessage = promptAssignments?.assignments?.find(
+      (assignment) => assignment.name === "initialMessage",
+    )?.value;
+
+    expect(serialized).toContain("payload?.status || '') === 'in_review'");
     expect(serialized).toContain("latest_coding_execution");
     expect(serialized).toContain('"operation":"createConversation"');
     expect(serialized).toContain('"executor":""');
     expect(serialized).toContain('"executorVariant":""');
     expect(serialized).toContain("reviewGate.pendingByReviewExecutionProcessId");
     expect(serialized).toContain("agent_working_dir");
+    expect(initialMessage).toContain("## Agent's Work Summary");
+    expect(initialMessage).toContain("\"needs_attention\": <true if problems OR task objective not addressed>");
     expect(serialized).not.toContain("@n8n/n8n-nodes-langchain");
   });
 
@@ -103,7 +124,7 @@ describe("production workflows", () => {
     expect(
       workflow.nodes.some((node) => node.type === "n8n-nodes-base.code"),
     ).toBe(true);
-    expect(serialized).toContain("payload?.status || '') !== 'done'");
+    expect(serialized).toContain("payload?.status || '') === 'done'");
     expect(serialized).toContain("dependency_context?.dependents");
     expect(serialized).toContain("task.status === 'todo'");
     expect(serialized).toContain('operation":"startTaskExecution');
@@ -154,6 +175,7 @@ describe("production workflows", () => {
     expect(serialized).toContain("pendingByReviewExecutionProcessId");
     expect(serialized).toContain('"resource":"conversation"');
     expect(serialized).toContain("Failed to parse reviewer verdict");
+    expect(serialized).toContain("needs_attention as a boolean");
     expect(serialized).toContain('"operation":"createReviewAttention"');
     expect(serialized).toContain('"operation":"generateCommitMessage"');
     expect(serialized).toContain('"operation":"queueMerge"');

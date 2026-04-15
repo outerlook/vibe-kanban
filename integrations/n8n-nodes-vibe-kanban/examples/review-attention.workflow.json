@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Production Workflow\\nStarts the external review gate when a task enters `in_review`. It reads the task and latest coding execution context from Vibe Kanban, builds the full reviewer prompt, and starts a dedicated reviewer conversation using the configured VK default executor unless explicitly overridden.\\n\\nThis workflow is intended to be used in production. Review policy lives in n8n, not in VK. VK only provides the task, workspace, and execution building blocks plus the reviewer execution itself.",
+        "content": "## Production Workflow\nStarts the external review gate when a task enters `in_review`. It reads the task and latest coding execution context from Vibe Kanban, builds the full reviewer prompt, and starts a dedicated reviewer conversation using the configured VK default executor unless explicitly overridden.\n\nThis workflow is intended to be used in production. Review policy lives in n8n, not in VK. VK only provides the task, workspace, and execution building blocks plus the reviewer execution itself.",
         "height": 280,
         "width": 500,
         "color": 1
@@ -12,18 +12,26 @@
       "name": "Workflow Description",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-40, 80]
+      "position": [
+        -40,
+        80
+      ]
     },
     {
       "parameters": {
-        "eventTypes": ["task_status_changed"],
+        "eventTypes": [
+          "task_status_changed"
+        ],
         "schemaVersion": "vk_n8n_orchestration_v1"
       },
       "id": "vk-trigger",
       "name": "VK Trigger",
       "type": "n8n-nodes-vibe-kanban.vibeKanbanTrigger",
       "typeVersion": 1,
-      "position": [220, 300],
+      "position": [
+        220,
+        300
+      ],
       "credentials": {
         "vibeKanbanMqtt": {
           "name": "Local VK MQTT"
@@ -32,15 +40,18 @@
     },
     {
       "parameters": {
-        "mode": "runOnceForEachItem",
+        "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "if (($json.payload?.status || '') !== 'in_review') {\\n  return [];\\n}\\n\\nreturn [{ json: $json }];"
+        "jsCode": "return $input\n  .all()\n  .filter((item) => (item.json.payload?.status || '') === 'in_review');"
       },
       "id": "keep-in-review-tasks",
       "name": "Keep Tasks In Review",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [500, 300]
+      "position": [
+        500,
+        300
+      ]
     },
     {
       "parameters": {
@@ -51,7 +62,10 @@
       "name": "Read Task Context",
       "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
       "typeVersion": 1,
-      "position": [780, 300],
+      "position": [
+        780,
+        300
+      ],
       "credentials": {
         "vibeKanbanApi": {
           "name": "Local VK API"
@@ -60,15 +74,18 @@
     },
     {
       "parameters": {
-        "mode": "runOnceForEachItem",
+        "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const staticData = $getWorkflowStaticData('global');\\nconst reviewGate = staticData.reviewGate || {};\\nreviewGate.pendingByReviewExecutionProcessId ??= {};\\nreviewGate.pendingBySourceExecutionId ??= {};\\nreviewGate.completedBySourceExecutionId ??= {};\\nstaticData.reviewGate = reviewGate;\\n\\nconst task = $json.task;\\nconst workspace = $json.latest_workspace;\\nconst latestCodingExecution = $json.latest_coding_execution;\\n\\nif (!task?.id || !workspace?.id || !latestCodingExecution?.id) {\\n  return [];\\n}\\n\\nif ($json.queue_state?.merge_queue?.id) {\\n  return [];\\n}\\n\\nif (reviewGate.pendingBySourceExecutionId[latestCodingExecution.id]) {\\n  return [];\\n}\\n\\nif (reviewGate.completedBySourceExecutionId[latestCodingExecution.id]) {\\n  return [];\\n}\\n\\nif ($json.latest_review_attention?.execution_process_id === latestCodingExecution.id) {\\n  return [];\\n}\\n\\nreturn [{\\n  json: {\\n    projectId: task.project_id,\\n    taskId: task.id,\\n    taskTitle: task.title,\\n    taskDescription: task.description || '',\\n    workspaceId: workspace.id,\\n    worktreePath: workspace.agent_working_dir || '',\\n    worktreeBranch: workspace.branch || '',\\n    sourceExecutionProcessId: latestCodingExecution.id,\\n  },\\n}];"
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst reviewGate = staticData.reviewGate || {};\nreviewGate.pendingByReviewExecutionProcessId ??= {};\nreviewGate.pendingBySourceExecutionId ??= {};\nreviewGate.completedBySourceExecutionId ??= {};\nstaticData.reviewGate = reviewGate;\n\nreturn $input.all().flatMap((item) => {\n  const task = item.json.task;\n  const workspace = item.json.latest_workspace;\n  const latestCodingExecution = item.json.latest_coding_execution;\n\n  if (!task?.id || !workspace?.id || !latestCodingExecution?.id) {\n    return [];\n  }\n\n  if (item.json.queue_state?.merge_queue?.id) {\n    return [];\n  }\n\n  if (reviewGate.pendingBySourceExecutionId[latestCodingExecution.id]) {\n    return [];\n  }\n\n  if (reviewGate.completedBySourceExecutionId[latestCodingExecution.id]) {\n    return [];\n  }\n\n  if (item.json.latest_review_attention?.execution_process_id === latestCodingExecution.id) {\n    return [];\n  }\n\n  return [{\n    json: {\n      projectId: task.project_id,\n      taskId: task.id,\n      taskTitle: task.title,\n      taskDescription: task.description || '',\n      workspaceId: workspace.id,\n      worktreePath: workspace.agent_working_dir || '',\n      worktreeBranch: workspace.branch || '',\n      sourceExecutionProcessId: latestCodingExecution.id,\n    },\n  }];\n});"
       },
       "id": "keep-review-candidates",
       "name": "Keep Review Candidates",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1060, 300]
+      "position": [
+        1060,
+        300
+      ]
     },
     {
       "parameters": {
@@ -79,7 +96,10 @@
       "name": "Read Latest Coding Execution Context",
       "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
       "typeVersion": 1,
-      "position": [1360, 300],
+      "position": [
+        1360,
+        300
+      ],
       "credentials": {
         "vibeKanbanApi": {
           "name": "Local VK API"
@@ -142,7 +162,7 @@
               "id": "initial-message",
               "name": "initialMessage",
               "type": "string",
-              "value": "={{`You are the final reviewer for a completed Vibe Kanban task.\\n\\nReview objective:\\n- Approve only if the work is ready to merge into the task group's base branch.\\n- Reject if the work is incomplete, incorrect, risky, blocked, or does not satisfy the original task.\\n- If you reject, explain the key reason briefly and concretely.\\n\\nInspect the worktree when useful, but always ground your verdict in the task and execution context below.\\n\\n## Original Task\\nTitle: ${$('Keep Review Candidates').item.json.taskTitle}\\nDescription: ${$('Keep Review Candidates').item.json.taskDescription || '(no description)'}\\n\\n## Task Orchestration Context\\n${JSON.stringify($('Read Task Context').item.json, null, 2)}\\n\\n## Latest Coding Execution Context\\n${JSON.stringify($json, null, 2)}\\n\\nReturn only JSON with this shape:\\n{\"approved\": true, \"reasoning\": \"brief explanation\"}\\n\\nRules:\\n- \\\"approved\\\" must be true only when the work is actually ready to merge.\\n- \\\"reasoning\\\" must always be present and concise.\\n- Do not wrap the JSON in markdown fences.`}}"
+              "value": "={{`Analyze whether the completed work successfully addresses the original task.\n\n## Original Task\nTitle: ${$('Keep Review Candidates').item.json.taskTitle}\nDescription: ${$('Keep Review Candidates').item.json.taskDescription || '(no description)'}\n\n## Agent's Work Summary\n${$json.coding_agent_turn?.summary || '(no agent summary)'}\n\n## Your Role\nYou are reviewing whether the task objective was achieved. Check BOTH:\n1. Did the agent report any problems or failures?\n2. Does the work actually address what the original task requested?\n\n## NEEDS ATTENTION if ANY of these are true:\n\n### Agent-reported problems:\n- Errors or failures that weren't resolved\n- Work that is incomplete or partially done\n- Blockers encountered\n- Tests failing\n- Uncertainty about correctness\n\n### Task completion issues:\n- The work does NOT address the original task objective\n- The agent did something tangential (e.g., answered a question but didn't fix the underlying problem)\n- The summary describes work that doesn't match what the task asked for\n- The task requested a fix/implementation but the agent only investigated/explained\n\n### Agent communication issues:\n- Outstanding questions to the user that weren't answered\n- Waiting for user input or clarification\n- Dependencies on user decisions that haven't been resolved\n\n## Does NOT need attention if:\n- The work directly addresses what the task requested\n- The agent completed the actual objective (not just related activities)\n- No problems or concerns are mentioned by the agent\n\n## IMPORTANT - Do NOT flag attention for:\n- Normal configuration requirements (env vars, parameters to set)\n- Suggestions for future improvements or additional testing\n- Standard deployment steps\n- Your own hypothetical concerns about the code\n- Things the agent did NOT mention as problems\n- Commit message\n\n## Code Review (READ-ONLY)\nIf you need to clarify something that isn't clear from the summary, you may review the code, but ONLY under these conditions:\n- This should be done ONLY when necessary and when it's not clear\n- AVOID doing this if possible\n- Everything must be READ-ONLY - you cannot change anything\n- You may check git diff, view task history, or examine the codebase to clarify doubts\n- Keep this focused and minimal\n\nKey question: Did the agent complete what the task actually asked for, or just do something related?\n\nRespond with JSON:\n\n```json\n{\n  \"needs_attention\": <true if problems OR task objective not addressed>,\n  \"reasoning\": \"<brief explanation - mention if task objective was/wasn't met>\"\n}\n``` `}}"
             }
           ]
         },
@@ -152,7 +172,10 @@
       "name": "Build Review Conversation Input",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [1660, 300]
+      "position": [
+        1660,
+        300
+      ]
     },
     {
       "parameters": {
@@ -170,7 +193,10 @@
       "name": "Start Reviewer Conversation",
       "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
       "typeVersion": 1,
-      "position": [1970, 300],
+      "position": [
+        1970,
+        300
+      ],
       "credentials": {
         "vibeKanbanApi": {
           "name": "Local VK API"
@@ -231,19 +257,25 @@
       "name": "Build Review Registration",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [2280, 300]
+      "position": [
+        2280,
+        300
+      ]
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
         "language": "javaScript",
-        "jsCode": "const staticData = $getWorkflowStaticData('global');\\nconst reviewGate = staticData.reviewGate || {};\\nreviewGate.pendingByReviewExecutionProcessId ??= {};\\nreviewGate.pendingBySourceExecutionId ??= {};\\nreviewGate.completedBySourceExecutionId ??= {};\\nstaticData.reviewGate = reviewGate;\\n\\nif (!$json.reviewExecutionProcessId || !$json.sourceExecutionProcessId) {\\n  throw new Error('Missing review execution registration identifiers');\\n}\\n\\nreviewGate.pendingByReviewExecutionProcessId[$json.reviewExecutionProcessId] = {\\n  conversationId: $json.conversationId,\\n  projectId: $json.projectId,\\n  taskId: $json.taskId,\\n  workspaceId: $json.workspaceId,\\n  sourceExecutionProcessId: $json.sourceExecutionProcessId,\\n  repoIdsJson: $json.repoIdsJson,\\n  createdAt: new Date().toISOString(),\\n};\\nreviewGate.pendingBySourceExecutionId[$json.sourceExecutionProcessId] = $json.reviewExecutionProcessId;\\n\\nreturn [{ json: $json }];"
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst reviewGate = staticData.reviewGate || {};\nreviewGate.pendingByReviewExecutionProcessId ??= {};\nreviewGate.pendingBySourceExecutionId ??= {};\nreviewGate.completedBySourceExecutionId ??= {};\nstaticData.reviewGate = reviewGate;\n\nif (!$json.reviewExecutionProcessId || !$json.sourceExecutionProcessId) {\n  throw new Error('Missing review execution registration identifiers');\n}\n\nreviewGate.pendingByReviewExecutionProcessId[$json.reviewExecutionProcessId] = {\n  conversationId: $json.conversationId,\n  projectId: $json.projectId,\n  taskId: $json.taskId,\n  workspaceId: $json.workspaceId,\n  sourceExecutionProcessId: $json.sourceExecutionProcessId,\n  repoIdsJson: $json.repoIdsJson,\n  createdAt: new Date().toISOString(),\n};\nreviewGate.pendingBySourceExecutionId[$json.sourceExecutionProcessId] = $json.reviewExecutionProcessId;\n\nreturn { json: $json };"
       },
       "id": "register-review-conversation",
       "name": "Register Review Conversation",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2570, 300]
+      "position": [
+        2570,
+        300
+      ]
     }
   ],
   "connections": {

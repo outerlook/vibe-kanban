@@ -76,10 +76,6 @@ pub struct Config {
     pub langfuse_host: Option<String>,
     #[serde(default)]
     pub backup: BackupConfig,
-    #[serde(default)]
-    pub review_attention_executor_profile: Option<ExecutorProfileId>,
-    #[serde(default)]
-    pub review_attention_prompt: Option<String>,
     #[serde(default = "default_autopilot_enabled")]
     pub autopilot_enabled: bool,
     #[serde(default)]
@@ -116,8 +112,6 @@ impl Config {
             langfuse_secret_key: old_config.langfuse_secret_key,
             langfuse_host: old_config.langfuse_host,
             backup: old_config.backup,
-            review_attention_executor_profile: old_config.review_attention_executor_profile,
-            review_attention_prompt: old_config.review_attention_prompt,
             autopilot_enabled: old_config.autopilot_enabled,
             orchestration_event_publisher: OrchestrationEventPublisherConfig::default(),
         }
@@ -186,8 +180,6 @@ impl Default for Config {
             langfuse_secret_key: None,
             langfuse_host: default_langfuse_host(),
             backup: BackupConfig::default(),
-            review_attention_executor_profile: None,
-            review_attention_prompt: None,
             autopilot_enabled: false,
             orchestration_event_publisher: OrchestrationEventPublisherConfig::default(),
         }
@@ -215,10 +207,6 @@ mod tests {
         assert_eq!(v16_config.git_branch_prefix, v15_config.git_branch_prefix);
         assert_eq!(v16_config.langfuse_enabled, v15_config.langfuse_enabled);
         assert_eq!(v16_config.backup.enabled, v15_config.backup.enabled);
-        assert_eq!(
-            v16_config.review_attention_executor_profile,
-            v15_config.review_attention_executor_profile
-        );
         assert_eq!(v16_config.autopilot_enabled, v15_config.autopilot_enabled);
         assert_eq!(
             v16_config.orchestration_event_publisher,
@@ -227,20 +215,46 @@ mod tests {
     }
 
     #[test]
-    fn test_v16_roundtrip() {
-        let config = Config {
-            review_attention_prompt: Some("Custom review prompt".to_string()),
-            ..Config::default()
-        };
+    fn test_v16_ignores_legacy_review_attention_fields() {
+        let raw = serde_json::json!({
+            "config_version": "v16",
+            "theme": "system",
+            "executor_profile": { "executor": "CLAUDE_CODE", "variant": null },
+            "disclaimer_acknowledged": false,
+            "onboarding_acknowledged": false,
+            "notifications": NotificationConfig::default(),
+            "editor": EditorConfig::default(),
+            "github": GitHubConfig::default(),
+            "analytics_enabled": true,
+            "workspace_dir": null,
+            "last_app_version": null,
+            "show_release_notes": false,
+            "language": UiLanguage::default(),
+            "git_branch_prefix": "vk",
+            "showcases": ShowcaseState::default(),
+            "pr_auto_description_enabled": true,
+            "pr_auto_description_prompt": null,
+            "default_clone_directory": null,
+            "commit_message_auto_generate_enabled": true,
+            "commit_message_prompt": null,
+            "commit_message_executor_profile": null,
+            "max_concurrent_agents": 0,
+            "langfuse_enabled": false,
+            "langfuse_public_key": null,
+            "langfuse_secret_key": null,
+            "langfuse_host": "https://cloud.langfuse.com",
+            "backup": BackupConfig::default(),
+            "review_attention_executor_profile": {
+                "executor": "CLAUDE_CODE",
+                "variant": "DEFAULT"
+            },
+            "review_attention_prompt": "legacy prompt",
+            "autopilot_enabled": false,
+            "orchestration_event_publisher": OrchestrationEventPublisherConfig::default()
+        });
 
-        let json = serde_json::to_string(&config).unwrap();
-        let parsed = Config::from(json);
-
+        let parsed = Config::from(raw.to_string());
         assert_eq!(parsed.config_version, "v16");
-        assert_eq!(
-            parsed.review_attention_prompt,
-            Some("Custom review prompt".to_string())
-        );
     }
 
     #[test]

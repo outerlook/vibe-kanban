@@ -99,7 +99,6 @@ use services::services::{
     notification::NotificationService,
     operation_status::{OperationStatus, OperationStatusStore, OperationStatusType},
     queued_message::QueuedMessageService,
-    review_attention::ReviewAttentionService,
     share::SharePublisher,
     skills_cache::GlobalSkillsCache,
     watcher_manager::WatcherManager,
