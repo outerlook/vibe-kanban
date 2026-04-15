@@ -192,7 +192,10 @@ mod tests {
 
         assert_eq!(v17_config.config_version, "v17");
         assert_eq!(v17_config.analytics_enabled, v16_config.analytics_enabled);
-        assert_eq!(v17_config.max_concurrent_agents, v16_config.max_concurrent_agents);
+        assert_eq!(
+            v17_config.max_concurrent_agents,
+            v16_config.max_concurrent_agents
+        );
         assert_eq!(v17_config.git_branch_prefix, v16_config.git_branch_prefix);
         assert_eq!(v17_config.langfuse_enabled, v16_config.langfuse_enabled);
         assert_eq!(v17_config.backup.enabled, v16_config.backup.enabled);
@@ -213,7 +216,10 @@ mod tests {
         let parsed = Config::from(json);
 
         assert_eq!(parsed.config_version, "v17");
-        assert_eq!(parsed.pr_auto_description_prompt, Some("Describe the PR".to_string()));
+        assert_eq!(
+            parsed.pr_auto_description_prompt,
+            Some("Describe the PR".to_string())
+        );
     }
 
     #[test]
@@ -253,7 +259,9 @@ mod tests {
 
         let json = serde_json::to_string(&config).unwrap();
         let parsed = Config::from(json);
-        parsed.validate().expect("parsed publisher config remains valid");
+        parsed
+            .validate()
+            .expect("parsed publisher config remains valid");
         assert!(parsed.orchestration_event_publisher.enabled);
         assert_eq!(
             parsed

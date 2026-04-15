@@ -3,7 +3,10 @@ use axum::{
     extract::{Path, State},
     routing::{get, post},
 };
-use db::models::{review_attention::{CreateReviewAttention, ReviewAttention}, task::Task};
+use db::models::{
+    review_attention::{CreateReviewAttention, ReviewAttention},
+    task::Task,
+};
 use deployment::Deployment;
 use utils::response::ApiResponse;
 use uuid::Uuid;
@@ -52,9 +55,7 @@ mod tests {
         http::{Request, StatusCode},
     };
     use db::models::{
-        execution_process::{
-            CreateExecutionProcess, ExecutionProcess, ExecutionProcessRunReason,
-        },
+        execution_process::{CreateExecutionProcess, ExecutionProcess, ExecutionProcessRunReason},
         project::{CreateProject, Project},
         session::{CreateSession, Session},
         task::{CreateTask, Task, TaskStatus},
@@ -62,8 +63,7 @@ mod tests {
     };
     use executors::{
         actions::{
-            ExecutorAction, ExecutorActionType,
-            coding_agent_initial::CodingAgentInitialRequest,
+            ExecutorAction, ExecutorActionType, coding_agent_initial::CodingAgentInitialRequest,
         },
         executors::BaseCodingAgent,
         profile::ExecutorProfileId,
@@ -133,24 +133,17 @@ mod tests {
         .unwrap()
     }
 
-    async fn create_execution(
-        deployment: &DeploymentImpl,
-        session_id: Uuid,
-    ) -> ExecutionProcess {
+    async fn create_execution(deployment: &DeploymentImpl, session_id: Uuid) -> ExecutionProcess {
         ExecutionProcess::create(
             &deployment.db().pool,
             &CreateExecutionProcess {
                 session_id,
                 executor_action: ExecutorAction::new(
-                    ExecutorActionType::CodingAgentInitialRequest(
-                        CodingAgentInitialRequest {
-                            prompt: "review attention".to_string(),
-                            executor_profile_id: ExecutorProfileId::new(
-                                BaseCodingAgent::ClaudeCode,
-                            ),
-                            working_dir: None,
-                        },
-                    ),
+                    ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+                        prompt: "review attention".to_string(),
+                        executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+                        working_dir: None,
+                    }),
                     None,
                 ),
                 run_reason: ExecutionProcessRunReason::CodingAgent,

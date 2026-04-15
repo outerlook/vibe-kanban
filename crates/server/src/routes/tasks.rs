@@ -439,7 +439,11 @@ async fn handle_tasks_ws(
 ) -> anyhow::Result<()> {
     let stream = deployment
         .events()
-        .stream_tasks_raw(project_id, include_snapshot, deployment.operation_status().clone())
+        .stream_tasks_raw(
+            project_id,
+            include_snapshot,
+            deployment.operation_status().clone(),
+        )
         .await?;
 
     forward_stream_to_ws(socket, stream).await
@@ -1691,7 +1695,6 @@ mod lifecycle_tests {
                 .iter()
                 .all(|task| task.status == TaskStatus::InReview)
         );
-
     }
 
     #[tokio::test]

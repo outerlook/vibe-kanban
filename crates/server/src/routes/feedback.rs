@@ -58,8 +58,7 @@ pub async fn create_feedback(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateAgentFeedback>,
 ) -> Result<Json<ApiResponse<FeedbackResponse>>, ApiError> {
-    let feedback =
-        AgentFeedback::create(&deployment.db().pool, &payload, Uuid::new_v4()).await?;
+    let feedback = AgentFeedback::create(&deployment.db().pool, &payload, Uuid::new_v4()).await?;
     Ok(Json(ApiResponse::success(feedback.into())))
 }
 
@@ -111,9 +110,7 @@ mod tests {
         http::{Request, StatusCode},
     };
     use db::models::{
-        execution_process::{
-            CreateExecutionProcess, ExecutionProcess, ExecutionProcessRunReason,
-        },
+        execution_process::{CreateExecutionProcess, ExecutionProcess, ExecutionProcessRunReason},
         project::{CreateProject, Project},
         session::{CreateSession, Session},
         task::{CreateTask, Task, TaskStatus},
@@ -121,8 +118,7 @@ mod tests {
     };
     use executors::{
         actions::{
-            ExecutorAction, ExecutorActionType,
-            coding_agent_initial::CodingAgentInitialRequest,
+            ExecutorAction, ExecutorActionType, coding_agent_initial::CodingAgentInitialRequest,
         },
         executors::BaseCodingAgent,
         profile::ExecutorProfileId,
@@ -192,24 +188,17 @@ mod tests {
         .unwrap()
     }
 
-    async fn create_execution(
-        deployment: &DeploymentImpl,
-        session_id: Uuid,
-    ) -> ExecutionProcess {
+    async fn create_execution(deployment: &DeploymentImpl, session_id: Uuid) -> ExecutionProcess {
         ExecutionProcess::create(
             &deployment.db().pool,
             &CreateExecutionProcess {
                 session_id,
                 executor_action: ExecutorAction::new(
-                    ExecutorActionType::CodingAgentInitialRequest(
-                        CodingAgentInitialRequest {
-                            prompt: "collect feedback".to_string(),
-                            executor_profile_id: ExecutorProfileId::new(
-                                BaseCodingAgent::ClaudeCode,
-                            ),
-                            working_dir: None,
-                        },
-                    ),
+                    ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+                        prompt: "collect feedback".to_string(),
+                        executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+                        working_dir: None,
+                    }),
                     None,
                 ),
                 run_reason: ExecutionProcessRunReason::CodingAgent,
@@ -261,15 +250,16 @@ mod tests {
         assert_eq!(data["execution_process_id"], execution.id.to_string());
         assert_eq!(data["task_id"], task.id.to_string());
         assert_eq!(data["workspace_id"], workspace.id.to_string());
-        assert_eq!(data["feedback"], serde_json::json!({ "summary": "Ship it" }));
+        assert_eq!(
+            data["feedback"],
+            serde_json::json!({ "summary": "Ship it" })
+        );
 
-        let persisted = AgentFeedback::find_by_execution_process_id(
-            &deployment.db().pool,
-            execution.id,
-        )
-        .await
-        .unwrap()
-        .unwrap();
+        let persisted =
+            AgentFeedback::find_by_execution_process_id(&deployment.db().pool, execution.id)
+                .await
+                .unwrap()
+                .unwrap();
         assert_eq!(persisted.task_id, task.id);
         assert_eq!(
             persisted.feedback_json,

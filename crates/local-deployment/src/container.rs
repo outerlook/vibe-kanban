@@ -177,7 +177,11 @@ impl LocalContainerService {
             .with_handler(NotificationHandler::new(notification_service.clone()))
             .with_handler(RemoteSyncHandler::new(publisher.clone().ok()))
             .with_handler(OrchestrationEventPublisherHandler::new())
-            .with_context(HandlerContext::new(db.clone(), config.clone(), global_msg_store));
+            .with_context(HandlerContext::new(
+                db.clone(),
+                config.clone(),
+                global_msg_store,
+            ));
 
         if let Some(orchestration_event_publisher) = orchestration_event_publisher {
             dispatcher_builder = dispatcher_builder
@@ -1760,7 +1764,6 @@ impl LocalContainerService {
             cleanup(msg_stores, feedback_pending_cleanup, db, feedback_exec_id).await;
         });
     }
-
 }
 
 fn failure_exit_status() -> std::process::ExitStatus {

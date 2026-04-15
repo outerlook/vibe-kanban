@@ -574,5 +574,4 @@ mod tests {
         assert!(TaskOnlyHandler::handles(&task_event));
         assert!(!TaskOnlyHandler::handles(&workspace_event));
     }
-
 }

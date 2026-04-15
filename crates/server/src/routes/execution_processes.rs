@@ -337,12 +337,15 @@ mod tests {
         task::{CreateTask, Task, TaskStatus},
         workspace::{CreateWorkspace, Workspace},
     };
-    use executors::actions::{
-        ExecutorAction, ExecutorActionType,
-        coding_agent_initial::CodingAgentInitialRequest,
-        script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+    use executors::{
+        actions::{
+            ExecutorAction, ExecutorActionType,
+            coding_agent_initial::CodingAgentInitialRequest,
+            script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+        },
+        executors::BaseCodingAgent,
+        profile::ExecutorProfileId,
     };
-    use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
     use local_deployment::LocalDeployment;
     use uuid::Uuid;
 
@@ -466,15 +469,11 @@ mod tests {
             &CreateExecutionProcess {
                 session_id: session.id,
                 executor_action: ExecutorAction::new(
-                    ExecutorActionType::CodingAgentInitialRequest(
-                        CodingAgentInitialRequest {
-                            prompt: "Fix the flaky review attention workflow".to_string(),
-                            executor_profile_id: ExecutorProfileId::new(
-                                BaseCodingAgent::ClaudeCode,
-                            ),
-                            working_dir: None,
-                        },
-                    ),
+                    ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+                        prompt: "Fix the flaky review attention workflow".to_string(),
+                        executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+                        working_dir: None,
+                    }),
                     None,
                 ),
                 run_reason: ExecutionProcessRunReason::CodingAgent,
@@ -515,9 +514,7 @@ mod tests {
         );
         assert_eq!(
             payload["data"]["coding_agent_turn"]["summary"],
-            serde_json::json!(
-                "Adjusted the orchestration flow and added regression coverage."
-            )
+            serde_json::json!("Adjusted the orchestration flow and added regression coverage.")
         );
     }
 }

@@ -42,11 +42,7 @@ pub struct HandlerContext {
 }
 
 impl HandlerContext {
-    pub fn new(
-        db: DBService,
-        config: Arc<RwLock<Config>>,
-        msg_store: Arc<MsgStore>,
-    ) -> Self {
+    pub fn new(db: DBService, config: Arc<RwLock<Config>>, msg_store: Arc<MsgStore>) -> Self {
         Self {
             db,
             config,

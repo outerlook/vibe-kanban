@@ -443,10 +443,8 @@ impl EventService {
         let operation_status_msg = build_operation_status_snapshot(operation_statuses);
 
         // Start with initial snapshots (tasks and operation_status), then live updates.
-        let initial_stream = futures::stream::iter(vec![
-            Ok(snapshot_result.msg),
-            Ok(operation_status_msg),
-        ]);
+        let initial_stream =
+            futures::stream::iter(vec![Ok(snapshot_result.msg), Ok(operation_status_msg)]);
         let combined_stream = initial_stream.chain(filtered_stream).boxed();
 
         Ok(combined_stream)
