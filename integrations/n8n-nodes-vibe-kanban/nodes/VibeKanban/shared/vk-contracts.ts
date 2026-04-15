@@ -66,6 +66,9 @@ export type VkReviewAttention = ReviewAttention;
 export type VkProject = ProjectWithTaskCounts;
 export type VkWorkflowAssociation = WorkflowAssociation | null;
 export type VkProjectGitHubRepository = ProjectGitHubRepository;
+export type VkSelectedProject = ProjectWithTaskCounts & {
+  workflowAssociation: WorkflowAssociation | null;
+};
 export type VkSelectedGitHubRepository = ProjectGitHubRepository & {
   projectIds: string[];
   projectNames: string[];
@@ -76,8 +79,9 @@ export type VkReadResource =
   | "taskGroup"
   | "conversation"
   | "execution"
-  | "approval"
-  | "githubRepositories";
+  | "approval";
+
+export type VkSelectResource = "projects" | "githubRepositories";
 
 export type VkActionResource =
   | "task"

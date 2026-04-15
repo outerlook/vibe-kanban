@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   normalizeActionOutput,
   normalizeReadOutput,
+  normalizeSelectOutput,
 } from '../nodes/VibeKanban/shared/output';
 
 describe('node response mapping', () => {
@@ -31,6 +32,27 @@ describe('node response mapping', () => {
     expect(output.resource).toBe('task');
     expect(output.task.id).toBe('task-1');
     expect(output._meta.surface).toBe('orchestration-context');
+  });
+
+  it('keeps selection outputs expression-friendly', () => {
+    const output = normalizeSelectOutput('githubRepositories', {
+      repo_id: 'repo-1',
+      repo_name: 'vibe-kanban',
+      display_name: 'Vibe Kanban',
+      path: '/repos/vibe-kanban',
+      github_owner: 'outerlook',
+      github_repo_name: 'vibe-kanban',
+      github_full_name: 'outerlook/vibe-kanban',
+      project_id: 'project-1',
+      project_name: 'VK',
+      projectIds: ['project-1'],
+      projectNames: ['VK'],
+    } as never);
+
+    expect(output.resource).toBe('githubRepositories');
+    expect(output.github_full_name).toBe('outerlook/vibe-kanban');
+    expect(output.projectNames).toEqual(['VK']);
+    expect(output._meta.surface).toBe('selection');
   });
 
   it('normalizes action outputs without hiding the VK DTOs', () => {

@@ -208,7 +208,7 @@ describe("production workflows", () => {
     expect(serialized).toContain('"nodeCredentialType":"githubApi"');
     expect(serialized).toContain('"authentication":"predefinedCredentialType"');
     expect(serialized).toContain('"resource":"githubRepositories"');
-    expect(serialized).toContain('"type":"CUSTOM.vibeKanbanRead"');
+    expect(serialized).toContain('"type":"CUSTOM.vibeKanbanSelect"');
     expect(serialized).toContain('"workflowId":"={{$json.workflowId}}"');
     expect(serialized).toContain("reviewThreads(first: 100");
     expect(serialized).toContain("isResolved");

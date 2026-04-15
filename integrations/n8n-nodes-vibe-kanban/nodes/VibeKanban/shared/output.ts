@@ -11,7 +11,9 @@ import type {
   VkQueueStatus,
   VkReadResource,
   VkReviewAttention,
+  VkSelectedProject,
   VkSelectedGitHubRepository,
+  VkSelectResource,
   VkSendMessageResponse,
   VkStartTaskExecutionResult,
   VkTaskContext,
@@ -23,24 +25,34 @@ type VkReadOutput =
   | VkTaskGroupContext
   | VkConversationContext
   | VkExecutionContext
-  | VkApprovalContext
-  | VkSelectedGitHubRepository;
+  | VkApprovalContext;
+
+type VkSelectOutput = VkSelectedProject | VkSelectedGitHubRepository;
 
 export function normalizeReadOutput(
   resource: VkReadResource,
   data: VkReadOutput,
 ) {
-  const surface =
-    resource === "githubRepositories"
-      ? "project-github-repositories"
-      : "orchestration-context";
-
   return {
     resource,
     ...data,
     _meta: {
       resource,
-      surface,
+      surface: "orchestration-context",
+    },
+  };
+}
+
+export function normalizeSelectOutput(
+  resource: VkSelectResource,
+  data: VkSelectOutput,
+) {
+  return {
+    resource,
+    ...data,
+    _meta: {
+      resource,
+      surface: "selection",
     },
   };
 }

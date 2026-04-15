@@ -21,6 +21,7 @@ import type {
   VkQueueStatus,
   VkProject,
   VkProjectGitHubRepository,
+  VkSelectedProject,
   VkSelectedGitHubRepository,
   VkReviewAttention,
   VkSendMessageResponse,
@@ -172,6 +173,46 @@ export async function getProjectGitHubRepositories(
   );
 }
 
+export async function listProjects(
+  credentials: VkApiCredentialValue,
+  options?: {
+    workflowId?: string;
+    projectIds?: string[];
+  },
+): Promise<VkSelectedProject[]> {
+  const workflowId = options?.workflowId?.trim() || "";
+  const selectedProjectIds = new Set(
+    (options?.projectIds ?? [])
+      .map((entry) => String(entry).trim())
+      .filter(Boolean),
+  );
+
+  const projects = await getProjects(credentials);
+  const selectedProjects: VkSelectedProject[] = [];
+
+  for (const project of projects) {
+    const projectId = String(project.id);
+    if (selectedProjectIds.size > 0 && !selectedProjectIds.has(projectId)) {
+      continue;
+    }
+
+    const workflowAssociation = workflowId
+      ? await getProjectWorkflowAssociation(credentials, projectId)
+      : null;
+
+    if (workflowId && workflowAssociation?.workflow_id !== workflowId) {
+      continue;
+    }
+
+    selectedProjects.push({
+      ...project,
+      workflowAssociation,
+    });
+  }
+
+  return selectedProjects.sort((left, right) => left.name.localeCompare(right.name));
+}
+
 export async function listGitHubRepositories(
   credentials: VkApiCredentialValue,
   options?: {
@@ -182,11 +223,6 @@ export async function listGitHubRepositories(
   },
 ): Promise<VkSelectedGitHubRepository[]> {
   const workflowId = options?.workflowId?.trim() || "";
-  const selectedProjectIds = new Set(
-    (options?.projectIds ?? [])
-      .map((entry) => String(entry).trim())
-      .filter(Boolean),
-  );
   const allowedRepos = new Set(
     (options?.allowedRepos ?? [])
       .map((entry) => String(entry).trim().toLowerCase())
@@ -198,24 +234,14 @@ export async function listGitHubRepositories(
       .filter(Boolean),
   );
 
-  const projects = await getProjects(credentials);
+  const projects = await listProjects(credentials, {
+    workflowId: workflowId || undefined,
+    projectIds: options?.projectIds,
+  });
   const selectedRepoMap = new Map<string, VkSelectedGitHubRepository>();
 
   for (const project of projects) {
     const projectId = String(project.id);
-    if (selectedProjectIds.size > 0 && !selectedProjectIds.has(projectId)) {
-      continue;
-    }
-
-    if (workflowId) {
-      const workflowAssociation = await getProjectWorkflowAssociation(
-        credentials,
-        projectId,
-      );
-      if (!workflowAssociation || workflowAssociation.workflow_id !== workflowId) {
-        continue;
-      }
-    }
 
     const githubRepositories = await getProjectGitHubRepositories(
       credentials,

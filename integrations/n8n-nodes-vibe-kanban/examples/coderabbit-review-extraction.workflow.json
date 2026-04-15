@@ -106,7 +106,7 @@
       },
       "id": "select-vk-repositories",
       "name": "Select VK Repositories",
-      "type": "CUSTOM.vibeKanbanRead",
+      "type": "CUSTOM.vibeKanbanSelect",
       "typeVersion": 1,
       "position": [
         760,
