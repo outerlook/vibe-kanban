@@ -325,11 +325,17 @@ pub enum McpTaskExecutionRepoSelection {
 pub struct StartTaskExecutionRequest {
     #[schemars(description = "The ID of the task to start")]
     pub task_id: Uuid,
-    #[schemars(description = "Whether to reuse the latest workspace when present or always create a new one")]
+    #[schemars(
+        description = "Whether to reuse the latest workspace when present or always create a new one"
+    )]
     pub workspace_strategy: Option<String>,
-    #[schemars(description = "How executor selection should work: 'default', 'latest_or_default', or 'explicit'")]
+    #[schemars(
+        description = "How executor selection should work: 'default', 'latest_or_default', or 'explicit'"
+    )]
     pub executor_strategy: String,
-    #[schemars(description = "The coding agent executor to run when executor_strategy is 'explicit'")]
+    #[schemars(
+        description = "The coding agent executor to run when executor_strategy is 'explicit'"
+    )]
     pub executor: Option<String>,
     #[schemars(description = "Optional executor variant when executor_strategy is 'explicit'")]
     pub variant: Option<String>,
@@ -1752,10 +1758,7 @@ impl TaskServer {
             repo_selection,
         }): Parameters<StartTaskExecutionRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let workspace_strategy = match workspace_strategy
-            .as_deref()
-            .unwrap_or("latest_or_create")
-        {
+        let workspace_strategy = match workspace_strategy.as_deref().unwrap_or("latest_or_create") {
             "latest_or_create" => TaskExecutionWorkspaceStrategy::LatestOrCreate,
             "create_new" => TaskExecutionWorkspaceStrategy::CreateNew,
             other => {
@@ -1782,7 +1785,9 @@ impl TaskServer {
                         Ok(profile) => profile,
                         Err(error) => return Ok(error),
                     };
-                TaskExecutionExecutorStrategy::Explicit { executor_profile_id }
+                TaskExecutionExecutorStrategy::Explicit {
+                    executor_profile_id,
+                }
             }
             other => {
                 return TaskServer::success(&serde_json::json!({
@@ -1791,22 +1796,23 @@ impl TaskServer {
             }
         };
 
-        let repo_selection = match repo_selection.unwrap_or(McpTaskExecutionRepoSelection::TaskGroupDefault) {
-            McpTaskExecutionRepoSelection::Explicit { repos } => {
-                TaskExecutionRepoSelection::Explicit {
-                    repos: repos
-                        .into_iter()
-                        .map(|repo| WorkspaceRepoInput {
-                            repo_id: repo.repo_id,
-                            target_branch: repo.base_branch,
-                        })
-                        .collect(),
+        let repo_selection =
+            match repo_selection.unwrap_or(McpTaskExecutionRepoSelection::TaskGroupDefault) {
+                McpTaskExecutionRepoSelection::Explicit { repos } => {
+                    TaskExecutionRepoSelection::Explicit {
+                        repos: repos
+                            .into_iter()
+                            .map(|repo| WorkspaceRepoInput {
+                                repo_id: repo.repo_id,
+                                target_branch: repo.base_branch,
+                            })
+                            .collect(),
+                    }
                 }
-            }
-            McpTaskExecutionRepoSelection::TaskGroupDefault => {
-                TaskExecutionRepoSelection::TaskGroupDefault
-            }
-        };
+                McpTaskExecutionRepoSelection::TaskGroupDefault => {
+                    TaskExecutionRepoSelection::TaskGroupDefault
+                }
+            };
 
         let payload = StartTaskExecutionCommand {
             task_id,

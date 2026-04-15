@@ -375,7 +375,9 @@ fn executor_profile_from_session(session: &Session) -> Option<ExecutorProfileId>
     // Sessions persist the last base executor name, not a full profile payload, so
     // workflow-side "latest_or_default" can safely reuse the agent choice but not a
     // variant that was never recorded. Missing or invalid values deliberately fall back.
-    BaseCodingAgent::from_str(executor).ok().map(ExecutorProfileId::new)
+    BaseCodingAgent::from_str(executor)
+        .ok()
+        .map(ExecutorProfileId::new)
 }
 
 async fn resolve_task_executor_profile(
@@ -395,9 +397,9 @@ async fn resolve_task_executor_profile(
                 .and_then(executor_profile_from_session)
                 .unwrap_or(default_executor_profile))
         }
-        TaskExecutionExecutorStrategy::Explicit { executor_profile_id } => {
-            Ok(executor_profile_id)
-        }
+        TaskExecutionExecutorStrategy::Explicit {
+            executor_profile_id,
+        } => Ok(executor_profile_id),
     }
 }
 
@@ -3221,7 +3223,10 @@ mod tests {
                     workspace_resolution,
                     TaskExecutionWorkspaceResolution::Reused
                 ));
-                assert_eq!(executor_profile_id, ExecutorProfileId::new(BaseCodingAgent::Codex));
+                assert_eq!(
+                    executor_profile_id,
+                    ExecutorProfileId::new(BaseCodingAgent::Codex)
+                );
             }
             StartTaskExecutionResult::Started { .. } => {
                 panic!("expected queued task execution to avoid spawning a live executor")
