@@ -26,7 +26,7 @@
       },
       "id": "vk-trigger",
       "name": "VK Trigger",
-      "type": "n8n-nodes-vibe-kanban.vibeKanbanTrigger",
+      "type": "CUSTOM.vibeKanbanTrigger",
       "typeVersion": 1,
       "position": [
         220,
@@ -60,7 +60,7 @@
       },
       "id": "vk-read-task",
       "name": "Read Task Context",
-      "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
+      "type": "CUSTOM.vibeKanbanRead",
       "typeVersion": 1,
       "position": [
         780,
@@ -100,7 +100,7 @@
       },
       "id": "vk-start-execution",
       "name": "Start Task Execution",
-      "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
+      "type": "CUSTOM.vibeKanbanAction",
       "typeVersion": 1,
       "position": [
         1340,

@@ -26,7 +26,7 @@
       },
       "id": "vk-trigger",
       "name": "VK Trigger",
-      "type": "n8n-nodes-vibe-kanban.vibeKanbanTrigger",
+      "type": "CUSTOM.vibeKanbanTrigger",
       "typeVersion": 1,
       "position": [
         220,
@@ -45,7 +45,7 @@
       },
       "id": "vk-read-execution",
       "name": "Read Execution Context",
-      "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
+      "type": "CUSTOM.vibeKanbanRead",
       "typeVersion": 1,
       "position": [
         500,
@@ -79,7 +79,7 @@
       },
       "id": "vk-read-conversation",
       "name": "Read Review Conversation Context",
-      "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
+      "type": "CUSTOM.vibeKanbanRead",
       "typeVersion": 1,
       "position": [
         1080,
@@ -177,7 +177,7 @@
       },
       "id": "vk-create-review-attention",
       "name": "Create Review Result",
-      "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
+      "type": "CUSTOM.vibeKanbanAction",
       "typeVersion": 1,
       "position": [
         1940,
@@ -250,7 +250,7 @@
       },
       "id": "vk-generate-commit-message",
       "name": "Generate Commit Message",
-      "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
+      "type": "CUSTOM.vibeKanbanAction",
       "typeVersion": 1,
       "position": [
         2770,
@@ -272,7 +272,7 @@
       },
       "id": "vk-queue-merge",
       "name": "Queue Merge",
-      "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
+      "type": "CUSTOM.vibeKanbanAction",
       "typeVersion": 1,
       "position": [
         3050,

@@ -472,6 +472,8 @@ export type LinkToExistingRequest = { remote_project_id: string, };
 
 export type GetProjectPrPageQuery = { cursor: string | null, limit: number | null, base_branch: string | null, search: string | null, };
 
+export type ProjectGitHubRepository = { project_id: string, project_name: string, repo_id: string, repo_name: string, display_name: string, path: string, github_owner: string, github_repo_name: string, github_full_name: string, };
+
 export type ProjectPrSummary = { unresolved_count: number | null, number: bigint, title: string, url: string, author: string, head_branch: string, base_branch: string, created_at: string, updated_at: string, };
 
 export type ProjectRepoPrPage = { repo_id: string, repo_name: string, display_name: string, pull_requests: Array<ProjectPrSummary>, };

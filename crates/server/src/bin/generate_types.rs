@@ -214,6 +214,7 @@ fn generate_types_content() -> String {
         server::routes::projects::CreateRemoteProjectRequest::decl(),
         server::routes::projects::LinkToExistingRequest::decl(),
         server::routes::projects::GetProjectPrPageQuery::decl(),
+        server::routes::projects::ProjectGitHubRepository::decl(),
         services::services::pr_cache::ProjectPrSummary::decl(),
         services::services::pr_cache::ProjectRepoPrPage::decl(),
         services::services::pr_cache::ProjectPrPage::decl(),

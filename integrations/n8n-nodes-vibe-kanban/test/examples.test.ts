@@ -34,14 +34,14 @@ describe("production workflows", () => {
       expect(workflow.nodes.length).toBeGreaterThan(0);
 
       const vkNodes = workflow.nodes.filter((node) =>
-        node.type.startsWith("n8n-nodes-vibe-kanban."),
+        node.type.startsWith("CUSTOM."),
       );
       if (vkNodes.length === 0) {
         continue;
       }
 
       for (const node of vkNodes) {
-        if (node.type === "n8n-nodes-vibe-kanban.vibeKanbanTrigger") {
+        if (node.type === "CUSTOM.vibeKanbanTrigger") {
           expect(node.parameters?.schemaVersion).toBe(
             "vk_n8n_orchestration_v1",
           );
@@ -207,15 +207,19 @@ describe("production workflows", () => {
     expect(serialized).toContain("/graphql");
     expect(serialized).toContain('"nodeCredentialType":"githubApi"');
     expect(serialized).toContain('"authentication":"predefinedCredentialType"');
+    expect(serialized).toContain('"resource":"githubRepositories"');
+    expect(serialized).toContain('"type":"CUSTOM.vibeKanbanRead"');
+    expect(serialized).toContain('"workflowId":"={{$json.workflowId}}"');
     expect(serialized).toContain("reviewThreads(first: 100");
     expect(serialized).toContain("isResolved");
     expect(serialized).toContain("pullRequests(states: OPEN");
     expect(serialized).toContain("coderabbitai[bot]");
-    expect(serialized).toContain("/api/projects/");
-    expect(serialized).toContain("/github-repositories");
-    expect(serialized).toContain("/workflow-association");
     expect(serialized).toContain("$getWorkflowStaticData");
     expect(serialized).toContain("processedThreadCommentIds");
     expect(serialized).not.toContain("GITHUB_TOKEN");
+    expect(serialized).not.toContain("allowedReposJson");
+    expect(serialized).not.toContain("ignoredReposJson");
+    expect(serialized).not.toContain("allowedProjectIdsJson");
+    expect(serialized).not.toContain("vkBaseUrl");
   });
 });

@@ -19,12 +19,16 @@ import type {
   VkQueueMergeRequest,
   VkQueueMergeResult,
   VkQueueStatus,
+  VkProject,
+  VkProjectGitHubRepository,
+  VkSelectedGitHubRepository,
   VkReviewAttention,
   VkSendMessageResponse,
   VkStartTaskExecutionCommand,
   VkStartTaskExecutionResult,
   VkTaskContext,
   VkTaskGroupContext,
+  VkWorkflowAssociation,
 } from "./vk-contracts";
 import { parseExecutorConfigs } from "./executor-profiles";
 
@@ -139,6 +143,122 @@ export async function getTaskGroupContext(
   return requestVk<VkTaskGroupContext>(
     credentials,
     `/task-groups/${taskGroupId}/orchestration-context`,
+  );
+}
+
+export async function getProjects(
+  credentials: VkApiCredentialValue,
+): Promise<VkProject[]> {
+  return requestVk<VkProject[]>(credentials, "/projects");
+}
+
+export async function getProjectWorkflowAssociation(
+  credentials: VkApiCredentialValue,
+  projectId: string,
+): Promise<VkWorkflowAssociation> {
+  return requestVk<VkWorkflowAssociation>(
+    credentials,
+    `/projects/${projectId}/workflow-association`,
+  );
+}
+
+export async function getProjectGitHubRepositories(
+  credentials: VkApiCredentialValue,
+  projectId: string,
+): Promise<VkProjectGitHubRepository[]> {
+  return requestVk<VkProjectGitHubRepository[]>(
+    credentials,
+    `/projects/${projectId}/github-repositories`,
+  );
+}
+
+export async function listGitHubRepositories(
+  credentials: VkApiCredentialValue,
+  options?: {
+    workflowId?: string;
+    projectIds?: string[];
+    allowedRepos?: string[];
+    ignoredRepos?: string[];
+  },
+): Promise<VkSelectedGitHubRepository[]> {
+  const workflowId = options?.workflowId?.trim() || "";
+  const selectedProjectIds = new Set(
+    (options?.projectIds ?? [])
+      .map((entry) => String(entry).trim())
+      .filter(Boolean),
+  );
+  const allowedRepos = new Set(
+    (options?.allowedRepos ?? [])
+      .map((entry) => String(entry).trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const ignoredRepos = new Set(
+    (options?.ignoredRepos ?? [])
+      .map((entry) => String(entry).trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+  const projects = await getProjects(credentials);
+  const selectedRepoMap = new Map<string, VkSelectedGitHubRepository>();
+
+  for (const project of projects) {
+    const projectId = String(project.id);
+    if (selectedProjectIds.size > 0 && !selectedProjectIds.has(projectId)) {
+      continue;
+    }
+
+    if (workflowId) {
+      const workflowAssociation = await getProjectWorkflowAssociation(
+        credentials,
+        projectId,
+      );
+      if (!workflowAssociation || workflowAssociation.workflow_id !== workflowId) {
+        continue;
+      }
+    }
+
+    const githubRepositories = await getProjectGitHubRepositories(
+      credentials,
+      projectId,
+    );
+
+    for (const repository of githubRepositories) {
+      const fullName = String(repository.github_full_name || "")
+        .trim()
+        .toLowerCase();
+      if (!fullName) {
+        continue;
+      }
+
+      if (allowedRepos.size > 0 && !allowedRepos.has(fullName)) {
+        continue;
+      }
+
+      if (ignoredRepos.has(fullName)) {
+        continue;
+      }
+
+      const existing = selectedRepoMap.get(fullName);
+      if (existing) {
+        if (!existing.projectIds.includes(projectId)) {
+          existing.projectIds.push(projectId);
+        }
+        if (!existing.projectNames.includes(project.name)) {
+          existing.projectNames.push(project.name);
+        }
+        continue;
+      }
+
+      selectedRepoMap.set(fullName, {
+        ...repository,
+        projectIds: [projectId],
+        projectNames: [project.name],
+      });
+    }
+  }
+
+  return Array.from(selectedRepoMap.values()).sort((left, right) =>
+    left.github_full_name.localeCompare(right.github_full_name),
   );
 }
 

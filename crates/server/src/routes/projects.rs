@@ -85,7 +85,7 @@ pub struct ProjectWorktreesResponse {
 }
 
 /// A project repository that can be resolved to a GitHub owner/repository pair.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ProjectGitHubRepository {
     pub project_id: Uuid,
     pub project_name: String,

@@ -26,7 +26,7 @@
       },
       "id": "vk-trigger",
       "name": "VK Trigger",
-      "type": "n8n-nodes-vibe-kanban.vibeKanbanTrigger",
+      "type": "CUSTOM.vibeKanbanTrigger",
       "typeVersion": 1,
       "position": [
         220,
@@ -45,7 +45,7 @@
       },
       "id": "vk-read-execution",
       "name": "Read Execution Context",
-      "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
+      "type": "CUSTOM.vibeKanbanRead",
       "typeVersion": 1,
       "position": [
         500,
@@ -124,7 +124,7 @@
       },
       "id": "vk-create-feedback",
       "name": "Create Feedback",
-      "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
+      "type": "CUSTOM.vibeKanbanAction",
       "typeVersion": 1,
       "position": [
         1350,

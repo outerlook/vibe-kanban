@@ -18,6 +18,8 @@ import type {
   OrchestrationExecutionContextDto,
   OrchestrationTaskContextDto,
   OrchestrationTaskGroupContextDto,
+  ProjectGitHubRepository,
+  ProjectWithTaskCounts,
   MergeQueueEntry,
   QueueMergeError,
   QuestionAnswer,
@@ -27,6 +29,7 @@ import type {
   SendMessageResponse,
   StartTaskExecutionCommand,
   StartTaskExecutionResult,
+  WorkflowAssociation,
 } from "../../../generated/shared-types";
 
 export type VkOrchestrationEventEnvelope = OrchestrationEventEnvelope;
@@ -60,13 +63,21 @@ export type VkCreateAgentFeedback = CreateAgentFeedback;
 export type VkCreateReviewAttention = CreateReviewAttention;
 export type VkFeedbackResponse = FeedbackResponse;
 export type VkReviewAttention = ReviewAttention;
+export type VkProject = ProjectWithTaskCounts;
+export type VkWorkflowAssociation = WorkflowAssociation | null;
+export type VkProjectGitHubRepository = ProjectGitHubRepository;
+export type VkSelectedGitHubRepository = ProjectGitHubRepository & {
+  projectIds: string[];
+  projectNames: string[];
+};
 
 export type VkReadResource =
   | "task"
   | "taskGroup"
   | "conversation"
   | "execution"
-  | "approval";
+  | "approval"
+  | "githubRepositories";
 
 export type VkActionResource =
   | "task"

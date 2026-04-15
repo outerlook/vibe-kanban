@@ -4,7 +4,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Production Workflow\nPolls GitHub for open pull requests in the repos selected from Vibe Kanban project workflow associations. It returns only unresolved review threads that contain new CodeRabbit comments since the last poll checkpoint.\n\nThis workflow is intended to be used in production when you want personal monitoring without configuring GitHub webhooks. Configure `workflowId` and the optional allow/ignore repo filters in `Build Poll Config`, then attach a GitHub API credential to `Fetch Repo Review Threads`.",
+        "content": "## Production Workflow\nPolls GitHub for open pull requests in the repos selected from Vibe Kanban project workflow associations. It returns only unresolved review threads that contain new CodeRabbit comments since the last poll checkpoint.\n\nThis workflow is intended to be used in production when you want personal monitoring without configuring GitHub webhooks. Configure `workflowId`, reviewer logins, and polling limits in `Build Poll Config`, then choose the VK-backed project/repository filters on `Select VK Repositories`. Attach a GitHub API credential to `Fetch Repo Review Threads`.",
         "height": 280,
         "width": 500,
         "color": 1
@@ -54,12 +54,6 @@
         "assignments": {
           "assignments": [
             {
-              "id": "vk-base-url",
-              "name": "vkBaseUrl",
-              "type": "string",
-              "value": "http://localhost:3000"
-            },
-            {
               "id": "workflow-id",
               "name": "workflowId",
               "type": "string",
@@ -70,24 +64,6 @@
               "name": "reviewerLoginsJson",
               "type": "string",
               "value": "[\"coderabbitai[bot]\"]"
-            },
-            {
-              "id": "allowed-project-ids",
-              "name": "allowedProjectIdsJson",
-              "type": "string",
-              "value": "[]"
-            },
-            {
-              "id": "allowed-repos",
-              "name": "allowedReposJson",
-              "type": "string",
-              "value": "[]"
-            },
-            {
-              "id": "ignored-repos",
-              "name": "ignoredReposJson",
-              "type": "string",
-              "value": "[]"
             },
             {
               "id": "bootstrap-lookback-hours",
@@ -122,16 +98,38 @@
     },
     {
       "parameters": {
+        "resource": "githubRepositories",
+        "workflowId": "={{$json.workflowId}}",
+        "projectIds": [],
+        "allowedRepoFullNames": [],
+        "ignoredRepoFullNames": []
+      },
+      "id": "select-vk-repositories",
+      "name": "Select VK Repositories",
+      "type": "CUSTOM.vibeKanbanRead",
+      "typeVersion": 1,
+      "position": [
+        760,
+        260
+      ],
+      "credentials": {
+        "vibeKanbanApi": {
+          "name": "Vibe Kanban API"
+        }
+      }
+    },
+    {
+      "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const config = $input.first().json;\n\nconst parseJsonArray = (value, fieldName) => {\n  if (typeof value !== 'string' || value.trim() === '') {\n    return [];\n  }\n\n  try {\n    const parsed = JSON.parse(value);\n    if (!Array.isArray(parsed)) {\n      throw new Error(`${fieldName} must be a JSON array`);\n    }\n\n    return parsed\n      .map((entry) => String(entry).trim())\n      .filter(Boolean);\n  } catch (error) {\n    throw new Error(`Invalid ${fieldName}: ${error.message}`);\n  }\n};\n\nconst parsePositiveInteger = (value, fieldName, fallback) => {\n  if (value === undefined || value === null || value === '') {\n    return fallback;\n  }\n\n  const parsed = Number(value);\n  if (!Number.isFinite(parsed) || parsed <= 0) {\n    throw new Error(`${fieldName} must be a positive number`);\n  }\n\n  return Math.floor(parsed);\n};\n\nconst vkBaseUrl = String(config.vkBaseUrl || '').trim().replace(/\\/+$/, '');\nconst workflowId = String(config.workflowId || '').trim();\n\nif (!vkBaseUrl) {\n  throw new Error('vkBaseUrl is required');\n}\n\nif (!workflowId) {\n  throw new Error('workflowId is required');\n}\n\nconst reviewerLogins = new Set(\n  parseJsonArray(config.reviewerLoginsJson, 'reviewerLoginsJson').map((entry) =>\n    entry.toLowerCase(),\n  ),\n);\nif (reviewerLogins.size === 0) {\n  throw new Error('reviewerLoginsJson must contain at least one login');\n}\n\nconst allowedProjectIds = new Set(\n  parseJsonArray(config.allowedProjectIdsJson, 'allowedProjectIdsJson'),\n);\nconst allowedRepos = new Set(\n  parseJsonArray(config.allowedReposJson, 'allowedReposJson').map((entry) =>\n    entry.toLowerCase(),\n  ),\n);\nconst ignoredRepos = new Set(\n  parseJsonArray(config.ignoredReposJson, 'ignoredReposJson').map((entry) =>\n    entry.toLowerCase(),\n  ),\n);\n\nconst bootstrapLookbackHours = parsePositiveInteger(\n  config.bootstrapLookbackHours,\n  'bootstrapLookbackHours',\n  24,\n);\nconst maxPullRequestsPerRepo = Math.min(\n  parsePositiveInteger(\n    config.maxPullRequestsPerRepo,\n    'maxPullRequestsPerRepo',\n    25,\n  ),\n  100,\n);\nconst rememberedCommentIds = parsePositiveInteger(\n  config.rememberedCommentIds,\n  'rememberedCommentIds',\n  1000,\n);\n\nconst requestVk = async (path) => {\n  const response = await $helpers.httpRequest({\n    method: 'GET',\n    url: `${vkBaseUrl}${path}`,\n    json: true,\n  });\n\n  if (!response || response.success !== true) {\n    throw new Error(\n      `VK request failed for ${path}: ${response?.error || 'unknown error'}`,\n    );\n  }\n\n  return response.data;\n};\n\nconst projects = await requestVk('/api/projects');\nconst selectedRepoMap = new Map();\n\nfor (const project of projects) {\n  const projectId = String(project.id);\n\n  if (allowedProjectIds.size > 0 && !allowedProjectIds.has(projectId)) {\n    continue;\n  }\n\n  const workflowAssociation = await requestVk(\n    `/api/projects/${projectId}/workflow-association`,\n  );\n\n  if (!workflowAssociation || workflowAssociation.workflow_id !== workflowId) {\n    continue;\n  }\n\n  const githubRepositories = await requestVk(\n    `/api/projects/${projectId}/github-repositories`,\n  );\n\n  for (const repository of githubRepositories) {\n    const fullName = String(repository.github_full_name || '').toLowerCase();\n\n    if (!fullName) {\n      continue;\n    }\n\n    if (allowedRepos.size > 0 && !allowedRepos.has(fullName)) {\n      continue;\n    }\n\n    if (ignoredRepos.has(fullName)) {\n      continue;\n    }\n\n    const existing = selectedRepoMap.get(fullName);\n    if (existing) {\n      existing.projectIds.push(projectId);\n      existing.projectNames.push(project.name);\n      continue;\n    }\n\n    selectedRepoMap.set(fullName, {\n      repoId: repository.repo_id,\n      repoName: repository.repo_name,\n      displayName: repository.display_name,\n      path: repository.path,\n      githubOwner: repository.github_owner,\n      githubRepoName: repository.github_repo_name,\n      githubFullName: repository.github_full_name,\n      projectIds: [projectId],\n      projectNames: [project.name],\n    });\n  }\n}\n\nconst selectedRepos = Array.from(selectedRepoMap.values()).sort((left, right) =>\n  left.githubFullName.localeCompare(right.githubFullName),\n);\n\nconst staticData = $getWorkflowStaticData('global');\nconst state = staticData.coderabbitReviewExtraction || {};\nconst pollStartedAt = new Date().toISOString();\nconst bootstrapAnchor = new Date(\n  Date.now() - bootstrapLookbackHours * 60 * 60 * 1000,\n).toISOString();\nconst pollAfter = typeof state.lastPolledAt === 'string' ? state.lastPolledAt : bootstrapAnchor;\n\nstaticData.coderabbitReviewExtractionRun = {\n  workflowId,\n  pollStartedAt,\n  pollAfter,\n  selectedRepoCount: selectedRepos.length,\n  selectedReposSummary: selectedRepos.map((repo) => ({\n    repo: repo.githubFullName,\n    projects: repo.projectNames,\n  })),\n  selectedReposByFullName: Object.fromEntries(\n    selectedRepos.map((repo) => [repo.githubFullName.toLowerCase(), repo]),\n  ),\n  reviewerLogins: Array.from(reviewerLogins),\n  rememberedCommentIds,\n  knownCommentIds: Array.isArray(state.processedThreadCommentIds)\n    ? state.processedThreadCommentIds.map((entry) => String(entry))\n    : [],\n  newCommentIds: [],\n  inaccessibleRepos: [],\n  extractedPullRequests: [],\n  inspectedPullRequestCount: 0,\n  inspectedThreadCount: 0,\n};\n\nreturn selectedRepos.map((repo) => ({\n  json: {\n    githubOwner: repo.githubOwner,\n    githubRepoName: repo.githubRepoName,\n    githubFullName: repo.githubFullName,\n    projectNames: repo.projectNames,\n    maxPullRequestsPerRepo,\n  },\n}));"
+        "jsCode": "const selectedRepos = $input.all().map((item) => item.json);\nconst config = selectedRepos[0] || {};\n\nconst parseJsonArray = (value, fieldName) => {\n  if (typeof value !== 'string' || value.trim() === '') {\n    return [];\n  }\n\n  try {\n    const parsed = JSON.parse(value);\n    if (!Array.isArray(parsed)) {\n      throw new Error(`${fieldName} must be a JSON array`);\n    }\n\n    return parsed\n      .map((entry) => String(entry).trim())\n      .filter(Boolean);\n  } catch (error) {\n    throw new Error(`Invalid ${fieldName}: ${error.message}`);\n  }\n};\n\nconst parsePositiveInteger = (value, fieldName, fallback) => {\n  if (value === undefined || value === null || value === '') {\n    return fallback;\n  }\n\n  const parsed = Number(value);\n  if (!Number.isFinite(parsed) || parsed <= 0) {\n    throw new Error(`${fieldName} must be a positive number`);\n  }\n\n  return Math.floor(parsed);\n};\n\nconst workflowId = String(config.workflowId || '').trim();\nif (!workflowId) {\n  throw new Error('workflowId is required');\n}\n\nconst reviewerLogins = new Set(\n  parseJsonArray(config.reviewerLoginsJson, 'reviewerLoginsJson').map((entry) =>\n    entry.toLowerCase(),\n  ),\n);\nif (reviewerLogins.size === 0) {\n  throw new Error('reviewerLoginsJson must contain at least one login');\n}\n\nconst bootstrapLookbackHours = parsePositiveInteger(\n  config.bootstrapLookbackHours,\n  'bootstrapLookbackHours',\n  24,\n);\nconst maxPullRequestsPerRepo = Math.min(\n  parsePositiveInteger(\n    config.maxPullRequestsPerRepo,\n    'maxPullRequestsPerRepo',\n    25,\n  ),\n  100,\n);\nconst rememberedCommentIds = parsePositiveInteger(\n  config.rememberedCommentIds,\n  'rememberedCommentIds',\n  1000,\n);\n\nconst staticData = $getWorkflowStaticData('global');\nconst state = staticData.coderabbitReviewExtraction || {};\nconst pollStartedAt = new Date().toISOString();\nconst bootstrapAnchor = new Date(\n  Date.now() - bootstrapLookbackHours * 60 * 60 * 1000,\n).toISOString();\nconst pollAfter = typeof state.lastPolledAt === 'string' ? state.lastPolledAt : bootstrapAnchor;\n\nconst selectedRepoMap = new Map();\nfor (const repo of selectedRepos) {\n  const fullName = String(repo.github_full_name || repo.githubFullName || '')\n    .trim()\n    .toLowerCase();\n\n  if (!fullName) {\n    continue;\n  }\n\n  const projectIds = Array.isArray(repo.projectIds)\n    ? repo.projectIds.map((entry) => String(entry))\n    : [];\n  const projectNames = Array.isArray(repo.projectNames)\n    ? repo.projectNames.map((entry) => String(entry))\n    : [];\n\n  selectedRepoMap.set(fullName, {\n    repoId: String(repo.repo_id || repo.repoId || ''),\n    repoName: String(repo.repo_name || repo.repoName || ''),\n    displayName: String(repo.display_name || repo.displayName || ''),\n    path: String(repo.path || ''),\n    githubOwner: String(repo.github_owner || repo.githubOwner || ''),\n    githubRepoName: String(repo.github_repo_name || repo.githubRepoName || ''),\n    githubFullName: String(repo.github_full_name || repo.githubFullName || ''),\n    projectIds,\n    projectNames,\n  });\n}\n\nconst normalizedRepos = Array.from(selectedRepoMap.values()).sort((left, right) =>\n  left.githubFullName.localeCompare(right.githubFullName),\n);\n\nstaticData.coderabbitReviewExtractionRun = {\n  workflowId,\n  pollStartedAt,\n  pollAfter,\n  selectedRepoCount: normalizedRepos.length,\n  selectedReposSummary: normalizedRepos.map((repo) => ({\n    repo: repo.githubFullName,\n    projects: repo.projectNames,\n  })),\n  selectedReposByFullName: Object.fromEntries(\n    normalizedRepos.map((repo) => [repo.githubFullName.toLowerCase(), repo]),\n  ),\n  reviewerLogins: Array.from(reviewerLogins),\n  rememberedCommentIds,\n  knownCommentIds: Array.isArray(state.processedThreadCommentIds)\n    ? state.processedThreadCommentIds.map((entry) => String(entry))\n    : [],\n  newCommentIds: [],\n  inaccessibleRepos: [],\n  extractedPullRequests: [],\n  inspectedPullRequestCount: 0,\n  inspectedThreadCount: 0,\n};\n\nreturn normalizedRepos.map((repo) => ({\n  json: {\n    githubOwner: repo.githubOwner,\n    githubRepoName: repo.githubRepoName,\n    githubFullName: repo.githubFullName,\n    projectNames: repo.projectNames,\n    maxPullRequestsPerRepo,\n  },\n}));\n"
       },
       "id": "prepare-repo-poll-state",
       "name": "Prepare Repo Poll State",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        760,
+        1040,
         260
       ]
     },
@@ -145,7 +143,7 @@
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [
-        1040,
+        1320,
         260
       ]
     },
@@ -171,7 +169,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        1320,
+        1600,
         260
       ],
       "onError": "continueRegularOutput",
@@ -192,7 +190,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1600,
+        1880,
         260
       ]
     },
@@ -207,7 +205,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1320,
+        1600,
         80
       ]
     }
@@ -239,7 +237,7 @@
       "main": [
         [
           {
-            "node": "Prepare Repo Poll State",
+            "node": "Select VK Repositories",
             "type": "main",
             "index": 0
           }
@@ -291,6 +289,17 @@
         [
           {
             "node": "Loop Selected Repos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select VK Repositories": {
+      "main": [
+        [
+          {
+            "node": "Prepare Repo Poll State",
             "type": "main",
             "index": 0
           }
