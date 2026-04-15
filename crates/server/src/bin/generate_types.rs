@@ -292,8 +292,6 @@ fn generate_types_content() -> String {
         server::routes::task_attempts::TaskExecutionWorkspaceResolution::decl(),
         server::routes::task_attempts::StartTaskExecutionCommand::decl(),
         server::routes::task_attempts::StartTaskExecutionResult::decl(),
-        server::routes::task_attempts::QueueGenerateAndMergeCommand::decl(),
-        server::routes::task_attempts::QueueGenerateAndMergeResult::decl(),
         server::routes::task_attempts::WorkspaceRepoInput::decl(),
         server::routes::task_attempts::RunAgentSetupRequest::decl(),
         server::routes::task_attempts::RunAgentSetupResponse::decl(),

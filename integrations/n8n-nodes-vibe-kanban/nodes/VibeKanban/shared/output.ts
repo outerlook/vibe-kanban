@@ -6,7 +6,8 @@ import type {
   VkExecutionContext,
   VkFeedbackResponse,
   VkFollowUpResult,
-  VkQueueGenerateAndMergeResult,
+  VkGenerateCommitMessageResponse,
+  VkQueueMergeResult,
   VkQueueStatus,
   VkReadResource,
   VkReviewAttention,
@@ -14,7 +15,7 @@ import type {
   VkStartTaskExecutionResult,
   VkTaskContext,
   VkTaskGroupContext,
-} from './vk-contracts';
+} from "./vk-contracts";
 
 type VkReadOutput =
   | VkTaskContext
@@ -23,13 +24,16 @@ type VkReadOutput =
   | VkExecutionContext
   | VkApprovalContext;
 
-export function normalizeReadOutput(resource: VkReadResource, data: VkReadOutput) {
+export function normalizeReadOutput(
+  resource: VkReadResource,
+  data: VkReadOutput,
+) {
   return {
     resource,
     ...data,
     _meta: {
       resource,
-      surface: 'orchestration-context',
+      surface: "orchestration-context",
     },
   };
 }
@@ -43,7 +47,8 @@ export function normalizeActionOutput(args: {
     | VkCreateConversationResponse
     | VkFeedbackResponse
     | VkFollowUpResult
-    | VkQueueGenerateAndMergeResult
+    | VkGenerateCommitMessageResponse
+    | VkQueueMergeResult
     | VkQueueStatus
     | VkReviewAttention
     | VkSendMessageResponse
@@ -55,23 +60,18 @@ export function normalizeActionOutput(args: {
     ...args.identifiers,
   };
 
-  if (args.operation === 'startFollowUp' && args.data) {
+  if (args.operation === "startFollowUp" && args.data) {
     const followUp = args.data as VkFollowUpResult;
     return {
       ...base,
       followUp,
       executionProcess:
-        followUp.status === 'started'
-          ? followUp.execution_process
-          : null,
-      queueEntry:
-        followUp.status === 'queued'
-          ? followUp.queue_entry
-          : null,
+        followUp.status === "started" ? followUp.execution_process : null,
+      queueEntry: followUp.status === "queued" ? followUp.queue_entry : null,
     };
   }
 
-  if (args.operation === 'startTaskExecution' && args.data) {
+  if (args.operation === "startTaskExecution" && args.data) {
     const taskExecution = args.data as VkStartTaskExecutionResult;
     return {
       ...base,
@@ -80,19 +80,17 @@ export function normalizeActionOutput(args: {
       workspaceResolution: taskExecution.workspace_resolution,
       executorProfileId: taskExecution.executor_profile_id,
       executionProcess:
-        taskExecution.status === 'started'
+        taskExecution.status === "started"
           ? taskExecution.execution_process
           : null,
       queueEntry:
-        taskExecution.status === 'queued'
-          ? taskExecution.queue_entry
-          : null,
+        taskExecution.status === "queued" ? taskExecution.queue_entry : null,
     };
   }
 
   if (
-    args.operation === 'queueFollowUp' ||
-    args.operation === 'cancelQueuedFollowUp'
+    args.operation === "queueFollowUp" ||
+    args.operation === "cancelQueuedFollowUp"
   ) {
     return {
       ...base,
@@ -100,7 +98,7 @@ export function normalizeActionOutput(args: {
     };
   }
 
-  if (args.operation === 'createConversation' && args.data) {
+  if (args.operation === "createConversation" && args.data) {
     const conversationCreation = args.data as VkCreateConversationResponse;
     return {
       ...base,
@@ -111,7 +109,7 @@ export function normalizeActionOutput(args: {
     };
   }
 
-  if (args.operation === 'sendMessage' && args.data) {
+  if (args.operation === "sendMessage" && args.data) {
     const message = args.data as VkSendMessageResponse;
     return {
       ...base,
@@ -121,17 +119,43 @@ export function normalizeActionOutput(args: {
     };
   }
 
-  if (args.operation === 'answerApproval') {
+  if (args.operation === "generateCommitMessage" && args.data) {
+    const result = args.data as VkGenerateCommitMessageResponse;
+    return {
+      ...base,
+      commitMessageResponse: result,
+      commitMessage: result.commit_message,
+    };
+  }
+
+  if (args.operation === "queueMerge" && args.data) {
+    const result = args.data as VkQueueMergeResult;
+    return {
+      ...base,
+      mergeQueueResult: result,
+      mergeQueueEntry: result.status === "queued" ? result.entry : null,
+      mergeQueueError: result.status === "rejected" ? result.error : null,
+    };
+  }
+
+  if (args.operation === "answerApproval") {
     return {
       ...base,
       approvalStatus: args.data,
     };
   }
 
-  if (args.operation === 'stopExecution') {
+  if (args.operation === "stopExecution") {
     return {
       ...base,
       stopped: true,
+    };
+  }
+
+  if (args.operation === "cancelQueueMerge") {
+    return {
+      ...base,
+      cancelled: true,
     };
   }
 

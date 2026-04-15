@@ -15,9 +15,12 @@ use db::models::{
     workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
-use executors::actions::{
-    ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
-    coding_agent_initial::CodingAgentInitialRequest,
+use executors::{
+    actions::{
+        ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
+        coding_agent_initial::CodingAgentInitialRequest,
+    },
+    profile::ExecutorProfileId,
 };
 use git2::BranchType;
 use serde::{Deserialize, Serialize};
@@ -215,6 +218,7 @@ pub async fn generate_commit_message_for_merge(
     repo_path: &std::path::Path,
     task_branch: &str,
     base_branch: &str,
+    executor_profile_override: Option<ExecutorProfileId>,
 ) -> Result<ExecutionProcess, ApiError> {
     // Get diff between task branch and base branch
     let diffs = deployment.git().get_diffs(
@@ -247,13 +251,13 @@ pub async fn generate_commit_message_for_merge(
         .join("\n");
 
     // Get config values
-    let (prompt_template, executor_profile_from_config) = {
+    let (prompt_template, default_executor_profile) = {
         let config = deployment.config().read().await;
         let template = config
             .commit_message_prompt
             .clone()
             .unwrap_or_else(|| DEFAULT_COMMIT_MESSAGE_PROMPT.to_string());
-        let profile = config.commit_message_executor_profile.clone();
+        let profile = config.executor_profile.clone();
         (template, profile)
     }; // Lock released here
 
@@ -282,13 +286,9 @@ pub async fn generate_commit_message_for_merge(
             }
         };
 
-    // Determine executor profile: config override > latest from session > default
-    let executor_profile_id = if let Some(profile) = executor_profile_from_config {
-        profile
-    } else {
-        ExecutionProcess::latest_executor_profile_for_session(&deployment.db().pool, session.id)
-            .await?
-    };
+    // Workflow policy decides when to override the executor. Without an explicit
+    // override, internal helper executions use the VK configured default.
+    let executor_profile_id = executor_profile_override.unwrap_or(default_executor_profile);
 
     // Get latest agent session ID for the SAME executor type (for coding agent continuity)
     // This prevents using session IDs from different executors (e.g., Codecs session with Cloud executor)

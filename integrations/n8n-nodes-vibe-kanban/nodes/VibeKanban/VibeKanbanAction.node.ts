@@ -5,39 +5,40 @@ import type {
   INodePropertyOptions,
   INodeType,
   INodeTypeDescription,
-} from 'n8n-workflow';
-import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
+} from "n8n-workflow";
+import { NodeConnectionTypes, NodeOperationError } from "n8n-workflow";
 
 import {
   answerApproval,
-  cancelGenerateAndMerge,
+  cancelQueueMerge,
   cancelConversationFollowUp,
   cancelTaskFollowUp,
   createConversation,
   createFeedback,
   createReviewAttention,
+  generateCommitMessage,
   getExecutorProfiles,
-  queueGenerateAndMerge,
+  queueMerge,
   queueConversationFollowUp,
   queueTaskFollowUp,
   sendConversationMessage,
   startTaskExecution,
   startTaskFollowUp,
   stopExecutionProcess,
-} from './shared/api';
+} from "./shared/api";
 import {
   buildExecutorProfileId,
   toExecutorOptions,
   toExecutorVariantOptions,
-} from './shared/executor-profiles';
-import { normalizeActionOutput } from './shared/output';
+} from "./shared/executor-profiles";
+import { normalizeActionOutput } from "./shared/output";
 import type {
   VkActionResource,
   VkApiCredentialValue,
   VkApprovalResponse,
   VkCreateConversationRequest,
   VkQuestionAnswer,
-} from './shared/vk-contracts';
+} from "./shared/vk-contracts";
 
 function parseAnswersJson(raw: string): VkQuestionAnswer[] {
   if (!raw.trim()) {
@@ -46,7 +47,7 @@ function parseAnswersJson(raw: string): VkQuestionAnswer[] {
 
   const parsed = JSON.parse(raw);
   if (!Array.isArray(parsed)) {
-    throw new Error('Answers JSON must be an array of QuestionAnswer objects');
+    throw new Error("Answers JSON must be an array of QuestionAnswer objects");
   }
   return parsed as VkQuestionAnswer[];
 }
@@ -56,7 +57,7 @@ function parseJsonValue<T>(raw: string, label: string): T {
     return JSON.parse(raw) as T;
   } catch (error) {
     throw new Error(
-      `${label} must be valid JSON: ${error instanceof Error ? error.message : 'parse failed'}`,
+      `${label} must be valid JSON: ${error instanceof Error ? error.message : "parse failed"}`,
     );
   }
 }
@@ -67,9 +68,8 @@ export class VibeKanbanAction implements INodeType {
       async getAvailableExecutors(
         this: ILoadOptionsFunctions,
       ): Promise<INodePropertyOptions[]> {
-        const credentials = await this.getCredentials<VkApiCredentialValue>(
-          'vibeKanbanApi',
-        );
+        const credentials =
+          await this.getCredentials<VkApiCredentialValue>("vibeKanbanApi");
         const profiles = await getExecutorProfiles(credentials);
         return toExecutorOptions(profiles);
       },
@@ -77,539 +77,571 @@ export class VibeKanbanAction implements INodeType {
       async getAvailableExecutorVariants(
         this: ILoadOptionsFunctions,
       ): Promise<INodePropertyOptions[]> {
-        const credentials = await this.getCredentials<VkApiCredentialValue>(
-          'vibeKanbanApi',
-        );
+        const credentials =
+          await this.getCredentials<VkApiCredentialValue>("vibeKanbanApi");
         const profiles = await getExecutorProfiles(credentials);
-        const executor = (this.getCurrentNodeParameter('executor') as string) || '';
+        const executor =
+          (this.getCurrentNodeParameter("executor") as string) || "";
         return toExecutorVariantOptions(profiles, executor);
       },
     },
   };
 
   description: INodeTypeDescription = {
-    displayName: 'Vibe Kanban Action',
-    name: 'vibeKanbanAction',
-    icon: 'file:vibeKanban.svg',
-    group: ['transform'],
+    displayName: "Vibe Kanban Action",
+    name: "vibeKanbanAction",
+    icon: "file:vibeKanban.svg",
+    group: ["transform"],
     version: 1,
-    description: 'Invoke VK orchestration command surfaces without generic HTTP glue',
+    description:
+      "Invoke VK orchestration command surfaces without generic HTTP glue",
     defaults: {
-      name: 'Vibe Kanban Action',
+      name: "Vibe Kanban Action",
     },
     inputs: [NodeConnectionTypes.Main],
     outputs: [NodeConnectionTypes.Main],
     credentials: [
       {
-        name: 'vibeKanbanApi',
+        name: "vibeKanbanApi",
         required: true,
       },
     ],
     properties: [
       {
-        displayName: 'Resource',
-        name: 'resource',
-        type: 'options',
-        default: 'taskSession',
+        displayName: "Resource",
+        name: "resource",
+        type: "options",
+        default: "taskSession",
         options: [
-          { name: 'Task', value: 'task' },
-          { name: 'Workspace', value: 'workspace' },
-          { name: 'Task Session', value: 'taskSession' },
-          { name: 'Conversation', value: 'conversation' },
-          { name: 'Approval', value: 'approval' },
-          { name: 'Execution', value: 'execution' },
-          { name: 'Feedback', value: 'feedback' },
-          { name: 'Review Attention', value: 'reviewAttention' },
+          { name: "Task", value: "task" },
+          { name: "Workspace", value: "workspace" },
+          { name: "Task Session", value: "taskSession" },
+          { name: "Conversation", value: "conversation" },
+          { name: "Approval", value: "approval" },
+          { name: "Execution", value: "execution" },
+          { name: "Feedback", value: "feedback" },
+          { name: "Review Attention", value: "reviewAttention" },
         ],
       },
       {
-        displayName: 'Operation',
-        name: 'operation',
-        type: 'options',
-        default: 'startTaskExecution',
-        displayOptions: { show: { resource: ['task'] } },
-        options: [{ name: 'Start Task Execution', value: 'startTaskExecution' }],
-      },
-      {
-        displayName: 'Operation',
-        name: 'operation',
-        type: 'options',
-        default: 'queueGenerateAndMerge',
-        displayOptions: { show: { resource: ['workspace'] } },
+        displayName: "Operation",
+        name: "operation",
+        type: "options",
+        default: "startTaskExecution",
+        displayOptions: { show: { resource: ["task"] } },
         options: [
-          { name: 'Queue Generate And Merge', value: 'queueGenerateAndMerge' },
-          { name: 'Cancel Generate And Merge', value: 'cancelGenerateAndMerge' },
+          { name: "Start Task Execution", value: "startTaskExecution" },
         ],
       },
       {
-        displayName: 'Operation',
-        name: 'operation',
-        type: 'options',
-        default: 'startFollowUp',
-        displayOptions: { show: { resource: ['taskSession'] } },
+        displayName: "Operation",
+        name: "operation",
+        type: "options",
+        default: "generateCommitMessage",
+        displayOptions: { show: { resource: ["workspace"] } },
         options: [
-          { name: 'Start Follow Up', value: 'startFollowUp' },
-          { name: 'Queue Follow Up', value: 'queueFollowUp' },
-          { name: 'Cancel Queued Follow Up', value: 'cancelQueuedFollowUp' },
+          { name: "Generate Commit Message", value: "generateCommitMessage" },
+          { name: "Queue Merge", value: "queueMerge" },
+          { name: "Cancel Queued Merge", value: "cancelQueueMerge" },
         ],
       },
       {
-        displayName: 'Operation',
-        name: 'operation',
-        type: 'options',
-        default: 'createConversation',
-        displayOptions: { show: { resource: ['conversation'] } },
+        displayName: "Operation",
+        name: "operation",
+        type: "options",
+        default: "startFollowUp",
+        displayOptions: { show: { resource: ["taskSession"] } },
         options: [
-          { name: 'Create Conversation', value: 'createConversation' },
-          { name: 'Send Message', value: 'sendMessage' },
-          { name: 'Queue Follow Up', value: 'queueFollowUp' },
-          { name: 'Cancel Queued Follow Up', value: 'cancelQueuedFollowUp' },
+          { name: "Start Follow Up", value: "startFollowUp" },
+          { name: "Queue Follow Up", value: "queueFollowUp" },
+          { name: "Cancel Queued Follow Up", value: "cancelQueuedFollowUp" },
         ],
       },
       {
-        displayName: 'Operation',
-        name: 'operation',
-        type: 'options',
-        default: 'answerApproval',
-        displayOptions: { show: { resource: ['approval'] } },
-        options: [{ name: 'Answer Approval', value: 'answerApproval' }],
+        displayName: "Operation",
+        name: "operation",
+        type: "options",
+        default: "createConversation",
+        displayOptions: { show: { resource: ["conversation"] } },
+        options: [
+          { name: "Create Conversation", value: "createConversation" },
+          { name: "Send Message", value: "sendMessage" },
+          { name: "Queue Follow Up", value: "queueFollowUp" },
+          { name: "Cancel Queued Follow Up", value: "cancelQueuedFollowUp" },
+        ],
       },
       {
-        displayName: 'Operation',
-        name: 'operation',
-        type: 'options',
-        default: 'stopExecution',
-        displayOptions: { show: { resource: ['execution'] } },
-        options: [{ name: 'Stop Execution', value: 'stopExecution' }],
+        displayName: "Operation",
+        name: "operation",
+        type: "options",
+        default: "answerApproval",
+        displayOptions: { show: { resource: ["approval"] } },
+        options: [{ name: "Answer Approval", value: "answerApproval" }],
       },
       {
-        displayName: 'Operation',
-        name: 'operation',
-        type: 'options',
-        default: 'createFeedback',
-        displayOptions: { show: { resource: ['feedback'] } },
-        options: [{ name: 'Create Feedback', value: 'createFeedback' }],
+        displayName: "Operation",
+        name: "operation",
+        type: "options",
+        default: "stopExecution",
+        displayOptions: { show: { resource: ["execution"] } },
+        options: [{ name: "Stop Execution", value: "stopExecution" }],
       },
       {
-        displayName: 'Operation',
-        name: 'operation',
-        type: 'options',
-        default: 'createReviewAttention',
-        displayOptions: { show: { resource: ['reviewAttention'] } },
-        options: [{ name: 'Create Review Attention', value: 'createReviewAttention' }],
+        displayName: "Operation",
+        name: "operation",
+        type: "options",
+        default: "createFeedback",
+        displayOptions: { show: { resource: ["feedback"] } },
+        options: [{ name: "Create Feedback", value: "createFeedback" }],
       },
       {
-        displayName: 'Task ID',
-        name: 'taskId',
-        type: 'string',
-        default: '',
+        displayName: "Operation",
+        name: "operation",
+        type: "options",
+        default: "createReviewAttention",
+        displayOptions: { show: { resource: ["reviewAttention"] } },
+        options: [
+          { name: "Create Review Attention", value: "createReviewAttention" },
+        ],
+      },
+      {
+        displayName: "Task ID",
+        name: "taskId",
+        type: "string",
+        default: "",
         required: true,
         displayOptions: {
           show: {
-            resource: ['task', 'feedback', 'reviewAttention'],
+            resource: ["task", "feedback", "reviewAttention"],
           },
         },
       },
       {
-        displayName: 'Workspace ID',
-        name: 'workspaceId',
-        type: 'string',
-        default: '',
+        displayName: "Workspace ID",
+        name: "workspaceId",
+        type: "string",
+        default: "",
         required: true,
         displayOptions: {
           show: {
-            resource: ['workspace', 'feedback', 'reviewAttention'],
+            resource: ["workspace", "feedback", "reviewAttention"],
           },
         },
       },
       {
-        displayName: 'Project ID',
-        name: 'projectId',
-        type: 'string',
-        default: '',
+        displayName: "Project ID",
+        name: "projectId",
+        type: "string",
+        default: "",
         required: true,
         displayOptions: {
           show: {
-            resource: ['conversation'],
-            operation: ['createConversation'],
+            resource: ["conversation"],
+            operation: ["createConversation"],
           },
         },
       },
       {
-        displayName: 'Workspace Strategy',
-        name: 'workspaceStrategy',
-        type: 'options',
-        default: 'latest_or_create',
+        displayName: "Workspace Strategy",
+        name: "workspaceStrategy",
+        type: "options",
+        default: "latest_or_create",
         displayOptions: {
           show: {
-            resource: ['task'],
-            operation: ['startTaskExecution'],
+            resource: ["task"],
+            operation: ["startTaskExecution"],
           },
         },
         options: [
-          { name: 'Latest Or Create', value: 'latest_or_create' },
-          { name: 'Create New', value: 'create_new' },
+          { name: "Latest Or Create", value: "latest_or_create" },
+          { name: "Create New", value: "create_new" },
         ],
       },
       {
-        displayName: 'Executor Strategy',
-        name: 'executorStrategy',
-        type: 'options',
-        default: 'default',
+        displayName: "Executor Strategy",
+        name: "executorStrategy",
+        type: "options",
+        default: "default",
         displayOptions: {
           show: {
-            resource: ['task'],
-            operation: ['startTaskExecution'],
+            resource: ["task"],
+            operation: ["startTaskExecution"],
           },
         },
         options: [
-          { name: 'VK Default', value: 'default' },
-          { name: 'Latest Or Default', value: 'latest_or_default' },
-          { name: 'Explicit', value: 'explicit' },
+          { name: "VK Default", value: "default" },
+          { name: "Latest Or Default", value: "latest_or_default" },
+          { name: "Explicit", value: "explicit" },
         ],
       },
       {
-        displayName: 'Executor',
-        name: 'executor',
-        type: 'options',
-        default: '',
+        displayName: "Executor",
+        name: "executor",
+        type: "options",
+        default: "",
         required: false,
         typeOptions: {
-          loadOptionsMethod: 'getAvailableExecutors',
+          loadOptionsMethod: "getAvailableExecutors",
         },
         description:
-          'Choose the VK executor. For task execution this is only used when Executor Strategy is Explicit. Leave empty on Create Conversation to use the VK default executor.',
+          "Choose the VK executor. For task execution this is only used when Executor Strategy is Explicit. Leave empty to use the VK configured default executor.",
         displayOptions: {
           show: {
-            resource: ['task', 'conversation'],
-            operation: ['startTaskExecution', 'createConversation'],
+            resource: ["task", "conversation", "workspace"],
+            operation: [
+              "startTaskExecution",
+              "createConversation",
+              "generateCommitMessage",
+            ],
           },
         },
       },
       {
-        displayName: 'Executor Variant',
-        name: 'executorVariant',
-        type: 'options',
-        default: '',
+        displayName: "Executor Variant",
+        name: "executorVariant",
+        type: "options",
+        default: "",
         required: false,
         typeOptions: {
-          loadOptionsMethod: 'getAvailableExecutorVariants',
-          loadOptionsDependsOn: ['executor'],
+          loadOptionsMethod: "getAvailableExecutorVariants",
+          loadOptionsDependsOn: ["executor"],
         },
-        description: 'Leave empty to use the default variant of the selected executor.',
+        description:
+          "Leave empty to use the default variant of the selected executor.",
         displayOptions: {
           show: {
-            resource: ['task', 'conversation'],
-            operation: ['startTaskExecution', 'createConversation'],
+            resource: ["task", "conversation", "workspace"],
+            operation: [
+              "startTaskExecution",
+              "createConversation",
+              "generateCommitMessage",
+            ],
           },
         },
       },
       {
-        displayName: 'Repo Selection',
-        name: 'repoSelection',
-        type: 'options',
-        default: 'taskGroupDefault',
+        displayName: "Repo Selection",
+        name: "repoSelection",
+        type: "options",
+        default: "taskGroupDefault",
         displayOptions: {
           show: {
-            resource: ['task'],
-            operation: ['startTaskExecution'],
+            resource: ["task"],
+            operation: ["startTaskExecution"],
           },
         },
         options: [
-          { name: 'Task Group Default', value: 'taskGroupDefault' },
-          { name: 'Explicit Repos JSON', value: 'explicit' },
+          { name: "Task Group Default", value: "taskGroupDefault" },
+          { name: "Explicit Repos JSON", value: "explicit" },
         ],
       },
       {
-        displayName: 'Repos JSON',
-        name: 'reposJson',
-        type: 'string',
+        displayName: "Repos JSON",
+        name: "reposJson",
+        type: "string",
         typeOptions: { rows: 4 },
-        default: '[]',
+        default: "[]",
         required: true,
         displayOptions: {
           show: {
-            resource: ['task'],
-            operation: ['startTaskExecution'],
-            repoSelection: ['explicit'],
+            resource: ["task"],
+            operation: ["startTaskExecution"],
+            repoSelection: ["explicit"],
           },
         },
       },
       {
-        displayName: 'Repo ID',
-        name: 'repoId',
-        type: 'string',
-        default: '',
+        displayName: "Repo ID",
+        name: "repoId",
+        type: "string",
+        default: "",
         required: true,
         displayOptions: {
           show: {
-            resource: ['workspace'],
-            operation: ['queueGenerateAndMerge'],
+            resource: ["workspace"],
+            operation: ["generateCommitMessage", "queueMerge"],
           },
         },
       },
       {
-        displayName: 'Session ID',
-        name: 'sessionId',
-        type: 'string',
-        default: '',
-        required: true,
-        displayOptions: { show: { resource: ['taskSession'] } },
-      },
-      {
-        displayName: 'Conversation ID',
-        name: 'conversationId',
-        type: 'string',
-        default: '',
-        required: true,
-        displayOptions: {
-          show: {
-            resource: ['conversation'],
-            operation: ['sendMessage', 'queueFollowUp', 'cancelQueuedFollowUp'],
-          },
-        },
-      },
-      {
-        displayName: 'Title',
-        name: 'title',
-        type: 'string',
-        default: '',
-        required: true,
-        displayOptions: {
-          show: {
-            resource: ['conversation'],
-            operation: ['createConversation'],
-          },
-        },
-      },
-      {
-        displayName: 'Initial Message',
-        name: 'initialMessage',
-        type: 'string',
+        displayName: "Commit Message",
+        name: "commitMessage",
+        type: "string",
         typeOptions: { rows: 4 },
-        default: '',
-        required: true,
+        default: "",
+        required: false,
+        description:
+          "Optional explicit commit message. Leave empty to let VK fall back to the task title and description.",
         displayOptions: {
           show: {
-            resource: ['conversation'],
-            operation: ['createConversation'],
+            resource: ["workspace"],
+            operation: ["queueMerge"],
           },
         },
       },
       {
-        displayName: 'Worktree Path',
-        name: 'worktreePath',
-        type: 'string',
-        default: '',
+        displayName: "Session ID",
+        name: "sessionId",
+        type: "string",
+        default: "",
+        required: true,
+        displayOptions: { show: { resource: ["taskSession"] } },
+      },
+      {
+        displayName: "Conversation ID",
+        name: "conversationId",
+        type: "string",
+        default: "",
+        required: true,
+        displayOptions: {
+          show: {
+            resource: ["conversation"],
+            operation: ["sendMessage", "queueFollowUp", "cancelQueuedFollowUp"],
+          },
+        },
+      },
+      {
+        displayName: "Title",
+        name: "title",
+        type: "string",
+        default: "",
+        required: true,
+        displayOptions: {
+          show: {
+            resource: ["conversation"],
+            operation: ["createConversation"],
+          },
+        },
+      },
+      {
+        displayName: "Initial Message",
+        name: "initialMessage",
+        type: "string",
+        typeOptions: { rows: 4 },
+        default: "",
+        required: true,
+        displayOptions: {
+          show: {
+            resource: ["conversation"],
+            operation: ["createConversation"],
+          },
+        },
+      },
+      {
+        displayName: "Worktree Path",
+        name: "worktreePath",
+        type: "string",
+        default: "",
         required: false,
         displayOptions: {
           show: {
-            resource: ['conversation'],
-            operation: ['createConversation'],
+            resource: ["conversation"],
+            operation: ["createConversation"],
           },
         },
       },
       {
-        displayName: 'Worktree Branch',
-        name: 'worktreeBranch',
-        type: 'string',
-        default: '',
+        displayName: "Worktree Branch",
+        name: "worktreeBranch",
+        type: "string",
+        default: "",
         required: false,
         displayOptions: {
           show: {
-            resource: ['conversation'],
-            operation: ['createConversation'],
+            resource: ["conversation"],
+            operation: ["createConversation"],
           },
         },
       },
       {
-        displayName: 'Approval ID',
-        name: 'approvalId',
-        type: 'string',
-        default: '',
+        displayName: "Approval ID",
+        name: "approvalId",
+        type: "string",
+        default: "",
         required: true,
-        displayOptions: { show: { resource: ['approval'] } },
+        displayOptions: { show: { resource: ["approval"] } },
       },
       {
-        displayName: 'Execution Process ID',
-        name: 'executionProcessId',
-        type: 'string',
-        default: '',
+        displayName: "Execution Process ID",
+        name: "executionProcessId",
+        type: "string",
+        default: "",
         required: true,
         displayOptions: {
           show: {
-            resource: ['approval', 'execution', 'feedback', 'reviewAttention'],
+            resource: ["approval", "execution", "feedback", "reviewAttention"],
           },
         },
       },
       {
-        displayName: 'Feedback JSON',
-        name: 'feedbackJson',
-        type: 'string',
+        displayName: "Feedback JSON",
+        name: "feedbackJson",
+        type: "string",
         typeOptions: { rows: 4 },
-        default: '{}',
+        default: "{}",
         required: false,
         displayOptions: {
           show: {
-            resource: ['feedback'],
-            operation: ['createFeedback'],
+            resource: ["feedback"],
+            operation: ["createFeedback"],
           },
         },
       },
       {
-        displayName: 'Needs Attention',
-        name: 'needsAttention',
-        type: 'boolean',
+        displayName: "Needs Attention",
+        name: "needsAttention",
+        type: "boolean",
         default: false,
         required: true,
         displayOptions: {
           show: {
-            resource: ['reviewAttention'],
-            operation: ['createReviewAttention'],
+            resource: ["reviewAttention"],
+            operation: ["createReviewAttention"],
           },
         },
       },
       {
-        displayName: 'Reasoning',
-        name: 'reasoning',
-        type: 'string',
+        displayName: "Reasoning",
+        name: "reasoning",
+        type: "string",
         typeOptions: { rows: 4 },
-        default: '',
+        default: "",
         required: false,
         displayOptions: {
           show: {
-            resource: ['reviewAttention'],
-            operation: ['createReviewAttention'],
+            resource: ["reviewAttention"],
+            operation: ["createReviewAttention"],
           },
         },
       },
       {
-        displayName: 'Prompt',
-        name: 'prompt',
-        type: 'string',
+        displayName: "Prompt",
+        name: "prompt",
+        type: "string",
         typeOptions: { rows: 4 },
-        default: '',
+        default: "",
         required: true,
         displayOptions: {
           show: {
-            resource: ['taskSession'],
-            operation: ['startFollowUp'],
+            resource: ["taskSession"],
+            operation: ["startFollowUp"],
           },
         },
       },
       {
-        displayName: 'Message',
-        name: 'message',
-        type: 'string',
+        displayName: "Message",
+        name: "message",
+        type: "string",
         typeOptions: { rows: 4 },
-        default: '',
+        default: "",
         required: true,
         displayOptions: {
           show: {
-            operation: ['queueFollowUp'],
+            operation: ["queueFollowUp"],
           },
         },
       },
       {
-        displayName: 'Content',
-        name: 'content',
-        type: 'string',
+        displayName: "Content",
+        name: "content",
+        type: "string",
         typeOptions: { rows: 4 },
-        default: '',
+        default: "",
         required: true,
         displayOptions: {
           show: {
-            resource: ['conversation'],
-            operation: ['sendMessage'],
+            resource: ["conversation"],
+            operation: ["sendMessage"],
           },
         },
       },
       {
-        displayName: 'Variant',
-        name: 'variant',
-        type: 'string',
-        default: '',
+        displayName: "Variant",
+        name: "variant",
+        type: "string",
+        default: "",
         required: false,
-        description: 'Optional VK executor variant',
+        description: "Optional VK executor variant",
         displayOptions: {
           show: {
-            operation: ['startFollowUp', 'queueFollowUp', 'sendMessage'],
+            operation: ["startFollowUp", "queueFollowUp", "sendMessage"],
           },
         },
       },
       {
-        displayName: 'Retry Process ID',
-        name: 'retryProcessId',
-        type: 'string',
-        default: '',
+        displayName: "Retry Process ID",
+        name: "retryProcessId",
+        type: "string",
+        default: "",
         required: false,
         displayOptions: {
           show: {
-            resource: ['taskSession'],
-            operation: ['startFollowUp'],
+            resource: ["taskSession"],
+            operation: ["startFollowUp"],
           },
         },
       },
       {
-        displayName: 'Force When Dirty',
-        name: 'forceWhenDirty',
-        type: 'boolean',
+        displayName: "Force When Dirty",
+        name: "forceWhenDirty",
+        type: "boolean",
         default: false,
         displayOptions: {
           show: {
-            resource: ['taskSession'],
-            operation: ['startFollowUp'],
+            resource: ["taskSession"],
+            operation: ["startFollowUp"],
           },
         },
       },
       {
-        displayName: 'Perform Git Reset',
-        name: 'performGitReset',
-        type: 'boolean',
+        displayName: "Perform Git Reset",
+        name: "performGitReset",
+        type: "boolean",
         default: false,
         displayOptions: {
           show: {
-            resource: ['taskSession'],
-            operation: ['startFollowUp'],
+            resource: ["taskSession"],
+            operation: ["startFollowUp"],
           },
         },
       },
       {
-        displayName: 'Approval Response',
-        name: 'approvalResponse',
-        type: 'options',
-        default: 'approved',
-        displayOptions: { show: { resource: ['approval'] } },
+        displayName: "Approval Response",
+        name: "approvalResponse",
+        type: "options",
+        default: "approved",
+        displayOptions: { show: { resource: ["approval"] } },
         options: [
-          { name: 'Approved', value: 'approved' },
-          { name: 'Denied', value: 'denied' },
-          { name: 'Answered', value: 'answered' },
-          { name: 'Timed Out', value: 'timed_out' },
+          { name: "Approved", value: "approved" },
+          { name: "Denied", value: "denied" },
+          { name: "Answered", value: "answered" },
+          { name: "Timed Out", value: "timed_out" },
         ],
       },
       {
-        displayName: 'Deny Reason',
-        name: 'denyReason',
-        type: 'string',
-        default: '',
+        displayName: "Deny Reason",
+        name: "denyReason",
+        type: "string",
+        default: "",
         displayOptions: {
           show: {
-            resource: ['approval'],
-            approvalResponse: ['denied'],
+            resource: ["approval"],
+            approvalResponse: ["denied"],
           },
         },
       },
       {
-        displayName: 'Answers JSON',
-        name: 'answersJson',
-        type: 'string',
+        displayName: "Answers JSON",
+        name: "answersJson",
+        type: "string",
         typeOptions: { rows: 4 },
-        default: '[]',
-        description: 'JSON array of QuestionAnswer objects for answered user questions',
+        default: "[]",
+        description:
+          "JSON array of QuestionAnswer objects for answered user questions",
         displayOptions: {
           show: {
-            resource: ['approval'],
-            approvalResponse: ['answered'],
+            resource: ["approval"],
+            approvalResponse: ["answered"],
           },
         },
       },
@@ -617,7 +649,8 @@ export class VibeKanbanAction implements INodeType {
   };
 
   async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
-    const credentials = await this.getCredentials<VkApiCredentialValue>('vibeKanbanApi');
+    const credentials =
+      await this.getCredentials<VkApiCredentialValue>("vibeKanbanApi");
     const inputItems = this.getInputData();
     const itemCount = Math.max(inputItems.length, 1);
     const returnData: INodeExecutionData[] = [];
@@ -625,58 +658,68 @@ export class VibeKanbanAction implements INodeType {
     for (let itemIndex = 0; itemIndex < itemCount; itemIndex++) {
       try {
         const resource = this.getNodeParameter(
-          'resource',
+          "resource",
           itemIndex,
         ) as VkActionResource;
-        const operation = this.getNodeParameter('operation', itemIndex) as string;
+        const operation = this.getNodeParameter(
+          "operation",
+          itemIndex,
+        ) as string;
 
         let output;
         switch (resource) {
-          case 'task': {
-            const taskId = this.getNodeParameter('taskId', itemIndex) as string;
+          case "task": {
+            const taskId = this.getNodeParameter("taskId", itemIndex) as string;
             const workspaceStrategy = this.getNodeParameter(
-              'workspaceStrategy',
+              "workspaceStrategy",
               itemIndex,
             ) as string;
             const executorStrategy = this.getNodeParameter(
-              'executorStrategy',
+              "executorStrategy",
               itemIndex,
             ) as string;
             const executor = this.getNodeParameter(
-              'executor',
+              "executor",
               itemIndex,
-              '',
+              "",
             ) as string;
             const executorVariant = this.getNodeParameter(
-              'executorVariant',
+              "executorVariant",
               itemIndex,
-              '',
+              "",
             ) as string;
-            const repoSelection = this.getNodeParameter('repoSelection', itemIndex) as string;
+            const repoSelection = this.getNodeParameter(
+              "repoSelection",
+              itemIndex,
+            ) as string;
             const executorProfile = buildExecutorProfileId(
               executor,
               executorVariant,
             );
             let executorStrategyBody:
-              | { executor_selection: 'default' }
-              | { executor_selection: 'latest_or_default' }
+              | { executor_selection: "default" }
+              | { executor_selection: "latest_or_default" }
               | {
-                  executor_selection: 'explicit';
+                  executor_selection: "explicit";
                   executor_profile_id: NonNullable<typeof executorProfile>;
                 };
 
-            if (executorStrategy === 'explicit') {
+            if (executorStrategy === "explicit") {
               if (!executorProfile) {
-                throw new Error('Executor is required when Executor Strategy is Explicit');
+                throw new Error(
+                  "Executor is required when Executor Strategy is Explicit",
+                );
               }
               executorStrategyBody = {
-                executor_selection: 'explicit',
+                executor_selection: "explicit",
                 executor_profile_id: executorProfile,
               };
-            } else if (executorStrategy === 'latest_or_default') {
-              executorStrategyBody = { executor_selection: 'latest_or_default' };
+            } else if (executorStrategy === "latest_or_default") {
+              executorStrategyBody = {
+                executor_selection: "latest_or_default",
+              };
             } else {
-              executorStrategyBody = { executor_selection: 'default' };
+              executorStrategyBody = { executor_selection: "default" };
             }
 
             const command = {
@@ -684,20 +727,25 @@ export class VibeKanbanAction implements INodeType {
               workspace_strategy: workspaceStrategy,
               executor_strategy: executorStrategyBody,
               repo_selection:
-                repoSelection === 'explicit'
+                repoSelection === "explicit"
                   ? {
-                      repo_selection: 'explicit',
-                      repos: parseJsonValue<{ repo_id: string; target_branch: string }[]>(
-                        this.getNodeParameter('reposJson', itemIndex) as string,
-                        'Repos JSON',
+                      repo_selection: "explicit",
+                      repos: parseJsonValue<
+                        { repo_id: string; target_branch: string }[]
+                      >(
+                        this.getNodeParameter("reposJson", itemIndex) as string,
+                        "Repos JSON",
                       ),
                     }
                   : {
-                      repo_selection: 'task_group_default',
+                      repo_selection: "task_group_default",
                     },
             };
 
-            const data = await startTaskExecution(credentials, command as never);
+            const data = await startTaskExecution(
+              credentials,
+              command as never,
+            );
             output = normalizeActionOutput({
               resource,
               operation,
@@ -706,13 +754,56 @@ export class VibeKanbanAction implements INodeType {
             });
             break;
           }
-          case 'workspace': {
-            const workspaceId = this.getNodeParameter('workspaceId', itemIndex) as string;
-
-            if (operation === 'queueGenerateAndMerge') {
-              const repoId = this.getNodeParameter('repoId', itemIndex) as string;
-              const data = await queueGenerateAndMerge(credentials, workspaceId, {
+          case "workspace": {
+            const workspaceId = this.getNodeParameter(
+              "workspaceId",
+              itemIndex,
+            ) as string;
+            if (operation === "generateCommitMessage") {
+              const repoId = this.getNodeParameter(
+                "repoId",
+                itemIndex,
+              ) as string;
+              const executor = this.getNodeParameter(
+                "executor",
+                itemIndex,
+                "",
+              ) as string;
+              const executorVariant = this.getNodeParameter(
+                "executorVariant",
+                itemIndex,
+                "",
+              ) as string;
+              const data = await generateCommitMessage(
+                credentials,
+                workspaceId,
+                {
+                  repo_id: repoId,
+                  executor_profile_id: buildExecutorProfileId(
+                    executor,
+                    executorVariant,
+                  ),
+                },
+              );
+              output = normalizeActionOutput({
+                resource,
+                operation,
+                identifiers: { workspaceId, repoId },
+                data,
+              });
+            } else if (operation === "queueMerge") {
+              const repoId = this.getNodeParameter(
+                "repoId",
+                itemIndex,
+              ) as string;
+              const commitMessage = this.getNodeParameter(
+                "commitMessage",
+                itemIndex,
+                "",
+              ) as string;
+              const data = await queueMerge(credentials, workspaceId, {
                 repo_id: repoId,
+                commit_message: commitMessage || null,
               });
               output = normalizeActionOutput({
                 resource,
@@ -721,7 +812,7 @@ export class VibeKanbanAction implements INodeType {
                 data,
               });
             } else {
-              await cancelGenerateAndMerge(credentials, workspaceId);
+              await cancelQueueMerge(credentials, workspaceId);
               output = normalizeActionOutput({
                 resource,
                 operation,
@@ -730,22 +821,32 @@ export class VibeKanbanAction implements INodeType {
             }
             break;
           }
-          case 'taskSession': {
-            const sessionId = this.getNodeParameter('sessionId', itemIndex) as string;
-            if (operation === 'startFollowUp') {
-              const prompt = this.getNodeParameter('prompt', itemIndex) as string;
-              const variant = this.getNodeParameter('variant', itemIndex, '') as string;
-              const retryProcessId = this.getNodeParameter(
-                'retryProcessId',
+          case "taskSession": {
+            const sessionId = this.getNodeParameter(
+              "sessionId",
+              itemIndex,
+            ) as string;
+            if (operation === "startFollowUp") {
+              const prompt = this.getNodeParameter(
+                "prompt",
                 itemIndex,
-                '',
+              ) as string;
+              const variant = this.getNodeParameter(
+                "variant",
+                itemIndex,
+                "",
+              ) as string;
+              const retryProcessId = this.getNodeParameter(
+                "retryProcessId",
+                itemIndex,
+                "",
               ) as string;
               const forceWhenDirty = this.getNodeParameter(
-                'forceWhenDirty',
+                "forceWhenDirty",
                 itemIndex,
               ) as boolean;
               const performGitReset = this.getNodeParameter(
-                'performGitReset',
+                "performGitReset",
                 itemIndex,
               ) as boolean;
               const data = await startTaskFollowUp(credentials, sessionId, {
@@ -761,9 +862,16 @@ export class VibeKanbanAction implements INodeType {
                 identifiers: { sessionId },
                 data,
               });
-            } else if (operation === 'queueFollowUp') {
-              const message = this.getNodeParameter('message', itemIndex) as string;
-              const variant = this.getNodeParameter('variant', itemIndex, '') as string;
+            } else if (operation === "queueFollowUp") {
+              const message = this.getNodeParameter(
+                "message",
+                itemIndex,
+              ) as string;
+              const variant = this.getNodeParameter(
+                "variant",
+                itemIndex,
+                "",
+              ) as string;
               const data = await queueTaskFollowUp(credentials, sessionId, {
                 message,
                 variant: variant || undefined,
@@ -785,33 +893,36 @@ export class VibeKanbanAction implements INodeType {
             }
             break;
           }
-          case 'conversation': {
-            if (operation === 'createConversation') {
-              const projectId = this.getNodeParameter('projectId', itemIndex) as string;
-              const title = this.getNodeParameter('title', itemIndex) as string;
+          case "conversation": {
+            if (operation === "createConversation") {
+              const projectId = this.getNodeParameter(
+                "projectId",
+                itemIndex,
+              ) as string;
+              const title = this.getNodeParameter("title", itemIndex) as string;
               const initialMessage = this.getNodeParameter(
-                'initialMessage',
+                "initialMessage",
                 itemIndex,
               ) as string;
               const executor = this.getNodeParameter(
-                'executor',
+                "executor",
                 itemIndex,
-                '',
+                "",
               ) as string;
               const executorVariant = this.getNodeParameter(
-                'executorVariant',
+                "executorVariant",
                 itemIndex,
-                '',
+                "",
               ) as string;
               const worktreePath = this.getNodeParameter(
-                'worktreePath',
+                "worktreePath",
                 itemIndex,
-                '',
+                "",
               ) as string;
               const worktreeBranch = this.getNodeParameter(
-                'worktreeBranch',
+                "worktreeBranch",
                 itemIndex,
-                '',
+                "",
               ) as string;
               const body: VkCreateConversationRequest = {
                 title,
@@ -823,7 +934,11 @@ export class VibeKanbanAction implements INodeType {
                 worktree_path: worktreePath || null,
                 worktree_branch: worktreeBranch || null,
               };
-              const data = await createConversation(credentials, projectId, body);
+              const data = await createConversation(
+                credentials,
+                projectId,
+                body,
+              );
               output = normalizeActionOutput({
                 resource,
                 operation,
@@ -832,15 +947,18 @@ export class VibeKanbanAction implements INodeType {
               });
             } else {
               const conversationId = this.getNodeParameter(
-                'conversationId',
+                "conversationId",
                 itemIndex,
               ) as string;
-              if (operation === 'sendMessage') {
-                const content = this.getNodeParameter('content', itemIndex) as string;
-                const variant = this.getNodeParameter(
-                  'variant',
+              if (operation === "sendMessage") {
+                const content = this.getNodeParameter(
+                  "content",
                   itemIndex,
-                  '',
+                ) as string;
+                const variant = this.getNodeParameter(
+                  "variant",
+                  itemIndex,
+                  "",
                 ) as string;
                 const data = await sendConversationMessage(
                   credentials,
@@ -856,13 +974,24 @@ export class VibeKanbanAction implements INodeType {
                   identifiers: { conversationId },
                   data,
                 });
-              } else if (operation === 'queueFollowUp') {
-                const message = this.getNodeParameter('message', itemIndex) as string;
-                const variant = this.getNodeParameter('variant', itemIndex, '') as string;
-                const data = await queueConversationFollowUp(credentials, conversationId, {
-                  message,
-                  variant: variant || undefined,
-                });
+              } else if (operation === "queueFollowUp") {
+                const message = this.getNodeParameter(
+                  "message",
+                  itemIndex,
+                ) as string;
+                const variant = this.getNodeParameter(
+                  "variant",
+                  itemIndex,
+                  "",
+                ) as string;
+                const data = await queueConversationFollowUp(
+                  credentials,
+                  conversationId,
+                  {
+                    message,
+                    variant: variant || undefined,
+                  },
+                );
                 output = normalizeActionOutput({
                   resource,
                   operation,
@@ -884,41 +1013,51 @@ export class VibeKanbanAction implements INodeType {
             }
             break;
           }
-          case 'approval': {
-            const approvalId = this.getNodeParameter('approvalId', itemIndex) as string;
+          case "approval": {
+            const approvalId = this.getNodeParameter(
+              "approvalId",
+              itemIndex,
+            ) as string;
             const executionProcessId = this.getNodeParameter(
-              'executionProcessId',
+              "executionProcessId",
               itemIndex,
             ) as string;
             const approvalResponse = this.getNodeParameter(
-              'approvalResponse',
+              "approvalResponse",
               itemIndex,
             ) as string;
 
             let body: VkApprovalResponse;
-            if (approvalResponse === 'approved') {
+            if (approvalResponse === "approved") {
               body = {
                 execution_process_id: executionProcessId,
-                status: { status: 'approved' },
+                status: { status: "approved" },
               };
-            } else if (approvalResponse === 'denied') {
-              const reason = this.getNodeParameter('denyReason', itemIndex, '') as string;
+            } else if (approvalResponse === "denied") {
+              const reason = this.getNodeParameter(
+                "denyReason",
+                itemIndex,
+                "",
+              ) as string;
               body = {
                 execution_process_id: executionProcessId,
-                status: { status: 'denied', reason: reason || undefined },
+                status: { status: "denied", reason: reason || undefined },
               };
-            } else if (approvalResponse === 'answered') {
-              const answersJson = this.getNodeParameter('answersJson', itemIndex) as string;
+            } else if (approvalResponse === "answered") {
+              const answersJson = this.getNodeParameter(
+                "answersJson",
+                itemIndex,
+              ) as string;
               const answers = parseAnswersJson(answersJson);
               body = {
                 execution_process_id: executionProcessId,
-                status: { status: 'answered', answers },
+                status: { status: "answered", answers },
                 answers,
               };
             } else {
               body = {
                 execution_process_id: executionProcessId,
-                status: { status: 'timed_out' },
+                status: { status: "timed_out" },
               };
             }
 
@@ -931,9 +1070,9 @@ export class VibeKanbanAction implements INodeType {
             });
             break;
           }
-          case 'execution': {
+          case "execution": {
             const executionProcessId = this.getNodeParameter(
-              'executionProcessId',
+              "executionProcessId",
               itemIndex,
             ) as string;
             await stopExecutionProcess(credentials, executionProcessId);
@@ -944,16 +1083,25 @@ export class VibeKanbanAction implements INodeType {
             });
             break;
           }
-          case 'feedback': {
+          case "feedback": {
             const executionProcessId = this.getNodeParameter(
-              'executionProcessId',
+              "executionProcessId",
               itemIndex,
             ) as string;
-            const taskId = this.getNodeParameter('taskId', itemIndex) as string;
-            const workspaceId = this.getNodeParameter('workspaceId', itemIndex) as string;
-            const feedbackJson = this.getNodeParameter('feedbackJson', itemIndex, '') as string;
+            const taskId = this.getNodeParameter("taskId", itemIndex) as string;
+            const workspaceId = this.getNodeParameter(
+              "workspaceId",
+              itemIndex,
+            ) as string;
+            const feedbackJson = this.getNodeParameter(
+              "feedbackJson",
+              itemIndex,
+              "",
+            ) as string;
             const feedback = feedbackJson.trim()
-              ? JSON.stringify(parseJsonValue<unknown>(feedbackJson, 'Feedback JSON'))
+              ? JSON.stringify(
+                  parseJsonValue<unknown>(feedbackJson, "Feedback JSON"),
+                )
               : undefined;
 
             const data = await createFeedback(credentials, {
@@ -970,18 +1118,25 @@ export class VibeKanbanAction implements INodeType {
             });
             break;
           }
-          case 'reviewAttention': {
+          case "reviewAttention": {
             const executionProcessId = this.getNodeParameter(
-              'executionProcessId',
+              "executionProcessId",
               itemIndex,
             ) as string;
-            const taskId = this.getNodeParameter('taskId', itemIndex) as string;
-            const workspaceId = this.getNodeParameter('workspaceId', itemIndex) as string;
+            const taskId = this.getNodeParameter("taskId", itemIndex) as string;
+            const workspaceId = this.getNodeParameter(
+              "workspaceId",
+              itemIndex,
+            ) as string;
             const needsAttention = this.getNodeParameter(
-              'needsAttention',
+              "needsAttention",
               itemIndex,
             ) as boolean;
-            const reasoning = this.getNodeParameter('reasoning', itemIndex, '') as string;
+            const reasoning = this.getNodeParameter(
+              "reasoning",
+              itemIndex,
+              "",
+            ) as string;
 
             const data = await createReviewAttention(credentials, {
               execution_process_id: executionProcessId,
@@ -1010,7 +1165,10 @@ export class VibeKanbanAction implements INodeType {
         if (this.continueOnFail()) {
           returnData.push({
             json: {
-              error: error instanceof Error ? error.message : 'Unknown VK action error',
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Unknown VK action error",
             },
             pairedItem: inputItems[itemIndex] ? { item: itemIndex } : undefined,
           });

@@ -180,7 +180,7 @@ export type TaskGroupSnapshotDto = { id: string, project_id: string, name: strin
 
 export type TaskGroupStatsDto = { todo: bigint, in_progress: bigint, in_review: bigint, done: bigint, cancelled: bigint, };
 
-export type TaskGroupDependencyContextDto = { blocked_tasks: Array<TaskListItemDto>, ready_tasks: Array<TaskListItemDto>, };
+export type TaskGroupDependencyContextDto = { blocked_tasks: Array<TaskListItemDto>, };
 
 export type TaskGroupQueueStateDto = { queued_tasks: Array<TaskListItemDto>, merge_queue_entries: Array<MergeQueueEntrySnapshotDto>, };
 
@@ -628,7 +628,7 @@ export type ChangeTargetBranchResponse = { repo_id: string, new_target_branch: s
 
 export type MergeTaskAttemptRequest = { repo_id: string, commit_message: string | null, generate_commit_message: boolean | null, };
 
-export type GenerateCommitMessageRequest = { repo_id: string, };
+export type GenerateCommitMessageRequest = { repo_id: string, executor_profile_id: ExecutorProfileId | null, };
 
 export type GenerateCommitMessageResponse = { commit_message: string, };
 
@@ -667,10 +667,6 @@ export type TaskExecutionWorkspaceResolution = "created" | "reused";
 export type StartTaskExecutionCommand = { task_id: string, workspace_strategy: TaskExecutionWorkspaceStrategy, executor_strategy: TaskExecutionExecutorStrategy, repo_selection: TaskExecutionRepoSelection, };
 
 export type StartTaskExecutionResult = { "status": "started", workspace: Workspace, workspace_resolution: TaskExecutionWorkspaceResolution, executor_profile_id: ExecutorProfileId, execution_process: ExecutionProcess, } | { "status": "queued", workspace: Workspace, workspace_resolution: TaskExecutionWorkspaceResolution, executor_profile_id: ExecutorProfileId, queue_entry: ExecutionQueue, };
-
-export type QueueGenerateAndMergeCommand = { repo_id: string, };
-
-export type QueueGenerateAndMergeResult = { "status": "queued", entry: MergeQueueEntry, } | { "status": "rejected", error: QueueMergeError, };
 
 export type WorkspaceRepoInput = { repo_id: string, target_branch: string, };
 
@@ -748,9 +744,9 @@ conflicted_files: Array<string>,
  */
 target_branch_has_uncommitted_changes: boolean | null, };
 
-export type QueueMergeRequest = { repo_id: string, commit_message: string | null, generate_commit_message: boolean | null, };
+export type QueueMergeRequest = { repo_id: string, commit_message: string | null, };
 
-export type QueueMergeError = { "type": "no_commits_ahead" } | { "type": "has_conflicts" } | { "type": "already_merged" } | { "type": "already_queued" } | { "type": "workspace_repo_not_found" } | { "type": "commit_message_generation_failed", message: string, };
+export type QueueMergeError = { "type": "no_commits_ahead" } | { "type": "has_conflicts" } | { "type": "already_merged" } | { "type": "already_queued" } | { "type": "workspace_repo_not_found" };
 
 export type MergeQueueCountResponse = { count: bigint, };
 

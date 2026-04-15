@@ -10,7 +10,7 @@ use db::models::{
     image::Image,
     review_attention::ReviewAttention,
     session::Session,
-    task::{Task, TaskStatus, TaskWithAttemptStatus},
+    task::{Task, TaskWithAttemptStatus},
     task_dependency::TaskDependency,
     task_group::{TaskGroup, TaskGroupWithStats, TaskStatusCounts},
     user_question::{UserQuestion, UserQuestionStatus},
@@ -323,7 +323,6 @@ pub struct TaskGroupStatsDto {
 #[ts(export)]
 pub struct TaskGroupDependencyContextDto {
     pub blocked_tasks: Vec<TaskListItemDto>,
-    pub ready_tasks: Vec<TaskListItemDto>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, TS)]
@@ -489,17 +488,6 @@ impl OrchestrationService {
             .cloned()
             .map(TaskListItemDto::from)
             .collect();
-        let ready_tasks = tasks
-            .iter()
-            .filter(|task| {
-                task.task.status == TaskStatus::Todo
-                    && !task.task.is_blocked
-                    && !task.task.has_in_progress_attempt
-                    && !task.task.is_queued
-            })
-            .cloned()
-            .map(TaskListItemDto::from)
-            .collect();
         let queued_tasks = tasks
             .iter()
             .filter(|task| task.task.is_queued)
@@ -518,10 +506,7 @@ impl OrchestrationService {
             task_group: TaskGroupSnapshotDto::from(task_group),
             stats: TaskGroupStatsDto::from(stats.task_counts),
             tasks: tasks.into_iter().map(TaskListItemDto::from).collect(),
-            dependency_context: TaskGroupDependencyContextDto {
-                blocked_tasks,
-                ready_tasks,
-            },
+            dependency_context: TaskGroupDependencyContextDto { blocked_tasks },
             queue_state: TaskGroupQueueStateDto {
                 queued_tasks,
                 merge_queue_entries,

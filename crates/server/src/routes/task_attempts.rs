@@ -232,19 +232,6 @@ pub enum StartTaskExecutionResult {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-pub struct QueueGenerateAndMergeCommand {
-    pub repo_id: Uuid,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(tag = "status", rename_all = "snake_case")]
-#[ts(tag = "status", rename_all = "snake_case")]
-pub enum QueueGenerateAndMergeResult {
-    Queued { entry: MergeQueueEntry },
-    Rejected { error: QueueMergeError },
-}
-
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct RunAgentSetupRequest {
     pub executor_profile_id: ExecutorProfileId,
@@ -858,9 +845,10 @@ pub struct MergeTaskAttemptRequest {
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct GenerateCommitMessageRequest {
     pub repo_id: Uuid,
+    pub executor_profile_id: Option<ExecutorProfileId>,
 }
 
-#[derive(Debug, Serialize, TS)]
+#[derive(Debug, Deserialize, Serialize, TS)]
 pub struct GenerateCommitMessageResponse {
     pub commit_message: String,
 }
@@ -913,6 +901,7 @@ pub async fn merge_task_attempt(
             &task,
             &repo,
             &workspace_repo,
+            None,
         )
         .await;
 
@@ -1037,6 +1026,7 @@ async fn generate_commit_message_for_merge_internal(
     task: &Task,
     repo: &Repo,
     workspace_repo: &WorkspaceRepo,
+    executor_profile_id: Option<ExecutorProfileId>,
 ) -> Result<String, ApiError> {
     let pool = &deployment.db().pool;
 
@@ -1055,6 +1045,7 @@ async fn generate_commit_message_for_merge_internal(
             Path::new(&repo.path),
             &workspace.branch,
             &workspace_repo.target_branch,
+            executor_profile_id.clone(),
         )
         .await?;
 
@@ -1128,6 +1119,7 @@ pub async fn generate_commit_message(
             Path::new(&repo.path),
             &workspace.branch,
             &workspace_repo.target_branch,
+            request.executor_profile_id.clone(),
         )
         .await?;
 
@@ -2387,8 +2379,6 @@ pub async fn get_task_attempt_repos(
 pub struct QueueMergeRequest {
     pub repo_id: Uuid,
     pub commit_message: Option<String>,
-    #[serde(default)]
-    pub generate_commit_message: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -2400,7 +2390,6 @@ pub enum QueueMergeError {
     AlreadyMerged,
     AlreadyQueued,
     WorkspaceRepoNotFound,
-    CommitMessageGenerationFailed { message: String },
 }
 
 /// POST /task-attempts/{id}/queue-merge - Queue a task attempt for merge
@@ -2478,35 +2467,9 @@ pub async fn queue_merge(
 
     // Determine commit message:
     // 1. If request.commit_message provided → use it
-    // 2. Else if generate_commit_message == Some(true) → call AI generation (fail if it errors)
-    // 3. Else → fallback to task title/description
+    // 2. Else → fallback to task title/description
     let commit_message = if let Some(msg) = request.commit_message {
         msg
-    } else if request.generate_commit_message == Some(true) {
-        // AI generation requested - fail if it errors (no fallback)
-        match generate_commit_message_for_merge_internal(
-            &deployment,
-            &workspace,
-            &task,
-            &repo,
-            &workspace_repo,
-        )
-        .await
-        {
-            Ok(msg) => msg,
-            Err(e) => {
-                tracing::warn!(
-                    workspace_id = %workspace.id,
-                    error = %e,
-                    "AI commit message generation failed for queue_merge"
-                );
-                return Ok(ResponseJson(ApiResponse::error_with_data(
-                    QueueMergeError::CommitMessageGenerationFailed {
-                        message: e.to_string(),
-                    },
-                )));
-            }
-        }
     } else {
         build_fallback_commit_message(&task)
     };
@@ -2598,32 +2561,6 @@ pub async fn queue_merge(
     Ok(ResponseJson(ApiResponse::success(entry)))
 }
 
-#[axum::debug_handler]
-pub async fn queue_generate_and_merge(
-    Extension(workspace): Extension<Workspace>,
-    State(deployment): State<DeploymentImpl>,
-    Json(command): Json<QueueGenerateAndMergeCommand>,
-) -> Result<ResponseJson<ApiResponse<QueueGenerateAndMergeResult>>, ApiError> {
-    let response = queue_merge(
-        Extension(workspace),
-        State(deployment),
-        Json(QueueMergeRequest {
-            repo_id: command.repo_id,
-            commit_message: None,
-            generate_commit_message: Some(true),
-        }),
-    )
-    .await?
-    .0;
-
-    let result = match response.into_result() {
-        Ok(entry) => QueueGenerateAndMergeResult::Queued { entry },
-        Err(error) => QueueGenerateAndMergeResult::Rejected { error },
-    };
-
-    Ok(ResponseJson(ApiResponse::success(result)))
-}
-
 /// DELETE /task-attempts/{id}/queue-merge - Cancel a queued merge
 #[axum::debug_handler]
 pub async fn cancel_queue_merge(
@@ -2661,14 +2598,6 @@ pub async fn cancel_queue_merge(
         .await;
 
     Ok(ResponseJson(ApiResponse::success(())))
-}
-
-#[axum::debug_handler]
-pub async fn cancel_generate_and_merge(
-    Extension(workspace): Extension<Workspace>,
-    State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
-    cancel_queue_merge(Extension(workspace), State(deployment)).await
 }
 
 /// DELETE /task-attempts/{id}/execution-queue - Cancel a queued execution
@@ -2733,10 +2662,6 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/rename-branch", post(rename_branch))
         .route("/repos", get(get_task_attempt_repos))
         .route("/queue-merge", post(queue_merge).delete(cancel_queue_merge))
-        .route(
-            "/generate-and-merge",
-            post(queue_generate_and_merge).delete(cancel_generate_and_merge),
-        )
         .route("/queue-status", get(get_queue_status))
         .route("/execution-queue", delete(cancel_execution_queue))
         .layer(from_fn_with_state(
@@ -3063,7 +2988,6 @@ mod tests {
             Json(QueueMergeRequest {
                 repo_id: repo.id,
                 commit_message: Some("queue merge".to_string()),
-                generate_commit_message: Some(false),
             }),
         )
         .await
@@ -3236,15 +3160,15 @@ mod tests {
 
     #[tokio::test]
     #[allow(clippy::await_holding_lock)]
-    async fn queue_generate_and_merge_returns_typed_rejection() {
+    async fn queue_merge_returns_typed_rejection() {
         let _lock = crate::TEST_DB_LOCK.lock().unwrap();
         let deployment = LocalDeployment::new().await.unwrap();
 
-        let project = create_project(&deployment, "generate-and-merge").await;
+        let project = create_project(&deployment, "queue-merge-rejection").await;
         let task = create_task(&deployment, project.id, "Merge me").await;
 
         let repo_path =
-            std::env::temp_dir().join(format!("vk-generate-merge-repo-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("vk-queue-merge-repo-{}", Uuid::new_v4()));
         deployment
             .git()
             .initialize_repo_with_main_branch(&repo_path)
@@ -3254,7 +3178,7 @@ mod tests {
         let workspace = Workspace::create(
             &deployment.db().pool,
             &CreateWorkspace {
-                branch: "feature/generate-and-merge".to_string(),
+                branch: "feature/queue-merge".to_string(),
                 agent_working_dir: None,
             },
             Uuid::new_v4(),
@@ -3280,22 +3204,22 @@ mod tests {
             "already queued".to_string(),
         );
 
-        let result = queue_generate_and_merge(
+        let result = queue_merge(
             Extension(workspace),
             State(deployment),
-            Json(QueueGenerateAndMergeCommand { repo_id: repo.id }),
+            Json(QueueMergeRequest {
+                repo_id: repo.id,
+                commit_message: Some("already queued".to_string()),
+            }),
         )
         .await
         .unwrap()
-        .0
-        .into_data()
-        .unwrap();
+        .0;
 
+        assert!(!result.is_success());
         assert!(matches!(
-            result,
-            QueueGenerateAndMergeResult::Rejected {
-                error: QueueMergeError::AlreadyQueued
-            }
+            result.into_error_data(),
+            Some(QueueMergeError::AlreadyQueued)
         ));
     }
 }

@@ -1,37 +1,29 @@
 {
-  "name": "VK Review Attention",
+  "name": "VK Review Gate",
   "nodes": [
     {
       "parameters": {
-        "content": "## Production Workflow\\nUses an LLM to decide whether a completed coding-agent execution deserves human review attention, then stores that decision back in Vibe Kanban.\\n\\nThis workflow is intended to be used in production. It only evaluates coding-agent executions that are backed by both a task and a workspace, because `reviewAttention` records are task-scoped.",
+        "content": "## Production Workflow\\nStarts the external review gate when a task enters `in_review`. It reads the task and latest coding execution context from Vibe Kanban, builds the full reviewer prompt, and starts a dedicated reviewer conversation using the configured VK default executor unless explicitly overridden.\\n\\nThis workflow is intended to be used in production. Review policy lives in n8n, not in VK. VK only provides the task, workspace, and execution building blocks plus the reviewer execution itself.",
         "height": 280,
-        "width": 470,
+        "width": 500,
         "color": 1
       },
-      "id": "review-attention-note",
+      "id": "review-gate-note",
       "name": "Workflow Description",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [
-        -40,
-        80
-      ]
+      "position": [-40, 80]
     },
     {
       "parameters": {
-        "eventTypes": [
-          "execution_completed"
-        ],
+        "eventTypes": ["task_status_changed"],
         "schemaVersion": "vk_n8n_orchestration_v1"
       },
       "id": "vk-trigger",
       "name": "VK Trigger",
       "type": "n8n-nodes-vibe-kanban.vibeKanbanTrigger",
       "typeVersion": 1,
-      "position": [
-        200,
-        300
-      ],
+      "position": [220, 300],
       "credentials": {
         "vibeKanbanMqtt": {
           "name": "Local VK MQTT"
@@ -40,244 +32,218 @@
     },
     {
       "parameters": {
-        "resource": "execution",
-        "executionProcessId": "={{$json.refs.executionContext.executionProcessId}}"
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "if (($json.payload?.status || '') !== 'in_review') {\\n  return [];\\n}\\n\\nreturn [{ json: $json }];"
       },
-      "id": "vk-read-execution",
-      "name": "Read Execution Context",
+      "id": "keep-in-review-tasks",
+      "name": "Keep Tasks In Review",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "resource": "task",
+        "taskId": "={{$json.refs.taskContext.taskId}}"
+      },
+      "id": "vk-read-task",
+      "name": "Read Task Context",
       "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
       "typeVersion": 1,
-      "position": [
-        460,
-        300
-      ],
+      "position": [780, 300],
       "credentials": {
         "vibeKanbanApi": {
           "name": "Local VK API"
         }
       }
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "run-reason",
-              "leftValue": "={{$json.execution.run_reason}}",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              },
-              "rightValue": "coding_agent"
-            }
-          ],
-          "combinator": "and"
-        }
-      },
-      "id": "coding-agent-filter",
-      "name": "Only Coding Agent Executions",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.3,
-      "position": [
-        720,
-        300
-      ]
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
         "language": "javaScript",
-        "jsCode": "if (!$json.scope?.task?.id || !$json.scope?.workspace?.id) {\n  return [];\n}\n\nreturn [{ json: $json }];"
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\\nconst reviewGate = staticData.reviewGate || {};\\nreviewGate.pendingByReviewExecutionProcessId ??= {};\\nreviewGate.pendingBySourceExecutionId ??= {};\\nreviewGate.completedBySourceExecutionId ??= {};\\nstaticData.reviewGate = reviewGate;\\n\\nconst task = $json.task;\\nconst workspace = $json.latest_workspace;\\nconst latestCodingExecution = $json.latest_coding_execution;\\n\\nif (!task?.id || !workspace?.id || !latestCodingExecution?.id) {\\n  return [];\\n}\\n\\nif ($json.queue_state?.merge_queue?.id) {\\n  return [];\\n}\\n\\nif (reviewGate.pendingBySourceExecutionId[latestCodingExecution.id]) {\\n  return [];\\n}\\n\\nif (reviewGate.completedBySourceExecutionId[latestCodingExecution.id]) {\\n  return [];\\n}\\n\\nif ($json.latest_review_attention?.execution_process_id === latestCodingExecution.id) {\\n  return [];\\n}\\n\\nreturn [{\\n  json: {\\n    projectId: task.project_id,\\n    taskId: task.id,\\n    taskTitle: task.title,\\n    taskDescription: task.description || '',\\n    workspaceId: workspace.id,\\n    worktreePath: workspace.agent_working_dir || '',\\n    worktreeBranch: workspace.branch || '',\\n    sourceExecutionProcessId: latestCodingExecution.id,\\n  },\\n}];"
       },
-      "id": "keep-task-workspace-executions",
-      "name": "Keep Task Workspace Executions",
+      "id": "keep-review-candidates",
+      "name": "Keep Review Candidates",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        980,
-        300
-      ]
+      "position": [1060, 300]
     },
     {
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "task-id",
-              "name": "taskId",
-              "type": "string",
-              "value": "={{$json.scope.task.id}}"
-            },
-            {
-              "id": "workspace-id",
-              "name": "workspaceId",
-              "type": "string",
-              "value": "={{$json.scope.workspace.id}}"
-            },
-            {
-              "id": "execution-id",
-              "name": "executionProcessId",
-              "type": "string",
-              "value": "={{$json.execution.id}}"
-            },
-            {
-              "id": "task-description",
-              "name": "taskDescription",
-              "type": "string",
-              "value": "={{$json.coding_agent_turn && $json.coding_agent_turn.prompt ? $json.coding_agent_turn.prompt : ($json.scope.task.description || $json.scope.task.title)}}"
-            },
-            {
-              "id": "agent-summary",
-              "name": "agentSummary",
-              "type": "string",
-              "value": "={{$json.coding_agent_turn && $json.coding_agent_turn.summary ? $json.coding_agent_turn.summary : ''}}"
-            },
-            {
-              "id": "execution-context",
-              "name": "executionContext",
-              "type": "string",
-              "value": "={{JSON.stringify($json, null, 2)}}"
-            }
-          ]
-        },
-        "options": {}
+        "resource": "execution",
+        "executionProcessId": "={{$json.sourceExecutionProcessId}}"
       },
-      "id": "review-attention-input",
-      "name": "Build Review Attention Input",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [
-        1240,
-        300
-      ]
-    },
-    {
-      "parameters": {
-        "promptType": "define",
-        "text": "={{`Analyze whether the completed work successfully addresses the original task.\n\n## Original Task\n${$('Build Review Attention Input').item.json.taskDescription}\n\n## Agent's Work Summary\n${$('Build Review Attention Input').item.json.agentSummary}\n\n## Execution Context\n${$('Build Review Attention Input').item.json.executionContext}\n\n## Your Role\nYou are reviewing whether the task objective was achieved. Check BOTH:\n1. Did the agent report any problems or failures?\n2. Does the work actually address what the original task requested?\n\n## NEEDS ATTENTION if ANY of these are true:\n\n### Agent-reported problems:\n- Errors or failures that weren't resolved\n- Work that is incomplete or partially done\n- Blockers encountered\n- Tests failing\n- Uncertainty about correctness\n\n### Task completion issues:\n- The work does NOT address the original task objective\n- The agent did something tangential (e.g., answered a question but didn't fix the underlying problem)\n- The summary describes work that doesn't match what the task asked for\n- The task requested a fix/implementation but the agent only investigated/explained\n\n## Does NOT need attention if:\n- The work directly addresses what the task requested\n- The agent completed the actual objective (not just related activities)\n- No problems or concerns are mentioned by the agent\n\n## IMPORTANT - Do NOT flag attention for:\n- Normal configuration requirements (env vars, parameters to set)\n- Suggestions for future improvements or additional testing\n- Standard deployment steps\n- Your own hypothetical concerns about the code\n- Things the agent did NOT mention as problems\n\nKey question: Did the agent complete what the task actually asked for, or just do something related?\n\nReturn only JSON with this shape:\n{\"needs_attention\": true, \"reasoning\": \"brief explanation\"}`}}",
-        "hasOutputParser": true
-      },
-      "id": "review-attention-chain",
-      "name": "Ask Review Attention LLM",
-      "type": "@n8n/n8n-nodes-langchain.chainLlm",
-      "typeVersion": 1.9,
-      "position": [
-        1530,
-        300
-      ]
-    },
-    {
-      "parameters": {
-        "model": {
-          "__rl": true,
-          "mode": "list",
-          "value": "gpt-5-mini"
-        },
-        "responsesApiEnabled": true
-      },
-      "id": "review-attention-model",
-      "name": "Review Attention Model",
-      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
-      "typeVersion": 1.3,
-      "position": [
-        1530,
-        120
-      ],
-      "credentials": {
-        "openAiApi": {
-          "name": "Local OpenAI"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "schemaType": "manual",
-        "inputSchema": "{\"type\":\"object\",\"properties\":{\"needs_attention\":{\"type\":\"boolean\"},\"reasoning\":{\"type\":\"string\"}},\"required\":[\"needs_attention\",\"reasoning\"],\"additionalProperties\":false}"
-      },
-      "id": "review-attention-parser",
-      "name": "Review Attention Output Parser",
-      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
-      "typeVersion": 1.3,
-      "position": [
-        1730,
-        120
-      ]
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "task-id",
-              "name": "taskId",
-              "type": "string",
-              "value": "={{$('Build Review Attention Input').item.json.taskId}}"
-            },
-            {
-              "id": "workspace-id",
-              "name": "workspaceId",
-              "type": "string",
-              "value": "={{$('Build Review Attention Input').item.json.workspaceId}}"
-            },
-            {
-              "id": "execution-id",
-              "name": "executionProcessId",
-              "type": "string",
-              "value": "={{$('Build Review Attention Input').item.json.executionProcessId}}"
-            },
-            {
-              "id": "needs-attention",
-              "name": "needsAttention",
-              "type": "boolean",
-              "value": "={{$json.output.needs_attention}}"
-            },
-            {
-              "id": "reasoning",
-              "name": "reasoning",
-              "type": "string",
-              "value": "={{$json.output.reasoning}}"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "set-review-attention",
-      "name": "Build Review Attention Payload",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [
-        1810,
-        300
-      ]
-    },
-    {
-      "parameters": {
-        "resource": "reviewAttention",
-        "operation": "createReviewAttention",
-        "taskId": "={{$json.taskId}}",
-        "workspaceId": "={{$json.workspaceId}}",
-        "executionProcessId": "={{$json.executionProcessId}}",
-        "needsAttention": "={{$json.needsAttention}}",
-        "reasoning": "={{$json.reasoning}}"
-      },
-      "id": "vk-create-review-attention",
-      "name": "Create Review Attention",
-      "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
+      "id": "vk-read-execution",
+      "name": "Read Latest Coding Execution Context",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
       "typeVersion": 1,
-      "position": [
-        2080,
-        300
-      ],
+      "position": [1360, 300],
       "credentials": {
         "vibeKanbanApi": {
           "name": "Local VK API"
         }
       }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "project-id",
+              "name": "projectId",
+              "type": "string",
+              "value": "={{$('Keep Review Candidates').item.json.projectId}}"
+            },
+            {
+              "id": "task-id",
+              "name": "taskId",
+              "type": "string",
+              "value": "={{$('Keep Review Candidates').item.json.taskId}}"
+            },
+            {
+              "id": "workspace-id",
+              "name": "workspaceId",
+              "type": "string",
+              "value": "={{$('Keep Review Candidates').item.json.workspaceId}}"
+            },
+            {
+              "id": "source-execution-id",
+              "name": "sourceExecutionProcessId",
+              "type": "string",
+              "value": "={{$('Keep Review Candidates').item.json.sourceExecutionProcessId}}"
+            },
+            {
+              "id": "worktree-path",
+              "name": "worktreePath",
+              "type": "string",
+              "value": "={{$('Keep Review Candidates').item.json.worktreePath}}"
+            },
+            {
+              "id": "worktree-branch",
+              "name": "worktreeBranch",
+              "type": "string",
+              "value": "={{$('Keep Review Candidates').item.json.worktreeBranch}}"
+            },
+            {
+              "id": "review-title",
+              "name": "reviewConversationTitle",
+              "type": "string",
+              "value": "={{`Review gate: ${$('Keep Review Candidates').item.json.taskTitle}`}}"
+            },
+            {
+              "id": "repo-ids-json",
+              "name": "repoIdsJson",
+              "type": "string",
+              "value": "={{JSON.stringify(($json.repo_states || []).map((state) => state.repo_id))}}"
+            },
+            {
+              "id": "initial-message",
+              "name": "initialMessage",
+              "type": "string",
+              "value": "={{`You are the final reviewer for a completed Vibe Kanban task.\\n\\nReview objective:\\n- Approve only if the work is ready to merge into the task group's base branch.\\n- Reject if the work is incomplete, incorrect, risky, blocked, or does not satisfy the original task.\\n- If you reject, explain the key reason briefly and concretely.\\n\\nInspect the worktree when useful, but always ground your verdict in the task and execution context below.\\n\\n## Original Task\\nTitle: ${$('Keep Review Candidates').item.json.taskTitle}\\nDescription: ${$('Keep Review Candidates').item.json.taskDescription || '(no description)'}\\n\\n## Task Orchestration Context\\n${JSON.stringify($('Read Task Context').item.json, null, 2)}\\n\\n## Latest Coding Execution Context\\n${JSON.stringify($json, null, 2)}\\n\\nReturn only JSON with this shape:\\n{\"approved\": true, \"reasoning\": \"brief explanation\"}\\n\\nRules:\\n- \\\"approved\\\" must be true only when the work is actually ready to merge.\\n- \\\"reasoning\\\" must always be present and concise.\\n- Do not wrap the JSON in markdown fences.`}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "build-review-input",
+      "name": "Build Review Conversation Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1660, 300]
+    },
+    {
+      "parameters": {
+        "resource": "conversation",
+        "operation": "createConversation",
+        "projectId": "={{$json.projectId}}",
+        "title": "={{$json.reviewConversationTitle}}",
+        "initialMessage": "={{$json.initialMessage}}",
+        "executor": "",
+        "executorVariant": "",
+        "worktreePath": "={{$json.worktreePath}}",
+        "worktreeBranch": "={{$json.worktreeBranch}}"
+      },
+      "id": "vk-create-review-conversation",
+      "name": "Start Reviewer Conversation",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
+      "typeVersion": 1,
+      "position": [1970, 300],
+      "credentials": {
+        "vibeKanbanApi": {
+          "name": "Local VK API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "project-id",
+              "name": "projectId",
+              "type": "string",
+              "value": "={{$('Build Review Conversation Input').item.json.projectId}}"
+            },
+            {
+              "id": "task-id",
+              "name": "taskId",
+              "type": "string",
+              "value": "={{$('Build Review Conversation Input').item.json.taskId}}"
+            },
+            {
+              "id": "workspace-id",
+              "name": "workspaceId",
+              "type": "string",
+              "value": "={{$('Build Review Conversation Input').item.json.workspaceId}}"
+            },
+            {
+              "id": "source-execution-id",
+              "name": "sourceExecutionProcessId",
+              "type": "string",
+              "value": "={{$('Build Review Conversation Input').item.json.sourceExecutionProcessId}}"
+            },
+            {
+              "id": "repo-ids-json",
+              "name": "repoIdsJson",
+              "type": "string",
+              "value": "={{$('Build Review Conversation Input').item.json.repoIdsJson}}"
+            },
+            {
+              "id": "conversation-id",
+              "name": "conversationId",
+              "type": "string",
+              "value": "={{$json.conversation.id}}"
+            },
+            {
+              "id": "review-execution-id",
+              "name": "reviewExecutionProcessId",
+              "type": "string",
+              "value": "={{$json.executionProcessId}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "build-review-registration",
+      "name": "Build Review Registration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2280, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\\nconst reviewGate = staticData.reviewGate || {};\\nreviewGate.pendingByReviewExecutionProcessId ??= {};\\nreviewGate.pendingBySourceExecutionId ??= {};\\nreviewGate.completedBySourceExecutionId ??= {};\\nstaticData.reviewGate = reviewGate;\\n\\nif (!$json.reviewExecutionProcessId || !$json.sourceExecutionProcessId) {\\n  throw new Error('Missing review execution registration identifiers');\\n}\\n\\nreviewGate.pendingByReviewExecutionProcessId[$json.reviewExecutionProcessId] = {\\n  conversationId: $json.conversationId,\\n  projectId: $json.projectId,\\n  taskId: $json.taskId,\\n  workspaceId: $json.workspaceId,\\n  sourceExecutionProcessId: $json.sourceExecutionProcessId,\\n  repoIdsJson: $json.repoIdsJson,\\n  createdAt: new Date().toISOString(),\\n};\\nreviewGate.pendingBySourceExecutionId[$json.sourceExecutionProcessId] = $json.reviewExecutionProcessId;\\n\\nreturn [{ json: $json }];"
+      },
+      "id": "register-review-conversation",
+      "name": "Register Review Conversation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2570, 300]
     }
   ],
   "connections": {
@@ -285,96 +251,84 @@
       "main": [
         [
           {
-            "node": "Read Execution Context",
+            "node": "Keep Tasks In Review",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Read Execution Context": {
+    "Keep Tasks In Review": {
       "main": [
         [
           {
-            "node": "Only Coding Agent Executions",
+            "node": "Read Task Context",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Only Coding Agent Executions": {
+    "Read Task Context": {
       "main": [
         [
           {
-            "node": "Keep Task Workspace Executions",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        []
-      ]
-    },
-    "Keep Task Workspace Executions": {
-      "main": [
-        [
-          {
-            "node": "Build Review Attention Input",
+            "node": "Keep Review Candidates",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Build Review Attention Input": {
+    "Keep Review Candidates": {
       "main": [
         [
           {
-            "node": "Ask Review Attention LLM",
+            "node": "Read Latest Coding Execution Context",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Review Attention Model": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "Ask Review Attention LLM",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Review Attention Output Parser": {
-      "ai_outputParser": [
-        [
-          {
-            "node": "Ask Review Attention LLM",
-            "type": "ai_outputParser",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Ask Review Attention LLM": {
+    "Read Latest Coding Execution Context": {
       "main": [
         [
           {
-            "node": "Build Review Attention Payload",
+            "node": "Build Review Conversation Input",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Build Review Attention Payload": {
+    "Build Review Conversation Input": {
       "main": [
         [
           {
-            "node": "Create Review Attention",
+            "node": "Start Reviewer Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Reviewer Conversation": {
+      "main": [
+        [
+          {
+            "node": "Build Review Registration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Review Registration": {
+      "main": [
+        [
+          {
+            "node": "Register Review Conversation",
             "type": "main",
             "index": 0
           }

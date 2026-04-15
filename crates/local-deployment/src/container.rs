@@ -1476,11 +1476,19 @@ impl LocalContainerService {
         conversation: &ConversationSession,
         queued_data: &DraftFollowUpData,
     ) -> Result<ExecutionProcess, ContainerError> {
-        // Get executor from conversation session or default to CLAUDE_CODE
+        let default_executor_name = self
+            .config
+            .read()
+            .await
+            .executor_profile
+            .executor
+            .to_string();
+
+        // Get executor from conversation session or default to the configured VK executor.
         let executor_name = conversation
             .executor
             .clone()
-            .unwrap_or("CLAUDE_CODE".to_string());
+            .unwrap_or(default_executor_name);
 
         // Parse executor name to BaseCodingAgent
         let normalized_executor = executor_name.replace('-', "_").to_ascii_uppercase();

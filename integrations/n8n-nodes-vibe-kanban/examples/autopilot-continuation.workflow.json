@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Production Workflow\\nWhen a task is marked `done`, read the completed task orchestration context, inspect its raw `dependents`, and let the workflow decide which dependents are runnable.\\n\\nA dependent is started only when it is still `todo`, not blocked, not already running, and not already queued. Each dependent execution uses VK task-level building blocks: `latest_or_create` for workspace reuse and `latest_or_default` for executor selection, with task-group defaults for repository branches.",
+        "content": "## Production Workflow\\nWhen a task is marked `done`, read the completed task orchestration context, inspect its raw `dependents`, and let the workflow decide which dependents are runnable.\\n\\nA dependent is started only when it is still `todo`, not blocked, not already running, and not already queued. Each dependent execution uses VK task-level building blocks: `latest_or_create` for workspace reuse and the configured VK default executor unless the workflow explicitly overrides it, with task-group defaults for repository branches.",
         "height": 240,
         "width": 460,
         "color": 1
@@ -12,26 +12,18 @@
       "name": "Workflow Description",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [
-        -20,
-        100
-      ]
+      "position": [-20, 100]
     },
     {
       "parameters": {
-        "eventTypes": [
-          "task_status_changed"
-        ],
+        "eventTypes": ["task_status_changed"],
         "schemaVersion": "vk_n8n_orchestration_v1"
       },
       "id": "vk-trigger",
       "name": "VK Trigger",
       "type": "n8n-nodes-vibe-kanban.vibeKanbanTrigger",
       "typeVersion": 1,
-      "position": [
-        220,
-        280
-      ],
+      "position": [220, 280],
       "credentials": {
         "vibeKanbanMqtt": {
           "name": "Local VK MQTT"
@@ -48,10 +40,7 @@
       "name": "Keep Done Tasks",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        500,
-        280
-      ]
+      "position": [500, 280]
     },
     {
       "parameters": {
@@ -62,10 +51,7 @@
       "name": "Read Task Context",
       "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
       "typeVersion": 1,
-      "position": [
-        780,
-        280
-      ],
+      "position": [780, 280],
       "credentials": {
         "vibeKanbanApi": {
           "name": "Local VK API"
@@ -82,10 +68,7 @@
       "name": "Select Runnable Dependents",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        1060,
-        280
-      ]
+      "position": [1060, 280]
     },
     {
       "parameters": {
@@ -93,7 +76,7 @@
         "operation": "startTaskExecution",
         "taskId": "={{$json.dependentTask.id}}",
         "workspaceStrategy": "latest_or_create",
-        "executorStrategy": "latest_or_default",
+        "executorStrategy": "default",
         "executor": "",
         "executorVariant": "",
         "repoSelection": "taskGroupDefault"
@@ -102,10 +85,7 @@
       "name": "Start Task Execution",
       "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
       "typeVersion": 1,
-      "position": [
-        1340,
-        280
-      ],
+      "position": [1340, 280],
       "credentials": {
         "vibeKanbanApi": {
           "name": "Local VK API"

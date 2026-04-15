@@ -10,21 +10,24 @@ import type {
   ExecutorProfileId,
   FeedbackResponse,
   FollowUpResult,
+  GenerateCommitMessageRequest,
+  GenerateCommitMessageResponse,
   OrchestrationApprovalContextDto,
   OrchestrationConversationContextDto,
   OrchestrationEventEnvelope,
   OrchestrationExecutionContextDto,
   OrchestrationTaskContextDto,
   OrchestrationTaskGroupContextDto,
-  QueueGenerateAndMergeCommand,
-  QueueGenerateAndMergeResult,
+  MergeQueueEntry,
+  QueueMergeError,
   QuestionAnswer,
   QueueStatus,
+  QueueMergeRequest,
   ReviewAttention,
   SendMessageResponse,
   StartTaskExecutionCommand,
   StartTaskExecutionResult,
-} from '../../../generated/shared-types';
+} from "../../../generated/shared-types";
 
 export type VkOrchestrationEventEnvelope = OrchestrationEventEnvelope;
 export type VkTaskContext = OrchestrationTaskContextDto;
@@ -45,33 +48,39 @@ export type VkCreateConversationRequest = CreateConversationRequest;
 export type VkCreateConversationResponse = CreateConversationResponse;
 export type VkStartTaskExecutionCommand = StartTaskExecutionCommand;
 export type VkStartTaskExecutionResult = StartTaskExecutionResult;
-export type VkQueueGenerateAndMergeCommand = QueueGenerateAndMergeCommand;
-export type VkQueueGenerateAndMergeResult = QueueGenerateAndMergeResult;
+export type VkGenerateCommitMessageRequest = GenerateCommitMessageRequest;
+export type VkGenerateCommitMessageResponse = GenerateCommitMessageResponse;
+export type VkMergeQueueEntry = MergeQueueEntry;
+export type VkQueueMergeRequest = QueueMergeRequest;
+export type VkQueueMergeError = QueueMergeError;
+export type VkQueueMergeResult =
+  | { status: "queued"; entry: MergeQueueEntry }
+  | { status: "rejected"; error: QueueMergeError };
 export type VkCreateAgentFeedback = CreateAgentFeedback;
 export type VkCreateReviewAttention = CreateReviewAttention;
 export type VkFeedbackResponse = FeedbackResponse;
 export type VkReviewAttention = ReviewAttention;
 
 export type VkReadResource =
-  | 'task'
-  | 'taskGroup'
-  | 'conversation'
-  | 'execution'
-  | 'approval';
+  | "task"
+  | "taskGroup"
+  | "conversation"
+  | "execution"
+  | "approval";
 
 export type VkActionResource =
-  | 'task'
-  | 'workspace'
-  | 'taskSession'
-  | 'conversation'
-  | 'approval'
-  | 'execution'
-  | 'feedback'
-  | 'reviewAttention';
+  | "task"
+  | "workspace"
+  | "taskSession"
+  | "conversation"
+  | "approval"
+  | "execution"
+  | "feedback"
+  | "reviewAttention";
 
 export type VkApiCredentialValue = {
   baseUrl: string;
-  authMode: 'none' | 'bearerToken' | 'customHeader';
+  authMode: "none" | "bearerToken" | "customHeader";
   token?: string;
   headerName?: string;
   headerPrefix?: string;

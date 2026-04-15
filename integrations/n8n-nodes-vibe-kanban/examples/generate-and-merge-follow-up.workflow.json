@@ -1,37 +1,29 @@
 {
-  "name": "VK Generate And Merge Follow Up",
+  "name": "VK Review Decision Follow Up",
   "nodes": [
     {
       "parameters": {
-        "content": "## Production Workflow\\nQueues a generate-and-merge follow-up after an approval is resolved in Vibe Kanban.\\n\\nThis workflow is intended to be used in production. It only reacts to approved approvals with workspace scope, then resolves the target repo and enqueues the merge follow-up.",
-        "height": 260,
-        "width": 460,
+        "content": "## Production Workflow\\nApplies the reviewer verdict after the dedicated VK review conversation finishes. It reads the review transcript, extracts a strict approve-or-reject JSON result, stores that result back into Vibe Kanban as a review-attention record, and only if approved does it generate commit messages and queue merge entries for the reviewed workspace repositories.\\n\\nThis workflow is intended to be used in production. Review policy lives in n8n, not in VK. VK only receives the resulting review record and merge commands.",
+        "height": 280,
+        "width": 520,
         "color": 1
       },
-      "id": "generate-and-merge-note",
+      "id": "review-follow-up-note",
       "name": "Workflow Description",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [
-        -20,
-        80
-      ]
+      "position": [-40, 80]
     },
     {
       "parameters": {
-        "eventTypes": [
-          "approval_resolved"
-        ],
+        "eventTypes": ["execution_completed"],
         "schemaVersion": "vk_n8n_orchestration_v1"
       },
       "id": "vk-trigger",
       "name": "VK Trigger",
       "type": "n8n-nodes-vibe-kanban.vibeKanbanTrigger",
       "typeVersion": 1,
-      "position": [
-        220,
-        260
-      ],
+      "position": [220, 320],
       "credentials": {
         "vibeKanbanMqtt": {
           "name": "Local VK MQTT"
@@ -40,17 +32,14 @@
     },
     {
       "parameters": {
-        "resource": "approval",
-        "approvalId": "={{$json.refs.approvalContext.approvalId}}"
+        "resource": "execution",
+        "executionProcessId": "={{$json.refs.executionContext.executionProcessId}}"
       },
-      "id": "vk-read-approval",
-      "name": "Read Approval Context",
+      "id": "vk-read-execution",
+      "name": "Read Execution Context",
       "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
       "typeVersion": 1,
-      "position": [
-        500,
-        260
-      ],
+      "position": [500, 320],
       "credentials": {
         "vibeKanbanApi": {
           "name": "Local VK API"
@@ -61,16 +50,118 @@
       "parameters": {
         "mode": "runOnceForEachItem",
         "language": "javaScript",
-        "jsCode": "if ($json.approval?.status !== 'approved' || !$json.workspace?.id) {\n  return [];\n}\n\nreturn [{ json: $json }];"
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\\nconst reviewGate = staticData.reviewGate || {};\\nconst pendingByReviewExecutionProcessId =\\n  reviewGate.pendingByReviewExecutionProcessId || {};\\nconst registration = pendingByReviewExecutionProcessId[$json.execution?.id || ''];\\n\\nif (!registration) {\\n  return [];\\n}\\n\\nreturn [{\\n  json: {\\n    reviewExecutionProcessId: $json.execution.id,\\n    reviewExecutionStatus: $json.execution.status || '',\\n    conversationId: registration.conversationId || $json.scope?.conversation?.id || '',\\n    projectId: registration.projectId,\\n    taskId: registration.taskId,\\n    workspaceId: registration.workspaceId,\\n    sourceExecutionProcessId: registration.sourceExecutionProcessId,\\n    repoIdsJson: registration.repoIdsJson || '[]',\\n  },\\n}];"
       },
-      "id": "keep-approved-workspace-approvals",
-      "name": "Keep Approved Workspace Approvals",
+      "id": "keep-registered-review-executions",
+      "name": "Keep Registered Review Executions",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        780,
-        260
-      ]
+      "position": [780, 320]
+    },
+    {
+      "parameters": {
+        "resource": "conversation",
+        "conversationId": "={{$json.conversationId}}"
+      },
+      "id": "vk-read-conversation",
+      "name": "Read Review Conversation Context",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanRead",
+      "typeVersion": 1,
+      "position": [1080, 320],
+      "credentials": {
+        "vibeKanbanApi": {
+          "name": "Local VK API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "task-id",
+              "name": "taskId",
+              "type": "string",
+              "value": "={{$('Keep Registered Review Executions').item.json.taskId}}"
+            },
+            {
+              "id": "workspace-id",
+              "name": "workspaceId",
+              "type": "string",
+              "value": "={{$('Keep Registered Review Executions').item.json.workspaceId}}"
+            },
+            {
+              "id": "source-execution-id",
+              "name": "sourceExecutionProcessId",
+              "type": "string",
+              "value": "={{$('Keep Registered Review Executions').item.json.sourceExecutionProcessId}}"
+            },
+            {
+              "id": "review-execution-id",
+              "name": "reviewExecutionProcessId",
+              "type": "string",
+              "value": "={{$('Keep Registered Review Executions').item.json.reviewExecutionProcessId}}"
+            },
+            {
+              "id": "review-status",
+              "name": "reviewExecutionStatus",
+              "type": "string",
+              "value": "={{$('Keep Registered Review Executions').item.json.reviewExecutionStatus}}"
+            },
+            {
+              "id": "repo-ids-json",
+              "name": "repoIdsJson",
+              "type": "string",
+              "value": "={{$('Keep Registered Review Executions').item.json.repoIdsJson}}"
+            },
+            {
+              "id": "transcript-json",
+              "name": "transcriptJson",
+              "type": "string",
+              "value": "={{JSON.stringify($json.transcript || { messages: [] })}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "build-review-decision-input",
+      "name": "Build Review Decision Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1370, 320]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\\nconst reviewGate = staticData.reviewGate || {};\\nreviewGate.pendingByReviewExecutionProcessId ??= {};\\nreviewGate.pendingBySourceExecutionId ??= {};\\nreviewGate.completedBySourceExecutionId ??= {};\\nstaticData.reviewGate = reviewGate;\\n\\nconst parseRepoIds = (raw) => {\\n  try {\\n    const parsed = JSON.parse(raw || '[]');\\n    return Array.isArray(parsed)\\n      ? parsed.map((entry) => String(entry)).filter(Boolean)\\n      : [];\\n  } catch (error) {\\n    return [];\\n  }\\n};\\n\\nconst extractJsonCandidate = (content) => {\\n  const trimmed = String(content || '').trim();\\n  if (!trimmed) {\\n    return '';\\n  }\\n\\n  const fenced = trimmed.match(/```(?:json)?\\\\s*([\\\\s\\\\S]*?)```/i);\\n  if (fenced?.[1]) {\\n    return fenced[1].trim();\\n  }\\n\\n  const start = trimmed.indexOf('{');\\n  const end = trimmed.lastIndexOf('}');\\n  if (start !== -1 && end !== -1 && end > start) {\\n    return trimmed.slice(start, end + 1);\\n  }\\n\\n  return trimmed;\\n};\\n\\nconst parseDecision = (content) => {\\n  const candidate = extractJsonCandidate(content);\\n  const parsed = JSON.parse(candidate);\\n\\n  if (typeof parsed?.approved !== 'boolean') {\\n    throw new Error('approved must be a boolean');\\n  }\\n\\n  return {\\n    approved: parsed.approved,\\n    reasoning: String(parsed.reasoning || '').trim() || 'Reviewer returned no reasoning.',\\n  };\\n};\\n\\nconst transcript = JSON.parse($json.transcriptJson || '{\"messages\":[]}');\\nconst messages = Array.isArray(transcript?.messages) ? transcript.messages : [];\\nconst reviewerMessages = messages.filter((message) => (\\n  message?.role === 'assistant' &&\\n  (!message.execution_process_id || message.execution_process_id === $json.reviewExecutionProcessId)\\n));\\nconst finalReviewerMessage = reviewerMessages.at(-1);\\n\\nlet decision;\\nif ($json.reviewExecutionStatus !== 'completed') {\\n  decision = {\\n    approved: false,\\n    reasoning: `Reviewer execution finished with status ${$json.reviewExecutionStatus}.`,\\n  };\\n} else if (!finalReviewerMessage?.content) {\\n  decision = {\\n    approved: false,\\n    reasoning: 'Reviewer execution completed without an assistant verdict.',\\n  };\\n} else {\\n  try {\\n    decision = parseDecision(finalReviewerMessage.content);\\n  } catch (error) {\\n    decision = {\\n      approved: false,\\n      reasoning: `Failed to parse reviewer verdict: ${error.message}`,\\n    };\\n  }\\n}\\n\\nconst repoIds = parseRepoIds($json.repoIdsJson);\\nif (decision.approved && repoIds.length === 0) {\\n  decision = {\\n    approved: false,\\n    reasoning: 'Reviewer approved the work, but no workspace repositories were captured for merge.',\\n  };\\n}\\n\\nreviewGate.completedBySourceExecutionId[$json.sourceExecutionProcessId] = {\\n  reviewExecutionProcessId: $json.reviewExecutionProcessId,\\n  approved: decision.approved,\\n  reviewedAt: new Date().toISOString(),\\n};\\ndelete reviewGate.pendingBySourceExecutionId[$json.sourceExecutionProcessId];\\ndelete reviewGate.pendingByReviewExecutionProcessId[$json.reviewExecutionProcessId];\\n\\nreturn [{\\n  json: {\\n    taskId: $json.taskId,\\n    workspaceId: $json.workspaceId,\\n    sourceExecutionProcessId: $json.sourceExecutionProcessId,\\n    reviewExecutionProcessId: $json.reviewExecutionProcessId,\\n    approved: decision.approved,\\n    needsAttention: !decision.approved,\\n    reasoning: decision.reasoning,\\n    repoIdsJson: JSON.stringify(repoIds),\\n  },\\n}];"
+      },
+      "id": "parse-review-decision",
+      "name": "Parse Review Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1660, 320]
+    },
+    {
+      "parameters": {
+        "resource": "reviewAttention",
+        "operation": "createReviewAttention",
+        "taskId": "={{$json.taskId}}",
+        "workspaceId": "={{$json.workspaceId}}",
+        "executionProcessId": "={{$json.sourceExecutionProcessId}}",
+        "needsAttention": "={{$json.needsAttention}}",
+        "reasoning": "={{$json.reasoning}}"
+      },
+      "id": "vk-create-review-attention",
+      "name": "Create Review Result",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
+      "typeVersion": 1,
+      "position": [1940, 320],
+      "credentials": {
+        "vibeKanbanApi": {
+          "name": "Local VK API"
+        }
+      }
     },
     {
       "parameters": {
@@ -80,42 +171,75 @@
               "id": "workspace-id",
               "name": "workspaceId",
               "type": "string",
-              "value": "={{$json.workspace.id}}"
+              "value": "={{$('Parse Review Decision').item.json.workspaceId}}"
             },
             {
-              "id": "repo-id",
-              "name": "repoId",
+              "id": "approved",
+              "name": "approved",
+              "type": "boolean",
+              "value": "={{$('Parse Review Decision').item.json.approved}}"
+            },
+            {
+              "id": "repo-ids-json",
+              "name": "repoIdsJson",
               "type": "string",
-              "value": "={{$env.VK_DEFAULT_GENERATE_AND_MERGE_REPO_ID}}"
+              "value": "={{$('Parse Review Decision').item.json.repoIdsJson}}"
             }
           ]
         },
         "options": {}
       },
-      "id": "set-merge-payload",
-      "name": "Resolve Merge Inputs",
+      "id": "build-merge-candidate-input",
+      "name": "Build Merge Candidate Input",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [
-        1060,
-        260
-      ]
+      "position": [2200, 320]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "if (!$json.approved) {\\n  return [];\\n}\\n\\nconst repoIds = JSON.parse($json.repoIdsJson || '[]');\\nif (!Array.isArray(repoIds)) {\\n  return [];\\n}\\n\\nreturn repoIds\\n  .map((repoId) => String(repoId).trim())\\n  .filter(Boolean)\\n  .map((repoId) => ({\\n    json: {\\n      workspaceId: $json.workspaceId,\\n      repoId,\\n    },\\n  }));"
+      },
+      "id": "select-approved-repo-merges",
+      "name": "Select Approved Repo Merges",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2490, 320]
     },
     {
       "parameters": {
         "resource": "workspace",
-        "operation": "queueGenerateAndMerge",
+        "operation": "generateCommitMessage",
         "workspaceId": "={{$json.workspaceId}}",
-        "repoId": "={{$json.repoId}}"
+        "repoId": "={{$json.repoId}}",
+        "executor": "",
+        "executorVariant": ""
       },
-      "id": "vk-queue-merge",
-      "name": "Queue Generate And Merge",
+      "id": "vk-generate-commit-message",
+      "name": "Generate Commit Message",
       "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
       "typeVersion": 1,
-      "position": [
-        1340,
-        260
-      ],
+      "position": [2770, 240],
+      "credentials": {
+        "vibeKanbanApi": {
+          "name": "Local VK API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "workspace",
+        "operation": "queueMerge",
+        "workspaceId": "={{$json.workspaceId}}",
+        "repoId": "={{$json.repoId}}",
+        "commitMessage": "={{$json.commitMessage}}"
+      },
+      "id": "vk-queue-merge",
+      "name": "Queue Merge",
+      "type": "n8n-nodes-vibe-kanban.vibeKanbanAction",
+      "typeVersion": 1,
+      "position": [3050, 320],
       "credentials": {
         "vibeKanbanApi": {
           "name": "Local VK API"
@@ -128,40 +252,106 @@
       "main": [
         [
           {
-            "node": "Read Approval Context",
+            "node": "Read Execution Context",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Read Approval Context": {
+    "Read Execution Context": {
       "main": [
         [
           {
-            "node": "Keep Approved Workspace Approvals",
+            "node": "Keep Registered Review Executions",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Keep Approved Workspace Approvals": {
+    "Keep Registered Review Executions": {
       "main": [
         [
           {
-            "node": "Resolve Merge Inputs",
+            "node": "Read Review Conversation Context",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Resolve Merge Inputs": {
+    "Read Review Conversation Context": {
       "main": [
         [
           {
-            "node": "Queue Generate And Merge",
+            "node": "Build Review Decision Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Review Decision Input": {
+      "main": [
+        [
+          {
+            "node": "Parse Review Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Review Decision": {
+      "main": [
+        [
+          {
+            "node": "Create Review Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Review Result": {
+      "main": [
+        [
+          {
+            "node": "Build Merge Candidate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Merge Candidate Input": {
+      "main": [
+        [
+          {
+            "node": "Select Approved Repo Merges",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Approved Repo Merges": {
+      "main": [
+        [
+          {
+            "node": "Generate Commit Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Commit Message": {
+      "main": [
+        [
+          {
+            "node": "Queue Merge",
             "type": "main",
             "index": 0
           }

@@ -103,11 +103,13 @@ pub async fn create_conversation(
     axum::extract::Path(project_id): axum::extract::Path<Uuid>,
     Json(payload): Json<CreateConversationRequest>,
 ) -> Result<ResponseJson<ApiResponse<CreateConversationResponse>>, ApiError> {
-    // Determine executor profile: use provided or default to CLAUDE_CODE
+    let default_executor_profile = deployment.config().read().await.executor_profile.clone();
+
+    // Determine executor profile: use the provided value or the configured VK default.
     let executor_profile_id = payload
         .executor_profile_id
         .clone()
-        .unwrap_or_else(|| ExecutorProfileId::new(BaseCodingAgent::ClaudeCode));
+        .unwrap_or(default_executor_profile);
 
     // Validate the executor profile exists
     if ExecutorConfigs::get_cached()
@@ -232,11 +234,19 @@ pub async fn send_message(
     )
     .await?;
 
-    // Get the executor from the conversation session, or use a default
+    let default_executor_name = deployment
+        .config()
+        .read()
+        .await
+        .executor_profile
+        .executor
+        .to_string();
+
+    // Get the executor from the conversation session, or use the configured VK default.
     let executor_name = conversation
         .executor
         .clone()
-        .unwrap_or("CLAUDE_CODE".to_string());
+        .unwrap_or(default_executor_name);
 
     // Parse executor name to BaseCodingAgent
     let normalized_executor = executor_name.replace('-', "_").to_ascii_uppercase();
