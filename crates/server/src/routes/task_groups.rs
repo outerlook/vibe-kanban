@@ -420,7 +420,7 @@ mod tests {
                         serde_json::json!({
                             "workflow_id": "wf-group",
                             "label": "Group workflow",
-                            "url": "https://n8n.example/group"
+                            "url": "https://workflows.example/task-group-default"
                         })
                         .to_string(),
                     ))
@@ -471,7 +471,7 @@ mod tests {
             let events = publisher
                 .published()
                 .into_iter()
-                .map(|(_, envelope)| envelope.event_type)
+                .map(|(_, envelope)| envelope.event_type())
                 .collect::<Vec<_>>();
             if events.len() >= minimum || tokio::time::Instant::now() >= deadline {
                 return events;

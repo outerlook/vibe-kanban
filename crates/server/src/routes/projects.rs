@@ -1438,7 +1438,7 @@ mod tests {
                         serde_json::json!({
                             "workflow_id": "wf-project",
                             "label": "Repository default",
-                            "url": "https://n8n.example/project"
+                            "url": "https://workflows.example/repository-default"
                         })
                         .to_string(),
                     ))

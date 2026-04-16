@@ -49,7 +49,10 @@ import {
   useRepoBranchSelection,
   useTaskGroups,
 } from '@/hooks';
-import { useTaskWorkflowAssociations, workflowAssociationKeys } from '@/hooks/useWorkflowAssociations';
+import {
+  useTaskWorkflowAssociations,
+  workflowAssociationKeys,
+} from '@/hooks/useWorkflowAssociations';
 import { TaskGroupFormDialog } from './TaskGroupFormDialog';
 import { tasksApi } from '@/lib/api';
 import {
@@ -195,7 +198,8 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
 
   // Form submission handler
   const handleSubmit = async ({ value }: { value: TaskFormValues }) => {
-    const workflowPayload = workflowAssociationFormToPayload(workflowAssociation);
+    const workflowPayload =
+      workflowAssociationFormToPayload(workflowAssociation);
     const existingTaskAssociation = getAssociationAtScope(
       taskWorkflowResolution,
       'task_override'
@@ -215,7 +219,10 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
       });
 
       if (workflowPayload) {
-        await tasksApi.upsertWorkflowAssociation(updatedTask.id, workflowPayload);
+        await tasksApi.upsertWorkflowAssociation(
+          updatedTask.id,
+          workflowPayload
+        );
       } else if (existingTaskAssociation) {
         await tasksApi.deleteWorkflowAssociation(updatedTask.id);
       }
@@ -227,13 +234,15 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
       return;
     }
 
-    const imageIds = newlyUploadedImageIds.length > 0 ? newlyUploadedImageIds : null;
+    const imageIds =
+      newlyUploadedImageIds.length > 0 ? newlyUploadedImageIds : null;
     const task = {
       project_id: projectId,
       title: value.title,
       description: value.description,
       status: null,
-      parent_workspace_id: mode === 'subtask' ? props.parentTaskAttemptId : null,
+      parent_workspace_id:
+        mode === 'subtask' ? props.parentTaskAttemptId : null,
       image_ids: imageIds,
       shared_task_id: null,
       task_group_id: value.taskGroupId,
@@ -260,9 +269,8 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
     modal.remove();
   };
 
-  const workflowAssociationError = getWorkflowAssociationFormError(
-    workflowAssociation
-  );
+  const workflowAssociationError =
+    getWorkflowAssociationFormError(workflowAssociation);
 
   const validator = (value: TaskFormValues): string | undefined => {
     if (!value.title.trim().length) return 'need title';
@@ -292,7 +300,8 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   const isSubmitting = useStore(form.store, (state) => state.isSubmitting);
   const isDirty = useStore(form.store, (state) => state.isDirty);
   const canSubmit =
-    useStore(form.store, (state) => state.canSubmit) && !workflowAssociationError;
+    useStore(form.store, (state) => state.canSubmit) &&
+    !workflowAssociationError;
 
   // Load images for edit mode
   useEffect(() => {
@@ -378,7 +387,10 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
         )
       : emptyWorkflowAssociationFormState;
 
-    return JSON.stringify(workflowAssociation) !== JSON.stringify(initialWorkflowAssociation);
+    return (
+      JSON.stringify(workflowAssociation) !==
+      JSON.stringify(initialWorkflowAssociation)
+    );
   }, [
     editMode,
     images,
@@ -620,13 +632,18 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
 
             <WorkflowAssociationFields
               title="Task workflow override"
-              description="Override inherited n8n workflow metadata for this task. Leave blank to inherit from the group or repository default."
+              description="Override inherited workflow metadata for this task. Leave blank to inherit from the task group or repository default."
               value={workflowAssociation}
               onChange={(updates) =>
-                setWorkflowAssociation((previous) => ({ ...previous, ...updates }))
+                setWorkflowAssociation((previous) => ({
+                  ...previous,
+                  ...updates,
+                }))
               }
               error={workflowAssociationError}
-              onClear={() => setWorkflowAssociation(emptyWorkflowAssociationFormState)}
+              onClear={() =>
+                setWorkflowAssociation(emptyWorkflowAssociationFormState)
+              }
             />
             {editMode && (
               <div className="pt-4">

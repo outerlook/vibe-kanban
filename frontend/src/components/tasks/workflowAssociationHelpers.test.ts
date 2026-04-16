@@ -21,12 +21,12 @@ describe('workflowAssociationHelpers', () => {
       workflowAssociationFormToPayload({
         workflow_id: ' wf-123 ',
         label: ' Review attention ',
-        url: 'https://n8n.example/workflow',
+        url: 'https://workflows.example/review-attention',
       })
     ).toEqual({
       workflow_id: 'wf-123',
       label: 'Review attention',
-      url: 'https://n8n.example/workflow',
+      url: 'https://workflows.example/review-attention',
     });
   });
 
@@ -36,7 +36,7 @@ describe('workflowAssociationHelpers', () => {
         scope: 'task_group_default',
         workflow_id: 'wf-group',
         label: 'Group workflow',
-        url: 'https://n8n.example/group',
+        url: 'https://workflows.example/group-default',
         is_effective: true,
       },
       associations: [
@@ -44,22 +44,22 @@ describe('workflowAssociationHelpers', () => {
           scope: 'task_group_default',
           workflow_id: 'wf-group',
           label: 'Group workflow',
-          url: 'https://n8n.example/group',
+          url: 'https://workflows.example/group-default',
           is_effective: true,
         },
         {
           scope: 'repository_default',
           workflow_id: 'wf-repo',
           label: 'Repo workflow',
-          url: 'https://n8n.example/repo',
+          url: 'https://workflows.example/repository-default',
           is_effective: false,
         },
       ],
     };
 
-    expect(getAssociationAtScope(resolution, 'task_group_default')?.workflow_id).toBe(
-      'wf-group'
-    );
+    expect(
+      getAssociationAtScope(resolution, 'task_group_default')?.workflow_id
+    ).toBe('wf-group');
     expect(getWorkflowAssociationScopeLabel('repository_default')).toBe(
       'Repository default'
     );

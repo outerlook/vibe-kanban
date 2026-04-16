@@ -39,7 +39,7 @@ export function WorkflowAssociationFields({
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-2">
-          <Label htmlFor={`${title}-workflow-id`}>n8n workflow ID</Label>
+          <Label htmlFor={`${title}-workflow-id`}>Workflow ID</Label>
           <Input
             id={`${title}-workflow-id`}
             value={value.workflow_id}
@@ -64,7 +64,7 @@ export function WorkflowAssociationFields({
             id={`${title}-workflow-url`}
             value={value.url}
             onChange={(event) => onChange({ url: event.target.value })}
-            placeholder="https://n8n.example/workflow/..."
+            placeholder="https://workflows.example/review-attention"
           />
         </div>
       </div>

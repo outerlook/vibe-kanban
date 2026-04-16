@@ -69,7 +69,8 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
         enabled: modal.visible && !!primaryRepo,
       });
 
-    const { createTaskGroup, updateTaskGroup } = useTaskGroupMutations(projectId);
+    const { createTaskGroup, updateTaskGroup } =
+      useTaskGroupMutations(projectId);
 
     const isLoading = createTaskGroup.isPending || updateTaskGroup.isPending;
     const isLoadingInitial = isLoadingRepos || isLoadingBranches;
@@ -95,11 +96,13 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
       }
     }, [modal.visible, group, workflowResolution]);
 
-    const workflowAssociationError = getWorkflowAssociationFormError(
-      workflowAssociation
-    );
+    const workflowAssociationError =
+      getWorkflowAssociationFormError(workflowAssociation);
     const canSubmit =
-      !!name.trim() && !isLoading && !isLoadingInitial && !workflowAssociationError;
+      !!name.trim() &&
+      !isLoading &&
+      !isLoadingInitial &&
+      !workflowAssociationError;
 
     const handleSubmit = async () => {
       const trimmedName = name.trim();
@@ -248,13 +251,18 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
 
             <WorkflowAssociationFields
               title="Task group workflow default"
-              description="Set the default n8n workflow metadata for tasks in this group. Task-level overrides take precedence."
+              description="Set the default workflow metadata for tasks in this group. Task-level overrides take precedence."
               value={workflowAssociation}
               onChange={(updates) =>
-                setWorkflowAssociation((previous) => ({ ...previous, ...updates }))
+                setWorkflowAssociation((previous) => ({
+                  ...previous,
+                  ...updates,
+                }))
               }
               error={workflowAssociationError}
-              onClear={() => setWorkflowAssociation(emptyWorkflowAssociationFormState)}
+              onClear={() =>
+                setWorkflowAssociation(emptyWorkflowAssociationFormState)
+              }
             />
 
             {error && <div className="text-sm text-destructive">{error}</div>}

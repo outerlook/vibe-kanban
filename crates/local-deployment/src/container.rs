@@ -2788,7 +2788,7 @@ mod tests {
             let event_types = publisher
                 .published()
                 .into_iter()
-                .map(|(_, envelope)| envelope.event_type)
+                .map(|(_, envelope)| envelope.event_type())
                 .collect::<Vec<_>>();
             if event_types.len() >= minimum || tokio::time::Instant::now() >= deadline {
                 return event_types;
@@ -3019,7 +3019,7 @@ mod tests {
             let event_types = publisher
                 .published()
                 .into_iter()
-                .map(|(_, envelope)| envelope.event_type)
+                .map(|(_, envelope)| envelope.event_type())
                 .collect::<Vec<_>>();
             if event_types.contains(&OrchestrationEventType::ExecutionCompleted) {
                 break event_types;

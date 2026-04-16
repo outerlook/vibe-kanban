@@ -1,4 +1,3 @@
 packages:
   - 'frontend'
   - 'remote-frontend'
-  - 'integrations/n8n-nodes-vibe-kanban'

@@ -373,7 +373,7 @@ mod tests {
             &UpsertWorkflowAssociation {
                 workflow_id: "wf-repo".to_string(),
                 label: "Repo default".to_string(),
-                url: "https://n8n.example/repo".to_string(),
+                url: "https://workflows.example/repository-default".to_string(),
             },
         )
         .await
@@ -384,7 +384,7 @@ mod tests {
             &UpsertWorkflowAssociation {
                 workflow_id: "wf-group".to_string(),
                 label: "Group default".to_string(),
-                url: "https://n8n.example/group".to_string(),
+                url: "https://workflows.example/task-group-default".to_string(),
             },
         )
         .await
@@ -395,7 +395,7 @@ mod tests {
             &UpsertWorkflowAssociation {
                 workflow_id: "wf-task".to_string(),
                 label: "Task override".to_string(),
-                url: "https://n8n.example/task".to_string(),
+                url: "https://workflows.example/task-override".to_string(),
             },
         )
         .await
@@ -447,7 +447,7 @@ mod tests {
             &UpsertWorkflowAssociation {
                 workflow_id: "wf-repo".to_string(),
                 label: "Repo default".to_string(),
-                url: "https://n8n.example/repo".to_string(),
+                url: "https://workflows.example/repository-default".to_string(),
             },
         )
         .await
@@ -458,7 +458,7 @@ mod tests {
             &UpsertWorkflowAssociation {
                 workflow_id: "wf-group".to_string(),
                 label: "Group default".to_string(),
-                url: "https://n8n.example/group".to_string(),
+                url: "https://workflows.example/task-group-default".to_string(),
             },
         )
         .await
@@ -469,7 +469,7 @@ mod tests {
             &UpsertWorkflowAssociation {
                 workflow_id: "wf-task".to_string(),
                 label: "Task override".to_string(),
-                url: "https://n8n.example/task".to_string(),
+                url: "https://workflows.example/task-override".to_string(),
             },
         )
         .await

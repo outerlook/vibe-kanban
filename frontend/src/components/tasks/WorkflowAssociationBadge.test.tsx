@@ -18,10 +18,15 @@ describe('WorkflowAssociationBadge', () => {
 
   it('renders nothing when no effective workflow is associated', () => {
     useTaskWorkflowAssociations.mockReturnValue({
-      data: { effective: null, associations: [] } satisfies WorkflowAssociationResolution,
+      data: {
+        effective: null,
+        associations: [],
+      } satisfies WorkflowAssociationResolution,
     });
 
-    expect(renderToStaticMarkup(<WorkflowAssociationBadge taskId="task-1" />)).toBe('');
+    expect(
+      renderToStaticMarkup(<WorkflowAssociationBadge taskId="task-1" />)
+    ).toBe('');
   });
 
   it('renders the effective workflow label', () => {
@@ -31,7 +36,7 @@ describe('WorkflowAssociationBadge', () => {
           scope: 'task_group_default',
           workflow_id: 'wf-review',
           label: 'Review attention',
-          url: 'https://n8n.example/review',
+          url: 'https://workflows.example/review-attention',
           is_effective: true,
         },
         associations: [],

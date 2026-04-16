@@ -110,9 +110,8 @@ export function ProjectSettings() {
   const [success, setSuccess] = useState(false);
   const [projectWorkflowAssociation, setProjectWorkflowAssociation] =
     useState<WorkflowAssociation | null>(null);
-  const [workflowDraft, setWorkflowDraft] = useState<WorkflowAssociationFormState>(
-    emptyWorkflowAssociationFormState
-  );
+  const [workflowDraft, setWorkflowDraft] =
+    useState<WorkflowAssociationFormState>(emptyWorkflowAssociationFormState);
   const [loadingWorkflow, setLoadingWorkflow] = useState(false);
   const [savingWorkflow, setSavingWorkflow] = useState(false);
   const [workflowError, setWorkflowError] = useState<string | null>(null);
@@ -308,9 +307,8 @@ export function ProjectSettings() {
       .finally(() => setLoadingWorkflow(false));
   }, [selectedProjectId]);
 
-  const workflowAssociationError = getWorkflowAssociationFormError(
-    workflowDraft
-  );
+  const workflowAssociationError =
+    getWorkflowAssociationFormError(workflowDraft);
 
   const handleSaveWorkflowAssociation = async () => {
     if (!selectedProjectId) return;
@@ -326,7 +324,10 @@ export function ProjectSettings() {
     try {
       const payload = workflowAssociationFormToPayload(workflowDraft);
       const association = payload
-        ? await projectsApi.upsertWorkflowAssociation(selectedProjectId, payload)
+        ? await projectsApi.upsertWorkflowAssociation(
+            selectedProjectId,
+            payload
+          )
         : projectWorkflowAssociation
           ? await (async () => {
               await projectsApi.deleteWorkflowAssociation(selectedProjectId);
@@ -340,7 +341,9 @@ export function ProjectSettings() {
       setTimeout(() => setWorkflowSuccess(false), 3000);
     } catch (err) {
       setWorkflowError(
-        err instanceof Error ? err.message : 'Failed to save workflow association'
+        err instanceof Error
+          ? err.message
+          : 'Failed to save workflow association'
       );
     } finally {
       setSavingWorkflow(false);
@@ -348,11 +351,15 @@ export function ProjectSettings() {
   };
 
   const handleDiscardWorkflowAssociation = () => {
-    setWorkflowDraft(workflowAssociationToFormState(projectWorkflowAssociation));
+    setWorkflowDraft(
+      workflowAssociationToFormState(projectWorkflowAssociation)
+    );
     setWorkflowError(null);
   };
 
-  const updateWorkflowDraft = (updates: Partial<WorkflowAssociationFormState>) => {
+  const updateWorkflowDraft = (
+    updates: Partial<WorkflowAssociationFormState>
+  ) => {
     setWorkflowDraft((previous) => ({ ...previous, ...updates }));
   };
 
@@ -741,7 +748,9 @@ export function ProjectSettings() {
 
               <SettingsField
                 label={t('settings.projects.scripts.devWorkingDir.label')}
-                description={t('settings.projects.scripts.devWorkingDir.helper')}
+                description={t(
+                  'settings.projects.scripts.devWorkingDir.helper'
+                )}
                 htmlFor="dev-script-working-dir"
               >
                 <Input
@@ -827,7 +836,7 @@ export function ProjectSettings() {
           <SettingsSection
             id="project-workflows"
             title="Workflow Association"
-            description="Set the repository-level default n8n workflow metadata used when a task group or task does not override it."
+            description="Set the repository-level default workflow metadata used when a task group or task does not override it."
             collapsible
             defaultExpanded={false}
           >
@@ -841,7 +850,9 @@ export function ProjectSettings() {
                   value={workflowDraft}
                   onChange={updateWorkflowDraft}
                   error={workflowAssociationError}
-                  onClear={() => setWorkflowDraft(emptyWorkflowAssociationFormState)}
+                  onClear={() =>
+                    setWorkflowDraft(emptyWorkflowAssociationFormState)
+                  }
                 />
               )}
 
@@ -1149,7 +1160,9 @@ export function ProjectSettings() {
 
                       <SettingsField
                         label={t('settings.projects.scripts.setup.label')}
-                        description={t('settings.projects.scripts.setup.helper')}
+                        description={t(
+                          'settings.projects.scripts.setup.helper'
+                        )}
                         htmlFor="setup-script"
                       >
                         <AutoExpandingTextarea
@@ -1182,7 +1195,12 @@ export function ProjectSettings() {
                           {t('settings.projects.scripts.setup.parallelLabel')}
                         </Label>
                       </div>
-                      <Text variant="secondary" size="sm" as="p" className="pl-6">
+                      <Text
+                        variant="secondary"
+                        size="sm"
+                        as="p"
+                        className="pl-6"
+                      >
                         {t('settings.projects.scripts.setup.parallelHelper')}
                       </Text>
 

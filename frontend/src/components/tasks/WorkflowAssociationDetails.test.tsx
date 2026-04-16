@@ -18,7 +18,10 @@ describe('WorkflowAssociationDetails', () => {
 
   it('shows the empty state when there are no associations', () => {
     useTaskWorkflowAssociations.mockReturnValue({
-      data: { effective: null, associations: [] } satisfies WorkflowAssociationResolution,
+      data: {
+        effective: null,
+        associations: [],
+      } satisfies WorkflowAssociationResolution,
     });
 
     const markup = renderToStaticMarkup(
@@ -35,7 +38,7 @@ describe('WorkflowAssociationDetails', () => {
           scope: 'task_group_default',
           workflow_id: 'wf-review',
           label: 'Review attention',
-          url: 'https://n8n.example/review',
+          url: 'https://workflows.example/review-attention',
           is_effective: true,
         },
         associations: [
@@ -43,14 +46,14 @@ describe('WorkflowAssociationDetails', () => {
             scope: 'task_group_default',
             workflow_id: 'wf-review',
             label: 'Review attention',
-            url: 'https://n8n.example/review',
+            url: 'https://workflows.example/review-attention',
             is_effective: true,
           },
           {
             scope: 'repository_default',
             workflow_id: 'wf-merge',
             label: 'Generate and merge',
-            url: 'https://n8n.example/merge',
+            url: 'https://workflows.example/generate-and-merge',
             is_effective: false,
           },
         ],
@@ -61,7 +64,7 @@ describe('WorkflowAssociationDetails', () => {
       <WorkflowAssociationDetails taskId="task-1" />
     );
 
-    expect(markup).toContain('Associated n8n workflows');
+    expect(markup).toContain('Associated workflows');
     expect(markup).toContain('Review attention');
     expect(markup).toContain('Generate and merge');
     expect(markup).toContain('Effective');

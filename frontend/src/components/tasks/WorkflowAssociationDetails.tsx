@@ -24,7 +24,7 @@ export function WorkflowAssociationDetails({
     <div className="space-y-4 py-4">
       <div className="space-y-2">
         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Associated n8n workflows
+          Associated workflows
         </div>
         <div className="space-y-2">
           {associations.map((association) => (

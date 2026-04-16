@@ -958,7 +958,7 @@ mod tests {
             let events = publisher
                 .published()
                 .into_iter()
-                .map(|(_, envelope)| envelope.event_type)
+                .map(|(_, envelope)| envelope.event_type())
                 .collect::<Vec<_>>();
             if events.len() >= minimum || tokio::time::Instant::now() >= deadline {
                 return events;
