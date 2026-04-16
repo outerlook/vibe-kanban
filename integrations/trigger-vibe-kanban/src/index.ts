@@ -5,6 +5,19 @@ export {
   topicForOrchestrationEvent,
 } from '../../../shared/orchestration-events';
 
+export {
+  buildCodeRabbitPollMetadataFromEnv,
+  GitHubGraphqlCodeRabbitClient,
+  resolveCodeRabbitPollConfig,
+  runCodeRabbitPollWorkflow,
+} from './coderabbit/poller';
+export type {
+  CodeRabbitGitHubClient,
+  CodeRabbitPollCheckpoint,
+  CodeRabbitPollConfig,
+  CodeRabbitPollResult,
+  CodeRabbitSelectedRepository,
+} from './coderabbit/poller';
 export { createRuntimeDependencies, createRuntimeEnvironment } from './runtime/dependencies';
 export { startMqttBridgeRuntime } from './runtime/mqtt-bridge';
 export { runScheduledWorkflowOnce } from './runtime/scheduled-workflow';

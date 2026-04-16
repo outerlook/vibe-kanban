@@ -11,16 +11,30 @@ import {
   VkRuntimeClient,
 } from '../src';
 import { createConsoleLogger } from '../src/runtime/dependencies';
-import { createBroker, createTempDir, removeTempDir } from './helpers';
+import { createBroker, createJsonServer, createTempDir, removeTempDir } from './helpers';
 
 describe('package boot surfaces', () => {
-  it('boots the scheduled scaffold without needing VK-owned checkpoint state', async () => {
+  it('boots the scheduled CodeRabbit poller with Trigger-owned checkpoint state', async () => {
+    const previousGitHubToken = process.env.GITHUB_TOKEN;
+    process.env.GITHUB_TOKEN = 'test-token';
+
+    const vkServer = await createJsonServer((request, response) => {
+      if (request.method === 'GET' && request.url === '/api/projects') {
+        response.setHeader('content-type', 'application/json');
+        response.end(JSON.stringify({ success: true, data: [] }));
+        return;
+      }
+
+      response.statusCode = 404;
+      response.end('not found');
+    });
+
     const tempDir = createTempDir('trigger-boot-');
 
     const dependencies = {
       environment: {
         vkApi: {
-          baseUrl: 'http://127.0.0.1:9',
+          baseUrl: `http://127.0.0.1:${vkServer.port}`,
           authMode: 'none' as const,
         },
         vkMqtt: {
@@ -34,29 +48,46 @@ describe('package boot surfaces', () => {
       },
       stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
       vkClient: new VkRuntimeClient({
-        baseUrl: 'http://127.0.0.1:9',
+        baseUrl: `http://127.0.0.1:${vkServer.port}`,
         authMode: 'none',
       }),
       logger: createConsoleLogger(),
     };
 
-    const result = await runScheduledWorkflowOnce(
-      {
-        workflowKey: 'coderabbit/poll',
-        scopeKey: 'global',
-        claimKey: 'coderabbit:boot-test',
-        scheduledAt: '2026-04-15T12:00:00Z',
-      },
-      dependencies,
-      createDirectDispatcher(dependencies),
-    );
+    try {
+      const result = await runScheduledWorkflowOnce(
+        {
+          workflowKey: 'coderabbit/poll',
+          scopeKey: 'global',
+          claimKey: 'coderabbit:boot-test',
+          scheduledAt: '2026-04-15T12:00:00Z',
+          metadata: {
+            workflowId: 'wf-coderabbit-review-extraction',
+            reviewerLogins: ['coderabbitai[bot]'],
+          },
+        },
+        dependencies,
+        createDirectDispatcher(dependencies),
+      );
 
-    expect(result.disposition).toBe('handled');
-    expect(result.handlerKeys).toEqual(['coderabbit/poll']);
-    expect(dependencies.stateStore.getCheckpoint('coderabbit/poll', 'global')?.checkpoint).toBeNull();
-
-    dependencies.stateStore.close();
-    removeTempDir(tempDir);
+      expect(result.disposition).toBe('handled');
+      expect(result.handlerKeys).toEqual(['coderabbit/poll']);
+      expect(dependencies.stateStore.getCheckpoint('coderabbit/poll', 'global')?.checkpoint).toEqual({
+        workflowId: 'wf-coderabbit-review-extraction',
+        lastPolledAt: '2026-04-15T12:00:00Z',
+        selectedReposByFullName: {},
+        processedThreadCommentIds: [],
+      });
+    } finally {
+      dependencies.stateStore.close();
+      removeTempDir(tempDir);
+      await vkServer.close();
+      if (previousGitHubToken === undefined) {
+        delete process.env.GITHUB_TOKEN;
+      } else {
+        process.env.GITHUB_TOKEN = previousGitHubToken;
+      }
+    }
   });
 
   it('starts the mqtt boot surface and exposes a close handle', async () => {

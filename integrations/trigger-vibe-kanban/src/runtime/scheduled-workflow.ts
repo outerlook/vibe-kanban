@@ -3,6 +3,7 @@ import type {
   ScheduledDispatchResult,
 } from './contracts';
 import type { RuntimeDependencies } from './dependencies';
+import type { JsonValue } from '../state/types';
 
 export async function runScheduledWorkflowOnce(
   args: {
@@ -10,6 +11,7 @@ export async function runScheduledWorkflowOnce(
     scopeKey: string;
     claimKey: string;
     scheduledAt?: string;
+    metadata?: JsonValue | null;
   },
   dependencies: RuntimeDependencies,
   dispatcher: OrchestratorDispatcher,
@@ -19,9 +21,12 @@ export async function runScheduledWorkflowOnce(
     claimKey: args.claimKey,
     workflowKey: args.workflowKey,
     scopeKey: args.scopeKey,
-    metadata: {
-      scheduledAt,
-    },
+    metadata:
+      args.metadata && typeof args.metadata === 'object' && !Array.isArray(args.metadata)
+        ? { scheduledAt, ...args.metadata }
+        : args.metadata === undefined || args.metadata === null
+          ? { scheduledAt }
+          : { scheduledAt, payload: args.metadata },
   });
 
   if (!claimResult.claimed) {

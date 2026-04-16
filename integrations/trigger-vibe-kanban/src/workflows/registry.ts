@@ -5,6 +5,7 @@ import type {
   ScheduledWorkflowDispatchInput,
 } from '../runtime/contracts';
 import type { RuntimeDependencies } from '../runtime/dependencies';
+import { runCodeRabbitPollWorkflow } from '../coderabbit/poller';
 import { autopilotContinuationHandler } from './lifecycle/autopilot-continuation';
 import { feedbackCollectionHandler } from './lifecycle/feedback-collection';
 import type {
@@ -92,16 +93,8 @@ export async function dispatchScheduledWorkflow(
 
 registerScheduledWorkflowHandler({
   workflowKey: 'coderabbit/poll',
-  async run(input) {
-    return {
-      output: {
-        status: 'scaffold_ready',
-        workflowKey: input.workflowKey,
-        scheduledAt: input.scheduledAt,
-        lastCheckpoint: input.checkpoint?.checkpoint ?? null,
-      },
-      nextCheckpoint: input.checkpoint?.checkpoint ?? null,
-    };
+  run(input, deps) {
+    return runCodeRabbitPollWorkflow(input, deps);
   },
 });
 
