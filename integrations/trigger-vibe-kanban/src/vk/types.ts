@@ -23,6 +23,7 @@ import type {
   SendMessageResponse,
   StartTaskExecutionCommand,
   StartTaskExecutionResult,
+  TaskListItemDto,
   WorkflowAssociation,
 } from '../../../../shared/types';
 
@@ -71,6 +72,7 @@ export type {
   SendMessageResponse,
   StartTaskExecutionCommand,
   StartTaskExecutionResult,
+  TaskListItemDto,
   VkApiConfig,
   WorkflowAssociation,
 };

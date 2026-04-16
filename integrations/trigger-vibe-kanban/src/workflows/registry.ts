@@ -5,20 +5,12 @@ import type {
   ScheduledWorkflowDispatchInput,
 } from '../runtime/contracts';
 import type { RuntimeDependencies } from '../runtime/dependencies';
-
-type OrchestrationWorkflowHandler = {
-  workflowKey: string;
-  matches(input: MqttDispatchInput): boolean | Promise<boolean>;
-  run(input: MqttDispatchInput, deps: RuntimeDependencies): Promise<unknown>;
-};
-
-type ScheduledWorkflowHandler = {
-  workflowKey: string;
-  run(
-    input: ScheduledWorkflowDispatchInput,
-    deps: RuntimeDependencies,
-  ): Promise<{ output?: unknown; nextCheckpoint?: unknown }>;
-};
+import { autopilotContinuationHandler } from './lifecycle/autopilot-continuation';
+import { feedbackCollectionHandler } from './lifecycle/feedback-collection';
+import type {
+  OrchestrationWorkflowHandler,
+  ScheduledWorkflowHandler,
+} from './types';
 
 const orchestrationHandlers: OrchestrationWorkflowHandler[] = [];
 const scheduledHandlers = new Map<string, ScheduledWorkflowHandler>();
@@ -112,3 +104,6 @@ registerScheduledWorkflowHandler({
     };
   },
 });
+
+registerOrchestrationWorkflowHandler(autopilotContinuationHandler);
+registerOrchestrationWorkflowHandler(feedbackCollectionHandler);
