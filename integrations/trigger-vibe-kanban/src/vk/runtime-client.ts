@@ -10,6 +10,8 @@ import type {
   CreateReviewAttention,
   FeedbackResponse,
   FollowUpResult,
+  GenerateCommitMessageRequest,
+  GenerateCommitMessageResponse,
   HydratedOrchestrationContexts,
   MergeQueueEntry,
   OrchestrationApprovalContextDto,
@@ -177,6 +179,16 @@ export class VkRuntimeClient extends VkHttpClient {
     body: StartTaskExecutionCommand,
   ): Promise<StartTaskExecutionResult> {
     return this.request('/task-attempts/orchestration/task-executions', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async generateCommitMessage(
+    workspaceId: string,
+    body: GenerateCommitMessageRequest,
+  ): Promise<GenerateCommitMessageResponse> {
+    return this.request(`/task-attempts/${workspaceId}/generate-commit-message`, {
       method: 'POST',
       body: JSON.stringify(body),
     });
