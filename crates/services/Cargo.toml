@@ -17,6 +17,8 @@ tokio-util = { version = "0.7", features = ["io"] }
 axum = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+jsonschema = "0.37"
+schemars = { workspace = true }
 url = "2.5"
 anyhow = { workspace = true }
 tracing = { workspace = true }

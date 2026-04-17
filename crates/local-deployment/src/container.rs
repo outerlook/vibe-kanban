@@ -40,10 +40,14 @@ use db::{
     models::{
         agent_feedback::{AgentFeedback, CreateAgentFeedback},
         coding_agent_turn::CodingAgentTurn,
+        conversation_message::{
+            ConversationMessageMetadata, StructuredOutputValidationErrorMetadata,
+        },
         conversation_session::ConversationSession,
         execution_process::{
             ExecutionContext, ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus,
         },
+        execution_process_logs::ExecutionProcessLogs,
         execution_process_normalized_entry::ExecutionProcessNormalizedEntry,
         execution_process_repo_state::ExecutionProcessRepoState,
         merge::Merge,
@@ -70,7 +74,8 @@ use executors::{
     logs::{
         NormalizedEntryType,
         utils::{
-            extract_assistant_message_from_msg_store, extract_token_usage_from_msg_store,
+            extract_assistant_message_from_msg_store,
+            extract_full_assistant_message_from_msg_store, extract_token_usage_from_msg_store,
             patch::extract_normalized_entry_from_patch,
         },
     },
@@ -101,6 +106,7 @@ use services::services::{
     queued_message::QueuedMessageService,
     share::SharePublisher,
     skills_cache::GlobalSkillsCache,
+    structured_output::{StructuredOutputValidationOutcome, validate_execution_output},
     watcher_manager::WatcherManager,
     workspace_manager::{RepoWorkspaceInput, WorkspaceManager},
 };
@@ -144,6 +150,12 @@ pub struct LocalContainerService {
     operation_status: Arc<RwLock<Option<OperationStatusStore>>>,
     /// Domain event dispatcher for routing events to handlers
     event_dispatcher: Arc<DomainEventDispatcher>,
+}
+
+#[derive(Debug, Clone)]
+struct StructuredOutputRuntimeResolution {
+    final_status: ExecutionProcessStatus,
+    metadata: Option<ConversationMessageMetadata>,
 }
 
 impl LocalContainerService {
@@ -565,11 +577,34 @@ impl LocalContainerService {
             };
 
             if !ExecutionProcess::was_stopped(&db.pool, exec_id).await
-                && let Err(e) =
-                    ExecutionProcess::update_completion(&db.pool, exec_id, status, exit_code).await
+                && let Err(e) = ExecutionProcess::update_completion(
+                    &db.pool,
+                    exec_id,
+                    status.clone(),
+                    exit_code,
+                )
+                .await
             {
                 tracing::error!("Failed to update execution process completion: {}", e);
             }
+
+            // Structured-output validation runs after the executor exits but before VK
+            // publishes completion and follow-up state, so invalid JSON cannot be treated
+            // as a successful run anywhere else in the pipeline.
+            let assistant_message = {
+                let stores = msg_stores.read().await;
+                stores
+                    .get(&exec_id)
+                    .and_then(|store| extract_full_assistant_message_from_msg_store(store))
+            };
+            let runtime_resolution = container
+                .resolve_structured_output_runtime(
+                    exec_id,
+                    exit_code,
+                    status.clone(),
+                    assistant_message.as_deref(),
+                )
+                .await;
 
             if let Ok(ctx) = ExecutionProcess::load_context(&db.pool, exec_id).await {
                 // Emit ExecutionCompleted event for handlers
@@ -591,7 +626,11 @@ impl LocalContainerService {
                 let success = matches!(
                     ctx.execution_process.status,
                     ExecutionProcessStatus::Completed
-                ) && exit_code == Some(0);
+                ) && exit_code == Some(0)
+                    && matches!(
+                        runtime_resolution.final_status,
+                        ExecutionProcessStatus::Completed
+                    );
 
                 let cleanup_done = matches!(
                     ctx.execution_process.run_reason,
@@ -885,6 +924,133 @@ impl LocalContainerService {
         }
 
         None
+    }
+
+    async fn resolve_structured_output_runtime(
+        &self,
+        exec_id: Uuid,
+        exit_code: Option<i64>,
+        current_status: ExecutionProcessStatus,
+        assistant_message: Option<&str>,
+    ) -> StructuredOutputRuntimeResolution {
+        if !matches!(current_status, ExecutionProcessStatus::Completed) {
+            return StructuredOutputRuntimeResolution {
+                final_status: current_status,
+                metadata: None,
+            };
+        }
+
+        let execution_process = match ExecutionProcess::find_by_id(&self.db.pool, exec_id).await {
+            Ok(Some(execution_process)) => execution_process,
+            Ok(None) => {
+                tracing::warn!(
+                    "Skipping structured output validation because execution {} no longer exists",
+                    exec_id
+                );
+                return StructuredOutputRuntimeResolution {
+                    final_status: current_status,
+                    metadata: None,
+                };
+            }
+            Err(error) => {
+                tracing::warn!(
+                    "Skipping structured output validation for execution {}: {}",
+                    exec_id,
+                    error
+                );
+                return StructuredOutputRuntimeResolution {
+                    final_status: current_status,
+                    metadata: None,
+                };
+            }
+        };
+
+        let executor_action = match execution_process.executor_action() {
+            Ok(executor_action) => executor_action,
+            Err(error) => {
+                tracing::warn!(
+                    "Skipping structured output validation for execution {}: {}",
+                    exec_id,
+                    error
+                );
+                return StructuredOutputRuntimeResolution {
+                    final_status: current_status,
+                    metadata: None,
+                };
+            }
+        };
+
+        let outcome = validate_execution_output(executor_action, assistant_message);
+        let metadata = outcome.metadata();
+
+        if !outcome.should_fail_execution() {
+            return StructuredOutputRuntimeResolution {
+                final_status: current_status,
+                metadata,
+            };
+        }
+
+        if let Err(error) = ExecutionProcess::update_completion(
+            &self.db.pool,
+            exec_id,
+            ExecutionProcessStatus::Failed,
+            exit_code,
+        )
+        .await
+        {
+            tracing::error!(
+                "Failed to mark execution {} as structured output validation failure: {}",
+                exec_id,
+                error
+            );
+        }
+
+        if let StructuredOutputValidationOutcome::Invalid {
+            metadata:
+                ConversationMessageMetadata {
+                    structured_output: Some(structured_output),
+                },
+        } = &outcome
+            && let Some(error) = structured_output.error.as_ref()
+        {
+            self.append_structured_output_validation_log(exec_id, error)
+                .await;
+        }
+
+        StructuredOutputRuntimeResolution {
+            final_status: ExecutionProcessStatus::Failed,
+            metadata,
+        }
+    }
+
+    async fn append_structured_output_validation_log(
+        &self,
+        exec_id: Uuid,
+        error: &StructuredOutputValidationErrorMetadata,
+    ) {
+        let message = match error {
+            StructuredOutputValidationErrorMetadata::JsonParse { message }
+            | StructuredOutputValidationErrorMetadata::SchemaDefinition { message }
+            | StructuredOutputValidationErrorMetadata::SchemaValidation { message, .. } => {
+                format!("Structured output validation failed: {message}")
+            }
+        };
+
+        let log_message = LogMsg::Stderr(message);
+        let Ok(json_line) = serde_json::to_string(&log_message) else {
+            return;
+        };
+
+        if let Err(error) =
+            ExecutionProcessLogs::append_log_line(&self.db.pool, exec_id, &format!("{json_line}\n"))
+                .await
+        {
+            tracing::warn!(
+                "Failed to append structured output validation log for execution {}: {}",
+                exec_id,
+                error
+            );
+        }
     }
 
     /// Update the coding agent turn summary with the final assistant message
@@ -1264,8 +1430,9 @@ impl LocalContainerService {
             // Cleanup msg store and extract assistant message before cleanup
             let assistant_message = if let Some(msg_arc) = msg_stores.write().await.remove(&exec_id)
             {
-                // Extract assistant message before cleanup
-                let assistant_content = extract_assistant_message_from_msg_store(&msg_arc);
+                // Conversation messages must preserve the raw assistant reply so invalid
+                // structured responses remain debuggable instead of being truncated away.
+                let assistant_content = extract_full_assistant_message_from_msg_store(&msg_arc);
 
                 if let Some((input_tokens, output_tokens)) =
                     extract_token_usage_from_msg_store(&msg_arc)
@@ -1296,47 +1463,60 @@ impl LocalContainerService {
                 None
             };
 
+            let runtime_resolution = container
+                .resolve_structured_output_runtime(
+                    exec_id,
+                    exit_code,
+                    status.clone(),
+                    assistant_message.as_deref(),
+                )
+                .await;
+            let final_status = runtime_resolution.final_status.clone();
+
             // Cleanup child handle
             child_store.write().await.remove(&exec_id);
 
             // Store assistant message, send notification, and process queued messages on successful completion
-            if matches!(status, ExecutionProcessStatus::Completed)
-                && let Ok(Some(execution_process)) =
-                    ExecutionProcess::find_by_id(&db.pool, exec_id).await
+            if let Ok(Some(execution_process)) =
+                ExecutionProcess::find_by_id(&db.pool, exec_id).await
                 && let Some(conversation_session_id) = execution_process.conversation_session_id
                 && let Ok(Some(conversation)) =
                     ConversationSession::find_by_id(&db.pool, conversation_session_id).await
             {
-                // Store the assistant message
                 if let Some(ref content) = assistant_message
-                    && let Err(e) = ConversationService::add_assistant_message_with_events(
+                    && let Err(error) =
+                        ConversationService::add_assistant_message_with_metadata_and_events(
+                            &db.pool,
+                            conversation_session_id,
+                            exec_id,
+                            content.clone(),
+                            runtime_resolution.metadata.clone(),
+                            container.event_dispatch_callback(),
+                        )
+                        .await
+                {
+                    tracing::error!("Failed to store assistant message: {}", error);
+                }
+
+                if matches!(final_status, ExecutionProcessStatus::Completed)
+                    && let Err(error) = NotificationService::notify_conversation_response(
                         &db.pool,
+                        conversation.project_id,
                         conversation_session_id,
-                        exec_id,
-                        content.clone(),
-                        container.event_dispatch_callback(),
+                        assistant_message.as_deref(),
                     )
                     .await
                 {
-                    tracing::error!("Failed to store assistant message: {}", e);
+                    tracing::error!(
+                        "Failed to send conversation response notification: {}",
+                        error
+                    );
                 }
 
-                // Send notification
-                if let Err(e) = NotificationService::notify_conversation_response(
-                    &db.pool,
-                    conversation.project_id,
-                    conversation_session_id,
-                    assistant_message.as_deref(),
-                )
-                .await
-                {
-                    tracing::error!("Failed to send conversation response notification: {}", e);
-                }
-
-                // Process queued message (if any)
-                if let Some(queued_msg) = container
-                    .queued_message_service
-                    .take_queued(conversation_session_id)
+                if matches!(final_status, ExecutionProcessStatus::Completed)
+                    && let Some(queued_msg) = container
+                        .queued_message_service
+                        .take_queued(conversation_session_id)
                 {
                     tracing::info!(
                         "Found queued message for conversation {}, starting follow-up execution",
@@ -1357,19 +1537,28 @@ impl LocalContainerService {
                         );
                     }
 
-                    // Start the queued follow-up execution
                     if let Err(e) = container
                         .start_queued_conversation_follow_up(&conversation, &queued_msg.data)
                         .await
                     {
                         tracing::error!("Failed to start queued conversation follow-up: {}", e);
                     }
+                } else if !matches!(final_status, ExecutionProcessStatus::Completed)
+                    && container
+                        .queued_message_service
+                        .take_queued(conversation_session_id)
+                        .is_some()
+                {
+                    tracing::info!(
+                        "Discarding queued message for conversation {} due to execution status {:?}",
+                        conversation_session_id,
+                        final_status
+                    );
                 }
             } else if let Ok(Some(execution_process)) =
                 ExecutionProcess::find_by_id(&db.pool, exec_id).await
                 && let Some(conversation_session_id) = execution_process.conversation_session_id
             {
-                // Execution failed or was killed - discard the queued message
                 if container
                     .queued_message_service
                     .take_queued(conversation_session_id)
@@ -1378,7 +1567,7 @@ impl LocalContainerService {
                     tracing::info!(
                         "Discarding queued message for conversation {} due to execution status {:?}",
                         conversation_session_id,
-                        status
+                        final_status
                     );
                 }
             }
@@ -2651,10 +2840,11 @@ mod tests {
 
     use dashmap::DashSet;
     use db::models::{
+        conversation_message::StructuredOutputValidationStatus,
         conversation_session::{ConversationSession, CreateConversationSession},
         execution_process::{
-            CreateExecutionProcess, ExecutionProcess, ExecutionProcessRunReason,
-            ExecutionProcessStatus,
+            CreateConversationExecutionProcess, CreateExecutionProcess, ExecutionProcess,
+            ExecutionProcessRunReason, ExecutionProcessStatus,
         },
         project::{CreateProject, Project},
         session::{CreateSession, Session},
@@ -2662,16 +2852,24 @@ mod tests {
         workspace::{CreateWorkspace, Workspace},
     };
     use deployment::Deployment;
-    use executors::actions::{
-        ExecutorAction, ExecutorActionType,
-        script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+    use executors::{
+        actions::{
+            ExecutorAction, ExecutorActionType, StructuredOutputContract,
+            coding_agent_initial::CodingAgentInitialRequest,
+            script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+        },
+        executors::BaseCodingAgent,
+        profile::ExecutorProfileId,
     };
+    use schemars::json_schema;
     use services::services::{
         container::ContainerService,
+        conversation::ConversationService,
         domain_events::{
             OrchestrationEventPublisherHandle, OrchestrationEventType,
             RecordingOrchestrationEventPublisher,
         },
+        orchestration::OrchestrationService,
     };
     use uuid::Uuid;
 
@@ -3046,5 +3244,117 @@ mod tests {
         .next()
         .expect("execution exists");
         assert_eq!(execution.status, ExecutionProcessStatus::Failed);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn structured_output_validation_marks_execution_failed_and_surfaces_metadata() {
+        let _lock = TEST_LOCK.lock().expect("lock poisoned");
+        let deployment = LocalDeployment::new().await.expect("create deployment");
+
+        let project = Project::create(
+            &deployment.db().pool,
+            &CreateProject {
+                name: "structured-output-validation".to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .expect("create project");
+
+        let workspace_root = tempfile::tempdir().expect("tempdir");
+        let conversation = ConversationSession::create(
+            &deployment.db().pool,
+            CreateConversationSession {
+                project_id: project.id,
+                title: "Conversation".to_string(),
+                executor: None,
+                worktree_path: Some(workspace_root.path().to_string_lossy().to_string()),
+                worktree_branch: None,
+            },
+        )
+        .await
+        .expect("create conversation");
+
+        let executor_action = ExecutorAction::new(
+            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+                prompt: "reply with json".to_string(),
+                structured_output: Some(StructuredOutputContract {
+                    schema: json_schema!({
+                        "type": "object",
+                        "properties": {
+                            "answer": { "type": "string" }
+                        },
+                        "required": ["answer"],
+                        "additionalProperties": false
+                    }),
+                }),
+                executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+                working_dir: None,
+            }),
+            None,
+        );
+
+        let execution = ExecutionProcess::create_for_conversation(
+            &deployment.db().pool,
+            &CreateConversationExecutionProcess {
+                conversation_session_id: conversation.id,
+                executor_action,
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .expect("create execution");
+
+        let resolution = deployment
+            .local_container()
+            .resolve_structured_output_runtime(
+                execution.id,
+                Some(0),
+                ExecutionProcessStatus::Completed,
+                Some("not json"),
+            )
+            .await;
+
+        assert_eq!(resolution.final_status, ExecutionProcessStatus::Failed);
+
+        ConversationService::add_assistant_message_with_metadata_and_events(
+            &deployment.db().pool,
+            conversation.id,
+            execution.id,
+            "not json".to_string(),
+            resolution.metadata.clone(),
+            None,
+        )
+        .await
+        .expect("persist assistant message");
+
+        let updated_execution = ExecutionProcess::find_by_id(&deployment.db().pool, execution.id)
+            .await
+            .expect("reload execution")
+            .expect("execution exists");
+        assert_eq!(updated_execution.status, ExecutionProcessStatus::Failed);
+
+        let context =
+            OrchestrationService::build_conversation_context(&deployment.db().pool, conversation)
+                .await
+                .expect("build conversation context");
+
+        let message = context
+            .transcript
+            .messages
+            .into_iter()
+            .find(|message| message.execution_process_id == Some(execution.id.to_string()))
+            .expect("assistant message in transcript");
+        assert_eq!(message.content, "not json");
+        assert_eq!(
+            message
+                .metadata
+                .and_then(|metadata| metadata.structured_output)
+                .map(|structured_output| structured_output.status),
+            Some(StructuredOutputValidationStatus::Invalid)
+        );
+        assert!(message.metadata_parse_error.is_none());
     }
 }

@@ -188,7 +188,7 @@ export type ConversationSnapshotDto = { id: string, project_id: string, title: s
 
 export type ConversationTranscriptDto = { messages: Array<ConversationMessageSnapshotDto>, images: Array<ImageSnapshotDto>, };
 
-export type ConversationMessageSnapshotDto = { id: string, execution_process_id: string | null, role: string, content: string, metadata: JsonValue | null, created_at: string, };
+export type ConversationMessageSnapshotDto = { id: string, execution_process_id: string | null, role: string, content: string, metadata: ConversationMessageMetadata | null, metadata_json: JsonValue | null, metadata_raw: string | null, metadata_parse_error: string | null, created_at: string, };
 
 export type ExecutionScopeDto = { task: TaskSnapshotDto | null, workspace: WorkspaceSnapshotDto | null, session: SessionSnapshotDto | null, conversation: ConversationSnapshotDto | null, };
 

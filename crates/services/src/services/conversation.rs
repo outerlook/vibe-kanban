@@ -1,6 +1,7 @@
 use db::models::{
     conversation_message::{
-        ConversationMessage, ConversationMessageError, CreateConversationMessage, MessageRole,
+        ConversationMessage, ConversationMessageError, ConversationMessageMetadata,
+        CreateConversationMessage, MessageRole,
     },
     conversation_session::{
         ConversationSession, ConversationSessionError, CreateConversationSession,
@@ -41,6 +42,8 @@ pub enum ConversationServiceError {
     ExecutionProcess(#[from] ExecutionProcessError),
     #[error(transparent)]
     Sqlx(#[from] sqlx::Error),
+    #[error(transparent)]
+    SerdeJson(#[from] serde_json::Error),
     #[error("Conversation not found")]
     NotFound,
 }
@@ -197,11 +200,12 @@ impl ConversationService {
         execution_process_id: Uuid,
         content: String,
     ) -> Result<ConversationMessage, ConversationServiceError> {
-        Self::add_assistant_message_with_events(
+        Self::add_assistant_message_with_metadata_and_events(
             pool,
             conversation_session_id,
             execution_process_id,
             content,
+            None,
             None,
         )
         .await
@@ -214,6 +218,25 @@ impl ConversationService {
         content: String,
         event_dispatcher: Option<EventDispatchCallback>,
     ) -> Result<ConversationMessage, ConversationServiceError> {
+        Self::add_assistant_message_with_metadata_and_events(
+            pool,
+            conversation_session_id,
+            execution_process_id,
+            content,
+            None,
+            event_dispatcher,
+        )
+        .await
+    }
+
+    pub async fn add_assistant_message_with_metadata_and_events(
+        pool: &SqlitePool,
+        conversation_session_id: Uuid,
+        execution_process_id: Uuid,
+        content: String,
+        metadata: Option<ConversationMessageMetadata>,
+        event_dispatcher: Option<EventDispatchCallback>,
+    ) -> Result<ConversationMessage, ConversationServiceError> {
         let message = ConversationMessage::create(
             pool,
             CreateConversationMessage {
@@ -221,7 +244,10 @@ impl ConversationService {
                 execution_process_id: Some(execution_process_id),
                 role: MessageRole::Assistant,
                 content,
-                metadata: None,
+                metadata: metadata
+                    .as_ref()
+                    .map(ConversationMessageMetadata::to_json_string)
+                    .transpose()?,
             },
         )
         .await?;

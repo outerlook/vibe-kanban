@@ -112,6 +112,11 @@ impl LocalDeployment {
         Self::new_internal(Arc::new(ServerLogStore::new()), Some(publisher)).await
     }
 
+    #[cfg(test)]
+    pub(crate) fn local_container(&self) -> &LocalContainerService {
+        &self.container
+    }
+
     async fn new_internal(
         server_log_store: Arc<ServerLogStore>,
         orchestration_event_publisher_override: Option<OrchestrationEventPublisherHandle>,

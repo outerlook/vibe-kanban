@@ -2,7 +2,9 @@ use chrono::{DateTime, Utc};
 use db::models::{
     agent_feedback::AgentFeedback,
     coding_agent_turn::CodingAgentTurn,
-    conversation_message::{ConversationMessage, ConversationMessageError},
+    conversation_message::{
+        ConversationMessage, ConversationMessageError, ConversationMessageMetadata,
+    },
     conversation_session::ConversationSession,
     execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
     execution_process_repo_state::ExecutionProcessRepoState,
@@ -360,7 +362,10 @@ pub struct ConversationMessageSnapshotDto {
     pub execution_process_id: Option<String>,
     pub role: String,
     pub content: String,
-    pub metadata: Option<Value>,
+    pub metadata: Option<ConversationMessageMetadata>,
+    pub metadata_json: Option<Value>,
+    pub metadata_raw: Option<String>,
+    pub metadata_parse_error: Option<String>,
     pub created_at: String,
 }
 
@@ -1126,15 +1131,27 @@ impl From<ConversationSession> for ConversationSnapshotDto {
 
 impl From<ConversationMessage> for ConversationMessageSnapshotDto {
     fn from(message: ConversationMessage) -> Self {
+        let (metadata, metadata_parse_error) = match message.metadata.as_deref() {
+            Some(raw) => match ConversationMessageMetadata::from_json_str(raw) {
+                Ok(metadata) => (Some(metadata), None),
+                Err(error) => (None, Some(error.to_string())),
+            },
+            None => (None, None),
+        };
+        let metadata_json = message
+            .metadata
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
+
         Self {
             id: normalize_uuid(message.id),
             execution_process_id: message.execution_process_id.map(normalize_uuid),
             role: enum_name(&message.role),
             content: message.content,
-            metadata: message
-                .metadata
-                .as_deref()
-                .and_then(|value| serde_json::from_str::<Value>(value).ok()),
+            metadata,
+            metadata_json,
+            metadata_raw: message.metadata,
+            metadata_parse_error,
             created_at: normalize_ts(message.created_at),
         }
     }
@@ -1209,7 +1226,7 @@ impl From<UserQuestion> for UserQuestionSnapshotDto {
 #[cfg(test)]
 mod tests {
     use chrono::TimeZone;
-    use db::models::task::TaskStatus;
+    use db::models::{conversation_message::MessageRole, task::TaskStatus};
 
     use super::*;
 
@@ -1281,5 +1298,62 @@ mod tests {
         assert_eq!(snapshot.status, "inreview");
         assert_eq!(snapshot.created_at, created_at.to_rfc3339());
         assert_eq!(snapshot.updated_at, updated_at.to_rfc3339());
+    }
+
+    #[test]
+    fn conversation_message_snapshot_preserves_structured_metadata() {
+        let created_at = Utc.with_ymd_and_hms(2026, 2, 1, 12, 0, 0).unwrap();
+        let raw_metadata = serde_json::json!({
+            "structured_output": {
+                "status": "valid",
+                "payload": { "answer": "ok" }
+            }
+        })
+        .to_string();
+        let message = ConversationMessage {
+            id: Uuid::new_v4(),
+            conversation_session_id: Uuid::new_v4(),
+            execution_process_id: Some(Uuid::new_v4()),
+            role: MessageRole::Assistant,
+            content: "{\"answer\":\"ok\"}".to_string(),
+            metadata: Some(raw_metadata.clone()),
+            created_at,
+            updated_at: created_at,
+        };
+
+        let snapshot = ConversationMessageSnapshotDto::from(message.clone());
+
+        assert_eq!(
+            snapshot.metadata,
+            Some(ConversationMessageMetadata::from_json_str(&raw_metadata).unwrap())
+        );
+        assert_eq!(
+            snapshot.metadata_json,
+            Some(serde_json::from_str(&raw_metadata).unwrap())
+        );
+        assert_eq!(snapshot.metadata_raw, Some(raw_metadata));
+        assert!(snapshot.metadata_parse_error.is_none());
+    }
+
+    #[test]
+    fn conversation_message_snapshot_exposes_metadata_parse_failures() {
+        let created_at = Utc.with_ymd_and_hms(2026, 2, 1, 12, 5, 0).unwrap();
+        let message = ConversationMessage {
+            id: Uuid::new_v4(),
+            conversation_session_id: Uuid::new_v4(),
+            execution_process_id: Some(Uuid::new_v4()),
+            role: MessageRole::Assistant,
+            content: "not valid json".to_string(),
+            metadata: Some("{not-json".to_string()),
+            created_at,
+            updated_at: created_at,
+        };
+
+        let snapshot = ConversationMessageSnapshotDto::from(message);
+
+        assert!(snapshot.metadata.is_none());
+        assert!(snapshot.metadata_json.is_none());
+        assert_eq!(snapshot.metadata_raw, Some("{not-json".to_string()));
+        assert!(snapshot.metadata_parse_error.is_some());
     }
 }

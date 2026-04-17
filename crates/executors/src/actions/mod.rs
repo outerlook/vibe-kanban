@@ -82,6 +82,42 @@ impl ExecutorAction {
             ExecutorActionType::ScriptRequest(_) => None,
         }
     }
+
+    pub fn structured_output(&self) -> Option<&StructuredOutputContract> {
+        match self.typ() {
+            ExecutorActionType::CodingAgentInitialRequest(request) => {
+                request.structured_output.as_ref()
+            }
+            ExecutorActionType::CodingAgentFollowUpRequest(request) => {
+                request.structured_output.as_ref()
+            }
+            ExecutorActionType::ScriptRequest(_) => None,
+        }
+    }
+}
+
+pub fn compose_prompt_with_structured_output(
+    prompt: &str,
+    structured_output: Option<&StructuredOutputContract>,
+) -> Result<String, serde_json::Error> {
+    let Some(structured_output) = structured_output else {
+        return Ok(prompt.to_string());
+    };
+
+    let schema = serde_json::to_string_pretty(&structured_output.schema)?;
+
+    Ok(format!(
+        r#"{prompt}
+
+Structured output is required for this response.
+- Return exactly one JSON value that matches the JSON Schema below.
+- Do not wrap the JSON in markdown fences.
+- Do not include any prose before or after the JSON.
+- Do not omit required fields.
+
+JSON Schema:
+{schema}"#
+    ))
 }
 
 #[async_trait]

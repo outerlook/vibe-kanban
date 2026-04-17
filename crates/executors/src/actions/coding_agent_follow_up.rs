@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    actions::{Executable, StructuredOutputContract},
+    actions::{Executable, StructuredOutputContract, compose_prompt_with_structured_output},
     approvals::ExecutorApprovalService,
     env::ExecutionEnv,
     executors::{BaseCodingAgent, ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
@@ -61,8 +61,11 @@ impl Executable for CodingAgentFollowUpRequest {
 
         agent.use_approvals(approvals.clone());
 
+        let prompt =
+            compose_prompt_with_structured_output(&self.prompt, self.structured_output.as_ref())?;
+
         agent
-            .spawn_follow_up(&effective_dir, &self.prompt, &self.session_id, env)
+            .spawn_follow_up(&effective_dir, &prompt, &self.session_id, env)
             .await
     }
 }

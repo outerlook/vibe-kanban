@@ -12,6 +12,7 @@ utils = { path = "../utils" }
 tokio-util = { version = "0.7", features = ["io"] }
 bytes = "1.0"
 serde_json = { workspace = true }
+schemars = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "sqlite", "sqlite-preupdate-hook", "chrono", "uuid"] }

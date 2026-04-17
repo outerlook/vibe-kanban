@@ -222,30 +222,46 @@ pub fn extract_token_usage_from_msg_store(msg_store: &MsgStore) -> Option<(i64, 
     None
 }
 
-/// Extract the last assistant message from a MsgStore by scanning history.
-///
-/// Scans the MsgStore history in reverse order to find the last non-empty assistant message.
-/// Truncates messages longer than 4096 characters with an ellipsis.
-pub fn extract_assistant_message_from_msg_store(msg_store: &MsgStore) -> Option<String> {
+fn extract_assistant_message_from_msg_store_with_limit(
+    msg_store: &MsgStore,
+    max_content_length: Option<usize>,
+) -> Option<String> {
     let history = msg_store.get_history();
 
-    // Scan in reverse to find the last assistant message
     for msg in history.iter().rev() {
         if let LogMsg::JsonPatch(patch) = msg
             && let Some((_, entry)) = extract_normalized_entry_from_patch(patch)
             && matches!(entry.entry_type, NormalizedEntryType::AssistantMessage)
         {
             let content = entry.content.trim();
-            if !content.is_empty() {
-                const MAX_CONTENT_LENGTH: usize = 4096;
-                if content.len() > MAX_CONTENT_LENGTH {
-                    let truncated = truncate_to_char_boundary(content, MAX_CONTENT_LENGTH);
-                    return Some(format!("{truncated}..."));
-                }
-                return Some(content.to_string());
+            if content.is_empty() {
+                continue;
             }
+
+            if let Some(max_content_length) = max_content_length
+                && content.len() > max_content_length
+            {
+                let truncated = truncate_to_char_boundary(content, max_content_length);
+                return Some(format!("{truncated}..."));
+            }
+
+            return Some(content.to_string());
         }
     }
 
     None
+}
+
+/// Extract the last assistant message from a MsgStore by scanning history.
+///
+/// Scans the MsgStore history in reverse order to find the last non-empty assistant message.
+/// Truncates messages longer than 4096 characters with an ellipsis.
+pub fn extract_assistant_message_from_msg_store(msg_store: &MsgStore) -> Option<String> {
+    const MAX_CONTENT_LENGTH: usize = 4096;
+
+    extract_assistant_message_from_msg_store_with_limit(msg_store, Some(MAX_CONTENT_LENGTH))
+}
+
+pub fn extract_full_assistant_message_from_msg_store(msg_store: &MsgStore) -> Option<String> {
+    extract_assistant_message_from_msg_store_with_limit(msg_store, None)
 }

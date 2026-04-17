@@ -38,6 +38,7 @@ pub mod repo;
 pub mod review_attention;
 pub mod share;
 pub mod skills_cache;
+pub mod structured_output;
 pub mod watcher_manager;
 pub mod workspace_manager;
 pub mod worktree_manager;

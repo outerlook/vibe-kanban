@@ -1,6 +1,7 @@
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::{FromRow, SqlitePool, Type};
 use thiserror::Error;
 use ts_rs::TS;
@@ -15,6 +16,64 @@ const MAX_PAGE_LIMIT: usize = 200;
 pub enum MessageRole {
     User,
     Assistant,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct ConversationMessageMetadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub structured_output: Option<ConversationStructuredOutputMetadata>,
+}
+
+impl ConversationMessageMetadata {
+    pub fn from_json_str(raw: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(raw)
+    }
+
+    pub fn to_json_string(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ConversationStructuredOutputMetadata {
+    pub status: StructuredOutputValidationStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "JsonValue")]
+    pub payload: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<StructuredOutputValidationErrorMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum StructuredOutputValidationStatus {
+    Valid,
+    Invalid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum StructuredOutputValidationErrorMetadata {
+    JsonParse {
+        message: String,
+    },
+    SchemaDefinition {
+        message: String,
+    },
+    SchemaValidation {
+        message: String,
+        issues: Vec<StructuredOutputSchemaValidationIssue>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct StructuredOutputSchemaValidationIssue {
+    pub instance_path: String,
+    pub schema_path: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
@@ -262,6 +321,7 @@ impl ConversationMessage {
 #[cfg(test)]
 mod tests {
     use chrono::TimeZone;
+    use serde_json::json;
 
     use super::*;
 
@@ -305,5 +365,21 @@ mod tests {
             result,
             Err(ConversationMessageError::InvalidCursor(msg)) if msg.contains("json")
         ));
+    }
+
+    #[test]
+    fn conversation_message_metadata_roundtrips() {
+        let metadata = ConversationMessageMetadata {
+            structured_output: Some(ConversationStructuredOutputMetadata {
+                status: StructuredOutputValidationStatus::Valid,
+                payload: Some(json!({ "answer": "ok" })),
+                error: None,
+            }),
+        };
+
+        let raw = metadata.to_json_string().unwrap();
+        let decoded = ConversationMessageMetadata::from_json_str(&raw).unwrap();
+
+        assert_eq!(decoded, metadata);
     }
 }
