@@ -30,7 +30,7 @@
     "audit:orchestrator-cutover": "if rg -n --hidden --glob '!node_modules' --glob '!.git' --glob '!target' --glob '!dist' --glob '!build' --glob '!pnpm-lock.yaml' --glob '!Cargo.lock' '\\b\\x6e8n\\b|\\x6e8n-|\\x6e8n\\.example' .; then echo 'Found stale legacy orchestrator references'; exit 1; fi",
     "trigger:install": "cd integrations/trigger-vibe-kanban && bun install --frozen-lockfile",
     "trigger:ci": "npm run trigger:install && npm run trigger:check && npm run trigger:test",
-    "trigger:check": "cd integrations/trigger-vibe-kanban && bun run check",
+    "trigger:check": "pnpm run generate-types:check && cd integrations/trigger-vibe-kanban && bun run check",
     "trigger:test": "cd integrations/trigger-vibe-kanban && bun test",
     "trigger:dev": "node scripts/trigger-vk.js dev",
     "trigger:mqtt": "node scripts/trigger-vk.js mqtt",

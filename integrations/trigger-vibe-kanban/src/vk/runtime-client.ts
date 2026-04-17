@@ -7,7 +7,9 @@ import type {
   CreateAgentFeedback,
   CreateConversationRequest,
   CreateConversationResponse,
+  CreateFollowUpAttempt,
   CreateReviewAttention,
+  DraftFollowUpData,
   FeedbackResponse,
   FollowUpResult,
   GenerateCommitMessageRequest,
@@ -24,6 +26,7 @@ import type {
   QueueMergeResult,
   QueueStatus,
   ReviewAttention,
+  SendMessageRequest,
   SendMessageResponse,
   StartTaskExecutionCommand,
   StartTaskExecutionResult,
@@ -117,13 +120,7 @@ export class VkRuntimeClient extends VkHttpClient {
 
   async startTaskFollowUp(
     sessionId: string,
-    body: {
-      prompt: string;
-      variant?: string;
-      retry_process_id?: string;
-      force_when_dirty?: boolean;
-      perform_git_reset?: boolean;
-    },
+    body: CreateFollowUpAttempt,
   ): Promise<FollowUpResult> {
     return this.request(`/sessions/${sessionId}/follow-up`, {
       method: 'POST',
@@ -133,7 +130,7 @@ export class VkRuntimeClient extends VkHttpClient {
 
   async queueTaskFollowUp(
     sessionId: string,
-    body: { message: string; variant?: string },
+    body: DraftFollowUpData,
   ): Promise<QueueStatus> {
     return this.request(`/sessions/${sessionId}/queue`, {
       method: 'POST',
@@ -149,7 +146,7 @@ export class VkRuntimeClient extends VkHttpClient {
 
   async sendConversationMessage(
     conversationId: string,
-    body: { content: string; variant?: string },
+    body: SendMessageRequest,
   ): Promise<SendMessageResponse> {
     return this.request(`/conversations/${conversationId}/messages`, {
       method: 'POST',
@@ -159,7 +156,7 @@ export class VkRuntimeClient extends VkHttpClient {
 
   async queueConversationFollowUp(
     conversationId: string,
-    body: { message: string; variant?: string },
+    body: DraftFollowUpData,
   ): Promise<QueueStatus> {
     return this.request(`/conversations/${conversationId}/queue`, {
       method: 'POST',

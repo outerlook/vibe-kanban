@@ -4,6 +4,7 @@ import type { RuntimeDependencies } from '../runtime/dependencies';
 import type {
   OrchestrationConversationContextDto,
   OrchestrationExecutionContextDto,
+  StructuredOutputContract,
 } from '../vk/types';
 import {
   createPendingReviewCorrelation,
@@ -25,6 +26,11 @@ import {
 type ReviewDecision = {
   approved: boolean;
   needsAttention: boolean;
+  reasoning: string;
+};
+
+type ReviewVerdictPayload = {
+  needs_attention: boolean;
   reasoning: string;
 };
 
@@ -65,8 +71,39 @@ type QueueMergeClaimResult = {
   queueErrorType: string | null;
 };
 
-function isJsonRecord(value: JsonValue | null): value is Record<string, JsonValue> {
+type ReviewerMessage = OrchestrationConversationContextDto['transcript']['messages'][number];
+
+const REVIEW_VERDICT_STRUCTURED_OUTPUT: StructuredOutputContract = {
+  schema: {
+    type: 'object',
+    properties: {
+      needs_attention: {
+        type: 'boolean',
+      },
+      reasoning: {
+        type: 'string',
+        minLength: 1,
+      },
+    },
+    required: ['needs_attention', 'reasoning'],
+    additionalProperties: false,
+  },
+};
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isReviewVerdictPayload(value: unknown): value is ReviewVerdictPayload {
+  if (!isJsonRecord(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.needs_attention === 'boolean' &&
+    typeof value.reasoning === 'string' &&
+    value.reasoning.trim().length > 0
+  );
 }
 
 function isReviewStatus(value: unknown): boolean {
@@ -88,7 +125,7 @@ function buildReviewInitialMessage(input: {
   agentSummary: string;
 }): string {
   const description = input.taskDescription || '(no description)';
-  const agentSummary = input.agentSum<DEV key desse projeto>mary || '(no agent summary)';
+  const agentSummary = input.agentSummary || '(no agent summary)';
 
   return `Analyze whether the completed work successfully addresses the original task.
 
@@ -146,38 +183,34 @@ If you need to clarify something that isn't clear from the summary, you may revi
 - Keep this focused and minimal
 
 Key question: Did the agent complete what the task actually asked for, or just do something related?
-
-Respond with JSON:
-
-\`\`\`json
-{
-  "needs_attention": <true if problems OR task objective not addressed>,
-  "reasoning": "<brief explanation - mention if task objective was/wasn't met>"
-}
-\`\`\``;
+Return your final verdict using the configured structured response.`;
 }
 
-function parseDecisionCandidate(content: string): string {
-  const trimmed = content.trim();
-  if (!trimmed) {
-    return '';
+function describeReviewerVerdictIssue(message: ReviewerMessage): string | null {
+  if (message.metadata_parse_error) {
+    return `Reviewer structured output metadata could not be read: ${message.metadata_parse_error}`;
   }
 
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced?.[1]) {
-    return fenced[1].trim();
+  const structuredOutput = message.metadata?.structured_output;
+  if (!structuredOutput) {
+    return 'Reviewer execution completed without structured output metadata.';
   }
 
-  const start = trimmed.indexOf('{');
-  const end = trimmed.lastIndexOf('}');
-  if (start !== -1 && end !== -1 && end > start) {
-    return trimmed.slice(start, end + 1);
+  if (structuredOutput.status !== 'valid') {
+    const errorMessage = structuredOutput.error?.message?.trim();
+    return errorMessage
+      ? `Reviewer structured output was invalid: ${errorMessage}`
+      : 'Reviewer structured output was invalid.';
   }
 
-  return trimmed;
+  if (!isReviewVerdictPayload(structuredOutput.payload ?? null)) {
+    return 'Reviewer structured output payload did not match the expected verdict shape.';
+  }
+
+  return null;
 }
 
-function parseReviewerDecision(input: {
+function resolveReviewerDecision(input: {
   reviewExecutionStatus: string;
   reviewExecutionProcessId: string;
   repoIds: string[];
@@ -198,7 +231,7 @@ function parseReviewerDecision(input: {
       (!message.execution_process_id ||
         message.execution_process_id === input.reviewExecutionProcessId),
   );
-  const finalReviewerMessage = reviewerMessages.at(-1)?.content?.trim() ?? '';
+  const finalReviewerMessage = reviewerMessages.at(-1);
 
   if (!finalReviewerMessage) {
     return {
@@ -208,51 +241,42 @@ function parseReviewerDecision(input: {
     };
   }
 
-  try {
-    const parsed = JSON.parse(parseDecisionCandidate(finalReviewerMessage)) as {
-      approved?: unknown;
-      needs_attention?: unknown;
-      reasoning?: unknown;
-    };
-
-    let approved: boolean;
-    if (typeof parsed.approved === 'boolean') {
-      approved = parsed.approved;
-    } else if (typeof parsed.needs_attention === 'boolean') {
-      approved = !parsed.needs_attention;
-    } else {
-      throw new Error(
-        'reviewer verdict must include either approved or needs_attention as a boolean',
-      );
-    }
-
-    const reasoning =
-      typeof parsed.reasoning === 'string' && parsed.reasoning.trim().length > 0
-        ? parsed.reasoning.trim()
-        : 'Reviewer returned no reasoning.';
-
-    if (approved && input.repoIds.length === 0) {
-      return {
-        approved: false,
-        needsAttention: true,
-        reasoning:
-          'Reviewer approved the work, but no workspace repositories were captured for merge.',
-      };
-    }
-
-    return {
-      approved,
-      needsAttention: !approved,
-      reasoning,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'unknown reviewer parse error';
+  const verdictIssue = describeReviewerVerdictIssue(finalReviewerMessage);
+  if (verdictIssue) {
     return {
       approved: false,
       needsAttention: true,
-      reasoning: `Failed to parse reviewer verdict: ${message}`,
+      reasoning: verdictIssue,
     };
   }
+
+  const verdictPayload = finalReviewerMessage.metadata?.structured_output?.payload ?? null;
+  if (!isReviewVerdictPayload(verdictPayload)) {
+    return {
+      approved: false,
+      needsAttention: true,
+      reasoning: 'Reviewer structured output payload did not match the expected verdict shape.',
+    };
+  }
+
+  const verdict = verdictPayload;
+  const approved = !verdict.needs_attention;
+  const reasoning = verdict.reasoning.trim() || 'Reviewer returned no reasoning.';
+
+  if (approved && input.repoIds.length === 0) {
+    return {
+      approved: false,
+      needsAttention: true,
+      reasoning:
+        'Reviewer approved the work, but no workspace repositories were captured for merge.',
+    };
+  }
+
+  return {
+    approved,
+    needsAttention: !approved,
+    reasoning,
+  };
 }
 
 function buildInitialOutcome(
@@ -503,6 +527,7 @@ async function ensureReviewConversation(
         {
           title: correlation.state.reviewConversationTitle,
           initial_message: correlation.state.reviewInitialMessage,
+          structured_output: REVIEW_VERDICT_STRUCTURED_OUTPUT,
           executor_profile_id: null,
           worktree_path: correlation.state.worktreePath || null,
           worktree_branch: correlation.state.worktreeBranch || null,
@@ -853,7 +878,7 @@ async function handleReviewerResult(
   const conversation = await resolveConversationContext(input, correlation, deps);
 
   if (!correlation.state.outcome) {
-    const decision = parseReviewerDecision({
+    const decision = resolveReviewerDecision({
       reviewExecutionStatus,
       reviewExecutionProcessId,
       repoIds: correlation.state.repoIds,
@@ -925,5 +950,5 @@ export {
   buildReviewGateCandidate,
   handleReviewGate,
   handleReviewerResult,
-  parseReviewerDecision,
+  resolveReviewerDecision,
 };

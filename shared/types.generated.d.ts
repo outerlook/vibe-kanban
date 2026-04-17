@@ -120,6 +120,16 @@ export type ConversationMessagesPage = { messages: Array<ConversationMessage>, n
 
 export type MessageRole = "user" | "assistant";
 
+export type ConversationMessageMetadata = { structured_output: ConversationStructuredOutputMetadata | null, };
+
+export type ConversationStructuredOutputMetadata = { status: StructuredOutputValidationStatus, payload: JsonValue, error: StructuredOutputValidationErrorMetadata | null, };
+
+export type StructuredOutputSchemaValidationIssue = { instance_path: string, schema_path: string, message: string, };
+
+export type StructuredOutputValidationErrorMetadata = { "type": "json_parse", message: string, } | { "type": "schema_definition", message: string, } | { "type": "schema_validation", message: string, issues: Array<StructuredOutputSchemaValidationIssue>, };
+
+export type StructuredOutputValidationStatus = "valid" | "invalid";
+
 export type CreateConversationMessage = { conversation_session_id: string, execution_process_id: string | null, role: MessageRole, content: string, metadata: string | null, };
 
 export type ConversationWithMessages = { messages: Array<ConversationMessage>, id: string, project_id: string, title: string, status: ConversationSessionStatus, executor: string | null, worktree_path: string | null, worktree_branch: string | null, created_at: string, updated_at: string, };

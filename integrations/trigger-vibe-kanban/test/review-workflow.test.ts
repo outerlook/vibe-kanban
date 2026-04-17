@@ -249,7 +249,29 @@ function createReviewExecutionContext(status = 'completed') {
   } as any;
 }
 
-function createConversationContext(verdict: string) {
+function createStructuredReviewVerdict(
+  needsAttention: boolean,
+  reasoning: string,
+) {
+  return {
+    structured_output: {
+      status: 'valid',
+      payload: {
+        needs_attention: needsAttention,
+        reasoning,
+      },
+      error: null,
+    },
+  };
+}
+
+function createConversationContext(args?: {
+  content?: string;
+  metadata?: Record<string, unknown> | null;
+  metadataParseError?: string | null;
+}) {
+  const metadata = args?.metadata ?? null;
+
   return {
     conversation: {
       id: 'conversation-1',
@@ -260,7 +282,11 @@ function createConversationContext(verdict: string) {
           id: 'message-1',
           execution_process_id: 'review-exec-1',
           role: 'assistant',
-          content: verdict,
+          content: args?.content ?? 'Structured review verdict',
+          metadata,
+          metadata_json: metadata,
+          metadata_raw: metadata ? JSON.stringify(metadata) : null,
+          metadata_parse_error: args?.metadataParseError ?? null,
         },
       ],
       images: [],
@@ -378,6 +404,28 @@ describe('review orchestration workflows', () => {
       'lifecycle/autopilot-continuation',
     ]);
     expect(client.createConversationCalls).toHaveLength(1);
+    expect(client.createConversationCalls[0]?.body.initial_message).not.toContain(
+      'Respond with JSON',
+    );
+    expect(client.createConversationCalls[0]?.body.initial_message).not.toContain(
+      '```json',
+    );
+    expect(client.createConversationCalls[0]?.body.structured_output).toEqual({
+      schema: {
+        type: 'object',
+        properties: {
+          needs_attention: {
+            type: 'boolean',
+          },
+          reasoning: {
+            type: 'string',
+            minLength: 1,
+          },
+        },
+        required: ['needs_attention', 'reasoning'],
+        additionalProperties: false,
+      },
+    });
 
     const correlation = getReviewCorrelationBySource(
       deps.stateStore,
@@ -396,9 +444,13 @@ describe('review orchestration workflows', () => {
     client.executionContexts.set('review-exec-1', createReviewExecutionContext());
     client.conversationContexts.set(
       'conversation-1',
-      createConversationContext(
-        '{"needs_attention": false, "reasoning": "The task objective was completed."}',
-      ),
+      createConversationContext({
+        content: 'The task objective was completed.',
+        metadata: createStructuredReviewVerdict(
+          false,
+          'The task objective was completed.',
+        ),
+      }),
     );
 
     const deps = createDependencies(client);
@@ -520,13 +572,16 @@ describe('review orchestration workflows', () => {
     deps.stateStore.close();
   });
 
-  it('falls back to needs-attention when the reviewer verdict cannot be parsed', async () => {
+  it('fails closed when the reviewer only returns raw text without structured verdict metadata', async () => {
     const client = new FakeVkRuntimeClient();
     client.executionContexts.set('source-exec-1', createSourceExecutionContext());
     client.executionContexts.set('review-exec-1', createReviewExecutionContext());
     client.conversationContexts.set(
       'conversation-1',
-      createConversationContext('not valid reviewer json'),
+      createConversationContext({
+        content:
+          '{"needs_attention": false, "reasoning": "Would have been approved by salvage parsing."}',
+      }),
     );
 
     const deps = createDependencies(client);
@@ -591,7 +646,7 @@ describe('review orchestration workflows', () => {
     expect(correlation?.state.outcome?.approved).toBe(false);
     expect(correlation?.state.outcome?.needsAttention).toBe(true);
     expect(correlation?.state.outcome?.reasoning).toContain(
-      'Failed to parse reviewer verdict',
+      'structured output metadata',
     );
 
     deps.stateStore.close();
