@@ -4,6 +4,7 @@ use axum::{
 };
 use db::models::{scratch::DraftFollowUpData, session::Session};
 use deployment::Deployment;
+use executors::actions::StructuredOutputContract;
 use serde::Deserialize;
 use services::services::{
     container::ContainerService,
@@ -23,6 +24,7 @@ use crate::{DeploymentImpl, error::ApiError, middleware::load_session_middleware
 pub struct QueueMessageRequest {
     pub message: String,
     pub variant: Option<String>,
+    pub structured_output: Option<StructuredOutputContract>,
 }
 
 /// Queue a follow-up message to be executed when the current execution finishes
@@ -34,6 +36,7 @@ pub async fn queue_message(
     let data = DraftFollowUpData {
         message: payload.message,
         variant: payload.variant,
+        structured_output: payload.structured_output,
     };
 
     let queued = deployment
@@ -144,7 +147,9 @@ mod tests {
         task::{CreateTask, Task, TaskStatus},
         workspace::{CreateWorkspace, Workspace},
     };
+    use executors::actions::StructuredOutputContract;
     use local_deployment::LocalDeployment;
+    use serde_json::json;
     use services::services::domain_events::{
         OrchestrationEventPublisherHandle, OrchestrationEventType,
         RecordingOrchestrationEventPublisher,
@@ -244,6 +249,16 @@ mod tests {
         let project = create_project(&deployment, "session-queue-events").await;
         let task = create_task(&deployment, project.id, "Queue me").await;
         let session = create_session_for_task(&deployment, task.id, "session-queue").await;
+        let structured_output = StructuredOutputContract {
+            schema: serde_json::from_value(json!({
+                "type": "object",
+                "required": ["result"],
+                "properties": {
+                    "result": { "type": "string" }
+                }
+            }))
+            .unwrap(),
+        };
 
         let queued = queue_message(
             Extension(session.clone()),
@@ -251,6 +266,7 @@ mod tests {
             Json(QueueMessageRequest {
                 message: "follow up later".to_string(),
                 variant: Some("sonnet".to_string()),
+                structured_output: Some(structured_output.clone()),
             }),
         )
         .await
@@ -258,7 +274,12 @@ mod tests {
         .0
         .into_data()
         .unwrap();
-        assert!(matches!(queued, QueueStatus::Queued { .. }));
+        match queued {
+            QueueStatus::Queued { message } => {
+                assert_eq!(message.data.structured_output, Some(structured_output));
+            }
+            QueueStatus::Empty => panic!("expected queued message"),
+        }
 
         let cancelled = cancel_queued_message(Extension(session), State(deployment.clone()))
             .await

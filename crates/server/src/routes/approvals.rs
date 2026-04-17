@@ -195,6 +195,7 @@ mod orchestration_hydration_tests {
         ExecutorAction::new(
             ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
                 prompt: prompt.to_string(),
+                structured_output: None,
                 executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
                 working_dir: Some("src".to_string()),
             }),
@@ -701,6 +702,7 @@ async fn trigger_follow_up_for_answered_question(
         ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
             prompt: prompt.clone(),
             session_id: agent_session_id,
+            structured_output: None,
             executor_profile_id: executor_profile_id.clone(),
             working_dir: working_dir.clone(),
         })
@@ -708,6 +710,7 @@ async fn trigger_follow_up_for_answered_question(
         ExecutorActionType::CodingAgentInitialRequest(
             executors::actions::coding_agent_initial::CodingAgentInitialRequest {
                 prompt,
+                structured_output: None,
                 executor_profile_id: executor_profile_id.clone(),
                 working_dir,
             },
@@ -935,6 +938,7 @@ mod tests {
                 executor_action: ExecutorAction::new(
                     ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
                         prompt: "seed".to_string(),
+                        structured_output: None,
                         executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
                         working_dir: None,
                     }),

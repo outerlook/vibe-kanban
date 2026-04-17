@@ -179,12 +179,14 @@ async fn trigger_pr_description_follow_up(
         ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
             prompt,
             session_id: agent_session_id,
+            structured_output: None,
             executor_profile_id: executor_profile_id.clone(),
             working_dir: working_dir.clone(),
         })
     } else {
         ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
             prompt,
+            structured_output: None,
             executor_profile_id: executor_profile_id.clone(),
             working_dir,
         })
@@ -311,12 +313,14 @@ pub async fn generate_commit_message_for_merge(
         ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
             prompt,
             session_id: agent_session_id,
+            structured_output: None,
             executor_profile_id: executor_profile_id.clone(),
             working_dir: working_dir.clone(),
         })
     } else {
         ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
             prompt,
+            structured_output: None,
             executor_profile_id: executor_profile_id.clone(),
             working_dir,
         })

@@ -2,6 +2,7 @@ use std::{path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use enum_dispatch::enum_dispatch;
+use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -18,6 +19,12 @@ pub mod coding_agent_follow_up;
 pub mod coding_agent_initial;
 pub mod script;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, JsonSchema)]
+pub struct StructuredOutputContract {
+    #[ts(type = "JsonValue")]
+    pub schema: Schema,
+}
+
 #[enum_dispatch]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 #[serde(tag = "type")]
@@ -27,7 +34,7 @@ pub enum ExecutorActionType {
     ScriptRequest,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 pub struct ExecutorAction {
     pub typ: ExecutorActionType,
     pub next_action: Option<Box<ExecutorAction>>,
@@ -59,6 +66,18 @@ impl ExecutorAction {
             ExecutorActionType::CodingAgentInitialRequest(request) => Some(request.base_executor()),
             ExecutorActionType::CodingAgentFollowUpRequest(request) => {
                 Some(request.base_executor())
+            }
+            ExecutorActionType::ScriptRequest(_) => None,
+        }
+    }
+
+    pub fn executor_profile_id(&self) -> Option<&crate::profile::ExecutorProfileId> {
+        match self.typ() {
+            ExecutorActionType::CodingAgentInitialRequest(request) => {
+                Some(&request.executor_profile_id)
+            }
+            ExecutorActionType::CodingAgentFollowUpRequest(request) => {
+                Some(&request.executor_profile_id)
             }
             ExecutorActionType::ScriptRequest(_) => None,
         }

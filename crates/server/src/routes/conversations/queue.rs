@@ -4,6 +4,7 @@ use axum::{
 };
 use db::models::{conversation_session::ConversationSession, scratch::DraftFollowUpData};
 use deployment::Deployment;
+use executors::actions::StructuredOutputContract;
 use serde::Deserialize;
 use services::services::{
     container::ContainerService,
@@ -23,6 +24,7 @@ use crate::{DeploymentImpl, error::ApiError, middleware::load_conversation_middl
 pub struct QueueMessageRequest {
     pub message: String,
     pub variant: Option<String>,
+    pub structured_output: Option<StructuredOutputContract>,
 }
 
 /// Queue a follow-up message to be executed when the current execution finishes
@@ -34,6 +36,7 @@ pub async fn queue_message(
     let data = DraftFollowUpData {
         message: payload.message,
         variant: payload.variant,
+        structured_output: payload.structured_output,
     };
 
     let queued = deployment
@@ -140,7 +143,9 @@ mod tests {
     use axum::{Extension, Json, extract::State};
     use db::models::project::{CreateProject, Project};
     use deployment::Deployment;
+    use executors::actions::StructuredOutputContract;
     use local_deployment::LocalDeployment;
+    use serde_json::json;
     use services::services::{
         conversation::ConversationService,
         domain_events::{
@@ -206,16 +211,38 @@ mod tests {
         .await
         .unwrap();
 
-        let _ = queue_message(
+        let structured_output = StructuredOutputContract {
+            schema: serde_json::from_value(json!({
+                "type": "object",
+                "required": ["summary"],
+                "properties": {
+                    "summary": { "type": "string" }
+                }
+            }))
+            .unwrap(),
+        };
+
+        let queued = queue_message(
             Extension(conversation.clone()),
             State(deployment.clone()),
             Json(QueueMessageRequest {
                 message: "follow up".to_string(),
                 variant: None,
+                structured_output: Some(structured_output.clone()),
             }),
         )
         .await
+        .unwrap()
+        .0
+        .into_data()
         .unwrap();
+
+        match queued {
+            QueueStatus::Queued { message } => {
+                assert_eq!(message.data.structured_output, Some(structured_output));
+            }
+            QueueStatus::Empty => panic!("expected queued message"),
+        }
 
         let _ = cancel_queued_message(Extension(conversation), State(deployment.clone()))
             .await

@@ -21,7 +21,8 @@ use db::models::{
 use deployment::Deployment;
 use executors::{
     actions::{
-        ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
+        ExecutorAction, ExecutorActionType, StructuredOutputContract,
+        coding_agent_follow_up::CodingAgentFollowUpRequest,
         coding_agent_initial::CodingAgentInitialRequest,
     },
     executors::BaseCodingAgent,
@@ -55,6 +56,7 @@ pub struct ListConversationsQuery {
 pub struct CreateConversationRequest {
     pub title: String,
     pub initial_message: String,
+    pub structured_output: Option<StructuredOutputContract>,
     pub executor_profile_id: Option<ExecutorProfileId>,
     pub worktree_path: Option<String>,
     pub worktree_branch: Option<String>,
@@ -77,6 +79,7 @@ pub struct UpdateConversationRequest {
 pub struct SendMessageRequest {
     pub content: String,
     pub variant: Option<String>,
+    pub structured_output: Option<StructuredOutputContract>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -140,6 +143,7 @@ pub async fn create_conversation(
     // Build ExecutorAction for initial conversation
     let action_type = ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
         prompt: payload.initial_message,
+        structured_output: payload.structured_output,
         executor_profile_id,
         working_dir: payload.worktree_path.clone(),
     });
@@ -281,12 +285,14 @@ pub async fn send_message(
         ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
             prompt: payload.content.clone(),
             session_id: agent_session_id,
+            structured_output: payload.structured_output.clone(),
             executor_profile_id: executor_profile_id.clone(),
             working_dir: None,
         })
     } else {
         ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
             prompt: payload.content.clone(),
+            structured_output: payload.structured_output.clone(),
             executor_profile_id: executor_profile_id.clone(),
             working_dir: None,
         })
@@ -494,6 +500,7 @@ mod tests {
             Json(CreateConversationRequest {
                 title: "Conversation".to_string(),
                 initial_message: "hello from create".to_string(),
+                structured_output: None,
                 executor_profile_id: None,
                 worktree_path: Some(missing_worktree_path.to_string_lossy().to_string()),
                 worktree_branch: None,
@@ -521,6 +528,7 @@ mod tests {
             Json(SendMessageRequest {
                 content: "hello from send".to_string(),
                 variant: None,
+                structured_output: None,
             }),
         )
         .await;

@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use executors::actions::StructuredOutputContract;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use strum_macros::{Display, EnumDiscriminants, EnumString};
@@ -22,6 +23,8 @@ pub struct DraftFollowUpData {
     pub message: String,
     #[serde(default)]
     pub variant: Option<String>,
+    #[serde(default)]
+    pub structured_output: Option<StructuredOutputContract>,
 }
 
 /// The payload of a scratch, tagged by type. The type is part of the composite primary key.

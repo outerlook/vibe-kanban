@@ -197,6 +197,7 @@ Be specific and actionable in your feedback. If a category doesn't apply, set it
         let follow_up = CodingAgentFollowUpRequest {
             prompt: Self::generate_feedback_prompt(),
             session_id,
+            structured_output: None,
             executor_profile_id,
             working_dir,
         };

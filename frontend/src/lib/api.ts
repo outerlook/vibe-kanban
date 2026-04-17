@@ -38,6 +38,7 @@ import {
   ProjectRepo,
   Repo,
   RepoWithTargetBranch,
+  StructuredOutputContract,
   CreateProject,
   CreateProjectRepo,
   UpdateProjectRepo,
@@ -2180,6 +2181,7 @@ export const notificationsApi = {
 export interface CreateConversationRequest {
   title: string;
   initial_message: string;
+  structured_output?: StructuredOutputContract | null;
   executor_profile_id: ExecutorProfileId | null;
   worktree_path?: string | null;
   worktree_branch?: string | null;
@@ -2202,6 +2204,7 @@ export interface UpdateConversationRequest {
 export interface SendConversationMessageRequest {
   content: string;
   variant?: string;
+  structured_output?: StructuredOutputContract | null;
 }
 
 export const conversationsApi = {

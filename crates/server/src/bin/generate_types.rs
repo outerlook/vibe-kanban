@@ -348,6 +348,7 @@ fn generate_types_content() -> String {
         executors::actions::ExecutorAction::decl(),
         executors::mcp_config::McpConfig::decl(),
         executors::actions::ExecutorActionType::decl(),
+        executors::actions::StructuredOutputContract::decl(),
         executors::actions::script::ScriptContext::decl(),
         executors::actions::script::ScriptRequest::decl(),
         executors::actions::script::ScriptRequestLanguage::decl(),
@@ -399,17 +400,17 @@ fn generate_types_content() -> String {
 
     let body = normalize_json_transport_types(
         decls
-        .into_iter()
-        .map(|d| {
-            let trimmed = d.trim_start();
-            if trimmed.starts_with("export") {
-                d
-            } else {
-                format!("export {trimmed}")
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n"),
+            .into_iter()
+            .map(|d| {
+                let trimmed = d.trim_start();
+                if trimmed.starts_with("export") {
+                    d
+                } else {
+                    format!("export {trimmed}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n"),
     );
 
     // Append exported constants
@@ -422,7 +423,8 @@ fn generate_types_content() -> String {
     let constants = format!(
         "export const DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION = \"{}\";\n\nexport const DEFAULT_PR_DESCRIPTION_PROMPT = `{}`;\n\nexport const DEFAULT_COMMIT_MESSAGE_PROMPT = `{}`;",
         services::services::domain_events::DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION,
-        pr_prompt_escaped, commit_prompt_escaped
+        pr_prompt_escaped,
+        commit_prompt_escaped
     );
 
     format!("{HEADER}\n\n{body}\n\n{constants}")

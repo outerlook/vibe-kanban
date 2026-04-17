@@ -1426,12 +1426,14 @@ impl LocalContainerService {
             ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
                 prompt: queued_data.message.clone(),
                 session_id: agent_session_id,
+                structured_output: queued_data.structured_output.clone(),
                 executor_profile_id: executor_profile_id.clone(),
                 working_dir: working_dir.clone(),
             })
         } else {
             ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
                 prompt: queued_data.message.clone(),
+                structured_output: queued_data.structured_output.clone(),
                 executor_profile_id: executor_profile_id.clone(),
                 working_dir,
             })
@@ -1513,12 +1515,14 @@ impl LocalContainerService {
             ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
                 prompt: queued_data.message.clone(),
                 session_id: agent_session_id,
+                structured_output: queued_data.structured_output.clone(),
                 executor_profile_id: executor_profile_id.clone(),
                 working_dir: None,
             })
         } else {
             ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
                 prompt: queued_data.message.clone(),
+                structured_output: queued_data.structured_output.clone(),
                 executor_profile_id: executor_profile_id.clone(),
                 working_dir: None,
             })

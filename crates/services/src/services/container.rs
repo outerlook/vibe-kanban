@@ -1426,6 +1426,7 @@ pub trait ContainerService {
         let coding_action = ExecutorAction::new(
             ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
                 prompt,
+                structured_output: None,
                 executor_profile_id: executor_profile_id.clone(),
                 working_dir,
             }),

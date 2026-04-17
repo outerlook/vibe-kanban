@@ -18,7 +18,8 @@ use db::models::{
 use deployment::Deployment;
 use executors::{
     actions::{
-        ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
+        ExecutorAction, ExecutorActionType, StructuredOutputContract,
+        coding_agent_follow_up::CodingAgentFollowUpRequest,
     },
     profile::{ExecutorConfigs, ExecutorProfileId},
 };
@@ -107,6 +108,7 @@ pub async fn create_session(
 pub struct CreateFollowUpAttempt {
     pub prompt: String,
     pub variant: Option<String>,
+    pub structured_output: Option<StructuredOutputContract>,
     pub retry_process_id: Option<Uuid>,
     pub force_when_dirty: Option<bool>,
     pub perform_git_reset: Option<bool>,
@@ -233,6 +235,7 @@ pub async fn follow_up(
         ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
             prompt: prompt.clone(),
             session_id: agent_session_id,
+            structured_output: payload.structured_output.clone(),
             executor_profile_id: executor_profile_id.clone(),
             working_dir: working_dir.clone(),
         })
@@ -240,6 +243,7 @@ pub async fn follow_up(
         ExecutorActionType::CodingAgentInitialRequest(
             executors::actions::coding_agent_initial::CodingAgentInitialRequest {
                 prompt,
+                structured_output: payload.structured_output.clone(),
                 executor_profile_id: executor_profile_id.clone(),
                 working_dir,
             },
@@ -476,6 +480,7 @@ mod tests {
                 executor_action: ExecutorAction::new(
                     ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
                         prompt: "seed".to_string(),
+                        structured_output: None,
                         executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
                         working_dir: None,
                     }),
@@ -557,6 +562,7 @@ mod tests {
             Json(CreateFollowUpAttempt {
                 prompt: "please continue".to_string(),
                 variant: None,
+                structured_output: None,
                 retry_process_id: None,
                 force_when_dirty: None,
                 perform_git_reset: None,

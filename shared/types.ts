@@ -250,13 +250,13 @@ export type TaskLifecycleAction = "created" | "updated" | "deleted";
 
 export type TaskGroupTransitionAction = "created" | "updated" | "deleted" | "merged" | "assignment_changed";
 
-export type CreateConversationRequest = { title: string, initial_message: string, executor_profile_id: ExecutorProfileId | null, worktree_path: string | null, worktree_branch: string | null, };
+export type CreateConversationRequest = { title: string, initial_message: string, structured_output: StructuredOutputContract | null, executor_profile_id: ExecutorProfileId | null, worktree_path: string | null, worktree_branch: string | null, };
 
 export type CreateConversationResponse = { session: ConversationSession, initial_message: ConversationMessage, execution_process_id: string, };
 
 export type UpdateConversationRequest = { title: string | null, status: ConversationSessionStatus | null, };
 
-export type SendMessageRequest = { content: string, variant: string | null, };
+export type SendMessageRequest = { content: string, variant: string | null, structured_output: StructuredOutputContract | null, };
 
 export type MergeTaskGroupRequest = { target_group_id: string, };
 
@@ -274,7 +274,7 @@ export type CreateTask = { project_id: string, title: string, description: strin
 
 export type UpdateTask = { title: string | null, description: string | null, status: TaskStatus | null, parent_workspace_id: string | null, image_ids: Array<string> | null, task_group_id: string | null, };
 
-export type DraftFollowUpData = { message: string, variant: string | null, };
+export type DraftFollowUpData = { message: string, variant: string | null, structured_output: StructuredOutputContract | null, };
 
 export type ScratchPayload = { "type": "DRAFT_TASK", "data": string } | { "type": "DRAFT_FOLLOW_UP", "data": DraftFollowUpData } | { "type": "DRAFT_CONVERSATION_MESSAGE", "data": DraftFollowUpData };
 
@@ -614,7 +614,7 @@ export type CodexAccountInfo = { planType: string, subscriptionActiveUntil: stri
 
 export type CurrentUserResponse = { user_id: string, };
 
-export type CreateFollowUpAttempt = { prompt: string, variant: string | null, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
+export type CreateFollowUpAttempt = { prompt: string, variant: string | null, structured_output: StructuredOutputContract | null, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
 
 export type FollowUpResult = { "status": "started", execution_process: ExecutionProcess, } | { "status": "queued", queue_entry: ExecutionQueue, };
 
@@ -837,6 +837,8 @@ export type McpConfig = { servers: { [key in string]?: JsonValue }, servers_path
 
 export type ExecutorActionType = { "type": "CodingAgentInitialRequest" } & CodingAgentInitialRequest | { "type": "CodingAgentFollowUpRequest" } & CodingAgentFollowUpRequest | { "type": "ScriptRequest" } & ScriptRequest;
 
+export type StructuredOutputContract = { schema: JsonValue, };
+
 export type ScriptContext = "SetupScript" | "CleanupScript" | "DevServer" | "ToolInstallScript";
 
 export type ScriptRequest = { script: string, language: ScriptRequestLanguage, context: ScriptContext, 
@@ -922,7 +924,7 @@ export type DroidReasoningEffort = "none" | "dynamic" | "off" | "low" | "medium"
 
 export type AppendPrompt = string | null;
 
-export type CodingAgentInitialRequest = { prompt: string, 
+export type CodingAgentInitialRequest = { prompt: string, structured_output: StructuredOutputContract | null, 
 /**
  * Executor profile specification
  */
@@ -933,7 +935,7 @@ executor_profile_id: ExecutorProfileId,
  */
 working_dir: string | null, };
 
-export type CodingAgentFollowUpRequest = { prompt: string, session_id: string, 
+export type CodingAgentFollowUpRequest = { prompt: string, session_id: string, structured_output: StructuredOutputContract | null, 
 /**
  * Executor profile specification
  */

@@ -196,6 +196,7 @@ mod tests {
                 executor_action: ExecutorAction::new(
                     ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
                         prompt: "collect feedback".to_string(),
+                        structured_output: None,
                         executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
                         working_dir: None,
                     }),

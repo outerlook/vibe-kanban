@@ -404,6 +404,7 @@ pub struct CreateTaskFollowUpRequest {
     pub session_id: Uuid,
     pub prompt: String,
     pub variant: Option<String>,
+    pub structured_output: Option<executors::actions::StructuredOutputContract>,
     pub retry_process_id: Option<Uuid>,
     pub force_when_dirty: Option<bool>,
     pub perform_git_reset: Option<bool>,
@@ -414,6 +415,7 @@ pub struct QueueTaskFollowUpRequest {
     pub session_id: Uuid,
     pub message: String,
     pub variant: Option<String>,
+    pub structured_output: Option<executors::actions::StructuredOutputContract>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -431,6 +433,7 @@ pub struct SendConversationMessageToolRequest {
     pub conversation_id: Uuid,
     pub content: String,
     pub variant: Option<String>,
+    pub structured_output: Option<executors::actions::StructuredOutputContract>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -438,6 +441,7 @@ pub struct QueueConversationFollowUpRequest {
     pub conversation_id: Uuid,
     pub message: String,
     pub variant: Option<String>,
+    pub structured_output: Option<executors::actions::StructuredOutputContract>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1993,6 +1997,7 @@ impl TaskServer {
             session_id,
             prompt,
             variant,
+            structured_output,
             retry_process_id,
             force_when_dirty,
             perform_git_reset,
@@ -2001,11 +2006,12 @@ impl TaskServer {
         let url = self.url(&format!("/api/sessions/{session_id}/follow-up"));
         let response: crate::routes::sessions::FollowUpResult = match self
             .send_json(self.client.post(&url).json(&serde_json::json!({
-                "prompt": prompt,
-                "variant": variant,
-                "retry_process_id": retry_process_id,
-                "force_when_dirty": force_when_dirty,
-                "perform_git_reset": perform_git_reset,
+                    "prompt": prompt,
+                    "variant": variant,
+                    "structured_output": structured_output,
+                    "retry_process_id": retry_process_id,
+                    "force_when_dirty": force_when_dirty,
+                    "perform_git_reset": perform_git_reset,
             })))
             .await
         {
@@ -2023,15 +2029,16 @@ impl TaskServer {
             session_id,
             message,
             variant,
+            structured_output,
         }): Parameters<QueueTaskFollowUpRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let url = self.url(&format!("/api/sessions/{session_id}/queue"));
         let status: QueueStatus = match self
-            .send_json(
-                self.client
-                    .post(&url)
-                    .json(&serde_json::json!({ "message": message, "variant": variant })),
-            )
+            .send_json(self.client.post(&url).json(&serde_json::json!({
+                "message": message,
+                "variant": variant,
+                "structured_output": structured_output,
+            })))
             .await
         {
             Ok(status) => status,
@@ -2078,15 +2085,16 @@ impl TaskServer {
             conversation_id,
             content,
             variant,
+            structured_output,
         }): Parameters<SendConversationMessageToolRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let url = self.url(&format!("/api/conversations/{conversation_id}/messages"));
         let response: SendMessageResponse = match self
-            .send_json(
-                self.client
-                    .post(&url)
-                    .json(&serde_json::json!({ "content": content, "variant": variant })),
-            )
+            .send_json(self.client.post(&url).json(&serde_json::json!({
+                "content": content,
+                "variant": variant,
+                "structured_output": structured_output,
+            })))
             .await
         {
             Ok(response) => response,
@@ -2105,15 +2113,16 @@ impl TaskServer {
             conversation_id,
             message,
             variant,
+            structured_output,
         }): Parameters<QueueConversationFollowUpRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let url = self.url(&format!("/api/conversations/{conversation_id}/queue"));
         let status: QueueStatus = match self
-            .send_json(
-                self.client
-                    .post(&url)
-                    .json(&serde_json::json!({ "message": message, "variant": variant })),
-            )
+            .send_json(self.client.post(&url).json(&serde_json::json!({
+                "message": message,
+                "variant": variant,
+                "structured_output": structured_output,
+            })))
             .await
         {
             Ok(status) => status,

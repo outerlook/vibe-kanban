@@ -72,15 +72,9 @@ impl ExecutionQueue {
     ) -> Result<Self, sqlx::Error> {
         let id = Uuid::new_v4();
 
-        // Extract executor_profile_id from the action
-        let executor_profile_id = match executor_action.typ() {
-            executors::actions::ExecutorActionType::CodingAgentInitialRequest(req) => {
-                req.executor_profile_id.clone()
-            }
-            executors::actions::ExecutorActionType::CodingAgentFollowUpRequest(req) => {
-                req.executor_profile_id.clone()
-            }
-            executors::actions::ExecutorActionType::ScriptRequest(_) => {
+        let executor_profile_id = match executor_action.executor_profile_id() {
+            Some(executor_profile_id) => executor_profile_id.clone(),
+            None => {
                 // Scripts don't have a profile, use a default
                 ExecutorProfileId {
                     executor: executors::executors::BaseCodingAgent::ClaudeCode,
@@ -203,5 +197,145 @@ impl ExecutionQueue {
                 .fetch_one(pool)
                 .await?;
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use executors::{
+        actions::{
+            ExecutorActionType, StructuredOutputContract,
+            coding_agent_follow_up::CodingAgentFollowUpRequest,
+        },
+        executors::BaseCodingAgent,
+        profile::ExecutorProfileId,
+    };
+    use serde_json::json;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    use super::*;
+    use crate::{
+        init_sqlite_vec,
+        models::{
+            project::{CreateProject, Project},
+            session::{CreateSession, Session},
+            task::Task,
+            workspace::{CreateWorkspace, Workspace},
+        },
+    };
+
+    async fn setup_test_pool() -> SqlitePool {
+        init_sqlite_vec();
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+
+        pool
+    }
+
+    fn structured_output_contract() -> StructuredOutputContract {
+        StructuredOutputContract {
+            schema: serde_json::from_value(json!({
+                "type": "object",
+                "required": ["decision"],
+                "properties": {
+                    "decision": { "type": "string" }
+                },
+                "additionalProperties": false
+            }))
+            .unwrap(),
+        }
+    }
+
+    async fn create_workspace_context(pool: &SqlitePool) -> (Project, Task, Workspace, Session) {
+        let project = Project::create(
+            pool,
+            &CreateProject {
+                name: "execution-queue-structured-output".to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+        let task_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO tasks (
+                    id, project_id, title, description, status, parent_workspace_id,
+                    shared_task_id, task_group_id, last_executor
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(task_id)
+        .bind(project.id)
+        .bind("Task")
+        .bind(None::<String>)
+        .bind("todo")
+        .bind(None::<Uuid>)
+        .bind(None::<Uuid>)
+        .bind(None::<Uuid>)
+        .bind("")
+        .execute(pool)
+        .await
+        .unwrap();
+        let task = Task::find_by_id(pool, task_id).await.unwrap().unwrap();
+        let workspace = Workspace::create(
+            pool,
+            &CreateWorkspace {
+                branch: "feature/queue-structured-output".to_string(),
+                agent_working_dir: Some("repo".to_string()),
+            },
+            Uuid::new_v4(),
+            task.id,
+        )
+        .await
+        .unwrap();
+        let session = Session::create(
+            pool,
+            &CreateSession {
+                executor: Some("claude_code".to_string()),
+            },
+            Uuid::new_v4(),
+            workspace.id,
+        )
+        .await
+        .unwrap();
+
+        (project, task, workspace, session)
+    }
+
+    #[tokio::test]
+    async fn follow_up_queue_round_trip_preserves_structured_output_contract() {
+        let pool = setup_test_pool().await;
+        let (_, _, workspace, session) = create_workspace_context(&pool).await;
+        let executor_action = ExecutorAction::new(
+            ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
+                prompt: "Continue with structured output".to_string(),
+                session_id: "agent-session-456".to_string(),
+                structured_output: Some(structured_output_contract()),
+                executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+                working_dir: Some("repo".to_string()),
+            }),
+            None,
+        );
+
+        let queued =
+            ExecutionQueue::create_follow_up(&pool, workspace.id, session.id, &executor_action)
+                .await
+                .unwrap();
+
+        assert_eq!(
+            queued.parsed_executor_action().as_ref(),
+            Some(&executor_action)
+        );
     }
 }
