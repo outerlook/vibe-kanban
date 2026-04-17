@@ -30,6 +30,7 @@ import type {
   SendMessageResponse,
   StartTaskExecutionCommand,
   StartTaskExecutionResult,
+  NormalizedEntry,
   StructuredOutputContract,
   StructuredOutputSchemaValidationIssue,
   StructuredOutputValidationErrorMetadata,
@@ -59,6 +60,30 @@ export type QueueMergeResult =
   | { status: 'queued'; entry: MergeQueueEntry }
   | { status: 'rejected'; error: QueueMergeError };
 
+export type ExecutionProcessNormalizedEntryRecord = {
+  entry_index: number;
+  entry: NormalizedEntry;
+};
+
+export type ExecutionProcessNormalizedEntriesPage = {
+  entries: ExecutionProcessNormalizedEntryRecord[];
+  next_before_index: number | null;
+  has_more: boolean;
+};
+
+export const EXECUTION_HISTORY_RECAP_ENTRY_BUDGET = 400;
+
+export type ExecutionHistoryRecap = {
+  entries: ExecutionProcessNormalizedEntryRecord[];
+  totalEntries: number;
+  droppedEntries: number;
+  truncated: boolean;
+  budget: {
+    maxEntries: typeof EXECUTION_HISTORY_RECAP_ENTRY_BUDGET;
+    truncation: 'drop_oldest';
+  };
+};
+
 export type {
   ApprovalResponse,
   ApprovalStatus,
@@ -81,6 +106,7 @@ export type {
   OrchestrationTaskContextDto,
   OrchestrationTaskGroupContextDto,
   ProjectGitHubRepository,
+  NormalizedEntry,
   ProjectWithTaskCounts,
   QueueMergeError,
   QueueMergeRequest,

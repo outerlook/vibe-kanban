@@ -1,11 +1,14 @@
 import type { OrchestrationTriggerItem } from '../../../../shared/orchestration-events';
 
 import { VkHttpClient } from './http-client';
+import { EXECUTION_HISTORY_RECAP_ENTRY_BUDGET } from './types';
 import type {
   ApprovalResponse,
   ApprovalStatus,
   CreateAgentFeedback,
   CreateConversationRequest,
+  ExecutionHistoryRecap,
+  ExecutionProcessNormalizedEntriesPage,
   CreateConversationResponse,
   CreateFollowUpAttempt,
   CreateReviewAttention,
@@ -34,8 +37,81 @@ import type {
 } from './types';
 
 export class VkRuntimeClient extends VkHttpClient {
+  private static readonly normalizedEntriesPageLimit = 500;
+
   constructor(config: VkApiConfig) {
     super(config);
+  }
+
+  private async getExecutionNormalizedEntriesPage(
+    executionProcessId: string,
+    options: {
+      beforeIndex?: number;
+    } = {},
+  ): Promise<ExecutionProcessNormalizedEntriesPage> {
+    const query = new URLSearchParams({
+      limit: String(VkRuntimeClient.normalizedEntriesPageLimit),
+    });
+
+    if (options.beforeIndex !== undefined) {
+      query.set('before_index', String(options.beforeIndex));
+    }
+
+    return this.request(
+      `/execution-processes/${executionProcessId}/normalized-entries?${query.toString()}`,
+    );
+  }
+
+  async getExecutionNormalizedEntriesForRecap(
+    executionProcessId: string,
+  ): Promise<ExecutionHistoryRecap> {
+    const pages = [] as ExecutionProcessNormalizedEntriesPage[];
+    let beforeIndex: number | undefined;
+
+    while (true) {
+      const page = await this.getExecutionNormalizedEntriesPage(
+        executionProcessId,
+        beforeIndex === undefined ? {} : { beforeIndex },
+      );
+      pages.push(page);
+
+      if (!page.has_more) {
+        break;
+      }
+
+      const nextBeforeIndex = page.next_before_index;
+      if (nextBeforeIndex === null) {
+        throw new Error(
+          `VK normalized entry pagination for execution ${executionProcessId} ended without a cursor.`,
+        );
+      }
+
+      if (beforeIndex !== undefined && nextBeforeIndex >= beforeIndex) {
+        throw new Error(
+          `VK normalized entry pagination for execution ${executionProcessId} did not advance.`,
+        );
+      }
+
+      beforeIndex = nextBeforeIndex;
+    }
+
+    const orderedEntries = pages
+      .reverse()
+      .flatMap((page) => page.entries);
+    const totalEntries = orderedEntries.length;
+    const entries = orderedEntries.slice(-EXECUTION_HISTORY_RECAP_ENTRY_BUDGET);
+    const droppedEntries = totalEntries - entries.length;
+
+    return {
+      entries,
+      totalEntries,
+      droppedEntries,
+      truncated: droppedEntries > 0,
+      budget: {
+        maxEntries: EXECUTION_HISTORY_RECAP_ENTRY_BUDGET,
+        truncation: 'drop_oldest',
+      },
+    };
   }
 
   async getTaskContext(taskId: string): Promise<OrchestrationTaskContextDto> {

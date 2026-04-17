@@ -171,13 +171,23 @@ pub async fn get_normalized_entries(
         .unwrap_or(DEFAULT_NORMALIZED_ENTRIES_LIMIT)
         .clamp(1, MAX_NORMALIZED_ENTRIES_LIMIT);
 
-    let existing = ExecutionProcessNormalizedEntry::count_by_execution_id(
-        &deployment.db().pool,
-        execution_process.id,
-    )
-    .await?;
+    let should_backfill = match execution_process.status {
+        // Completed executions are consumed after the live stream has ended, so reads must
+        // rebuild from the authoritative raw log history even when partial normalized rows
+        // already exist.
+        ExecutionProcessStatus::Completed => true,
+        ExecutionProcessStatus::Failed | ExecutionProcessStatus::Killed => {
+            ExecutionProcessNormalizedEntry::count_by_execution_id(
+                &deployment.db().pool,
+                execution_process.id,
+            )
+            .await?
+                == 0
+        }
+        ExecutionProcessStatus::Running => false,
+    };
 
-    if existing == 0 && execution_process.status != ExecutionProcessStatus::Running {
+    if should_backfill {
         deployment
             .container()
             .backfill_normalized_entries(execution_process.id)
@@ -332,6 +342,7 @@ mod tests {
     use db::models::{
         coding_agent_turn::{CodingAgentTurn, CreateCodingAgentTurn},
         execution_process::{CreateExecutionProcess, ExecutionProcessRunReason},
+        execution_process_logs::ExecutionProcessLogs,
         project::{CreateProject, Project},
         session::{CreateSession, Session},
         task::{CreateTask, Task, TaskStatus},
@@ -344,9 +355,11 @@ mod tests {
             script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
         },
         executors::BaseCodingAgent,
+        logs::{NormalizedEntry, NormalizedEntryType, utils::ConversationPatch},
         profile::ExecutorProfileId,
     };
     use local_deployment::LocalDeployment;
+    use utils::log_msg::LogMsg;
     use uuid::Uuid;
 
     use super::*;
@@ -405,6 +418,32 @@ mod tests {
             },
             Uuid::new_v4(),
             workspace_id,
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn create_coding_agent_execution(
+        deployment: &DeploymentImpl,
+        session_id: Uuid,
+    ) -> ExecutionProcess {
+        ExecutionProcess::create(
+            &deployment.db().pool,
+            &CreateExecutionProcess {
+                session_id,
+                executor_action: ExecutorAction::new(
+                    ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+                        prompt: "Summarize the finished execution".to_string(),
+                        structured_output: None,
+                        executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+                        working_dir: None,
+                    }),
+                    None,
+                ),
+                run_reason: ExecutionProcessRunReason::CodingAgent,
+            },
+            Uuid::new_v4(),
+            &[],
         )
         .await
         .unwrap()
@@ -517,5 +556,113 @@ mod tests {
             payload["data"]["coding_agent_turn"]["summary"],
             serde_json::json!("Adjusted the orchestration flow and added regression coverage.")
         );
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn completed_normalized_entries_reads_backfill_partial_rows() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let deployment = LocalDeployment::new().await.unwrap();
+
+        let project = create_project(&deployment, "normalized-entry-backfill").await;
+        let task = create_task(&deployment, project.id, "Read normalized history").await;
+        let workspace = create_workspace(&deployment, task.id).await;
+        let session = create_session(&deployment, workspace.id).await;
+        let execution = create_coding_agent_execution(&deployment, session.id).await;
+
+        let entries = vec![
+            NormalizedEntry {
+                timestamp: Some("2026-04-17T10:00:00.000Z".to_string()),
+                entry_type: NormalizedEntryType::AssistantMessage,
+                content: "first".to_string(),
+                metadata: None,
+            },
+            NormalizedEntry {
+                timestamp: Some("2026-04-17T10:00:01.000Z".to_string()),
+                entry_type: NormalizedEntryType::ToolUse {
+                    tool_name: "rg".to_string(),
+                    action_type: executors::logs::ActionType::Search {
+                        query: "history acquisition".to_string(),
+                    },
+                    status: executors::logs::ToolStatus::Success,
+                },
+                content: "searched history".to_string(),
+                metadata: None,
+            },
+            NormalizedEntry {
+                timestamp: Some("2026-04-17T10:00:02.000Z".to_string()),
+                entry_type: NormalizedEntryType::AssistantMessage,
+                content: "last".to_string(),
+                metadata: None,
+            },
+        ];
+
+        for (index, entry) in entries.iter().cloned().enumerate() {
+            let patch = ConversationPatch::add_normalized_entry(index, entry);
+            let line = serde_json::to_string(&LogMsg::JsonPatch(patch)).unwrap();
+            ExecutionProcessLogs::append_log_line(&deployment.db().pool, execution.id, &line)
+                .await
+                .unwrap();
+        }
+
+        ExecutionProcessNormalizedEntry::upsert(
+            &deployment.db().pool,
+            execution.id,
+            0,
+            &entries[0],
+        )
+        .await
+        .unwrap();
+
+        ExecutionProcess::update_completion(
+            &deployment.db().pool,
+            execution.id,
+            ExecutionProcessStatus::Completed,
+            Some(0),
+        )
+        .await
+        .unwrap();
+
+        let completed_execution = ExecutionProcess::find_by_id(&deployment.db().pool, execution.id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let response = get_normalized_entries(
+            Extension(completed_execution),
+            State(deployment.clone()),
+            Query(NormalizedEntriesQuery {
+                before_index: None,
+                limit: Some(10),
+            }),
+        )
+        .await
+        .unwrap();
+
+        let page = response.0.into_data().unwrap();
+        assert_eq!(page.entries.len(), 3);
+        assert_eq!(
+            page.entries
+                .iter()
+                .map(|entry| entry.entry_index)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+        assert_eq!(
+            page.entries
+                .iter()
+                .map(|entry| entry.entry.content.as_str())
+                .collect::<Vec<_>>(),
+            vec!["first", "searched history", "last"]
+        );
+
+        let persisted_entries = ExecutionProcessNormalizedEntry::fetch_all_for_execution(
+            &deployment.db().pool,
+            execution.id,
+        )
+        .await
+        .unwrap();
+        assert_eq!(persisted_entries.len(), 3);
+        assert_eq!(persisted_entries[2].entry.content, "last");
     }
 }
