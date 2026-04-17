@@ -1,5 +1,6 @@
 import type { OrchestrationWorkflowHandler } from '../types';
 import type { TaskListItemDto } from '../../vk/types';
+import { TRIGGER_EXECUTOR_OPERATION_KEYS } from '../../runtime/executor-mapping';
 
 const WORKFLOW_KEY = 'lifecycle/autopilot-continuation';
 
@@ -40,13 +41,17 @@ export const autopilotContinuationHandler: OrchestrationWorkflowHandler = {
     const runnableDependents = taskContext.dependency_context.dependents.filter(
       isRunnableDependent,
     );
+    const executorProfileId = deps.environment.triggerExecutorMapping.resolve(
+      TRIGGER_EXECUTOR_OPERATION_KEYS.lifecycleAutopilotStartTaskExecution,
+    );
 
     for (const dependentTask of runnableDependents) {
       await deps.vkClient.startTaskExecution({
         task_id: dependentTask.id,
         workspace_strategy: 'latest_or_create',
         executor_strategy: {
-          executor_selection: 'default',
+          executor_selection: 'explicit',
+          executor_profile_id: executorProfileId,
         },
         repo_selection: {
           repo_selection: 'task_group_default',

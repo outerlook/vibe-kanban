@@ -1,6 +1,7 @@
 import type { JsonValue } from '../state/types';
 import type { DispatchResult, MqttDispatchInput } from '../runtime/contracts';
 import type { RuntimeDependencies } from '../runtime/dependencies';
+import { TRIGGER_EXECUTOR_OPERATION_KEYS } from '../runtime/executor-mapping';
 import type {
   ExecutionHistoryRecap,
   OrchestrationConversationContextDto,
@@ -640,13 +641,16 @@ async function ensureReviewConversation(
     deps,
     parseResult: asConversationClaimResult,
     run: async () => {
+      const executorProfileId = deps.environment.triggerExecutorMapping.resolve(
+        TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateCreateConversation,
+      );
       const response = await deps.vkClient.createConversation(
         correlation.state.projectId,
         {
           title: correlation.state.reviewConversationTitle,
           initial_message: correlation.state.reviewInitialMessage,
           structured_output: REVIEW_VERDICT_STRUCTURED_OUTPUT,
-          executor_profile_id: null,
+          executor_profile_id: executorProfileId,
           worktree_path: correlation.state.worktreePath || null,
           worktree_branch: correlation.state.worktreeBranch || null,
         },
@@ -786,11 +790,14 @@ async function ensureCommitMessage(
     deps,
     parseResult: asCommitMessageClaimResult,
     run: async () => {
+      const executorProfileId = deps.environment.triggerExecutorMapping.resolve(
+        TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateGenerateCommitMessage,
+      );
       const response = await deps.vkClient.generateCommitMessage(
         correlation.state.workspaceId,
         {
           repo_id: repoId,
-          executor_profile_id: null,
+          executor_profile_id: executorProfileId,
         },
       );
 

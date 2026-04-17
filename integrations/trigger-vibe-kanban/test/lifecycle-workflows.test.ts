@@ -7,6 +7,7 @@ import { ORCHESTRATION_SCHEMA_VERSION } from '../../../shared/orchestration-even
 
 import { createDirectDispatcher } from '../src/trigger/direct-dispatcher';
 import { createConsoleLogger } from '../src/runtime/dependencies';
+import { TRIGGER_EXECUTOR_OPERATION_KEYS } from '../src/runtime/executor-mapping';
 import { startMqttBridgeRuntime } from '../src/runtime/mqtt-bridge';
 import { createSqliteStateStore } from '../src/state/sqlite-state-store';
 import { VkRuntimeClient } from '../src/vk/runtime-client';
@@ -237,13 +238,19 @@ describe('lifecycle workflows', () => {
     publisher.publish('vk/orchestration/task_status_changed', payload);
     await Bun.sleep(150);
 
+    const explicitAutopilotExecutor =
+      dependencies.environment.triggerExecutorMapping.resolve(
+        TRIGGER_EXECUTOR_OPERATION_KEYS.lifecycleAutopilotStartTaskExecution,
+      );
+
     expect(taskContextReads).toBe(1);
     expect(startExecutionBodies).toEqual([
       {
         task_id: 'dep-runnable-1',
         workspace_strategy: 'latest_or_create',
         executor_strategy: {
-          executor_selection: 'default',
+          executor_selection: 'explicit',
+          executor_profile_id: explicitAutopilotExecutor,
         },
         repo_selection: {
           repo_selection: 'task_group_default',
@@ -253,7 +260,8 @@ describe('lifecycle workflows', () => {
         task_id: 'dep-runnable-2',
         workspace_strategy: 'latest_or_create',
         executor_strategy: {
-          executor_selection: 'default',
+          executor_selection: 'explicit',
+          executor_profile_id: explicitAutopilotExecutor,
         },
         repo_selection: {
           repo_selection: 'task_group_default',

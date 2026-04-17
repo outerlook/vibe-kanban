@@ -4,8 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { OrchestrationTriggerItem } from '../../../shared/orchestration-events';
+import { BaseCodingAgent } from '../../../shared/types';
 
 import { createConsoleLogger } from '../src/runtime/dependencies';
+import {
+  createTriggerExecutorMapping,
+  TRIGGER_EXECUTOR_OPERATION_KEYS,
+} from '../src/runtime/executor-mapping';
 import { createSqliteStateStore } from '../src/state/sqlite-state-store';
 import {
   EXECUTION_HISTORY_RECAP_ENTRY_BUDGET,
@@ -385,7 +390,10 @@ function createEvent(args: {
   } as OrchestrationTriggerItem;
 }
 
-function createDependencies(client: FakeVkRuntimeClient) {
+function createDependencies(
+  client: FakeVkRuntimeClient,
+  triggerExecutorMapping = createTestTriggerExecutorMapping(),
+) {
   const tempDir = createTempDir('trigger-review-workflow-');
   tempDirs.push(tempDir);
 
@@ -403,7 +411,7 @@ function createDependencies(client: FakeVkRuntimeClient) {
       schemaVersion: 'vk_orchestration_v1',
       codeRabbitPollScopeKey: 'global',
       mqttRouterMode: 'direct' as const,
-      triggerExecutorMapping: createTestTriggerExecutorMapping(),
+      triggerExecutorMapping,
     },
     stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
     vkClient: client as any,
@@ -534,6 +542,11 @@ describe('review orchestration workflows', () => {
         additionalProperties: false,
       },
     });
+    expect(client.createConversationCalls[0]?.body.executor_profile_id).toEqual(
+      deps.environment.triggerExecutorMapping.resolve(
+        TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateCreateConversation,
+      ),
+    );
 
     const correlation = getReviewCorrelationBySource(
       deps.stateStore,
@@ -720,6 +733,16 @@ describe('review orchestration workflows', () => {
     expect(client.generateCommitMessageCalls).toHaveLength(1);
     expect(client.queueMergeCalls).toHaveLength(1);
     expect(client.createFeedbackCalls).toHaveLength(1);
+    expect(client.createConversationCalls[0]?.body.executor_profile_id).toEqual(
+      deps.environment.triggerExecutorMapping.resolve(
+        TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateCreateConversation,
+      ),
+    );
+    expect(client.generateCommitMessageCalls[0]?.body.executor_profile_id).toEqual(
+      deps.environment.triggerExecutorMapping.resolve(
+        TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateGenerateCommitMessage,
+      ),
+    );
 
     mutateReviewCorrelation(deps.stateStore, 'source-exec-1', (state) => ({
       ...state,
@@ -775,6 +798,96 @@ describe('review orchestration workflows', () => {
         queueErrorType: null,
       },
     ]);
+
+    deps.stateStore.close();
+  });
+
+  it('uses distinct mapped executor profiles for reviewer and commit composer operations', async () => {
+    const client = new FakeVkRuntimeClient();
+    client.executionContexts.set('source-exec-1', createSourceExecutionContext());
+    client.executionContexts.set('review-exec-1', createReviewExecutionContext());
+    client.conversationContexts.set(
+      'conversation-1',
+      createConversationContext({
+        content: 'Looks good to merge.',
+        metadata: createStructuredReviewVerdict(
+          false,
+          'Looks good to merge.',
+        ),
+      }),
+    );
+
+    const triggerExecutorMapping = createTriggerExecutorMapping(
+      {
+        [TRIGGER_EXECUTOR_OPERATION_KEYS.lifecycleAutopilotStartTaskExecution]: {
+          executor: BaseCodingAgent.CODEX,
+          variant: 'DEFAULT',
+        },
+        [TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateCreateConversation]: {
+          executor: BaseCodingAgent.CLAUDE_CODE,
+          variant: 'REVIEWER_SPECIALIST',
+        },
+        [TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateGenerateCommitMessage]: {
+          executor: BaseCodingAgent.CODEX,
+          variant: 'COMMIT_COMPOSER',
+        },
+      },
+      '<test-distinct-review-executors>',
+    );
+    const deps = createDependencies(client, triggerExecutorMapping);
+
+    await dispatchOrchestrationEvent(
+      {
+        claim: { claimKey: 'evt-task-status-1' },
+        event: createEvent({
+          eventType: 'task_status_changed',
+          eventId: 'evt-task-status-1',
+          payload: { status: 'inreview' },
+        }),
+        contexts: {
+          task: createTaskContext(),
+          taskGroup: null,
+          conversation: null,
+          execution: client.executionContexts.get('source-exec-1') ?? null,
+          approval: null,
+        },
+      } as any,
+      deps as any,
+    );
+
+    await dispatchOrchestrationEvent(
+      {
+        claim: { claimKey: 'evt-review-complete-1' },
+        event: createEvent({
+          eventType: 'execution_completed',
+          eventId: 'evt-review-complete-1',
+          payload: {
+            status: 'completed',
+            run_reason: 'conversation',
+            conversation_session_id: 'conversation-1',
+          },
+          executionProcessId: 'review-exec-1',
+          conversationId: 'conversation-1',
+        }),
+        contexts: {
+          task: null,
+          taskGroup: null,
+          conversation: client.conversationContexts.get('conversation-1') ?? null,
+          execution: client.executionContexts.get('review-exec-1') ?? null,
+          approval: null,
+        },
+      } as any,
+      deps as any,
+    );
+
+    expect(client.createConversationCalls[0]?.body.executor_profile_id).toEqual({
+      executor: BaseCodingAgent.CLAUDE_CODE,
+      variant: 'REVIEWER_SPECIALIST',
+    });
+    expect(client.generateCommitMessageCalls[0]?.body.executor_profile_id).toEqual({
+      executor: BaseCodingAgent.CODEX,
+      variant: 'COMMIT_COMPOSER',
+    });
 
     deps.stateStore.close();
   });
