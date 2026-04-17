@@ -14,6 +14,7 @@ import {
   createBroker,
   createJsonServer,
   createTempDir,
+  createTestTriggerExecutorMapping,
   removeTempDir,
 } from './helpers';
 
@@ -192,6 +193,7 @@ describe('lifecycle workflows', () => {
         schemaVersion: ORCHESTRATION_SCHEMA_VERSION,
         codeRabbitPollScopeKey: 'global',
         mqttRouterMode: 'direct' as const,
+        triggerExecutorMapping: createTestTriggerExecutorMapping(),
       },
       stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
       vkClient: new VkRuntimeClient({
@@ -372,6 +374,7 @@ describe('lifecycle workflows', () => {
         schemaVersion: ORCHESTRATION_SCHEMA_VERSION,
         codeRabbitPollScopeKey: 'global',
         mqttRouterMode: 'direct' as const,
+        triggerExecutorMapping: createTestTriggerExecutorMapping(),
       },
       stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
       vkClient: new VkRuntimeClient({
@@ -528,6 +531,7 @@ describe('lifecycle workflows', () => {
         schemaVersion: ORCHESTRATION_SCHEMA_VERSION,
         codeRabbitPollScopeKey: 'global',
         mqttRouterMode: 'direct' as const,
+        triggerExecutorMapping: createTestTriggerExecutorMapping(),
       },
       stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
       vkClient: new VkRuntimeClient({

@@ -7,7 +7,11 @@ import { createSqliteStateStore } from '../src/state/sqlite-state-store';
 import { createConsoleLogger } from '../src/runtime/dependencies';
 import { createTriggerDispatcher } from '../src/trigger/trigger-dispatcher';
 import { VkRuntimeClient } from '../src/vk/runtime-client';
-import { createTempDir, removeTempDir } from './helpers';
+import {
+  createTempDir,
+  createTestTriggerExecutorMapping,
+  removeTempDir,
+} from './helpers';
 
 describe('trigger dispatcher', () => {
   it('routes MQTT events into Trigger task runs by default', async () => {
@@ -30,6 +34,7 @@ describe('trigger dispatcher', () => {
         schemaVersion: ORCHESTRATION_SCHEMA_VERSION,
         codeRabbitPollScopeKey: 'global',
         mqttRouterMode: 'trigger' as const,
+        triggerExecutorMapping: createTestTriggerExecutorMapping(),
       },
       stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
       vkClient: new VkRuntimeClient({

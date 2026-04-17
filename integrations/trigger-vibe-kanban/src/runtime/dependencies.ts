@@ -5,6 +5,11 @@ import type { OrchestratorStateStore } from '../state/types';
 import { VkRuntimeClient } from '../vk/runtime-client';
 import type { VkApiConfig, VkMqttConfig } from '../vk/types';
 import type { OrchestratorLogger } from './contracts';
+import { readOptionalEnv, readRequiredEnv } from './env';
+import {
+  loadTriggerExecutorMappingFromEnv,
+  type TriggerExecutorMapping,
+} from './executor-mapping';
 
 export type RuntimeEnvironment = {
   vkApi: VkApiConfig;
@@ -14,6 +19,7 @@ export type RuntimeEnvironment = {
   eventTypes?: string[];
   codeRabbitPollScopeKey: string;
   mqttRouterMode: 'trigger' | 'direct';
+  triggerExecutorMapping: TriggerExecutorMapping;
 };
 
 export type RuntimeDependencies = {
@@ -48,20 +54,6 @@ export function createConsoleLogger(): OrchestratorLogger {
       write('error', message, context);
     },
   };
-}
-
-function readRequiredEnv(name: string, env: NodeJS.ProcessEnv): string {
-  const value = env[name]?.trim();
-  if (!value) {
-    throw new Error(`Missing required environment variable ${name}`);
-  }
-
-  return value;
-}
-
-function readOptionalEnv(name: string, env: NodeJS.ProcessEnv): string | undefined {
-  const value = env[name]?.trim();
-  return value ? value : undefined;
 }
 
 export function createRuntimeEnvironment(env: NodeJS.ProcessEnv = process.env): RuntimeEnvironment {
@@ -105,6 +97,7 @@ export function createRuntimeEnvironment(env: NodeJS.ProcessEnv = process.env): 
     codeRabbitPollScopeKey: env.CODERABBIT_POLL_SCOPE_KEY ?? 'global',
     mqttRouterMode:
       env.VK_MQTT_ROUTER_MODE === 'direct' ? 'direct' : 'trigger',
+    triggerExecutorMapping: loadTriggerExecutorMappingFromEnv(env),
   };
 }
 

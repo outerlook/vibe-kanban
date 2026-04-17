@@ -10,7 +10,13 @@ import type { OrchestratorDispatcher } from '../src/runtime/contracts';
 import type { RuntimeDependencies } from '../src/runtime/dependencies';
 import { createConsoleLogger } from '../src/runtime/dependencies';
 import { VkRuntimeClient } from '../src/vk/runtime-client';
-import { createBroker, createJsonServer, createTempDir, removeTempDir } from './helpers';
+import {
+  createBroker,
+  createJsonServer,
+  createTempDir,
+  createTestTriggerExecutorMapping,
+  removeTempDir,
+} from './helpers';
 
 const tempDirs = [] as string[];
 
@@ -100,6 +106,7 @@ describe('mqtt bridge runtime', () => {
         schemaVersion: ORCHESTRATION_SCHEMA_VERSION,
         codeRabbitPollScopeKey: 'global',
         mqttRouterMode: 'direct',
+        triggerExecutorMapping: createTestTriggerExecutorMapping(),
       },
       stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
       vkClient: new VkRuntimeClient({

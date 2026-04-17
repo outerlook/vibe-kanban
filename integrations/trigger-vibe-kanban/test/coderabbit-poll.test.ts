@@ -11,7 +11,12 @@ import {
   VkRuntimeClient,
 } from '../src';
 import { createConsoleLogger } from '../src/runtime/dependencies';
-import { createJsonServer, createTempDir, removeTempDir } from './helpers';
+import {
+  createJsonServer,
+  createTempDir,
+  createTestTriggerExecutorMapping,
+  removeTempDir,
+} from './helpers';
 
 const tempDirs = [] as string[];
 
@@ -70,6 +75,7 @@ function createDependencies(tempDir: string, vkBaseUrl: string) {
       schemaVersion: ORCHESTRATION_SCHEMA_VERSION,
       codeRabbitPollScopeKey: 'global',
       mqttRouterMode: 'direct' as const,
+      triggerExecutorMapping: createTestTriggerExecutorMapping(),
     },
     stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
     vkClient: new VkRuntimeClient({

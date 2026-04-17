@@ -19,6 +19,18 @@ export type {
   CodeRabbitSelectedRepository,
 } from './coderabbit/poller';
 export { createRuntimeDependencies, createRuntimeEnvironment } from './runtime/dependencies';
+export {
+  createTriggerExecutorMapping,
+  loadTriggerExecutorMapping,
+  loadTriggerExecutorMappingFromEnv,
+  TRIGGER_EXECUTOR_OPERATION_KEYS,
+  VK_TRIGGER_EXECUTOR_CONFIG_PATH_ENV_VAR,
+} from './runtime/executor-mapping';
+export type {
+  TriggerExecutorMapping,
+  TriggerExecutorOperationKey,
+  TriggerExecutorProfileMap,
+} from './runtime/executor-mapping';
 export { startMqttBridgeRuntime } from './runtime/mqtt-bridge';
 export { runScheduledWorkflowOnce } from './runtime/scheduled-workflow';
 export { createSqliteStateStore } from './state/sqlite-state-store';

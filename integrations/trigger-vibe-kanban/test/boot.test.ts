@@ -11,7 +11,13 @@ import {
   VkRuntimeClient,
 } from '../src';
 import { createConsoleLogger } from '../src/runtime/dependencies';
-import { createBroker, createJsonServer, createTempDir, removeTempDir } from './helpers';
+import {
+  createBroker,
+  createJsonServer,
+  createTempDir,
+  createTestTriggerExecutorMapping,
+  removeTempDir,
+} from './helpers';
 
 describe('package boot surfaces', () => {
   it('boots the scheduled CodeRabbit poller with Trigger-owned checkpoint state', async () => {
@@ -45,6 +51,7 @@ describe('package boot surfaces', () => {
         schemaVersion: ORCHESTRATION_SCHEMA_VERSION,
         codeRabbitPollScopeKey: 'global',
         mqttRouterMode: 'direct' as const,
+        triggerExecutorMapping: createTestTriggerExecutorMapping(),
       },
       stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
       vkClient: new VkRuntimeClient({
@@ -108,6 +115,7 @@ describe('package boot surfaces', () => {
         schemaVersion: ORCHESTRATION_SCHEMA_VERSION,
         codeRabbitPollScopeKey: 'global',
         mqttRouterMode: 'direct' as const,
+        triggerExecutorMapping: createTestTriggerExecutorMapping(),
       },
       stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
       vkClient: new VkRuntimeClient({

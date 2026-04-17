@@ -18,6 +18,7 @@ import {
   getReviewCorrelationBySource,
   mutateReviewCorrelation,
 } from '../src/workflows/review-correlation';
+import { createTestTriggerExecutorMapping } from './helpers';
 
 const tempDirs = [] as string[];
 
@@ -402,6 +403,7 @@ function createDependencies(client: FakeVkRuntimeClient) {
       schemaVersion: 'vk_orchestration_v1',
       codeRabbitPollScopeKey: 'global',
       mqttRouterMode: 'direct' as const,
+      triggerExecutorMapping: createTestTriggerExecutorMapping(),
     },
     stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
     vkClient: client as any,

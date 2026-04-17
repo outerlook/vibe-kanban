@@ -7,6 +7,13 @@ import net from 'node:net';
 
 import { Aedes } from 'aedes';
 
+import { BaseCodingAgent } from '../../../shared/types';
+
+import {
+  createTriggerExecutorMapping,
+  TRIGGER_EXECUTOR_OPERATION_KEYS,
+} from '../src/runtime/executor-mapping';
+
 export function listen(server: net.Server | ReturnType<typeof createServer>) {
   return new Promise<number>((resolve, reject) => {
     server.listen(0, '127.0.0.1', () => {
@@ -59,4 +66,24 @@ export function createTempDir(prefix: string): string {
 
 export function removeTempDir(path: string): void {
   rmSync(path, { recursive: true, force: true });
+}
+
+export function createTestTriggerExecutorMapping() {
+  return createTriggerExecutorMapping(
+    {
+      [TRIGGER_EXECUTOR_OPERATION_KEYS.lifecycleAutopilotStartTaskExecution]: {
+        executor: BaseCodingAgent.CODEX,
+        variant: 'DEFAULT',
+      },
+      [TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateCreateConversation]: {
+        executor: BaseCodingAgent.CLAUDE_CODE,
+        variant: 'REVIEW',
+      },
+      [TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateGenerateCommitMessage]: {
+        executor: BaseCodingAgent.CLAUDE_CODE,
+        variant: 'COMMIT',
+      },
+    },
+    '<test>',
+  );
 }
