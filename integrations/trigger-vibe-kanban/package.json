@@ -6,7 +6,11 @@
   "packageManager": "bun@1.3.10",
   "scripts": {
     "check": "tsc --noEmit",
-    "dev": "trigger.dev dev",
+    "dev": "bunx trigger.dev dev --env-file .env",
+    "deploy": "bunx trigger.dev deploy --env-file .env",
+    "push": "bunx trigger.dev deploy --env-file .env",
+    "deploy:staging": "bunx trigger.dev deploy --env staging --env-file .env",
+    "deploy:dry-run": "bunx trigger.dev deploy --dry-run --env-file .env",
     "mqtt": "bun run src/cli/mqtt-bridge.ts",
     "coderabbit": "bun run src/cli/coderabbit-poll.ts",
     "test": "bun test"

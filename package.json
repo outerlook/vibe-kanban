@@ -32,9 +32,14 @@
     "trigger:ci": "npm run trigger:install && npm run trigger:check && npm run trigger:test",
     "trigger:check": "cd integrations/trigger-vibe-kanban && bun run check",
     "trigger:test": "cd integrations/trigger-vibe-kanban && bun test",
-    "trigger:dev": "cd integrations/trigger-vibe-kanban && bun run dev",
-    "trigger:mqtt": "cd integrations/trigger-vibe-kanban && bun run mqtt",
-    "trigger:coderabbit": "cd integrations/trigger-vibe-kanban && bun run coderabbit"
+    "trigger:dev": "node scripts/trigger-vk.js dev",
+    "trigger:mqtt": "node scripts/trigger-vk.js mqtt",
+    "trigger:coderabbit": "node scripts/trigger-vk.js coderabbit",
+    "trigger:deploy": "node scripts/trigger-vk.js deploy",
+    "trigger:push": "node scripts/trigger-vk.js push",
+    "trigger:deploy:staging": "node scripts/trigger-vk.js deploy:staging",
+    "trigger:deploy:dry-run": "node scripts/trigger-vk.js deploy:dry-run",
+    "trigger:stack": "concurrently \"npm run trigger:dev\" \"npm run trigger:mqtt\""
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

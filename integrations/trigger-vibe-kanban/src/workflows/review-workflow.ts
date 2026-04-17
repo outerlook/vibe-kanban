@@ -88,7 +88,7 @@ function buildReviewInitialMessage(input: {
   agentSummary: string;
 }): string {
   const description = input.taskDescription || '(no description)';
-  const agentSummary = input.agentSummary || '(no agent summary)';
+  const agentSummary = input.agentSum<DEV key desse projeto>mary || '(no agent summary)';
 
   return `Analyze whether the completed work successfully addresses the original task.
 
