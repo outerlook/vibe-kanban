@@ -34,7 +34,9 @@ use ts_rs::TS;
 use utils::{diff::create_unified_diff, response::ApiResponse};
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError};
+use crate::{
+    DeploymentImpl, error::ApiError, routes::executor_profiles::validate_exact_coding_agent_profile,
+};
 
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct CreateGitHubPrRequest {
@@ -222,6 +224,10 @@ pub async fn generate_commit_message_for_merge(
     base_branch: &str,
     executor_profile_override: Option<ExecutorProfileId>,
 ) -> Result<ExecutionProcess, ApiError> {
+    if let Some(executor_profile_id) = executor_profile_override.as_ref() {
+        validate_exact_coding_agent_profile(executor_profile_id)?;
+    }
+
     // Get diff between task branch and base branch
     let diffs = deployment.git().get_diffs(
         DiffTarget::Branch {

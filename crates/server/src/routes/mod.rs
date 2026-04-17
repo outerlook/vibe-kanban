@@ -18,6 +18,7 @@ mod ws_helpers;
 // pub mod github;
 pub mod events;
 pub mod execution_processes;
+pub mod executor_profiles;
 pub mod feedback;
 pub mod frontend;
 pub mod gantt;

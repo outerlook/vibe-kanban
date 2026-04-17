@@ -26,7 +26,7 @@ use executors::{
         coding_agent_initial::CodingAgentInitialRequest,
     },
     executors::BaseCodingAgent,
-    profile::{ExecutorConfigs, ExecutorProfileId},
+    profile::ExecutorProfileId,
 };
 use serde::{Deserialize, Serialize};
 use services::services::{
@@ -43,7 +43,10 @@ use crate::{
     DeploymentImpl,
     error::ApiError,
     middleware::load_conversation_middleware,
-    routes::images::{ImageResponse, process_image_upload},
+    routes::{
+        executor_profiles::validate_exact_coding_agent_profile,
+        images::{ImageResponse, process_image_upload},
+    },
 };
 
 #[derive(Debug, Deserialize)]
@@ -114,16 +117,7 @@ pub async fn create_conversation(
         .clone()
         .unwrap_or(default_executor_profile);
 
-    // Validate the executor profile exists
-    if ExecutorConfigs::get_cached()
-        .get_coding_agent(&executor_profile_id)
-        .is_none()
-    {
-        return Err(ApiError::BadRequest(format!(
-            "Invalid executor profile: {}",
-            executor_profile_id
-        )));
-    }
+    validate_exact_coding_agent_profile(&executor_profile_id)?;
 
     // Store executor name in session for future messages
     let executor_name = Some(executor_profile_id.executor.to_string());
@@ -263,16 +257,7 @@ pub async fn send_message(
         variant: payload.variant.clone(),
     };
 
-    // Validate the executor profile exists
-    if ExecutorConfigs::get_cached()
-        .get_coding_agent(&executor_profile_id)
-        .is_none()
-    {
-        return Err(ApiError::BadRequest(format!(
-            "Invalid executor profile: {}",
-            executor_profile_id
-        )));
-    }
+    validate_exact_coding_agent_profile(&executor_profile_id)?;
 
     // Check if we have a previous agent session to continue
     let latest_agent_session_id =

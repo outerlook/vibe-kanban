@@ -73,7 +73,10 @@ use crate::{
     DeploymentImpl,
     error::ApiError,
     middleware::load_workspace_middleware,
-    routes::{task_attempts::gh_cli_setup::GhCliSetupError, ws_helpers::forward_stream_to_ws},
+    routes::{
+        executor_profiles::validate_exact_coding_agent_profile,
+        task_attempts::gh_cli_setup::GhCliSetupError, ws_helpers::forward_stream_to_ws,
+    },
 };
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -386,7 +389,10 @@ async fn resolve_task_executor_profile(
         }
         TaskExecutionExecutorStrategy::Explicit {
             executor_profile_id,
-        } => Ok(executor_profile_id),
+        } => {
+            validate_exact_coding_agent_profile(&executor_profile_id)?;
+            Ok(executor_profile_id)
+        }
     }
 }
 
@@ -394,6 +400,13 @@ async fn start_task_execution_internal(
     deployment: &DeploymentImpl,
     command: StartTaskExecutionCommand,
 ) -> Result<StartTaskExecutionResult, ApiError> {
+    if let TaskExecutionExecutorStrategy::Explicit {
+        executor_profile_id,
+    } = &command.executor_strategy
+    {
+        validate_exact_coding_agent_profile(executor_profile_id)?;
+    }
+
     let StartTaskExecutionCommand {
         task_id,
         workspace_strategy,
@@ -3156,6 +3169,94 @@ mod tests {
                 panic!("expected queued task execution to avoid spawning a live executor")
             }
         }
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn start_task_execution_rejects_invalid_explicit_executor_before_workspace_creation() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let deployment = LocalDeployment::new().await.unwrap();
+
+        let project = create_project(&deployment, "task-execution-invalid-explicit").await;
+        let task = create_task(&deployment, project.id, "Reject invalid executor").await;
+
+        let result = start_task_execution(
+            State(deployment.clone()),
+            Json(StartTaskExecutionCommand {
+                task_id: task.id,
+                workspace_strategy: TaskExecutionWorkspaceStrategy::CreateNew,
+                executor_strategy: TaskExecutionExecutorStrategy::Explicit {
+                    executor_profile_id: ExecutorProfileId::with_variant(
+                        BaseCodingAgent::ClaudeCode,
+                        "DOES_NOT_EXIST".to_string(),
+                    ),
+                },
+                repo_selection: TaskExecutionRepoSelection::TaskGroupDefault,
+            }),
+        )
+        .await;
+
+        match result {
+            Err(ApiError::BadRequest(message)) => {
+                assert!(message.contains("Invalid executor profile"));
+            }
+            other => panic!("expected invalid executor profile error, got {other:?}"),
+        }
+
+        assert!(
+            Workspace::find_latest_by_task_id(&deployment.db().pool, task.id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn generate_commit_message_for_merge_rejects_invalid_explicit_override() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        let deployment = LocalDeployment::new().await.unwrap();
+
+        let project = create_project(&deployment, "merge-message-invalid-explicit").await;
+        let task = create_task(&deployment, project.id, "Write commit message").await;
+        let workspace = Workspace::create(
+            &deployment.db().pool,
+            &CreateWorkspace {
+                branch: "feature/merge-message".to_string(),
+                agent_working_dir: None,
+            },
+            Uuid::new_v4(),
+            task.id,
+        )
+        .await
+        .unwrap();
+
+        let result = pr::generate_commit_message_for_merge(
+            &deployment,
+            &workspace,
+            &task,
+            Path::new("/tmp/unused-invalid-profile-path"),
+            "feature/merge-message",
+            "main",
+            Some(ExecutorProfileId::with_variant(
+                BaseCodingAgent::ClaudeCode,
+                "DOES_NOT_EXIST".to_string(),
+            )),
+        )
+        .await;
+
+        match result {
+            Err(ApiError::BadRequest(message)) => {
+                assert!(message.contains("Invalid executor profile"));
+            }
+            other => panic!("expected invalid executor profile error, got {other:?}"),
+        }
+
+        let latest_session =
+            Session::find_latest_by_workspace_id(&deployment.db().pool, workspace.id)
+                .await
+                .unwrap();
+        assert!(latest_session.is_none());
     }
 
     #[tokio::test]

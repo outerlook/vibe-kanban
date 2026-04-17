@@ -46,7 +46,10 @@ use crate::{
     DeploymentImpl,
     error::ApiError,
     middleware::load_task_middleware,
-    routes::{task_attempts::WorkspaceRepoInput, ws_helpers::forward_stream_to_ws},
+    routes::{
+        executor_profiles::validate_exact_coding_agent_profile, task_attempts::WorkspaceRepoInput,
+        ws_helpers::forward_stream_to_ws,
+    },
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -587,6 +590,8 @@ pub async fn create_task_and_start(
             "At least one repository is required".to_string(),
         ));
     }
+
+    validate_exact_coding_agent_profile(&payload.executor_profile_id)?;
 
     let pool = &deployment.db().pool;
 
@@ -1322,12 +1327,15 @@ mod lifecycle_tests {
         middleware::from_fn_with_state,
     };
     use db::models::{
-        project::CreateProject,
+        project::{CreateProject, Project},
+        project_repo::ProjectRepo,
+        repo::Repo,
         session::{CreateSession, Session},
         task::{CreateTask, TaskStatus},
         workflow_association::WorkflowAssociationResolution,
         workspace::{CreateWorkspace, Workspace},
     };
+    use executors::executors::BaseCodingAgent;
     use local_deployment::LocalDeployment;
     use services::services::domain_events::{
         OrchestrationEventPublisherHandle, OrchestrationEventType,
@@ -1489,6 +1497,21 @@ mod lifecycle_tests {
         )
         .await
         .unwrap()
+    }
+
+    async fn attach_repo_to_project(
+        deployment: &DeploymentImpl,
+        project_id: Uuid,
+        repo_path: &std::path::Path,
+        display_name: &str,
+    ) -> Repo {
+        let repo = Repo::find_or_create(&deployment.db().pool, repo_path, display_name)
+            .await
+            .unwrap();
+        ProjectRepo::create(&deployment.db().pool, project_id, repo.id)
+            .await
+            .unwrap();
+        repo
     }
 
     async fn create_running_process_for_task(deployment: &DeploymentImpl, task_id: Uuid) {
@@ -1818,5 +1841,72 @@ mod lifecycle_tests {
             .unwrap()
             .unwrap();
         assert_eq!(refreshed_child.parent_workspace_id, None);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn create_task_and_start_rejects_invalid_explicit_executor_before_task_creation() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        reset_test_database();
+        let deployment = LocalDeployment::new().await.unwrap();
+        let project = create_project(&deployment, "create-and-start-invalid-executor").await;
+
+        let repo_path = std::env::temp_dir().join(format!(
+            "vk-create-and-start-invalid-repo-{}",
+            Uuid::new_v4()
+        ));
+        deployment
+            .git()
+            .initialize_repo_with_main_branch(&repo_path)
+            .unwrap();
+        let repo =
+            attach_repo_to_project(&deployment, project.id, &repo_path, "CreateAndStart Repo")
+                .await;
+
+        let task_count_before =
+            Task::find_by_project_id_with_attempt_status(&deployment.db().pool, project.id)
+                .await
+                .unwrap()
+                .len();
+
+        let result = create_task_and_start(
+            State(deployment.clone()),
+            Json(CreateAndStartTaskRequest {
+                task: CreateTask {
+                    project_id: project.id,
+                    title: "Should fail fast".to_string(),
+                    description: None,
+                    status: Some(TaskStatus::Todo),
+                    parent_workspace_id: None,
+                    image_ids: None,
+                    shared_task_id: None,
+                    task_group_id: None,
+                },
+                executor_profile_id: ExecutorProfileId::with_variant(
+                    BaseCodingAgent::ClaudeCode,
+                    "DOES_NOT_EXIST".to_string(),
+                ),
+                repos: vec![WorkspaceRepoInput {
+                    repo_id: repo.id,
+                    target_branch: "main".to_string(),
+                }],
+            }),
+        )
+        .await;
+
+        match result {
+            Err(ApiError::BadRequest(message)) => {
+                assert!(message.contains("Invalid executor profile"));
+            }
+            other => panic!("expected invalid executor profile error, got {other:?}"),
+        }
+
+        let task_count_after =
+            Task::find_by_project_id_with_attempt_status(&deployment.db().pool, project.id)
+                .await
+                .unwrap()
+                .len();
+
+        assert_eq!(task_count_after, task_count_before);
     }
 }
