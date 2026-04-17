@@ -204,6 +204,11 @@ describe('lifecycle workflows', () => {
         authMode: 'none',
       }),
       logger: createConsoleLogger(),
+      openClawConversationExecutor: {
+        async run() {
+          throw new Error('OpenClaw conversation executor should not run in this test');
+        },
+      },
     };
 
     const runtime = await startMqttBridgeRuntime({
@@ -393,6 +398,11 @@ describe('lifecycle workflows', () => {
         authMode: 'none',
       }),
       logger: createConsoleLogger(),
+      openClawConversationExecutor: {
+        async run() {
+          throw new Error('OpenClaw conversation executor should not run in this test');
+        },
+      },
     };
 
     const runtime = await startMqttBridgeRuntime({
@@ -551,6 +561,11 @@ describe('lifecycle workflows', () => {
         authMode: 'none',
       }),
       logger: createConsoleLogger(),
+      openClawConversationExecutor: {
+        async run() {
+          throw new Error('OpenClaw conversation executor should not run in this test');
+        },
+      },
     };
 
     const runtime = await startMqttBridgeRuntime({

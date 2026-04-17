@@ -160,6 +160,12 @@ export type OpenClawConversationResult =
   | OpenClawConversationRunResult
   | OpenClawConversationCleanupResult;
 
+export interface OpenClawConversationExecutor {
+  run(
+    request: OpenClawConversationRunRequest,
+  ): Promise<OpenClawConversationRunResult>;
+}
+
 export interface OrchestratorDispatcher {
   dispatchOrchestrationEvent(input: MqttDispatchInput): Promise<DispatchResult>;
   dispatchScheduledWorkflow(

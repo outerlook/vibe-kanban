@@ -28,7 +28,9 @@ export type TriggerOpenClawConversationRunner = {
   ): Promise<TriggerOpenClawConversationRunHandle>;
 };
 
-function buildCommonTriggerOptions(request: OpenClawConversationRequest) {
+export function buildTriggerOpenClawConversationOptions(
+  request: OpenClawConversationRequest,
+) {
   return {
     idempotencyKey: [
       'openclaw-conversation',
@@ -55,7 +57,7 @@ export function createTriggerOpenClawConversationRunner(
       const handle = await triggerTask(
         OPENCLAW_CONVERSATION_TASK_ID,
         request,
-        buildCommonTriggerOptions(request),
+        buildTriggerOpenClawConversationOptions(request),
       );
 
       return {
@@ -67,7 +69,7 @@ export function createTriggerOpenClawConversationRunner(
       const handle = await triggerTask(
         OPENCLAW_CONVERSATION_CLEANUP_TASK_ID,
         request,
-        buildCommonTriggerOptions(request),
+        buildTriggerOpenClawConversationOptions(request),
       );
 
       return {

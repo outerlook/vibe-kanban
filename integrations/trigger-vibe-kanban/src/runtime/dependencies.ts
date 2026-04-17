@@ -4,12 +4,16 @@ import { createSqliteStateStore } from '../state/sqlite-state-store';
 import type { OrchestratorStateStore } from '../state/types';
 import { VkRuntimeClient } from '../vk/runtime-client';
 import type { VkApiConfig, VkMqttConfig } from '../vk/types';
-import type { OrchestratorLogger } from './contracts';
+import type {
+  OpenClawConversationExecutor,
+  OrchestratorLogger,
+} from './contracts';
 import { readOptionalEnv, readRequiredEnv } from './env';
 import {
   loadTriggerExecutorMappingFromEnv,
   type TriggerExecutorMapping,
 } from './executor-mapping';
+import { runOpenClawConversationRequest } from './openclaw-conversation-runner';
 import {
   createOpenClawSessionConfigResolver,
   loadTriggerOpenClawProfileMappingFromEnv,
@@ -33,6 +37,7 @@ export type RuntimeDependencies = {
   stateStore: OrchestratorStateStore;
   vkClient: VkRuntimeClient;
   logger: OrchestratorLogger;
+  openClawConversationExecutor: OpenClawConversationExecutor;
 };
 
 export function createConsoleLogger(): OrchestratorLogger {
@@ -122,10 +127,19 @@ export function createRuntimeDependencies(
   environment = createRuntimeEnvironment(),
   logger = createConsoleLogger(),
 ): RuntimeDependencies {
-  return {
+  const dependencies = {
     environment,
     stateStore: createSqliteStateStore(environment.stateDatabasePath),
     vkClient: new VkRuntimeClient(environment.vkApi),
     logger,
+    openClawConversationExecutor: null as unknown as OpenClawConversationExecutor,
   };
+
+  dependencies.openClawConversationExecutor = {
+    run(request) {
+      return runOpenClawConversationRequest(request, dependencies);
+    },
+  };
+
+  return dependencies;
 }

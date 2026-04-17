@@ -5,7 +5,6 @@ import type {
 } from '../state/types';
 
 export const REVIEW_GATE_SOURCE_WORKFLOW_KEY = 'review-gate/in-review';
-export const REVIEW_GATE_RESULT_WORKFLOW_KEY = 'review-gate/reviewer-result';
 
 const REVIEW_GATE_PROVIDER = 'review-gate';
 
@@ -33,24 +32,11 @@ export type ReviewOutcomeState = {
 export type ReviewGateSourceState = {
   kind: 'review-gate-source';
   sourceExecutionProcessId: string;
-  projectId: string;
   taskId: string;
   workspaceId: string;
   worktreePath: string;
-  worktreeBranch: string;
-  reviewConversationTitle: string;
-  reviewInitialMessage: string;
   repoIds: string[];
-  reviewConversationId: string | null;
-  reviewExecutionProcessId: string | null;
-  registeredAt: string | null;
   outcome: ReviewOutcomeState | null;
-};
-
-type ReviewGatePointerState = {
-  kind: 'review-gate-review-pointer';
-  sourceExecutionProcessId: string;
-  reviewExecutionProcessId: string;
 };
 
 export type ReviewGateCorrelation = {
@@ -169,39 +155,19 @@ function parseSourceState(value: JsonValue | null): ReviewGateSourceState | null
 
   const kind = asString(value.kind);
   const sourceExecutionProcessId = asString(value.sourceExecutionProcessId);
-  const projectId = asString(value.projectId);
   const taskId = asString(value.taskId);
   const workspaceId = asString(value.workspaceId);
   const worktreePath = asString(value.worktreePath);
-  const worktreeBranch = asString(value.worktreeBranch);
-  const reviewConversationTitle = asString(value.reviewConversationTitle);
-  const reviewInitialMessage = asString(value.reviewInitialMessage);
   const repoIds = asStringArray(value.repoIds);
-  const reviewConversationId =
-    value.reviewConversationId === null
-      ? null
-      : asString(value.reviewConversationId);
-  const reviewExecutionProcessId =
-    value.reviewExecutionProcessId === null
-      ? null
-      : asString(value.reviewExecutionProcessId);
-  const registeredAt = value.registeredAt === null ? null : asString(value.registeredAt);
   const outcome = value.outcome === null ? null : parseOutcomeState(value.outcome);
 
   if (
     kind !== 'review-gate-source' ||
     !sourceExecutionProcessId ||
-    !projectId ||
     !taskId ||
     !workspaceId ||
     worktreePath === null ||
-    worktreeBranch === null ||
-    !reviewConversationTitle ||
-    !reviewInitialMessage ||
     repoIds === null ||
-    (reviewConversationId !== null && typeof reviewConversationId !== 'string') ||
-    (reviewExecutionProcessId !== null && typeof reviewExecutionProcessId !== 'string') ||
-    (registeredAt !== null && typeof registeredAt !== 'string') ||
     (value.outcome !== null && outcome === null)
   ) {
     return null;
@@ -210,42 +176,11 @@ function parseSourceState(value: JsonValue | null): ReviewGateSourceState | null
   return {
     kind,
     sourceExecutionProcessId,
-    projectId,
     taskId,
     workspaceId,
     worktreePath,
-    worktreeBranch,
-    reviewConversationTitle,
-    reviewInitialMessage,
     repoIds,
-    reviewConversationId,
-    reviewExecutionProcessId,
-    registeredAt,
     outcome,
-  };
-}
-
-function parsePointerState(value: JsonValue | null): ReviewGatePointerState | null {
-  if (!isJsonRecord(value)) {
-    return null;
-  }
-
-  const kind = asString(value.kind);
-  const sourceExecutionProcessId = asString(value.sourceExecutionProcessId);
-  const reviewExecutionProcessId = asString(value.reviewExecutionProcessId);
-
-  if (
-    kind !== 'review-gate-review-pointer' ||
-    !sourceExecutionProcessId ||
-    !reviewExecutionProcessId
-  ) {
-    return null;
-  }
-
-  return {
-    kind,
-    sourceExecutionProcessId,
-    reviewExecutionProcessId,
   };
 }
 
@@ -259,29 +194,11 @@ function saveSourceRecord(
     externalReviewId: state.sourceExecutionProcessId,
     workflowKey: REVIEW_GATE_SOURCE_WORKFLOW_KEY,
     taskId: state.taskId,
-    conversationId: state.reviewConversationId,
+    conversationId: null,
     reviewAttentionId: state.outcome?.reviewAttentionId ?? null,
-    executionProcessId: state.reviewExecutionProcessId,
+    executionProcessId: state.sourceExecutionProcessId,
     state,
   });
-
-  if (state.reviewExecutionProcessId) {
-    stateStore.upsertReviewCorrelation({
-      correlationKey: reviewExecutionCorrelationKey(state.reviewExecutionProcessId),
-      provider: REVIEW_GATE_PROVIDER,
-      externalReviewId: state.reviewExecutionProcessId,
-      workflowKey: REVIEW_GATE_RESULT_WORKFLOW_KEY,
-      taskId: state.taskId,
-      conversationId: state.reviewConversationId,
-      reviewAttentionId: state.outcome?.reviewAttentionId ?? null,
-      executionProcessId: state.sourceExecutionProcessId,
-      state: {
-        kind: 'review-gate-review-pointer',
-        sourceExecutionProcessId: state.sourceExecutionProcessId,
-        reviewExecutionProcessId: state.reviewExecutionProcessId,
-      } satisfies ReviewGatePointerState,
-    });
-  }
 
   return {
     record,
@@ -293,12 +210,8 @@ export function reviewSourceCorrelationKey(sourceExecutionProcessId: string): st
   return `review-gate:source:${sourceExecutionProcessId}`;
 }
 
-export function reviewExecutionCorrelationKey(reviewExecutionProcessId: string): string {
-  return `review-gate:review:${reviewExecutionProcessId}`;
-}
-
-export function reviewConversationClaimKey(sourceExecutionProcessId: string): string {
-  return `review-gate:create-conversation:${sourceExecutionProcessId}`;
+export function reviewVerdictClaimKey(sourceExecutionProcessId: string): string {
+  return `review-gate:review-verdict:${sourceExecutionProcessId}`;
 }
 
 export function reviewAttentionClaimKey(sourceExecutionProcessId: string): string {
@@ -320,30 +233,19 @@ export function reviewQueueMergeClaimKey(
 }
 
 export function createPendingReviewCorrelation(input: {
-  projectId: string;
   taskId: string;
   workspaceId: string;
   sourceExecutionProcessId: string;
   worktreePath: string;
-  worktreeBranch: string;
-  reviewConversationTitle: string;
-  reviewInitialMessage: string;
   repoIds: string[];
 }): ReviewGateSourceState {
   return {
     kind: 'review-gate-source',
     sourceExecutionProcessId: input.sourceExecutionProcessId,
-    projectId: input.projectId,
     taskId: input.taskId,
     workspaceId: input.workspaceId,
     worktreePath: input.worktreePath,
-    worktreeBranch: input.worktreeBranch,
-    reviewConversationTitle: input.reviewConversationTitle,
-    reviewInitialMessage: input.reviewInitialMessage,
     repoIds: [...input.repoIds],
-    reviewConversationId: null,
-    reviewExecutionProcessId: null,
-    registeredAt: null,
     outcome: null,
   };
 }
@@ -370,30 +272,6 @@ export function getReviewCorrelationBySource(
     record,
     state,
   };
-}
-
-export function getReviewCorrelationByReviewExecution(
-  stateStore: OrchestratorStateStore,
-  reviewExecutionProcessId: string,
-): ReviewGateCorrelation | null {
-  const pointer = stateStore.getReviewCorrelation(
-    reviewExecutionCorrelationKey(reviewExecutionProcessId),
-  );
-  if (!pointer) {
-    return null;
-  }
-
-  const pointerState = parsePointerState(pointer.state);
-  if (!pointerState) {
-    throw new Error(
-      `Invalid review pointer correlation payload for ${reviewExecutionProcessId}`,
-    );
-  }
-
-  return getReviewCorrelationBySource(
-    stateStore,
-    pointerState.sourceExecutionProcessId,
-  );
 }
 
 export function savePendingReviewCorrelation(

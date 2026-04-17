@@ -8,10 +8,7 @@ import type { RuntimeDependencies } from '../runtime/dependencies';
 import { runCodeRabbitPollWorkflow } from '../coderabbit/poller';
 import { autopilotContinuationHandler } from './lifecycle/autopilot-continuation';
 import { feedbackCollectionHandler } from './lifecycle/feedback-collection';
-import {
-  reviewGateWorkflowHandler,
-  reviewerResultWorkflowHandler,
-} from './review-workflow';
+import { reviewGateWorkflowHandler } from './review-workflow';
 import type {
   OrchestrationWorkflowHandler,
   ScheduledWorkflowHandler,
@@ -103,6 +100,5 @@ registerScheduledWorkflowHandler({
 });
 
 registerOrchestrationWorkflowHandler(reviewGateWorkflowHandler);
-registerOrchestrationWorkflowHandler(reviewerResultWorkflowHandler);
 registerOrchestrationWorkflowHandler(autopilotContinuationHandler);
 registerOrchestrationWorkflowHandler(feedbackCollectionHandler);

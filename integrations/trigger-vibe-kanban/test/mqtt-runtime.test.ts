@@ -116,6 +116,11 @@ describe('mqtt bridge runtime', () => {
         authMode: 'none',
       }),
       logger: createConsoleLogger(),
+      openClawConversationExecutor: {
+        async run() {
+          throw new Error('OpenClaw conversation executor should not run in this test');
+        },
+      },
     };
 
     const received = [] as Parameters<OrchestratorDispatcher['dispatchOrchestrationEvent']>[0][];

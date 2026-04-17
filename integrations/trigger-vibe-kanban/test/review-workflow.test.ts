@@ -6,11 +6,21 @@ import { join } from 'node:path';
 import type { OrchestrationTriggerItem } from '../../../shared/orchestration-events';
 import { BaseCodingAgent } from '../../../shared/types';
 
+import type {
+  OpenClawConversationRunRequest,
+  OpenClawConversationRunResult,
+} from '../src/runtime/contracts';
 import { createConsoleLogger } from '../src/runtime/dependencies';
 import {
   createTriggerExecutorMapping,
   TRIGGER_EXECUTOR_OPERATION_KEYS,
+  type TriggerExecutorMapping,
 } from '../src/runtime/executor-mapping';
+import {
+  createOpenClawSessionConfigResolver,
+  createTriggerOpenClawProfileMapping,
+  type OpenClawSessionConfigResolver,
+} from '../src/runtime/openclaw-profile-mapping';
 import { createSqliteStateStore } from '../src/state/sqlite-state-store';
 import {
   EXECUTION_HISTORY_RECAP_ENTRY_BUDGET,
@@ -62,26 +72,11 @@ class FakeVkRuntimeClient {
 
   readonly executionContexts = new Map<string, any>();
   readonly executionHistoryRecaps = new Map<string, ExecutionHistoryRecap>();
-  readonly conversationContexts = new Map<string, any>();
-
-  createConversationResult = {
-    session: { id: 'conversation-1' },
-    execution_process_id: 'review-exec-1',
-  };
 
   async getExecutionContext(executionProcessId: string) {
     const context = this.executionContexts.get(executionProcessId);
     if (!context) {
       throw new Error(`Missing fake execution context for ${executionProcessId}`);
-    }
-
-    return context;
-  }
-
-  async getConversationContext(conversationId: string) {
-    const context = this.conversationContexts.get(conversationId);
-    if (!context) {
-      throw new Error(`Missing fake conversation context for ${conversationId}`);
     }
 
     return context;
@@ -95,15 +90,8 @@ class FakeVkRuntimeClient {
   }
 
   async createConversation(projectId: string, body: Record<string, unknown>) {
-    this.order.push('createConversation');
     this.createConversationCalls.push({ projectId, body });
-
-    return {
-      ...this.createConversationResult,
-      initial_message: {
-        id: 'message-1',
-      },
-    };
+    throw new Error('review workflow should not call VK createConversation');
   }
 
   async createReviewAttention(body: Record<string, unknown>) {
@@ -139,12 +127,8 @@ class FakeVkRuntimeClient {
   }
 
   async generateCommitMessage(workspaceId: string, body: Record<string, unknown>) {
-    this.order.push('generateCommitMessage');
     this.generateCommitMessageCalls.push({ workspaceId, body });
-
-    return {
-      commit_message: `commit:${String(body.repo_id)}`,
-    };
+    throw new Error('review workflow should not call VK generateCommitMessage');
   }
 
   async queueMerge(workspaceId: string, body: Record<string, unknown>) {
@@ -172,6 +156,130 @@ class FakeVkRuntimeClient {
       collected_at: '2026-04-16T12:02:00.000Z',
     };
   }
+}
+
+type OpenClawCall = {
+  request: OpenClawConversationRunRequest;
+  resolvedSelection: OpenClawConversationRunResult['selection'];
+};
+
+class FakeOpenClawConversationExecutor {
+  readonly calls = [] as OpenClawCall[];
+
+  reviewerOutcome:
+    | { needs_attention: boolean; reasoning: string }
+    | Error = {
+    needs_attention: false,
+    reasoning: 'Looks good to merge.',
+  };
+  commitMessagesByRepo = new Map<string, string>([['repo-1', 'commit:repo-1']]);
+
+  constructor(
+    private readonly environment: {
+      triggerExecutorMapping: TriggerExecutorMapping;
+      openClawSessionConfigResolver: OpenClawSessionConfigResolver;
+    },
+    private readonly order: string[],
+  ) {}
+
+  async run(
+    request: OpenClawConversationRunRequest,
+  ): Promise<OpenClawConversationRunResult> {
+    const profileName =
+      'profileName' in request.selection
+        ? request.selection.profileName
+        : this.environment.triggerExecutorMapping.resolveProfileName(
+            request.selection.operationKey,
+          );
+    const engineModel = this.environment.openClawSessionConfigResolver.resolve(
+      profileName,
+    ).engine.model;
+    const modelRef = toModelRef(engineModel);
+
+    const resolvedSelection = {
+      profileName,
+      engineModel,
+      modelRef,
+    };
+
+    this.calls.push({ request, resolvedSelection });
+
+    if (
+      'operationKey' in request.selection &&
+      request.selection.operationKey ===
+        TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateCreateConversation
+    ) {
+      this.order.push('openClaw:reviewer');
+
+      if (this.reviewerOutcome instanceof Error) {
+        throw this.reviewerOutcome;
+      }
+
+      return {
+        action: 'run',
+        session: {
+          key: 'trigger:openclaw:reviewer',
+          id: 'session-reviewer',
+          storePath: '/tmp/openclaw-sessions.json',
+          cleanedUp: true,
+        },
+        selection: resolvedSelection,
+        response: {
+          kind: 'structured',
+          text: JSON.stringify(this.reviewerOutcome),
+          value: this.reviewerOutcome,
+        },
+        run: {
+          claimKey: 'claim-reviewer',
+          idempotencyKey: request.correlation.idempotencyKey,
+          durationMs: 1,
+          agentRunId: 'run-reviewer',
+          selectedModel: {
+            provider: modelRef.split('/')[0] ?? '',
+            model: modelRef.split('/').slice(1).join('/'),
+          },
+        },
+      };
+    }
+
+    this.order.push('openClaw:commit');
+    const repoId = request.correlation.correlationKey.split(':').at(-1) ?? 'repo-1';
+    const commitMessage = this.commitMessagesByRepo.get(repoId) ?? `commit:${repoId}`;
+
+    return {
+      action: 'run',
+      session: {
+        key: `trigger:openclaw:${repoId}`,
+        id: `session-${repoId}`,
+        storePath: '/tmp/openclaw-sessions.json',
+        cleanedUp: true,
+      },
+      selection: resolvedSelection,
+      response: {
+        kind: 'text',
+        text: commitMessage,
+      },
+      run: {
+        claimKey: `claim-${repoId}`,
+        idempotencyKey: request.correlation.idempotencyKey,
+        durationMs: 1,
+        agentRunId: `run-${repoId}`,
+        selectedModel: {
+          provider: modelRef.split('/')[0] ?? '',
+          model: modelRef.split('/').slice(1).join('/'),
+        },
+      },
+    };
+  }
+}
+
+function toModelRef(engineModel: string): string {
+  if (engineModel.includes('/')) {
+    return engineModel;
+  }
+
+  const separatorIndex = engineModel.indexOf('.');
+  return `${engineModel.slice(0, separatorIndex)}/${engineModel.slice(separatorIndex + 1)}`;
 }
 
 function createTaskContext(args?: {
@@ -229,8 +337,16 @@ function createSourceExecutionContext() {
       status: 'completed',
     },
     scope: {
-      task: { id: 'task-1' },
-      workspace: { id: 'workspace-1' },
+      task: {
+        id: 'task-1',
+        project_id: 'project-1',
+        title: 'Ship durable review orchestration',
+        description: 'Move the review gate into Trigger',
+      },
+      workspace: {
+        id: 'workspace-1',
+        branch: 'feature/review-gate',
+      },
       session: null,
       conversation: null,
     },
@@ -240,6 +356,8 @@ function createSourceExecutionContext() {
     repo_states: [
       {
         repo_id: 'repo-1',
+        before_head_commit: 'abc123',
+        after_head_commit: 'def456',
       },
     ],
     current_execution_visibility: null,
@@ -287,82 +405,10 @@ function createExecutionRecap(
   };
 }
 
-function createReviewExecutionContext(status = 'completed') {
-  return {
-    execution: {
-      id: 'review-exec-1',
-      status,
-    },
-    scope: {
-      task: { id: 'task-1' },
-      workspace: { id: 'workspace-1' },
-      session: null,
-      conversation: { id: 'conversation-1' },
-    },
-    coding_agent_turn: null,
-    repo_states: [],
-    current_execution_visibility: null,
-    pending_tool_approvals: [],
-    pending_questions: [],
-    review_attention: null,
-    feedback: null,
-  } as any;
-}
-
-function createStructuredReviewVerdict(
-  needsAttention: boolean,
-  reasoning: string,
-) {
-  return {
-    structured_output: {
-      status: 'valid',
-      payload: {
-        needs_attention: needsAttention,
-        reasoning,
-      },
-      error: null,
-    },
-  };
-}
-
-function createConversationContext(args?: {
-  content?: string;
-  metadata?: Record<string, unknown> | null;
-  metadataParseError?: string | null;
-}) {
-  const metadata = args?.metadata ?? null;
-
-  return {
-    conversation: {
-      id: 'conversation-1',
-    },
-    transcript: {
-      messages: [
-        {
-          id: 'message-1',
-          execution_process_id: 'review-exec-1',
-          role: 'assistant',
-          content: args?.content ?? 'Structured review verdict',
-          metadata,
-          metadata_json: metadata,
-          metadata_raw: metadata ? JSON.stringify(metadata) : null,
-          metadata_parse_error: args?.metadataParseError ?? null,
-        },
-      ],
-      images: [],
-    },
-    executions: [],
-    current_execution_visibility: null,
-    latest_agent_session_id: null,
-  } as any;
-}
-
 function createEvent(args: {
   eventType: OrchestrationTriggerItem['eventType'];
   eventId: string;
   payload: Record<string, unknown>;
-  executionProcessId?: string | null;
-  conversationId?: string | null;
 }) {
   return {
     topic: `vk/orchestration/${args.eventType}`,
@@ -373,58 +419,98 @@ function createEvent(args: {
     entityIds: {
       taskId: 'task-1',
       workspaceId: 'workspace-1',
-      sessionId: args.conversationId ?? null,
-      executionProcessId: args.executionProcessId ?? null,
+      sessionId: null,
+      executionProcessId: null,
       taskGroupId: null,
     },
     payload: args.payload,
     refs: {
       taskContext: { taskId: 'task-1', projectId: 'project-1' },
       taskGroupContext: null,
-      conversationContext: args.conversationId
-        ? { conversationId: args.conversationId }
-        : null,
-      executionContext: args.executionProcessId
-        ? { executionProcessId: args.executionProcessId }
-        : null,
+      conversationContext: null,
+      executionContext: null,
       approvalContext: null,
       taskSession: null,
     },
   } as OrchestrationTriggerItem;
 }
 
-function createDependencies(
-  client: FakeVkRuntimeClient,
-  triggerExecutorMapping = createTestTriggerExecutorMapping(),
-) {
+function createInReviewInput(eventId = 'evt-task-status-1') {
+  return {
+    claim: {
+      claimKey: eventId,
+    },
+    event: createEvent({
+      eventType: 'task_status_changed',
+      eventId,
+      payload: { status: 'inreview' },
+    }),
+    contexts: {
+      task: createTaskContext(),
+      taskGroup: null,
+      conversation: null,
+      execution: null,
+      approval: null,
+    },
+  } as any;
+}
+
+function createDependencies(args?: {
+  client?: FakeVkRuntimeClient;
+  triggerExecutorMapping?: TriggerExecutorMapping;
+  openClawSessionConfigResolver?: OpenClawSessionConfigResolver;
+  reviewerOutcome?: { needs_attention: boolean; reasoning: string } | Error;
+  commitMessagesByRepo?: Map<string, string>;
+}) {
   const tempDir = createTempDir('trigger-review-workflow-');
   tempDirs.push(tempDir);
 
-  return {
-    environment: {
-      vkApi: {
-        baseUrl: 'http://127.0.0.1:9',
-        authMode: 'none' as const,
-      },
-      vkMqtt: {
-        brokerUrl: 'mqtt://127.0.0.1:1883',
-        topicNamespace: 'vk/orchestration',
-      },
-      stateDatabasePath: join(tempDir, 'state.sqlite'),
-      schemaVersion: 'vk_orchestration_v1',
-      codeRabbitPollScopeKey: 'global',
-      mqttRouterMode: 'direct' as const,
-      triggerExecutorMapping,
-      openClawSessionConfigResolver: createTestOpenClawSessionConfigResolver(),
+  const client = args?.client ?? new FakeVkRuntimeClient();
+  const triggerExecutorMapping =
+    args?.triggerExecutorMapping ?? createTestTriggerExecutorMapping();
+  const openClawSessionConfigResolver =
+    args?.openClawSessionConfigResolver ?? createTestOpenClawSessionConfigResolver();
+
+  const environment = {
+    vkApi: {
+      baseUrl: 'http://127.0.0.1:9',
+      authMode: 'none' as const,
     },
+    vkMqtt: {
+      brokerUrl: 'mqtt://127.0.0.1:1883',
+      topicNamespace: 'vk/orchestration',
+    },
+    stateDatabasePath: join(tempDir, 'state.sqlite'),
+    schemaVersion: 'vk_orchestration_v1',
+    codeRabbitPollScopeKey: 'global',
+    mqttRouterMode: 'direct' as const,
+    triggerExecutorMapping,
+    openClawSessionConfigResolver,
+  };
+
+  const openClawConversationExecutor = new FakeOpenClawConversationExecutor(
+    environment,
+    client.order,
+  );
+  if (args?.reviewerOutcome !== undefined) {
+    openClawConversationExecutor.reviewerOutcome = args.reviewerOutcome;
+  }
+  if (args?.commitMessagesByRepo) {
+    openClawConversationExecutor.commitMessagesByRepo = args.commitMessagesByRepo;
+  }
+
+  return {
+    environment,
     stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
     vkClient: client as any,
     logger: createConsoleLogger(),
+    openClawConversationExecutor,
+    client,
   };
 }
 
 describe('review orchestration workflows', () => {
-  it('starts the Trigger review gate with a chronological execution recap and persists durable correlation', async () => {
+  it('starts the review gate with a chronological execution recap and persists simplified durable correlation', async () => {
     const client = new FakeVkRuntimeClient();
     client.executionContexts.set('source-exec-1', createSourceExecutionContext());
     client.executionHistoryRecaps.set(
@@ -463,35 +549,14 @@ describe('review orchestration workflows', () => {
       ]),
     );
 
-    const deps = createDependencies(client);
-    const input = {
-      claim: {
-        claimKey: 'evt-task-status-1',
-      },
-      event: createEvent({
-        eventType: 'task_status_changed',
-        eventId: 'evt-task-status-1',
-        payload: { status: 'inreview' },
-      }),
-      contexts: {
-        task: createTaskContext(),
-        taskGroup: null,
-        conversation: null,
-        execution: null,
-        approval: null,
-      },
-    } as any;
+    const deps = createDependencies({ client });
 
-    const first = await dispatchOrchestrationEvent(input, deps as any);
+    const first = await dispatchOrchestrationEvent(
+      createInReviewInput('evt-task-status-1'),
+      deps as any,
+    );
     const second = await dispatchOrchestrationEvent(
-      {
-        ...input,
-        event: createEvent({
-          eventType: 'task_status_changed',
-          eventId: 'evt-task-status-2',
-          payload: { status: 'inreview' },
-        }),
-      },
+      createInReviewInput('evt-task-status-2'),
       deps as any,
     );
 
@@ -503,62 +568,45 @@ describe('review orchestration workflows', () => {
       'review-gate/in-review',
       'lifecycle/autopilot-continuation',
     ]);
-    expect(client.createConversationCalls).toHaveLength(1);
-    expect(client.createConversationCalls[0]?.body.initial_message).not.toContain(
-      'Respond with JSON',
+
+    const reviewCall = deps.openClawConversationExecutor.calls.find(
+      (call) =>
+        'operationKey' in call.request.selection &&
+        call.request.selection.operationKey ===
+          TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateCreateConversation,
     );
-    expect(client.createConversationCalls[0]?.body.initial_message).not.toContain(
-      '```json',
-    );
-    const initialMessage = String(
-      client.createConversationCalls[0]?.body.initial_message,
-    );
-    expect(initialMessage).toContain('## Execution Recap');
-    expect(initialMessage).not.toContain("Agent's Work Summary");
-    expect(initialMessage).toContain(
+    expect(reviewCall).toBeDefined();
+    expect(reviewCall?.request.prompt).toContain('## Execution Recap');
+    expect(reviewCall?.request.prompt).toContain(
       'filtered, derived recap of selected execution history entries in chronological order',
     );
-    expect(initialMessage).toContain('[1] User');
-    expect(initialMessage).toContain('[2] Assistant');
-    expect(initialMessage).toContain('[3] Assistant');
-    expect(initialMessage).not.toContain(
-      'Implemented the orchestration cutover and verified the happy path.',
-    );
-    expect(initialMessage.indexOf('[1] User')).toBeLessThan(
-      initialMessage.indexOf('[2] Assistant'),
-    );
-    expect(initialMessage.indexOf('[2] Assistant')).toBeLessThan(
-      initialMessage.indexOf('[3] Assistant'),
-    );
-    expect(client.createConversationCalls[0]?.body.structured_output).toEqual({
+    expect(reviewCall?.request.prompt).not.toContain("Agent's Work Summary");
+    expect(reviewCall?.request.response).toEqual({
+      kind: 'structured',
       schema: {
         type: 'object',
         properties: {
-          needs_attention: {
-            type: 'boolean',
-          },
-          reasoning: {
-            type: 'string',
-            minLength: 1,
-          },
+          needs_attention: { type: 'boolean' },
+          reasoning: { type: 'string', minLength: 1 },
         },
         required: ['needs_attention', 'reasoning'],
         additionalProperties: false,
       },
     });
-    expect(client.createConversationCalls[0]?.body.executor_profile_id).toEqual(
-      deps.environment.triggerExecutorMapping.resolve(
-        TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateCreateConversation,
-      ),
-    );
+
+    expect(client.createConversationCalls).toHaveLength(0);
+    expect(client.generateCommitMessageCalls).toHaveLength(0);
 
     const correlation = getReviewCorrelationBySource(
       deps.stateStore,
       'source-exec-1',
     );
-    expect(correlation?.state.reviewConversationId).toBe('conversation-1');
-    expect(correlation?.state.reviewExecutionProcessId).toBe('review-exec-1');
+    expect(correlation?.state.taskId).toBe('task-1');
+    expect(correlation?.state.workspaceId).toBe('workspace-1');
+    expect(correlation?.state.worktreePath).toBe('/tmp/worktree');
     expect(correlation?.state.repoIds).toEqual(['repo-1']);
+    expect(Object.hasOwn(correlation?.state ?? {}, 'reviewConversationId')).toBe(false);
+    expect(Object.hasOwn(correlation?.state ?? {}, 'reviewExecutionProcessId')).toBe(false);
 
     deps.stateStore.close();
   });
@@ -567,40 +615,17 @@ describe('review orchestration workflows', () => {
     const client = new FakeVkRuntimeClient();
     client.executionContexts.set('source-exec-1', createSourceExecutionContext());
 
-    const deps = createDependencies(client);
+    const deps = createDependencies({ client });
 
-    await dispatchOrchestrationEvent(
-      {
-        claim: {
-          claimKey: 'evt-task-status-fallback',
-        },
-        event: createEvent({
-          eventType: 'task_status_changed',
-          eventId: 'evt-task-status-fallback',
-          payload: { status: 'inreview' },
-        }),
-        contexts: {
-          task: createTaskContext(),
-          taskGroup: null,
-          conversation: null,
-          execution: null,
-          approval: null,
-        },
-      } as any,
-      deps as any,
-    );
+    await dispatchOrchestrationEvent(createInReviewInput(), deps as any);
 
-    const initialMessage = String(
-      client.createConversationCalls[0]?.body.initial_message,
+    const reviewCall = deps.openClawConversationExecutor.calls[0];
+    expect(reviewCall?.request.prompt).toContain(
+      "falls back to the coding agent's final summary snapshot",
     );
-    expect(initialMessage).toContain('## Execution Recap');
-    expect(initialMessage).toContain(
-      "Filtered execution history was unavailable or had no usable reviewer context, so this falls back to the coding agent's final summary snapshot.",
-    );
-    expect(initialMessage).toContain(
+    expect(reviewCall?.request.prompt).toContain(
       'Implemented the orchestration cutover and verified the happy path.',
     );
-    expect(initialMessage).not.toContain("Agent's Work Summary");
 
     deps.stateStore.close();
   });
@@ -615,138 +640,55 @@ describe('review orchestration workflows', () => {
           createNormalizedEntryRecord({
             entryIndex: 401,
             entryType: { type: 'user_message' },
-            content: 'Please verify the migration path is gone.',
+            content: 'Retained entry one.',
           }),
           createNormalizedEntryRecord({
             entryIndex: 402,
             entryType: { type: 'assistant_message' },
-            content: 'I removed the legacy path and kept the tests green.',
+            content: 'Retained entry two.',
           }),
         ],
         { droppedEntries: 17 },
       ),
     );
 
-    const deps = createDependencies(client);
+    const deps = createDependencies({ client });
 
-    await dispatchOrchestrationEvent(
-      {
-        claim: {
-          claimKey: 'evt-task-status-truncated',
-        },
-        event: createEvent({
-          eventType: 'task_status_changed',
-          eventId: 'evt-task-status-truncated',
-          payload: { status: 'inreview' },
-        }),
-        contexts: {
-          task: createTaskContext(),
-          taskGroup: null,
-          conversation: null,
-          execution: null,
-          approval: null,
-        },
-      } as any,
-      deps as any,
-    );
+    await dispatchOrchestrationEvent(createInReviewInput(), deps as any);
 
-    const initialMessage = String(
-      client.createConversationCalls[0]?.body.initial_message,
-    );
-    expect(initialMessage).toContain(
+    const reviewCall = deps.openClawConversationExecutor.calls[0];
+    expect(reviewCall?.request.prompt).toContain(
       `only the latest ${EXECUTION_HISTORY_RECAP_ENTRY_BUDGET} normalized entries were retained (17 dropped)`,
     );
-    expect(initialMessage).toContain('[1] User');
-    expect(initialMessage).toContain('[2] Assistant');
+    expect(reviewCall?.request.prompt).toContain('[1] User');
+    expect(reviewCall?.request.prompt).toContain('[2] Assistant');
 
     deps.stateStore.close();
   });
 
-  it('applies reviewer results once, preserves ordering, and reuses VK review-attention state on replay', async () => {
+  it('runs reviewer and commit helper work through Trigger-owned OpenClaw execution and repairs replayed state from durable claims', async () => {
     const client = new FakeVkRuntimeClient();
     client.executionContexts.set('source-exec-1', createSourceExecutionContext());
-    client.executionContexts.set('review-exec-1', createReviewExecutionContext());
-    client.conversationContexts.set(
-      'conversation-1',
-      createConversationContext({
-        content: 'The task objective was completed.',
-        metadata: createStructuredReviewVerdict(
-          false,
-          'The task objective was completed.',
-        ),
-      }),
-    );
 
-    const deps = createDependencies(client);
+    const deps = createDependencies({ client });
 
-    await dispatchOrchestrationEvent(
-      {
-        claim: { claimKey: 'evt-task-status-1' },
-        event: createEvent({
-          eventType: 'task_status_changed',
-          eventId: 'evt-task-status-1',
-          payload: { status: 'inreview' },
-        }),
-        contexts: {
-          task: createTaskContext(),
-          taskGroup: null,
-          conversation: null,
-          execution: null,
-          approval: null,
-        },
-      } as any,
+    const first = await dispatchOrchestrationEvent(
+      createInReviewInput('evt-task-status-1'),
       deps as any,
     );
 
-    const completionInput = {
-      claim: { claimKey: 'evt-review-complete-1' },
-      event: createEvent({
-        eventType: 'execution_completed',
-        eventId: 'evt-review-complete-1',
-        payload: {
-          status: 'completed',
-          run_reason: 'conversation',
-          conversation_session_id: 'conversation-1',
-        },
-        executionProcessId: 'review-exec-1',
-        conversationId: 'conversation-1',
-      }),
-      contexts: {
-        task: null,
-        taskGroup: null,
-        conversation: client.conversationContexts.get('conversation-1') ?? null,
-        execution: client.executionContexts.get('review-exec-1') ?? null,
-        approval: null,
-      },
-    } as any;
-
-    const first = await dispatchOrchestrationEvent(completionInput, deps as any);
-
     expect(first.handlerKeys).toEqual([
-      'review-gate/reviewer-result',
-      'lifecycle/feedback-collection',
+      'review-gate/in-review',
+      'lifecycle/autopilot-continuation',
     ]);
     expect(client.order).toEqual([
-      'createConversation',
+      'openClaw:reviewer',
       'createReviewAttention',
-      'generateCommitMessage',
+      'openClaw:commit',
       'queueMerge',
-      'createFeedback',
     ]);
     expect(client.createReviewAttentionCalls).toHaveLength(1);
-    expect(client.generateCommitMessageCalls).toHaveLength(1);
     expect(client.queueMergeCalls).toHaveLength(1);
-    expect(client.createFeedbackCalls).toHaveLength(1);
-    expect(client.createConversationCalls[0]?.body.executor_profile_id).toEqual(
-      deps.environment.triggerExecutorMapping.resolve(
-        TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateCreateConversation,
-      ),
-    );
-    expect(client.generateCommitMessageCalls[0]?.body.executor_profile_id).toEqual(
-      deps.environment.triggerExecutorMapping.resolve(
-        TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateGenerateCommitMessage,
-      ),
-    );
 
     mutateReviewCorrelation(deps.stateStore, 'source-exec-1', (state) => ({
       ...state,
@@ -755,36 +697,34 @@ describe('review orchestration workflows', () => {
             ...state.outcome,
             reviewAttentionId: null,
             reviewAttentionStatus: 'pending',
+            merges: state.outcome.merges.map((merge) => ({
+              ...merge,
+              queueStatus: 'pending',
+              queueEntryId: null,
+              queueErrorType: null,
+            })),
           }
         : state.outcome,
     }));
 
     const replay = await dispatchOrchestrationEvent(
-      {
-        ...completionInput,
-        event: createEvent({
-          eventType: 'execution_completed',
-          eventId: 'evt-review-complete-2',
-          payload: {
-            status: 'completed',
-            run_reason: 'conversation',
-            conversation_session_id: 'conversation-1',
-          },
-          executionProcessId: 'review-exec-1',
-          conversationId: 'conversation-1',
-        }),
-      },
+      createInReviewInput('evt-task-status-2'),
       deps as any,
     );
 
     expect(replay.handlerKeys).toEqual([
-      'review-gate/reviewer-result',
-      'lifecycle/feedback-collection',
+      'review-gate/in-review',
+      'lifecycle/autopilot-continuation',
     ]);
+    expect(client.order).toEqual([
+      'openClaw:reviewer',
+      'createReviewAttention',
+      'openClaw:commit',
+      'queueMerge',
+    ]);
+    expect(deps.openClawConversationExecutor.calls).toHaveLength(2);
     expect(client.createReviewAttentionCalls).toHaveLength(1);
-    expect(client.generateCommitMessageCalls).toHaveLength(1);
     expect(client.queueMergeCalls).toHaveLength(1);
-    expect(client.createFeedbackCalls).toHaveLength(2);
 
     const correlation = getReviewCorrelationBySource(
       deps.stateStore,
@@ -806,20 +746,48 @@ describe('review orchestration workflows', () => {
     deps.stateStore.close();
   });
 
-  it('uses distinct mapped executor profiles for reviewer and commit composer operations', async () => {
+  it('creates review attention and skips merge work when the reviewer asks for attention', async () => {
     const client = new FakeVkRuntimeClient();
     client.executionContexts.set('source-exec-1', createSourceExecutionContext());
-    client.executionContexts.set('review-exec-1', createReviewExecutionContext());
-    client.conversationContexts.set(
-      'conversation-1',
-      createConversationContext({
-        content: 'Looks good to merge.',
-        metadata: createStructuredReviewVerdict(
-          false,
-          'Looks good to merge.',
-        ),
-      }),
+
+    const deps = createDependencies({
+      client,
+      reviewerOutcome: {
+        needs_attention: true,
+        reasoning: 'Tests are still failing.',
+      },
+    });
+
+    const result = await dispatchOrchestrationEvent(
+      createInReviewInput(),
+      deps as any,
     );
+
+    expect(result.handlerKeys).toEqual([
+      'review-gate/in-review',
+      'lifecycle/autopilot-continuation',
+    ]);
+    expect(client.createReviewAttentionCalls).toHaveLength(1);
+    expect(client.queueMergeCalls).toHaveLength(0);
+    expect(deps.openClawConversationExecutor.calls).toHaveLength(1);
+    expect((result.output as any)[0]).toMatchObject({
+      approved: false,
+      needsAttention: true,
+      reviewAttentionId: 'attention-1',
+    });
+
+    const correlation = getReviewCorrelationBySource(
+      deps.stateStore,
+      'source-exec-1',
+    );
+    expect(correlation?.state.outcome?.reasoning).toBe('Tests are still failing.');
+
+    deps.stateStore.close();
+  });
+
+  it('resolves reviewer and commit helpers through mapped engine.model selection without code changes', async () => {
+    const client = new FakeVkRuntimeClient();
+    client.executionContexts.set('source-exec-1', createSourceExecutionContext());
 
     const triggerExecutorMapping = createTriggerExecutorMapping(
       {
@@ -838,130 +806,65 @@ describe('review orchestration workflows', () => {
       },
       '<test-distinct-review-executors>',
     );
-    const deps = createDependencies(client, triggerExecutorMapping);
-
-    await dispatchOrchestrationEvent(
-      {
-        claim: { claimKey: 'evt-task-status-1' },
-        event: createEvent({
-          eventType: 'task_status_changed',
-          eventId: 'evt-task-status-1',
-          payload: { status: 'inreview' },
-        }),
-        contexts: {
-          task: createTaskContext(),
-          taskGroup: null,
-          conversation: null,
-          execution: client.executionContexts.get('source-exec-1') ?? null,
-          approval: null,
+    const openClawSessionConfigResolver = createOpenClawSessionConfigResolver(
+      createTriggerOpenClawProfileMapping(
+        {
+          'CODEX.DEFAULT': 'openai.gpt-5',
+          'CLAUDE_CODE.REVIEWER_SPECIALIST': 'anthropic.claude-sonnet-4-5',
+          'CODEX.COMMIT_COMPOSER': 'openai.gpt-5-mini',
         },
-      } as any,
-      deps as any,
+        '<test-openclaw-profile-map>',
+      ),
     );
-
-    await dispatchOrchestrationEvent(
-      {
-        claim: { claimKey: 'evt-review-complete-1' },
-        event: createEvent({
-          eventType: 'execution_completed',
-          eventId: 'evt-review-complete-1',
-          payload: {
-            status: 'completed',
-            run_reason: 'conversation',
-            conversation_session_id: 'conversation-1',
-          },
-          executionProcessId: 'review-exec-1',
-          conversationId: 'conversation-1',
-        }),
-        contexts: {
-          task: null,
-          taskGroup: null,
-          conversation: client.conversationContexts.get('conversation-1') ?? null,
-          execution: client.executionContexts.get('review-exec-1') ?? null,
-          approval: null,
-        },
-      } as any,
-      deps as any,
-    );
-
-    expect(client.createConversationCalls[0]?.body.executor_profile_id).toEqual({
-      executor: BaseCodingAgent.CLAUDE_CODE,
-      variant: 'REVIEWER_SPECIALIST',
+    const deps = createDependencies({
+      client,
+      triggerExecutorMapping,
+      openClawSessionConfigResolver,
     });
-    expect(client.generateCommitMessageCalls[0]?.body.executor_profile_id).toEqual({
-      executor: BaseCodingAgent.CODEX,
-      variant: 'COMMIT_COMPOSER',
+
+    await dispatchOrchestrationEvent(createInReviewInput(), deps as any);
+
+    const reviewerCall = deps.openClawConversationExecutor.calls.find(
+      (call) =>
+        'operationKey' in call.request.selection &&
+        call.request.selection.operationKey ===
+          TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateCreateConversation,
+    );
+    const commitCall = deps.openClawConversationExecutor.calls.find(
+      (call) =>
+        'operationKey' in call.request.selection &&
+        call.request.selection.operationKey ===
+          TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateGenerateCommitMessage,
+    );
+
+    expect(reviewerCall?.resolvedSelection).toEqual({
+      profileName: 'CLAUDE_CODE.REVIEWER_SPECIALIST',
+      engineModel: 'anthropic.claude-sonnet-4-5',
+      modelRef: 'anthropic/claude-sonnet-4-5',
+    });
+    expect(commitCall?.resolvedSelection).toEqual({
+      profileName: 'CODEX.COMMIT_COMPOSER',
+      engineModel: 'openai.gpt-5-mini',
+      modelRef: 'openai/gpt-5-mini',
     });
 
     deps.stateStore.close();
   });
 
-  it('fails closed when the reviewer only returns raw text without structured verdict metadata', async () => {
+  it('fails closed when the reviewer helper errors instead of returning a verdict', async () => {
     const client = new FakeVkRuntimeClient();
     client.executionContexts.set('source-exec-1', createSourceExecutionContext());
-    client.executionContexts.set('review-exec-1', createReviewExecutionContext());
-    client.conversationContexts.set(
-      'conversation-1',
-      createConversationContext({
-        content:
-          '{"needs_attention": false, "reasoning": "Would have been approved by salvage parsing."}',
-      }),
-    );
 
-    const deps = createDependencies(client);
+    const deps = createDependencies({
+      client,
+      reviewerOutcome: new Error('OpenClaw structured response did not match the requested schema.'),
+    });
 
-    await dispatchOrchestrationEvent(
-      {
-        claim: { claimKey: 'evt-task-status-1' },
-        event: createEvent({
-          eventType: 'task_status_changed',
-          eventId: 'evt-task-status-1',
-          payload: { status: 'inreview' },
-        }),
-        contexts: {
-          task: createTaskContext(),
-          taskGroup: null,
-          conversation: null,
-          execution: null,
-          approval: null,
-        },
-      } as any,
-      deps as any,
-    );
+    await dispatchOrchestrationEvent(createInReviewInput(), deps as any);
 
-    const result = await dispatchOrchestrationEvent(
-      {
-        claim: { claimKey: 'evt-review-complete-1' },
-        event: createEvent({
-          eventType: 'execution_completed',
-          eventId: 'evt-review-complete-1',
-          payload: {
-            status: 'completed',
-            run_reason: 'conversation',
-            conversation_session_id: 'conversation-1',
-          },
-          executionProcessId: 'review-exec-1',
-          conversationId: 'conversation-1',
-        }),
-        contexts: {
-          task: null,
-          taskGroup: null,
-          conversation: client.conversationContexts.get('conversation-1') ?? null,
-          execution: client.executionContexts.get('review-exec-1') ?? null,
-          approval: null,
-        },
-      } as any,
-      deps as any,
-    );
-
-    expect(result.handlerKeys).toEqual([
-      'review-gate/reviewer-result',
-      'lifecycle/feedback-collection',
-    ]);
     expect(client.createReviewAttentionCalls).toHaveLength(1);
-    expect(client.generateCommitMessageCalls).toHaveLength(0);
     expect(client.queueMergeCalls).toHaveLength(0);
-    expect(client.createFeedbackCalls).toHaveLength(1);
+    expect(client.generateCommitMessageCalls).toHaveLength(0);
 
     const correlation = getReviewCorrelationBySource(
       deps.stateStore,
@@ -969,9 +872,8 @@ describe('review orchestration workflows', () => {
     );
     expect(correlation?.state.outcome?.approved).toBe(false);
     expect(correlation?.state.outcome?.needsAttention).toBe(true);
-    expect(correlation?.state.outcome?.reasoning).toContain(
-      'structured output metadata',
-    );
+    expect(correlation?.state.outcome?.reasoning).toContain('Reviewer helper failed');
+    expect(correlation?.state.outcome?.reasoning).toContain('structured response');
 
     deps.stateStore.close();
   });

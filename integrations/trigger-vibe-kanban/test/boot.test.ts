@@ -61,6 +61,11 @@ describe('package boot surfaces', () => {
         authMode: 'none',
       }),
       logger: createConsoleLogger(),
+      openClawConversationExecutor: {
+        async run() {
+          throw new Error('OpenClaw conversation executor should not run in this test');
+        },
+      },
     };
 
     try {
@@ -126,6 +131,11 @@ describe('package boot surfaces', () => {
         authMode: 'none',
       }),
       logger: createConsoleLogger(),
+      openClawConversationExecutor: {
+        async run() {
+          throw new Error('OpenClaw conversation executor should not run in this test');
+        },
+      },
     };
 
     const runtime = await startMqttBridgeRuntime({

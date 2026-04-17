@@ -4,25 +4,20 @@ import type { RuntimeDependencies } from '../runtime/dependencies';
 import { TRIGGER_EXECUTOR_OPERATION_KEYS } from '../runtime/executor-mapping';
 import type {
   ExecutionHistoryRecap,
-  OrchestrationConversationContextDto,
   OrchestrationExecutionContextDto,
   ExecutionProcessNormalizedEntryRecord,
-  StructuredOutputContract,
 } from '../vk/types';
 import {
   createPendingReviewCorrelation,
-  getReviewCorrelationByReviewExecution,
   getReviewCorrelationBySource,
   mutateReviewCorrelation,
   reviewAttentionClaimKey,
   reviewCommitMessageClaimKey,
-  reviewConversationClaimKey,
   reviewQueueMergeClaimKey,
-  REVIEW_GATE_RESULT_WORKFLOW_KEY,
+  reviewVerdictClaimKey,
   REVIEW_GATE_SOURCE_WORKFLOW_KEY,
   savePendingReviewCorrelation,
   type ReviewGateCorrelation,
-  type ReviewMergeState,
   type ReviewOutcomeState,
 } from './review-correlation';
 
@@ -38,27 +33,23 @@ type ReviewVerdictPayload = {
 };
 
 type ReviewGateCandidate = {
-  projectId: string;
   taskId: string;
   workspaceId: string;
   taskTitle: string;
   taskDescription: string;
   sourceExecutionProcessId: string;
+  sourceExecution: OrchestrationExecutionContextDto;
   worktreePath: string;
-  worktreeBranch: string;
-  reviewConversationTitle: string;
-  reviewInitialMessage: string;
+  reviewPrompt: string;
   repoIds: string[];
+  hasExistingReviewAttention: boolean;
 };
 
 type ClaimOutcome<T extends JsonValue> =
   | { status: 'completed'; result: T; reused: boolean }
   | { status: 'pending' };
 
-type ConversationClaimResult = {
-  conversationId: string;
-  reviewExecutionProcessId: string;
-};
+type ReviewVerdictClaimResult = ReviewDecision;
 
 type ReviewAttentionClaimResult = {
   reviewAttentionId: string;
@@ -74,24 +65,20 @@ type QueueMergeClaimResult = {
   queueErrorType: string | null;
 };
 
-type ReviewerMessage = OrchestrationConversationContextDto['transcript']['messages'][number];
-
-const REVIEW_VERDICT_STRUCTURED_OUTPUT: StructuredOutputContract = {
-  schema: {
-    type: 'object',
-    properties: {
-      needs_attention: {
-        type: 'boolean',
-      },
-      reasoning: {
-        type: 'string',
-        minLength: 1,
-      },
+const REVIEW_VERDICT_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    needs_attention: {
+      type: 'boolean',
     },
-    required: ['needs_attention', 'reasoning'],
-    additionalProperties: false,
+    reasoning: {
+      type: 'string',
+      minLength: 1,
+    },
   },
-};
+  required: ['needs_attention', 'reasoning'],
+  additionalProperties: false,
+} satisfies JsonValue;
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -187,6 +174,43 @@ If you need to clarify something that isn't clear from this recap, you may revie
 
 Key question: Did the agent complete what the task actually asked for, or just do something related?
 Return your final verdict using the configured structured response.`;
+}
+
+function buildCommitMessagePrompt(input: {
+  taskTitle: string;
+  taskDescription: string;
+  repoId: string;
+  sourceExecution: OrchestrationExecutionContextDto;
+}): string {
+  const description = input.taskDescription || 'No description provided';
+  const repoState = input.sourceExecution.repo_states.find(
+    (entry) => String(entry.repo_id) === input.repoId,
+  );
+  const workspaceBranch = input.sourceExecution.scope.workspace?.branch?.trim() || null;
+  const commitRange =
+    repoState?.before_head_commit && repoState.after_head_commit
+      ? `${repoState.before_head_commit}..${repoState.after_head_commit}`
+      : null;
+
+  return [
+    'Generate a concise git commit message for the following changes.',
+    '',
+    `Task: ${input.taskTitle}`,
+    `Description: ${description}`,
+    `Repo ID: ${input.repoId}`,
+    ...(workspaceBranch ? [`Workspace branch: ${workspaceBranch}`] : []),
+    ...(commitRange ? [`Commit range: ${commitRange}`] : []),
+    '',
+    'Inspect the local git changes in READ-ONLY mode before writing the message.',
+    'Use the commit range when available; otherwise inspect the current diff/history for this repo.',
+    '',
+    'Write a commit message following these guidelines:',
+    '- First line: imperative mood summary (50 chars max)',
+    '- Blank line',
+    '- Body: explain what and why (wrap at 72 chars)',
+    '',
+    'Respond with ONLY the commit message, no other text.',
+  ].join('\n');
 }
 
 function formatExecutionRecapContent(content: string): string | null {
@@ -300,84 +324,14 @@ async function resolveExecutionRecap(input: {
   return buildFallbackExecutionRecap(input.fallbackSummary);
 }
 
-function describeReviewerVerdictIssue(message: ReviewerMessage): string | null {
-  if (message.metadata_parse_error) {
-    return `Reviewer structured output metadata could not be read: ${message.metadata_parse_error}`;
-  }
-
-  const structuredOutput = message.metadata?.structured_output;
-  if (!structuredOutput) {
-    return 'Reviewer execution completed without structured output metadata.';
-  }
-
-  if (structuredOutput.status !== 'valid') {
-    const errorMessage = structuredOutput.error?.message?.trim();
-    return errorMessage
-      ? `Reviewer structured output was invalid: ${errorMessage}`
-      : 'Reviewer structured output was invalid.';
-  }
-
-  if (!isReviewVerdictPayload(structuredOutput.payload ?? null)) {
-    return 'Reviewer structured output payload did not match the expected verdict shape.';
-  }
-
-  return null;
-}
-
-function resolveReviewerDecision(input: {
-  reviewExecutionStatus: string;
-  reviewExecutionProcessId: string;
-  repoIds: string[];
-  conversation: OrchestrationConversationContextDto | null;
-}): ReviewDecision {
-  if (input.reviewExecutionStatus !== 'completed') {
-    return {
-      approved: false,
-      needsAttention: true,
-      reasoning: `Reviewer execution finished with status ${input.reviewExecutionStatus}.`,
-    };
-  }
-
-  const messages = input.conversation?.transcript.messages ?? [];
-  const reviewerMessages = messages.filter(
-    (message) =>
-      message.role === 'assistant' &&
-      (!message.execution_process_id ||
-        message.execution_process_id === input.reviewExecutionProcessId),
-  );
-  const finalReviewerMessage = reviewerMessages.at(-1);
-
-  if (!finalReviewerMessage) {
-    return {
-      approved: false,
-      needsAttention: true,
-      reasoning: 'Reviewer execution completed without an assistant verdict.',
-    };
-  }
-
-  const verdictIssue = describeReviewerVerdictIssue(finalReviewerMessage);
-  if (verdictIssue) {
-    return {
-      approved: false,
-      needsAttention: true,
-      reasoning: verdictIssue,
-    };
-  }
-
-  const verdictPayload = finalReviewerMessage.metadata?.structured_output?.payload ?? null;
-  if (!isReviewVerdictPayload(verdictPayload)) {
-    return {
-      approved: false,
-      needsAttention: true,
-      reasoning: 'Reviewer structured output payload did not match the expected verdict shape.',
-    };
-  }
-
-  const verdict = verdictPayload;
+function resolveReviewerDecision(
+  verdict: ReviewVerdictPayload,
+  repoIds: string[],
+): ReviewDecision {
   const approved = !verdict.needs_attention;
   const reasoning = verdict.reasoning.trim() || 'Reviewer returned no reasoning.';
 
-  if (approved && input.repoIds.length === 0) {
+  if (approved && repoIds.length === 0) {
     return {
       approved: false,
       needsAttention: true,
@@ -390,6 +344,16 @@ function resolveReviewerDecision(input: {
     approved,
     needsAttention: !approved,
     reasoning,
+  };
+}
+
+function buildReviewerFailureDecision(error: unknown): ReviewDecision {
+  const message = error instanceof Error ? error.message.trim() : String(error).trim();
+
+  return {
+    approved: false,
+    needsAttention: true,
+    reasoning: message.length > 0 ? `Reviewer helper failed: ${message}` : 'Reviewer helper failed.',
   };
 }
 
@@ -415,20 +379,30 @@ function buildInitialOutcome(
   };
 }
 
-function asConversationClaimResult(value: JsonValue | null): ConversationClaimResult | null {
+function asReviewVerdictClaimResult(
+  value: JsonValue | null,
+): ReviewVerdictClaimResult | null {
   if (!isJsonRecord(value)) {
     return null;
   }
 
-  const conversationId = value.conversationId;
-  const reviewExecutionProcessId = value.reviewExecutionProcessId;
-  if (typeof conversationId !== 'string' || typeof reviewExecutionProcessId !== 'string') {
+  const approved = value.approved;
+  const needsAttention = value.needsAttention;
+  const reasoning = value.reasoning;
+
+  if (
+    typeof approved !== 'boolean' ||
+    typeof needsAttention !== 'boolean' ||
+    typeof reasoning !== 'string' ||
+    reasoning.trim().length === 0
+  ) {
     return null;
   }
 
   return {
-    conversationId,
-    reviewExecutionProcessId,
+    approved,
+    needsAttention,
+    reasoning,
   };
 }
 
@@ -548,22 +522,6 @@ async function runClaimedStep<T extends JsonValue>(input: {
   }
 }
 
-async function resolveReviewExecutionContext(
-  input: MqttDispatchInput,
-  deps: RuntimeDependencies,
-): Promise<OrchestrationExecutionContextDto | null> {
-  if (input.contexts.execution) {
-    return input.contexts.execution;
-  }
-
-  const reviewExecutionProcessId = input.event.entityIds.executionProcessId;
-  if (!reviewExecutionProcessId) {
-    return null;
-  }
-
-  return deps.vkClient.getExecutionContext(reviewExecutionProcessId);
-}
-
 async function buildReviewGateCandidate(
   input: MqttDispatchInput,
   deps: RuntimeDependencies,
@@ -581,16 +539,7 @@ async function buildReviewGateCandidate(
     return null;
   }
 
-  if (
-    taskContext.latest_review_attention?.execution_process_id === latestCodingExecution.id
-  ) {
-    return null;
-  }
-
   const sourceExecution = await deps.vkClient.getExecutionContext(latestCodingExecution.id);
-  if (sourceExecution.review_attention?.execution_process_id === latestCodingExecution.id) {
-    return null;
-  }
 
   const taskTitle = task.title.trim();
   const taskDescription = task.description ?? '';
@@ -601,65 +550,88 @@ async function buildReviewGateCandidate(
   });
 
   return {
-    projectId: task.project_id,
     taskId: task.id,
     workspaceId: workspace.id,
     taskTitle,
     taskDescription,
     sourceExecutionProcessId: latestCodingExecution.id,
+    sourceExecution,
     worktreePath: workspace.agent_working_dir ?? '',
-    worktreeBranch: workspace.branch ?? '',
-    reviewConversationTitle: `Review gate: ${taskTitle}`,
-    reviewInitialMessage: buildReviewInitialMessage({
+    reviewPrompt: buildReviewInitialMessage({
       taskTitle,
       taskDescription,
       executionRecap,
     }),
     repoIds: parseRepoIds(sourceExecution),
+    hasExistingReviewAttention:
+      taskContext.latest_review_attention?.execution_process_id === latestCodingExecution.id ||
+      sourceExecution.review_attention?.execution_process_id === latestCodingExecution.id,
   };
 }
 
-async function ensureReviewConversation(
+async function ensureReviewerOutcome(
   correlation: ReviewGateCorrelation,
+  candidate: ReviewGateCandidate,
   deps: RuntimeDependencies,
 ): Promise<ReviewGateCorrelation | null> {
-  if (
-    correlation.state.reviewConversationId &&
-    correlation.state.reviewExecutionProcessId
-  ) {
+  if (correlation.state.outcome) {
     return correlation;
   }
 
   const claimResult = await runClaimedStep({
-    claimKey: reviewConversationClaimKey(correlation.state.sourceExecutionProcessId),
+    claimKey: reviewVerdictClaimKey(correlation.state.sourceExecutionProcessId),
     workflowKey: REVIEW_GATE_SOURCE_WORKFLOW_KEY,
     scopeKey: correlation.state.sourceExecutionProcessId,
     metadata: {
-      step: 'create-conversation',
+      step: 'review-verdict',
       sourceExecutionProcessId: correlation.state.sourceExecutionProcessId,
     },
     deps,
-    parseResult: asConversationClaimResult,
+    parseResult: asReviewVerdictClaimResult,
     run: async () => {
-      const executorProfileId = deps.environment.triggerExecutorMapping.resolve(
-        TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateCreateConversation,
-      );
-      const response = await deps.vkClient.createConversation(
-        correlation.state.projectId,
-        {
-          title: correlation.state.reviewConversationTitle,
-          initial_message: correlation.state.reviewInitialMessage,
-          structured_output: REVIEW_VERDICT_STRUCTURED_OUTPUT,
-          executor_profile_id: executorProfileId,
-          worktree_path: correlation.state.worktreePath || null,
-          worktree_branch: correlation.state.worktreeBranch || null,
-        },
-      );
+      try {
+        const response = await deps.openClawConversationExecutor.run({
+          action: 'run',
+          prompt: candidate.reviewPrompt,
+          response: {
+            kind: 'structured',
+            schema: REVIEW_VERDICT_RESPONSE_SCHEMA,
+          },
+          workingDirectory: correlation.state.worktreePath,
+          selection: {
+            operationKey: TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateCreateConversation,
+          },
+          correlation: {
+            workflowKey: REVIEW_GATE_SOURCE_WORKFLOW_KEY,
+            scopeKey: correlation.state.sourceExecutionProcessId,
+            correlationKey: `review-gate:reviewer:${correlation.state.sourceExecutionProcessId}`,
+            idempotencyKey: reviewVerdictClaimKey(
+              correlation.state.sourceExecutionProcessId,
+            ),
+          },
+          timeoutMs: 120_000,
+          cleanup: {
+            onSuccess: 'delete',
+            onError: 'delete',
+          },
+        });
 
-      return {
-        conversationId: response.session.id,
-        reviewExecutionProcessId: response.execution_process_id,
-      } satisfies ConversationClaimResult;
+        if (
+          response.response.kind !== 'structured' ||
+          !isReviewVerdictPayload(response.response.value)
+        ) {
+          throw new Error(
+            'Reviewer helper returned an unexpected structured response payload.',
+          );
+        }
+
+        return resolveReviewerDecision(
+          response.response.value,
+          correlation.state.repoIds,
+        );
+      } catch (error) {
+        return buildReviewerFailureDecision(error);
+      }
     },
   });
 
@@ -672,9 +644,7 @@ async function ensureReviewConversation(
     correlation.state.sourceExecutionProcessId,
     (state) => ({
       ...state,
-      reviewConversationId: claimResult.result.conversationId,
-      reviewExecutionProcessId: claimResult.result.reviewExecutionProcessId,
-      registeredAt: state.registeredAt ?? new Date().toISOString(),
+      outcome: buildInitialOutcome(state.repoIds, claimResult.result),
     }),
   );
 }
@@ -718,7 +688,7 @@ async function ensureReviewAttention(
 
   const claimResult = await runClaimedStep({
     claimKey: reviewAttentionClaimKey(correlation.state.sourceExecutionProcessId),
-    workflowKey: REVIEW_GATE_RESULT_WORKFLOW_KEY,
+    workflowKey: REVIEW_GATE_SOURCE_WORKFLOW_KEY,
     scopeKey: correlation.state.sourceExecutionProcessId,
     metadata: {
       step: 'create-review-attention',
@@ -763,6 +733,7 @@ async function ensureReviewAttention(
 
 async function ensureCommitMessage(
   correlation: ReviewGateCorrelation,
+  candidate: ReviewGateCandidate,
   repoId: string,
   deps: RuntimeDependencies,
 ): Promise<ReviewGateCorrelation> {
@@ -780,7 +751,7 @@ async function ensureCommitMessage(
       correlation.state.sourceExecutionProcessId,
       repoId,
     ),
-    workflowKey: REVIEW_GATE_RESULT_WORKFLOW_KEY,
+    workflowKey: REVIEW_GATE_SOURCE_WORKFLOW_KEY,
     scopeKey: `${correlation.state.sourceExecutionProcessId}:${repoId}`,
     metadata: {
       step: 'generate-commit-message',
@@ -790,19 +761,39 @@ async function ensureCommitMessage(
     deps,
     parseResult: asCommitMessageClaimResult,
     run: async () => {
-      const executorProfileId = deps.environment.triggerExecutorMapping.resolve(
-        TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateGenerateCommitMessage,
-      );
-      const response = await deps.vkClient.generateCommitMessage(
-        correlation.state.workspaceId,
-        {
-          repo_id: repoId,
-          executor_profile_id: executorProfileId,
+      const response = await deps.openClawConversationExecutor.run({
+        action: 'run',
+        prompt: buildCommitMessagePrompt({
+          taskTitle: candidate.taskTitle,
+          taskDescription: candidate.taskDescription,
+          repoId,
+          sourceExecution: candidate.sourceExecution,
+        }),
+        response: {
+          kind: 'text',
         },
-      );
+        workingDirectory: correlation.state.worktreePath,
+        selection: {
+          operationKey: TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateGenerateCommitMessage,
+        },
+        correlation: {
+          workflowKey: REVIEW_GATE_SOURCE_WORKFLOW_KEY,
+          scopeKey: `${correlation.state.workspaceId}:${repoId}`,
+          correlationKey: `review-gate:commit-message:${correlation.state.sourceExecutionProcessId}:${repoId}`,
+          idempotencyKey: reviewCommitMessageClaimKey(
+            correlation.state.sourceExecutionProcessId,
+            repoId,
+          ),
+        },
+        timeoutMs: 120_000,
+        cleanup: {
+          onSuccess: 'delete',
+          onError: 'delete',
+        },
+      });
 
       return {
-        commitMessage: response.commit_message,
+        commitMessage: response.response.text.trim(),
       } satisfies CommitMessageClaimResult;
     },
   });
@@ -853,7 +844,7 @@ async function ensureQueueMerge(
       correlation.state.sourceExecutionProcessId,
       repoId,
     ),
-    workflowKey: REVIEW_GATE_RESULT_WORKFLOW_KEY,
+    workflowKey: REVIEW_GATE_SOURCE_WORKFLOW_KEY,
     scopeKey: `${correlation.state.workspaceId}:${repoId}`,
     metadata: {
       step: 'queue-merge',
@@ -913,6 +904,16 @@ async function ensureQueueMerge(
   );
 }
 
+function buildReviewGateOutput(correlation: ReviewGateCorrelation): DispatchResult['output'] {
+  return {
+    sourceExecutionProcessId: correlation.state.sourceExecutionProcessId,
+    approved: correlation.state.outcome?.approved ?? false,
+    needsAttention: correlation.state.outcome?.needsAttention ?? true,
+    reviewAttentionId: correlation.state.outcome?.reviewAttentionId ?? null,
+    merges: correlation.state.outcome?.merges ?? [],
+  };
+}
+
 async function handleReviewGate(
   input: MqttDispatchInput,
   deps: RuntimeDependencies,
@@ -929,122 +930,45 @@ async function handleReviewGate(
     candidate.sourceExecutionProcessId,
   );
 
+  if (!correlation && candidate.hasExistingReviewAttention) {
+    return {
+      reason: 'review_gate_not_applicable',
+    };
+  }
+
   if (!correlation) {
     correlation = savePendingReviewCorrelation(
       deps.stateStore,
-      createPendingReviewCorrelation(candidate),
-    );
-  }
-
-  if (correlation.state.outcome) {
-    return {
-      reason: 'review_already_completed',
-      sourceExecutionProcessId: correlation.state.sourceExecutionProcessId,
-      reviewExecutionProcessId: correlation.state.reviewExecutionProcessId,
-    };
-  }
-
-  const registered = await ensureReviewConversation(correlation, deps);
-  if (!registered) {
-    return {
-      reason: 'review_registration_in_flight',
-      sourceExecutionProcessId: correlation.state.sourceExecutionProcessId,
-    };
-  }
-
-  return {
-    sourceExecutionProcessId: registered.state.sourceExecutionProcessId,
-    reviewExecutionProcessId: registered.state.reviewExecutionProcessId,
-    conversationId: registered.state.reviewConversationId,
-    repoIds: registered.state.repoIds,
-  };
-}
-
-async function resolveConversationContext(
-  input: MqttDispatchInput,
-  correlation: ReviewGateCorrelation,
-  deps: RuntimeDependencies,
-): Promise<OrchestrationConversationContextDto | null> {
-  if (input.contexts.conversation) {
-    return input.contexts.conversation;
-  }
-
-  if (!correlation.state.reviewConversationId) {
-    return null;
-  }
-
-  return deps.vkClient.getConversationContext(correlation.state.reviewConversationId);
-}
-
-async function handleReviewerResult(
-  input: MqttDispatchInput,
-  deps: RuntimeDependencies,
-): Promise<DispatchResult['output']> {
-  const reviewExecutionProcessId = input.event.entityIds.executionProcessId;
-  if (!reviewExecutionProcessId) {
-    return {
-      reason: 'missing_review_execution_process_id',
-    };
-  }
-
-  let correlation = getReviewCorrelationByReviewExecution(
-    deps.stateStore,
-    reviewExecutionProcessId,
-  );
-  if (!correlation) {
-    return {
-      reason: 'review_execution_not_registered',
-      reviewExecutionProcessId,
-    };
-  }
-
-  const reviewExecution = await resolveReviewExecutionContext(input, deps);
-  const reviewExecutionStatus = reviewExecution?.execution.status ?? '';
-  const conversation = await resolveConversationContext(input, correlation, deps);
-
-  if (!correlation.state.outcome) {
-    const decision = resolveReviewerDecision({
-      reviewExecutionStatus,
-      reviewExecutionProcessId,
-      repoIds: correlation.state.repoIds,
-      conversation,
-    });
-
-    correlation = mutateReviewCorrelation(
-      deps.stateStore,
-      correlation.state.sourceExecutionProcessId,
-      (state) => ({
-        ...state,
-        outcome: buildInitialOutcome(state.repoIds, decision),
+      createPendingReviewCorrelation({
+        taskId: candidate.taskId,
+        workspaceId: candidate.workspaceId,
+        sourceExecutionProcessId: candidate.sourceExecutionProcessId,
+        worktreePath: candidate.worktreePath,
+        repoIds: candidate.repoIds,
       }),
     );
+  }
+
+  correlation = await ensureReviewerOutcome(correlation, candidate, deps);
+  if (!correlation) {
+    return {
+      reason: 'review_verdict_in_flight',
+      sourceExecutionProcessId: candidate.sourceExecutionProcessId,
+    };
   }
 
   correlation = await ensureReviewAttention(correlation, deps);
 
   if (!correlation.state.outcome?.approved) {
-    return {
-      sourceExecutionProcessId: correlation.state.sourceExecutionProcessId,
-      reviewExecutionProcessId,
-      approved: false,
-      needsAttention: correlation.state.outcome?.needsAttention ?? true,
-      reviewAttentionId: correlation.state.outcome?.reviewAttentionId ?? null,
-    };
+    return buildReviewGateOutput(correlation);
   }
 
   for (const repoId of correlation.state.repoIds) {
-    correlation = await ensureCommitMessage(correlation, repoId, deps);
+    correlation = await ensureCommitMessage(correlation, candidate, repoId, deps);
     correlation = await ensureQueueMerge(correlation, repoId, deps);
   }
 
-  return {
-    sourceExecutionProcessId: correlation.state.sourceExecutionProcessId,
-    reviewExecutionProcessId,
-    approved: correlation.state.outcome?.approved ?? false,
-    needsAttention: correlation.state.outcome?.needsAttention ?? true,
-    reviewAttentionId: correlation.state.outcome?.reviewAttentionId ?? null,
-    merges: correlation.state.outcome?.merges ?? [],
-  };
+  return buildReviewGateOutput(correlation);
 }
 
 export const reviewGateWorkflowHandler = {
@@ -1060,20 +984,9 @@ export const reviewGateWorkflowHandler = {
   },
 };
 
-export const reviewerResultWorkflowHandler = {
-  workflowKey: REVIEW_GATE_RESULT_WORKFLOW_KEY,
-  matches(input: MqttDispatchInput) {
-    return input.event.eventType === 'execution_completed';
-  },
-  run(input: MqttDispatchInput, deps: RuntimeDependencies) {
-    return handleReviewerResult(input, deps);
-  },
-};
-
 export {
   buildReviewInitialMessage,
   buildReviewGateCandidate,
   handleReviewGate,
-  handleReviewerResult,
   resolveReviewerDecision,
 };
