@@ -1,4 +1,4 @@
-import { configure, tasks } from '@trigger.dev/sdk';
+import { tasks } from '@trigger.dev/sdk';
 
 import type {
   DispatchResult,
@@ -11,24 +11,9 @@ import type { RuntimeDependencies } from '../runtime/dependencies';
 import { createDirectDispatcher } from './direct-dispatcher';
 import { dispatchScheduledWorkflow } from '../workflows/registry';
 import { ORCHESTRATION_EVENT_TASK_ID } from './task-ids';
+import { configureTriggerApiClient } from './trigger-api';
 
 type TriggerTaskInvoker = typeof tasks.trigger;
-
-function configureTriggerApiClient(): void {
-  const accessToken = process.env.TRIGGER_SECRET_KEY?.trim();
-  if (!accessToken) {
-    throw new Error(
-      'Trigger-backed MQTT routing requires TRIGGER_SECRET_KEY so the bridge can enqueue Trigger task runs.',
-    );
-  }
-
-  configure({
-    accessToken,
-    ...(process.env.TRIGGER_API_URL?.trim()
-      ? { baseURL: process.env.TRIGGER_API_URL.trim() }
-      : {}),
-  });
-}
 
 export function createTriggerDispatcher(
   dependencies: RuntimeDependencies,

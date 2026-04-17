@@ -7,6 +7,7 @@ import type {
   ClaimRecord,
   ClaimResult,
   JsonValue,
+  OpenClawConversationSessionRecord,
   OrchestratorStateStore,
   ReviewCorrelationRecord,
   WorkflowCheckpointRecord,
@@ -43,6 +44,21 @@ type ReviewCorrelationRow = {
   review_attention_id: string | null;
   execution_process_id: string | null;
   state_json: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type OpenClawConversationSessionRow = {
+  correlation_key: string;
+  workflow_key: string;
+  scope_key: string;
+  session_key: string;
+  session_id: string | null;
+  session_store_path: string;
+  profile_name: string;
+  engine_model: string;
+  working_directory: string;
+  status: 'active' | 'cleaned';
   created_at: string;
   updated_at: string;
 };
@@ -104,6 +120,25 @@ function mapReviewCorrelation(row: ReviewCorrelationRow): ReviewCorrelationRecor
   };
 }
 
+function mapOpenClawConversationSession(
+  row: OpenClawConversationSessionRow,
+): OpenClawConversationSessionRecord {
+  return {
+    correlationKey: row.correlation_key,
+    workflowKey: row.workflow_key,
+    scopeKey: row.scope_key,
+    sessionKey: row.session_key,
+    sessionId: row.session_id,
+    sessionStorePath: row.session_store_path,
+    profileName: row.profile_name,
+    engineModel: row.engine_model,
+    workingDirectory: row.working_directory,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 export function createSqliteStateStore(databasePath: string): OrchestratorStateStore {
   mkdirSync(dirname(databasePath), { recursive: true });
 
@@ -148,6 +183,21 @@ export function createSqliteStateStore(databasePath: string): OrchestratorStateS
       review_attention_id TEXT,
       execution_process_id TEXT,
       state_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS openclaw_conversation_sessions (
+      correlation_key TEXT PRIMARY KEY,
+      workflow_key TEXT NOT NULL,
+      scope_key TEXT NOT NULL,
+      session_key TEXT NOT NULL,
+      session_id TEXT,
+      session_store_path TEXT NOT NULL,
+      profile_name TEXT NOT NULL,
+      engine_model TEXT NOT NULL,
+      working_directory TEXT NOT NULL,
+      status TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -263,6 +313,58 @@ export function createSqliteStateStore(databasePath: string): OrchestratorStateS
         review_attention_id = excluded.review_attention_id,
         execution_process_id = excluded.execution_process_id,
         state_json = excluded.state_json,
+        updated_at = excluded.updated_at
+    `,
+  );
+
+  const getOpenClawConversationSessionStatement = database.query<
+    OpenClawConversationSessionRow,
+    [string]
+  >(`
+    SELECT
+      correlation_key,
+      workflow_key,
+      scope_key,
+      session_key,
+      session_id,
+      session_store_path,
+      profile_name,
+      engine_model,
+      working_directory,
+      status,
+      created_at,
+      updated_at
+    FROM openclaw_conversation_sessions
+    WHERE correlation_key = ?1
+  `);
+
+  const upsertOpenClawConversationSessionStatement = database.query(
+    `
+      INSERT INTO openclaw_conversation_sessions (
+        correlation_key,
+        workflow_key,
+        scope_key,
+        session_key,
+        session_id,
+        session_store_path,
+        profile_name,
+        engine_model,
+        working_directory,
+        status,
+        created_at,
+        updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
+      ON CONFLICT(correlation_key)
+      DO UPDATE SET
+        workflow_key = excluded.workflow_key,
+        scope_key = excluded.scope_key,
+        session_key = excluded.session_key,
+        session_id = excluded.session_id,
+        session_store_path = excluded.session_store_path,
+        profile_name = excluded.profile_name,
+        engine_model = excluded.engine_model,
+        working_directory = excluded.working_directory,
+        status = excluded.status,
         updated_at = excluded.updated_at
     `,
   );
@@ -391,6 +493,35 @@ export function createSqliteStateStore(databasePath: string): OrchestratorStateS
       }
 
       return mapReviewCorrelation(row);
+    },
+    getOpenClawConversationSession(correlationKey) {
+      const row = getOpenClawConversationSessionStatement.get(correlationKey);
+      return row ? mapOpenClawConversationSession(row) : null;
+    },
+    upsertOpenClawConversationSession(input) {
+      const now = new Date().toISOString();
+      upsertOpenClawConversationSessionStatement.run(
+        input.correlationKey,
+        input.workflowKey,
+        input.scopeKey,
+        input.sessionKey,
+        input.sessionId,
+        input.sessionStorePath,
+        input.profileName,
+        input.engineModel,
+        input.workingDirectory,
+        input.status,
+        now,
+      );
+
+      const row = getOpenClawConversationSessionStatement.get(input.correlationKey);
+      if (!row) {
+        throw new Error(
+          `Missing OpenClaw conversation session '${input.correlationKey}' after upsert`,
+        );
+      }
+
+      return mapOpenClawConversationSession(row);
     },
     close() {
       database.close();

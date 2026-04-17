@@ -49,6 +49,23 @@ export type ReviewCorrelationRecord = {
   updatedAt: string;
 };
 
+export type OpenClawConversationSessionStatus = 'active' | 'cleaned';
+
+export type OpenClawConversationSessionRecord = {
+  correlationKey: string;
+  workflowKey: string;
+  scopeKey: string;
+  sessionKey: string;
+  sessionId: string | null;
+  sessionStorePath: string;
+  profileName: string;
+  engineModel: string;
+  workingDirectory: string;
+  status: OpenClawConversationSessionStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ClaimInput = {
   claimKey: string;
   claimKind: ClaimKind;
@@ -77,5 +94,11 @@ export interface OrchestratorStateStore {
   }): WorkflowCheckpointRecord;
   getReviewCorrelation(correlationKey: string): ReviewCorrelationRecord | null;
   upsertReviewCorrelation(input: Omit<ReviewCorrelationRecord, 'createdAt' | 'updatedAt'>): ReviewCorrelationRecord;
+  getOpenClawConversationSession(
+    correlationKey: string,
+  ): OpenClawConversationSessionRecord | null;
+  upsertOpenClawConversationSession(
+    input: Omit<OpenClawConversationSessionRecord, 'createdAt' | 'updatedAt'>,
+  ): OpenClawConversationSessionRecord;
   close(): void;
 }
