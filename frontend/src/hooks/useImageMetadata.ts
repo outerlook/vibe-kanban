@@ -26,7 +26,7 @@ export function useImageMetadata(
             exists: true,
             file_name: localImage.file_name,
             path: localImage.path,
-            size_bytes: BigInt(localImage.size_bytes),
+            size_bytes: Number(localImage.size_bytes),
             format: localImage.format,
             proxy_url: localImage.proxy_url,
           }

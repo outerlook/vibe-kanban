@@ -12,7 +12,7 @@ const prsResponse: ProjectPrPageResponse = {
       pull_requests: [
         {
           unresolved_count: 1,
-          number: 1n,
+          number: 1,
           title: 'First PR',
           url: 'https://example.com/1',
           author: 'octocat',
@@ -23,7 +23,7 @@ const prsResponse: ProjectPrPageResponse = {
         },
         {
           unresolved_count: 2,
-          number: 2n,
+          number: 2,
           title: 'Second PR',
           url: 'https://example.com/2',
           author: 'octocat',
@@ -52,11 +52,11 @@ const taskGroups: TaskGroupWithStats[] = [
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     task_counts: {
-      todo: 1n,
-      inprogress: 2n,
-      inreview: 0n,
-      done: 3n,
-      cancelled: 0n,
+      todo: 1,
+      inprogress: 2,
+      inreview: 0,
+      done: 3,
+      cancelled: 0,
     },
   },
   {
@@ -68,11 +68,11 @@ const taskGroups: TaskGroupWithStats[] = [
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     task_counts: {
-      todo: 9n,
-      inprogress: 0n,
-      inreview: 0n,
-      done: 0n,
-      cancelled: 0n,
+      todo: 9,
+      inprogress: 0,
+      inreview: 0,
+      done: 0,
+      cancelled: 0,
     },
   },
 ];
@@ -134,11 +134,11 @@ describe('buildPrPanelData', () => {
     });
 
     expect(result.branchMetadata.get('feature-a')?.taskCounts).toEqual({
-      todo: 1n,
-      inprogress: 2n,
-      inreview: 0n,
-      done: 3n,
-      cancelled: 0n,
+      todo: 1,
+      inprogress: 2,
+      inreview: 0,
+      done: 3,
+      cancelled: 0,
     });
   });
 });

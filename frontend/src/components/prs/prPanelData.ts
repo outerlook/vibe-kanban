@@ -16,11 +16,11 @@ export type BranchMetadata = {
 
 export function createEmptyTaskCounts(): TaskStatusCounts {
   return {
-    todo: BigInt(0),
-    inprogress: BigInt(0),
-    inreview: BigInt(0),
-    done: BigInt(0),
-    cancelled: BigInt(0),
+    todo: 0,
+    inprogress: 0,
+    inreview: 0,
+    done: 0,
+    cancelled: 0,
   };
 }
 
@@ -37,18 +37,18 @@ export function toPrData(pr: ProjectPrSummary, repoId: string): PrData {
   };
 }
 
-function toBigIntCount(value: number | bigint): bigint {
+function toNumberCount(value: number | bigint): number {
   // Task group stats come from plain JSON, so bigint-typed fields may arrive as numbers.
-  return typeof value === 'bigint' ? value : BigInt(value);
+  return typeof value === 'bigint' ? Number(value) : value;
 }
 
 function sumTaskCounts(groups: TaskGroupWithStats[]): TaskStatusCounts {
   return groups.reduce<TaskStatusCounts>((totals, group) => {
-    totals.todo += toBigIntCount(group.task_counts.todo);
-    totals.inprogress += toBigIntCount(group.task_counts.inprogress);
-    totals.inreview += toBigIntCount(group.task_counts.inreview);
-    totals.done += toBigIntCount(group.task_counts.done);
-    totals.cancelled += toBigIntCount(group.task_counts.cancelled);
+    totals.todo += toNumberCount(group.task_counts.todo);
+    totals.inprogress += toNumberCount(group.task_counts.inprogress);
+    totals.inreview += toNumberCount(group.task_counts.inreview);
+    totals.done += toNumberCount(group.task_counts.done);
+    totals.cancelled += toNumberCount(group.task_counts.cancelled);
     return totals;
   }, createEmptyTaskCounts());
 }

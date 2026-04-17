@@ -46,7 +46,7 @@ export function mergeProjectPrPages(
   const reposById = new Map<string, ProjectRepoPrPage>();
 
   for (const page of pages) {
-    const countsByRepo = new Map<string, Map<bigint, number>>();
+    const countsByRepo = new Map<string, Map<number, number>>();
 
     for (const count of page.counts?.counts ?? []) {
       let repoCounts = countsByRepo.get(count.repo_id);
@@ -55,7 +55,7 @@ export function mergeProjectPrPages(
         countsByRepo.set(count.repo_id, repoCounts);
       }
 
-      repoCounts.set(count.pr_number, count.unresolved_count);
+      repoCounts.set(Number(count.pr_number), count.unresolved_count);
     }
 
     for (const repo of page.response.repos) {
@@ -74,7 +74,7 @@ export function mergeProjectPrPages(
       mergedRepo.pull_requests.push(
         ...repo.pull_requests.map((pr) => ({
           ...pr,
-          unresolved_count: repoCounts?.get(pr.number) ?? pr.unresolved_count,
+          unresolved_count: repoCounts?.get(Number(pr.number)) ?? pr.unresolved_count,
         }))
       );
     }

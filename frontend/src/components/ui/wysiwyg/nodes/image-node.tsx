@@ -74,7 +74,7 @@ function ImageComponent({
           altText,
           fileName: metadata.file_name ?? undefined,
           format: metadata.format ?? undefined,
-          sizeBytes: metadata.size_bytes,
+          sizeBytes: metadata.size_bytes != null ? BigInt(metadata.size_bytes) : null,
         });
       }
     },
@@ -114,7 +114,7 @@ function ImageComponent({
       if (metadata.format) {
         parts.push(metadata.format.toUpperCase());
       }
-      const sizeStr = formatFileSize(metadata.size_bytes);
+      const sizeStr = formatFileSize(BigInt(metadata.size_bytes ?? 0));
       if (sizeStr) {
         parts.push(sizeStr);
       }

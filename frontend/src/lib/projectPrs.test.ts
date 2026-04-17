@@ -7,7 +7,7 @@ import {
 import type { ProjectPrPageResponse, PrUnresolvedCountsResponse } from './api';
 
 function createPage(
-  prNumbers: bigint[],
+  prNumbers: number[],
   cursor: string | null,
   hasMore: boolean
 ): ProjectPrPageResponse {
@@ -71,13 +71,13 @@ describe('projectPrs helpers', () => {
   });
 
   it('appends pages and only merges unresolved counts for loaded pages', () => {
-    const firstPage = createPage([1n], 'cursor-2', true);
-    const secondPage = createPage([2n], null, false);
+    const firstPage = createPage([1], 'cursor-2', true);
+    const secondPage = createPage([2], null, false);
     const firstCounts: PrUnresolvedCountsResponse = {
       counts: [
         {
           repo_id: 'repo-1',
-          pr_number: 1n,
+          pr_number: 1,
           unresolved_count: 3,
         },
       ],
@@ -90,7 +90,7 @@ describe('projectPrs helpers', () => {
 
     expect(merged).toBeDefined();
     expect(merged?.repos).toHaveLength(1);
-    expect(merged?.repos[0].pull_requests.map((pr) => pr.number)).toEqual([1n, 2n]);
+    expect(merged?.repos[0].pull_requests.map((pr) => pr.number)).toEqual([1, 2]);
     expect(merged?.repos[0].pull_requests.map((pr) => pr.unresolved_count)).toEqual([
       3,
       null,

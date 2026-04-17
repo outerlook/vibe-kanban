@@ -14,6 +14,7 @@ export function useGenerateCommitMessage(attemptId?: string) {
       }
       return attemptsApi.generateCommitMessage(attemptId, {
         repo_id: params.repoId,
+        executor_profile_id: null,
       });
     },
   });
