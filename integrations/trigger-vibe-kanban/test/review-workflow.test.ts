@@ -7,6 +7,12 @@ import type { OrchestrationTriggerItem } from '../../../shared/orchestration-eve
 
 import { createConsoleLogger } from '../src/runtime/dependencies';
 import { createSqliteStateStore } from '../src/state/sqlite-state-store';
+import {
+  EXECUTION_HISTORY_RECAP_ENTRY_BUDGET,
+  type ExecutionHistoryRecap,
+  type ExecutionProcessNormalizedEntryRecord,
+  type NormalizedEntry,
+} from '../src/vk/types';
 import { dispatchOrchestrationEvent } from '../src/workflows/registry';
 import {
   getReviewCorrelationBySource,
@@ -46,6 +52,7 @@ class FakeVkRuntimeClient {
   readonly order = [] as string[];
 
   readonly executionContexts = new Map<string, any>();
+  readonly executionHistoryRecaps = new Map<string, ExecutionHistoryRecap>();
   readonly conversationContexts = new Map<string, any>();
 
   createConversationResult = {
@@ -69,6 +76,13 @@ class FakeVkRuntimeClient {
     }
 
     return context;
+  }
+
+  async getExecutionNormalizedEntriesForRecap(executionProcessId: string) {
+    return (
+      this.executionHistoryRecaps.get(executionProcessId) ??
+      createExecutionRecap([])
+    );
   }
 
   async createConversation(projectId: string, body: Record<string, unknown>) {
@@ -227,6 +241,43 @@ function createSourceExecutionContext() {
   } as any;
 }
 
+function createNormalizedEntryRecord(args: {
+  entryIndex: number;
+  entryType: NormalizedEntry['entry_type'];
+  content: string;
+  timestamp?: string | null;
+}): ExecutionProcessNormalizedEntryRecord {
+  return {
+    entry_index: args.entryIndex,
+    entry: {
+      timestamp: args.timestamp ?? null,
+      entry_type: args.entryType,
+      content: args.content,
+      metadata: null,
+    },
+  };
+}
+
+function createExecutionRecap(
+  entries: ExecutionProcessNormalizedEntryRecord[],
+  args?: {
+    droppedEntries?: number;
+  },
+): ExecutionHistoryRecap {
+  const droppedEntries = args?.droppedEntries ?? 0;
+
+  return {
+    entries,
+    totalEntries: entries.length + droppedEntries,
+    droppedEntries,
+    truncated: droppedEntries > 0,
+    budget: {
+      maxEntries: EXECUTION_HISTORY_RECAP_ENTRY_BUDGET,
+      truncation: 'drop_oldest',
+    },
+  };
+}
+
 function createReviewExecutionContext(status = 'completed') {
   return {
     execution: {
@@ -359,9 +410,44 @@ function createDependencies(client: FakeVkRuntimeClient) {
 }
 
 describe('review orchestration workflows', () => {
-  it('starts the Trigger review gate once per source execution and persists durable correlation', async () => {
+  it('starts the Trigger review gate with a chronological execution recap and persists durable correlation', async () => {
     const client = new FakeVkRuntimeClient();
     client.executionContexts.set('source-exec-1', createSourceExecutionContext());
+    client.executionHistoryRecaps.set(
+      'source-exec-1',
+      createExecutionRecap([
+        createNormalizedEntryRecord({
+          entryIndex: 1,
+          entryType: { type: 'user_message' },
+          content: 'Please move the review gate into Trigger.',
+        }),
+        createNormalizedEntryRecord({
+          entryIndex: 2,
+          entryType: {
+            type: 'tool_use',
+            tool_name: 'rg',
+            action_type: {
+              action: 'search',
+              query: 'review gate',
+            },
+            status: {
+              status: 'success',
+            },
+          },
+          content: 'Searched for the existing review flow.',
+        }),
+        createNormalizedEntryRecord({
+          entryIndex: 3,
+          entryType: { type: 'assistant_message' },
+          content: 'I moved the review gate orchestration into Trigger runtime.',
+        }),
+        createNormalizedEntryRecord({
+          entryIndex: 4,
+          entryType: { type: 'assistant_message' },
+          content: 'I also verified the happy path and updated the tests.',
+        }),
+      ]),
+    );
 
     const deps = createDependencies(client);
     const input = {
@@ -410,6 +496,26 @@ describe('review orchestration workflows', () => {
     expect(client.createConversationCalls[0]?.body.initial_message).not.toContain(
       '```json',
     );
+    const initialMessage = String(
+      client.createConversationCalls[0]?.body.initial_message,
+    );
+    expect(initialMessage).toContain('## Execution Recap');
+    expect(initialMessage).not.toContain("Agent's Work Summary");
+    expect(initialMessage).toContain(
+      'filtered, derived recap of selected execution history entries in chronological order',
+    );
+    expect(initialMessage).toContain('[1] User');
+    expect(initialMessage).toContain('[2] Assistant');
+    expect(initialMessage).toContain('[3] Assistant');
+    expect(initialMessage).not.toContain(
+      'Implemented the orchestration cutover and verified the happy path.',
+    );
+    expect(initialMessage.indexOf('[1] User')).toBeLessThan(
+      initialMessage.indexOf('[2] Assistant'),
+    );
+    expect(initialMessage.indexOf('[2] Assistant')).toBeLessThan(
+      initialMessage.indexOf('[3] Assistant'),
+    );
     expect(client.createConversationCalls[0]?.body.structured_output).toEqual({
       schema: {
         type: 'object',
@@ -434,6 +540,105 @@ describe('review orchestration workflows', () => {
     expect(correlation?.state.reviewConversationId).toBe('conversation-1');
     expect(correlation?.state.reviewExecutionProcessId).toBe('review-exec-1');
     expect(correlation?.state.repoIds).toEqual(['repo-1']);
+
+    deps.stateStore.close();
+  });
+
+  it('falls back to the coding agent summary when filtered history is unavailable', async () => {
+    const client = new FakeVkRuntimeClient();
+    client.executionContexts.set('source-exec-1', createSourceExecutionContext());
+
+    const deps = createDependencies(client);
+
+    await dispatchOrchestrationEvent(
+      {
+        claim: {
+          claimKey: 'evt-task-status-fallback',
+        },
+        event: createEvent({
+          eventType: 'task_status_changed',
+          eventId: 'evt-task-status-fallback',
+          payload: { status: 'inreview' },
+        }),
+        contexts: {
+          task: createTaskContext(),
+          taskGroup: null,
+          conversation: null,
+          execution: null,
+          approval: null,
+        },
+      } as any,
+      deps as any,
+    );
+
+    const initialMessage = String(
+      client.createConversationCalls[0]?.body.initial_message,
+    );
+    expect(initialMessage).toContain('## Execution Recap');
+    expect(initialMessage).toContain(
+      "Filtered execution history was unavailable or had no usable reviewer context, so this falls back to the coding agent's final summary snapshot.",
+    );
+    expect(initialMessage).toContain(
+      'Implemented the orchestration cutover and verified the happy path.',
+    );
+    expect(initialMessage).not.toContain("Agent's Work Summary");
+
+    deps.stateStore.close();
+  });
+
+  it('surfaces acquisition truncation in the execution recap prompt block', async () => {
+    const client = new FakeVkRuntimeClient();
+    client.executionContexts.set('source-exec-1', createSourceExecutionContext());
+    client.executionHistoryRecaps.set(
+      'source-exec-1',
+      createExecutionRecap(
+        [
+          createNormalizedEntryRecord({
+            entryIndex: 401,
+            entryType: { type: 'user_message' },
+            content: 'Please verify the migration path is gone.',
+          }),
+          createNormalizedEntryRecord({
+            entryIndex: 402,
+            entryType: { type: 'assistant_message' },
+            content: 'I removed the legacy path and kept the tests green.',
+          }),
+        ],
+        { droppedEntries: 17 },
+      ),
+    );
+
+    const deps = createDependencies(client);
+
+    await dispatchOrchestrationEvent(
+      {
+        claim: {
+          claimKey: 'evt-task-status-truncated',
+        },
+        event: createEvent({
+          eventType: 'task_status_changed',
+          eventId: 'evt-task-status-truncated',
+          payload: { status: 'inreview' },
+        }),
+        contexts: {
+          task: createTaskContext(),
+          taskGroup: null,
+          conversation: null,
+          execution: null,
+          approval: null,
+        },
+      } as any,
+      deps as any,
+    );
+
+    const initialMessage = String(
+      client.createConversationCalls[0]?.body.initial_message,
+    );
+    expect(initialMessage).toContain(
+      `only the latest ${EXECUTION_HISTORY_RECAP_ENTRY_BUDGET} normalized entries were retained (17 dropped)`,
+    );
+    expect(initialMessage).toContain('[1] User');
+    expect(initialMessage).toContain('[2] Assistant');
 
     deps.stateStore.close();
   });

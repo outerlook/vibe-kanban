@@ -2,8 +2,10 @@ import type { JsonValue } from '../state/types';
 import type { DispatchResult, MqttDispatchInput } from '../runtime/contracts';
 import type { RuntimeDependencies } from '../runtime/dependencies';
 import type {
+  ExecutionHistoryRecap,
   OrchestrationConversationContextDto,
   OrchestrationExecutionContextDto,
+  ExecutionProcessNormalizedEntryRecord,
   StructuredOutputContract,
 } from '../vk/types';
 import {
@@ -122,10 +124,10 @@ function parseRepoIds(execution: OrchestrationExecutionContextDto): string[] {
 function buildReviewInitialMessage(input: {
   taskTitle: string;
   taskDescription: string;
-  agentSummary: string;
+  executionRecap: string;
 }): string {
   const description = input.taskDescription || '(no description)';
-  const agentSummary = input.agentSummary || '(no agent summary)';
+  const executionRecap = input.executionRecap || '(no execution recap available)';
 
   return `Analyze whether the completed work successfully addresses the original task.
 
@@ -133,8 +135,8 @@ function buildReviewInitialMessage(input: {
 Title: ${input.taskTitle}
 Description: ${description}
 
-## Agent's Work Summary
-${agentSummary}
+## Execution Recap
+${executionRecap}
 
 ## Your Role
 You are reviewing whether the task objective was achieved. Check BOTH:
@@ -153,7 +155,7 @@ You are reviewing whether the task objective was achieved. Check BOTH:
 ### Task completion issues:
 - The work does NOT address the original task objective
 - The agent did something tangential (e.g., answered a question but didn't fix the underlying problem)
-- The summary describes work that doesn't match what the task asked for
+- The recap describes work that doesn't match what the task asked for
 - The task requested a fix/implementation but the agent only investigated/explained
 
 ### Agent communication issues:
@@ -175,7 +177,7 @@ You are reviewing whether the task objective was achieved. Check BOTH:
 - Commit message
 
 ## Code Review (READ-ONLY)
-If you need to clarify something that isn't clear from the summary, you may review the code, but ONLY under these conditions:
+If you need to clarify something that isn't clear from this recap, you may review the code, but ONLY under these conditions:
 - This should be done ONLY when necessary and when it's not clear
 - AVOID doing this if possible
 - Everything must be READ-ONLY - you cannot change anything
@@ -184,6 +186,117 @@ If you need to clarify something that isn't clear from the summary, you may revi
 
 Key question: Did the agent complete what the task actually asked for, or just do something related?
 Return your final verdict using the configured structured response.`;
+}
+
+function formatExecutionRecapContent(content: string): string | null {
+  const trimmed = content.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function formatExecutionRecapRecord(
+  record: ExecutionProcessNormalizedEntryRecord,
+  recapIndex: number,
+): string | null {
+  const content = formatExecutionRecapContent(record.entry.content);
+  const type = record.entry.entry_type.type;
+
+  if (type === 'user_message') {
+    return `[${recapIndex}] User\n${content ?? '(no content)'}`;
+  }
+
+  if (type === 'assistant_message') {
+    return `[${recapIndex}] Assistant\n${content ?? '(no content)'}`;
+  }
+
+  if (type === 'error_message') {
+    const fallbackContent =
+      record.entry.entry_type.error_type.type === 'setup_required'
+        ? 'Setup was required before execution could continue.'
+        : 'Execution reported an error.';
+
+    return `[${recapIndex}] Execution Signal\n${content ?? fallbackContent}`;
+  }
+
+  if (type === 'next_action') {
+    if (!record.entry.entry_type.failed && !record.entry.entry_type.needs_setup) {
+      return null;
+    }
+
+    const fallbackContent = record.entry.entry_type.needs_setup
+      ? record.entry.entry_type.setup_help_text?.trim() ||
+        'Execution reported that setup was still required.'
+      : 'Execution reported a failed next action.';
+
+    return `[${recapIndex}] Execution Signal\n${content ?? fallbackContent}`;
+  }
+
+  return null;
+}
+
+function buildExecutionRecapFromHistory(history: ExecutionHistoryRecap): string | null {
+  const recapEntries = [] as string[];
+
+  for (const record of history.entries) {
+    const entry = formatExecutionRecapRecord(record, recapEntries.length + 1);
+    if (entry) {
+      recapEntries.push(entry);
+    }
+  }
+
+  if (recapEntries.length === 0) {
+    return null;
+  }
+
+  const preface = [
+    'This block is a filtered, derived recap of selected execution history entries in chronological order. It is not a full transcript.',
+  ];
+
+  if (history.truncated) {
+    preface.push(
+      `Older execution context was dropped by the acquisition recap budget; only the latest ${history.budget.maxEntries} normalized entries were retained (${history.droppedEntries} dropped).`,
+    );
+  }
+
+  return `${preface.join('\n')}\n\n${recapEntries.join('\n\n')}`;
+}
+
+function buildFallbackExecutionRecap(finalSummary: string): string {
+  const summary = finalSummary.trim();
+
+  if (summary.length > 0) {
+    return [
+      "Filtered execution history was unavailable or had no usable reviewer context, so this falls back to the coding agent's final summary snapshot.",
+      summary,
+    ].join('\n\n');
+  }
+
+  return [
+    'Filtered execution history was unavailable or had no usable reviewer context, and no final summary snapshot was available.',
+    '(no execution recap available)',
+  ].join('\n\n');
+}
+
+async function resolveExecutionRecap(input: {
+  sourceExecutionProcessId: string;
+  fallbackSummary: string;
+  deps: RuntimeDependencies;
+}): Promise<string> {
+  try {
+    const history = await input.deps.vkClient.getExecutionNormalizedEntriesForRecap(
+      input.sourceExecutionProcessId,
+    );
+    const recap = buildExecutionRecapFromHistory(history);
+    if (recap) {
+      return recap;
+    }
+  } catch (error) {
+    input.deps.logger.warn('Failed to build filtered execution recap for review gate', {
+      sourceExecutionProcessId: input.sourceExecutionProcessId,
+      error: error instanceof Error ? error.message : 'unknown error',
+    });
+  }
+
+  return buildFallbackExecutionRecap(input.fallbackSummary);
 }
 
 function describeReviewerVerdictIssue(message: ReviewerMessage): string | null {
@@ -480,6 +593,11 @@ async function buildReviewGateCandidate(
 
   const taskTitle = task.title.trim();
   const taskDescription = task.description ?? '';
+  const executionRecap = await resolveExecutionRecap({
+    sourceExecutionProcessId: latestCodingExecution.id,
+    fallbackSummary: sourceExecution.coding_agent_turn?.summary ?? '',
+    deps,
+  });
 
   return {
     projectId: task.project_id,
@@ -494,7 +612,7 @@ async function buildReviewGateCandidate(
     reviewInitialMessage: buildReviewInitialMessage({
       taskTitle,
       taskDescription,
-      agentSummary: sourceExecution.coding_agent_turn?.summary ?? '',
+      executionRecap,
     }),
     repoIds: parseRepoIds(sourceExecution),
   };
