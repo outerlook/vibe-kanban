@@ -14,6 +14,7 @@ import {
   createBroker,
   createJsonServer,
   createTempDir,
+  createTestOpenClawSessionConfigResolver,
   createTestTriggerExecutorMapping,
   removeTempDir,
 } from './helpers';
@@ -107,6 +108,7 @@ describe('mqtt bridge runtime', () => {
         codeRabbitPollScopeKey: 'global',
         mqttRouterMode: 'direct',
         triggerExecutorMapping: createTestTriggerExecutorMapping(),
+        openClawSessionConfigResolver: createTestOpenClawSessionConfigResolver(),
       },
       stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
       vkClient: new VkRuntimeClient({

@@ -9,6 +9,7 @@ import { createTriggerDispatcher } from '../src/trigger/trigger-dispatcher';
 import { VkRuntimeClient } from '../src/vk/runtime-client';
 import {
   createTempDir,
+  createTestOpenClawSessionConfigResolver,
   createTestTriggerExecutorMapping,
   removeTempDir,
 } from './helpers';
@@ -35,6 +36,7 @@ describe('trigger dispatcher', () => {
         codeRabbitPollScopeKey: 'global',
         mqttRouterMode: 'trigger' as const,
         triggerExecutorMapping: createTestTriggerExecutorMapping(),
+        openClawSessionConfigResolver: createTestOpenClawSessionConfigResolver(),
       },
       stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
       vkClient: new VkRuntimeClient({

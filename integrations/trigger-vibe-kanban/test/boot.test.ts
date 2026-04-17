@@ -15,6 +15,7 @@ import {
   createBroker,
   createJsonServer,
   createTempDir,
+  createTestOpenClawSessionConfigResolver,
   createTestTriggerExecutorMapping,
   removeTempDir,
 } from './helpers';
@@ -52,6 +53,7 @@ describe('package boot surfaces', () => {
         codeRabbitPollScopeKey: 'global',
         mqttRouterMode: 'direct' as const,
         triggerExecutorMapping: createTestTriggerExecutorMapping(),
+        openClawSessionConfigResolver: createTestOpenClawSessionConfigResolver(),
       },
       stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
       vkClient: new VkRuntimeClient({
@@ -116,6 +118,7 @@ describe('package boot surfaces', () => {
         codeRabbitPollScopeKey: 'global',
         mqttRouterMode: 'direct' as const,
         triggerExecutorMapping: createTestTriggerExecutorMapping(),
+        openClawSessionConfigResolver: createTestOpenClawSessionConfigResolver(),
       },
       stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
       vkClient: new VkRuntimeClient({

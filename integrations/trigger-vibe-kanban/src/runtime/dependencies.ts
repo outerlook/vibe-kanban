@@ -10,6 +10,11 @@ import {
   loadTriggerExecutorMappingFromEnv,
   type TriggerExecutorMapping,
 } from './executor-mapping';
+import {
+  createOpenClawSessionConfigResolver,
+  loadTriggerOpenClawProfileMappingFromEnv,
+  type OpenClawSessionConfigResolver,
+} from './openclaw-profile-mapping';
 
 export type RuntimeEnvironment = {
   vkApi: VkApiConfig;
@@ -20,6 +25,7 @@ export type RuntimeEnvironment = {
   codeRabbitPollScopeKey: string;
   mqttRouterMode: 'trigger' | 'direct';
   triggerExecutorMapping: TriggerExecutorMapping;
+  openClawSessionConfigResolver: OpenClawSessionConfigResolver;
 };
 
 export type RuntimeDependencies = {
@@ -73,6 +79,16 @@ export function createRuntimeEnvironment(env: NodeJS.ProcessEnv = process.env): 
     ? env.VK_ORCHESTRATION_EVENT_TYPES.split(',').map((entry) => entry.trim()).filter(Boolean)
     : undefined;
 
+  const triggerExecutorMapping = loadTriggerExecutorMappingFromEnv(env);
+  const openClawProfileMapping = loadTriggerOpenClawProfileMappingFromEnv(env);
+  const openClawSessionConfigResolver = createOpenClawSessionConfigResolver(
+    openClawProfileMapping,
+  );
+
+  for (const profileName of triggerExecutorMapping.listProfileNames()) {
+    openClawSessionConfigResolver.resolve(profileName);
+  }
+
   return {
     vkApi: {
       baseUrl: readRequiredEnv('VK_API_BASE_URL', env),
@@ -97,7 +113,8 @@ export function createRuntimeEnvironment(env: NodeJS.ProcessEnv = process.env): 
     codeRabbitPollScopeKey: env.CODERABBIT_POLL_SCOPE_KEY ?? 'global',
     mqttRouterMode:
       env.VK_MQTT_ROUTER_MODE === 'direct' ? 'direct' : 'trigger',
-    triggerExecutorMapping: loadTriggerExecutorMappingFromEnv(env),
+    triggerExecutorMapping,
+    openClawSessionConfigResolver,
   };
 }
 

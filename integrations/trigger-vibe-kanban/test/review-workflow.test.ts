@@ -23,7 +23,10 @@ import {
   getReviewCorrelationBySource,
   mutateReviewCorrelation,
 } from '../src/workflows/review-correlation';
-import { createTestTriggerExecutorMapping } from './helpers';
+import {
+  createTestOpenClawSessionConfigResolver,
+  createTestTriggerExecutorMapping,
+} from './helpers';
 
 const tempDirs = [] as string[];
 
@@ -412,6 +415,7 @@ function createDependencies(
       codeRabbitPollScopeKey: 'global',
       mqttRouterMode: 'direct' as const,
       triggerExecutorMapping,
+      openClawSessionConfigResolver: createTestOpenClawSessionConfigResolver(),
     },
     stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
     vkClient: client as any,

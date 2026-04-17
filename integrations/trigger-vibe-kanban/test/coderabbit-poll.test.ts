@@ -14,6 +14,7 @@ import { createConsoleLogger } from '../src/runtime/dependencies';
 import {
   createJsonServer,
   createTempDir,
+  createTestOpenClawSessionConfigResolver,
   createTestTriggerExecutorMapping,
   removeTempDir,
 } from './helpers';
@@ -76,6 +77,7 @@ function createDependencies(tempDir: string, vkBaseUrl: string) {
       codeRabbitPollScopeKey: 'global',
       mqttRouterMode: 'direct' as const,
       triggerExecutorMapping: createTestTriggerExecutorMapping(),
+      openClawSessionConfigResolver: createTestOpenClawSessionConfigResolver(),
     },
     stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
     vkClient: new VkRuntimeClient({

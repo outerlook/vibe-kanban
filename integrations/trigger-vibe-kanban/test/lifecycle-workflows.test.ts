@@ -15,6 +15,7 @@ import {
   createBroker,
   createJsonServer,
   createTempDir,
+  createTestOpenClawSessionConfigResolver,
   createTestTriggerExecutorMapping,
   removeTempDir,
 } from './helpers';
@@ -195,6 +196,7 @@ describe('lifecycle workflows', () => {
         codeRabbitPollScopeKey: 'global',
         mqttRouterMode: 'direct' as const,
         triggerExecutorMapping: createTestTriggerExecutorMapping(),
+        openClawSessionConfigResolver: createTestOpenClawSessionConfigResolver(),
       },
       stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
       vkClient: new VkRuntimeClient({
@@ -383,6 +385,7 @@ describe('lifecycle workflows', () => {
         codeRabbitPollScopeKey: 'global',
         mqttRouterMode: 'direct' as const,
         triggerExecutorMapping: createTestTriggerExecutorMapping(),
+        openClawSessionConfigResolver: createTestOpenClawSessionConfigResolver(),
       },
       stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
       vkClient: new VkRuntimeClient({
@@ -540,6 +543,7 @@ describe('lifecycle workflows', () => {
         codeRabbitPollScopeKey: 'global',
         mqttRouterMode: 'direct' as const,
         triggerExecutorMapping: createTestTriggerExecutorMapping(),
+        openClawSessionConfigResolver: createTestOpenClawSessionConfigResolver(),
       },
       stateStore: createSqliteStateStore(join(tempDir, 'state.sqlite')),
       vkClient: new VkRuntimeClient({

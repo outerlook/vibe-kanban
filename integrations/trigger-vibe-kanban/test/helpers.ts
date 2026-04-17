@@ -13,6 +13,10 @@ import {
   createTriggerExecutorMapping,
   TRIGGER_EXECUTOR_OPERATION_KEYS,
 } from '../src/runtime/executor-mapping';
+import {
+  createOpenClawSessionConfigResolver,
+  createTriggerOpenClawProfileMapping,
+} from '../src/runtime/openclaw-profile-mapping';
 
 export function listen(server: net.Server | ReturnType<typeof createServer>) {
   return new Promise<number>((resolve, reject) => {
@@ -85,5 +89,18 @@ export function createTestTriggerExecutorMapping() {
       },
     },
     '<test>',
+  );
+}
+
+export function createTestOpenClawSessionConfigResolver() {
+  return createOpenClawSessionConfigResolver(
+    createTriggerOpenClawProfileMapping(
+      {
+        'CODEX.DEFAULT': 'openai.gpt-5',
+        'CLAUDE_CODE.REVIEW': 'anthropic.claude-sonnet-4-5',
+        'CLAUDE_CODE.COMMIT': 'anthropic.claude-sonnet-4-5',
+      },
+      '<test>',
+    ),
   );
 }

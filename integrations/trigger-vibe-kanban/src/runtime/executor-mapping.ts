@@ -23,8 +23,24 @@ export type TriggerExecutorProfileMap = Record<
   ExecutorProfileId
 >;
 
+export type TriggerExecutorProfileName = string;
+
+type TriggerExecutorSelection = {
+  profileName: TriggerExecutorProfileName;
+  executorProfileId: ExecutorProfileId;
+};
+
+type TriggerExecutorSelectionMap = Record<
+  TriggerExecutorOperationKey,
+  TriggerExecutorSelection
+>;
+
 export type TriggerExecutorMapping = {
   configPath: string;
+  listProfileNames(): TriggerExecutorProfileName[];
+  resolveProfileName(
+    operationKey: TriggerExecutorOperationKey,
+  ): TriggerExecutorProfileName;
   resolve(operationKey: TriggerExecutorOperationKey): ExecutorProfileId;
 };
 
@@ -71,6 +87,22 @@ function parseExecutorProfileId(
     executor: executor as BaseCodingAgent,
     variant,
   };
+}
+
+function formatTriggerExecutorProfileName(
+  profile: ExecutorProfileId,
+  sourcePath: string,
+  operationKey: TriggerExecutorOperationKey,
+): TriggerExecutorProfileName {
+  const variant = profile.variant?.trim();
+
+  if (!variant) {
+    throw new Error(
+      `Invalid Trigger executor profile for ${operationKey} in ${sourcePath}; expected <PROFILE>.<VARIANT>.`,
+    );
+  }
+
+  return `${profile.executor}.${variant}`;
 }
 
 function parseTriggerExecutorProfileMap(
@@ -135,17 +167,54 @@ export function createTriggerExecutorMapping(
   profiles: TriggerExecutorProfileMap,
   configPath: string,
 ): TriggerExecutorMapping {
+  const selections = {} as Partial<TriggerExecutorSelectionMap>;
+
+  for (const operationKey of Object.values(TRIGGER_EXECUTOR_OPERATION_KEYS)) {
+    const executorProfileId = profiles[operationKey];
+
+    if (!executorProfileId) {
+      continue;
+    }
+
+    selections[operationKey] = {
+      profileName: formatTriggerExecutorProfileName(
+        executorProfileId,
+        configPath,
+        operationKey,
+      ),
+      executorProfileId: { ...executorProfileId },
+    };
+  }
+
   return {
     configPath,
-    resolve(operationKey) {
-      const profile = profiles[operationKey];
-      if (!profile) {
+    listProfileNames() {
+      return Object.values(selections)
+        .filter(
+          (selection): selection is TriggerExecutorSelection =>
+            selection !== undefined,
+        )
+        .map((selection) => selection.profileName);
+    },
+    resolveProfileName(operationKey) {
+      const selection = selections[operationKey];
+      if (!selection) {
         throw new Error(
           `Missing Trigger executor mapping for operation ${operationKey}.`,
         );
       }
 
-      return { ...profile };
+      return selection.profileName;
+    },
+    resolve(operationKey) {
+      const selection = selections[operationKey];
+      if (!selection) {
+        throw new Error(
+          `Missing Trigger executor mapping for operation ${operationKey}.`,
+        );
+      }
+
+      return { ...selection.executorProfileId };
     },
   };
 }

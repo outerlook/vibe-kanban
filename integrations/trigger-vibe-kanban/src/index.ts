@@ -29,8 +29,24 @@ export {
 export type {
   TriggerExecutorMapping,
   TriggerExecutorOperationKey,
+  TriggerExecutorProfileName,
   TriggerExecutorProfileMap,
 } from './runtime/executor-mapping';
+export {
+  createOpenClawSessionConfigResolver,
+  createTriggerOpenClawProfileMapping,
+  loadTriggerOpenClawProfileMapping,
+  loadTriggerOpenClawProfileMappingFromEnv,
+  VK_TRIGGER_OPENCLAW_PROFILE_CONFIG_PATH_ENV_VAR,
+} from './runtime/openclaw-profile-mapping';
+export type {
+  OpenClawEngineModel,
+  OpenClawSessionConfig,
+  OpenClawSessionConfigResolver,
+  TriggerOpenClawProfileMap,
+  TriggerOpenClawProfileMapping,
+  TriggerOpenClawProfileName,
+} from './runtime/openclaw-profile-mapping';
 export { startMqttBridgeRuntime } from './runtime/mqtt-bridge';
 export { runScheduledWorkflowOnce } from './runtime/scheduled-workflow';
 export { createSqliteStateStore } from './state/sqlite-state-store';
