@@ -32,10 +32,13 @@ import { dispatchOrchestrationEvent } from '../src/workflows/registry';
 import {
   getReviewCorrelationBySource,
   mutateReviewCorrelation,
+  reviewCommitMessageClaimKey,
+  reviewVerdictClaimKey,
 } from '../src/workflows/review-correlation';
 import {
   createTestOpenClawSessionConfigResolver,
   createTestTriggerExecutorMapping,
+  deriveOpenClawConversationSessionKey,
 } from './helpers';
 
 const tempDirs = [] as string[];
@@ -161,6 +164,7 @@ class FakeVkRuntimeClient {
 type OpenClawCall = {
   request: OpenClawConversationRunRequest;
   resolvedSelection: OpenClawConversationRunResult['selection'];
+  session: OpenClawConversationRunResult['session'];
 };
 
 class FakeOpenClawConversationExecutor {
@@ -201,8 +205,15 @@ class FakeOpenClawConversationExecutor {
       engineModel,
       modelRef,
     };
+    const session = {
+      key: deriveOpenClawConversationSessionKey(
+        request.correlation.correlationKey,
+        request.correlation.idempotencyKey,
+      ),
+      cleanedUp: request.cleanup.onSuccess === 'delete',
+    };
 
-    this.calls.push({ request, resolvedSelection });
+    this.calls.push({ request, resolvedSelection, session });
 
     if (
       'operationKey' in request.selection &&
@@ -217,11 +228,7 @@ class FakeOpenClawConversationExecutor {
 
       return {
         action: 'run',
-        session: {
-          key: 'trigger:openclaw:reviewer',
-          id: 'session-reviewer',
-          cleanedUp: true,
-        },
+        session,
         selection: resolvedSelection,
         response: {
           kind: 'structured',
@@ -247,11 +254,7 @@ class FakeOpenClawConversationExecutor {
 
     return {
       action: 'run',
-      session: {
-        key: `trigger:openclaw:${repoId}`,
-        id: `session-${repoId}`,
-        cleanedUp: true,
-      },
+      session,
       selection: resolvedSelection,
       response: {
         kind: 'text',
@@ -366,6 +369,48 @@ function createSourceExecutionContext() {
   } as any;
 }
 
+function createSourceExecutionContextFor(args: {
+  sourceExecutionProcessId: string;
+  taskId: string;
+  projectId: string;
+  workspaceId: string;
+  repoIds: string[];
+}) {
+  return {
+    execution: {
+      id: args.sourceExecutionProcessId,
+      status: 'completed',
+    },
+    scope: {
+      task: {
+        id: args.taskId,
+        project_id: args.projectId,
+        title: 'Ship durable review orchestration',
+        description: 'Move the review gate into Trigger',
+      },
+      workspace: {
+        id: args.workspaceId,
+        branch: 'feature/review-gate',
+      },
+      session: null,
+      conversation: null,
+    },
+    coding_agent_turn: {
+      summary: 'Implemented the orchestration cutover and verified the happy path.',
+    },
+    repo_states: args.repoIds.map((repoId, index) => ({
+      repo_id: repoId,
+      before_head_commit: `before-${index + 1}`,
+      after_head_commit: `after-${index + 1}`,
+    })),
+    current_execution_visibility: null,
+    pending_tool_approvals: [],
+    pending_questions: [],
+    review_attention: null,
+    feedback: null,
+  } as any;
+}
+
 function createNormalizedEntryRecord(args: {
   entryIndex: number;
   entryType: NormalizedEntry['entry_type'];
@@ -445,6 +490,67 @@ function createInReviewInput(eventId = 'evt-task-status-1') {
     }),
     contexts: {
       task: createTaskContext(),
+      taskGroup: null,
+      conversation: null,
+      execution: null,
+      approval: null,
+    },
+  } as any;
+}
+
+function createInReviewInputFor(args: {
+  eventId: string;
+  taskId: string;
+  projectId: string;
+  workspaceId: string;
+  sourceExecutionProcessId: string;
+  worktreePath?: string;
+}) {
+  return {
+    claim: {
+      claimKey: args.eventId,
+    },
+    event: {
+      ...createEvent({
+        eventType: 'task_status_changed',
+        eventId: args.eventId,
+        payload: { status: 'inreview' },
+      }),
+      entityIds: {
+        taskId: args.taskId,
+        workspaceId: args.workspaceId,
+        sessionId: null,
+        executionProcessId: null,
+        taskGroupId: null,
+      },
+      refs: {
+        taskContext: { taskId: args.taskId, projectId: args.projectId },
+        taskGroupContext: null,
+        conversationContext: null,
+        executionContext: null,
+        approvalContext: null,
+        taskSession: null,
+      },
+    },
+    contexts: {
+      task: {
+        ...createTaskContext(),
+        task: {
+          id: args.taskId,
+          project_id: args.projectId,
+          title: 'Ship durable review orchestration',
+          description: 'Move the review gate into Trigger',
+        },
+        latest_workspace: {
+          id: args.workspaceId,
+          branch: 'feature/review-gate',
+          agent_working_dir: args.worktreePath ?? '/tmp/worktree',
+        },
+        latest_coding_execution: {
+          id: args.sourceExecutionProcessId,
+          status: 'completed',
+        },
+      },
       taskGroup: null,
       conversation: null,
       execution: null,
@@ -845,6 +951,90 @@ describe('review orchestration workflows', () => {
       engineModel: 'openai.gpt-5-mini',
       modelRef: 'openai/gpt-5-mini',
     });
+
+    deps.stateStore.close();
+  });
+
+  it('keeps reviewer and commit helper sessions isolated across unrelated review correlations', async () => {
+    const client = new FakeVkRuntimeClient();
+    client.executionContexts.set(
+      'source-exec-1',
+      createSourceExecutionContextFor({
+        sourceExecutionProcessId: 'source-exec-1',
+        taskId: 'task-1',
+        projectId: 'project-1',
+        workspaceId: 'workspace-1',
+        repoIds: ['repo-1'],
+      }),
+    );
+    client.executionContexts.set(
+      'source-exec-2',
+      createSourceExecutionContextFor({
+        sourceExecutionProcessId: 'source-exec-2',
+        taskId: 'task-2',
+        projectId: 'project-1',
+        workspaceId: 'workspace-2',
+        repoIds: ['repo-2'],
+      }),
+    );
+
+    const deps = createDependencies({
+      client,
+      commitMessagesByRepo: new Map([
+        ['repo-1', 'commit:repo-1'],
+        ['repo-2', 'commit:repo-2'],
+      ]),
+    });
+
+    await Promise.all([
+      dispatchOrchestrationEvent(
+        createInReviewInputFor({
+          eventId: 'evt-task-status-1',
+          taskId: 'task-1',
+          projectId: 'project-1',
+          workspaceId: 'workspace-1',
+          sourceExecutionProcessId: 'source-exec-1',
+        }),
+        deps as any,
+      ),
+      dispatchOrchestrationEvent(
+        createInReviewInputFor({
+          eventId: 'evt-task-status-2',
+          taskId: 'task-2',
+          projectId: 'project-1',
+          workspaceId: 'workspace-2',
+          sourceExecutionProcessId: 'source-exec-2',
+        }),
+        deps as any,
+      ),
+    ]);
+
+    const sessionKeys = deps.openClawConversationExecutor.calls.map(
+      (call) => call.session.key,
+    );
+
+    expect(sessionKeys).toHaveLength(4);
+    expect(new Set(sessionKeys).size).toBe(sessionKeys.length);
+    expect(sessionKeys).toEqual(
+      expect.arrayContaining([
+        deriveOpenClawConversationSessionKey(
+          'review-gate:reviewer:source-exec-1',
+          reviewVerdictClaimKey('source-exec-1'),
+        ),
+        deriveOpenClawConversationSessionKey(
+          'review-gate:commit-message:source-exec-1:repo-1',
+          reviewCommitMessageClaimKey('source-exec-1', 'repo-1'),
+        ),
+        deriveOpenClawConversationSessionKey(
+          'review-gate:reviewer:source-exec-2',
+          reviewVerdictClaimKey('source-exec-2'),
+        ),
+        deriveOpenClawConversationSessionKey(
+          'review-gate:commit-message:source-exec-2:repo-2',
+          reviewCommitMessageClaimKey('source-exec-2', 'repo-2'),
+        ),
+      ]),
+    );
 
     deps.stateStore.close();
   });

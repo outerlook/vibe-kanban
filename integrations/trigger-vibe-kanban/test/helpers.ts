@@ -104,3 +104,18 @@ export function createTestOpenClawSessionConfigResolver() {
     ),
   );
 }
+
+function encodeSessionKeyPart(value: string): string {
+  return Buffer.from(value, 'utf8').toString('base64url');
+}
+
+export function deriveOpenClawConversationSessionKey(
+  correlationKey: string,
+  idempotencyKey: string,
+): string {
+  return [
+    'trigger:openclaw',
+    encodeSessionKeyPart(correlationKey),
+    encodeSessionKeyPart(idempotencyKey),
+  ].join(':');
+}

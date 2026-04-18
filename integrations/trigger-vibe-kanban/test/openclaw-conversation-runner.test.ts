@@ -19,6 +19,7 @@ import {
   createTempDir,
   createTestOpenClawSessionConfigResolver,
   createTestTriggerExecutorMapping,
+  deriveOpenClawConversationSessionKey,
   removeTempDir,
 } from './helpers';
 
@@ -246,17 +247,6 @@ function createFakeOpenClawSessionManager(options: {
   };
 }
 
-function deriveExpectedSessionKey(
-  correlationKey: string,
-  idempotencyKey: string,
-): string {
-  return [
-    'trigger:openclaw',
-    Buffer.from(correlationKey, 'utf8').toString('base64url'),
-    Buffer.from(idempotencyKey, 'utf8').toString('base64url'),
-  ].join(':');
-}
-
 describe('openclaw conversation runner', () => {
   it('resolves Trigger selection to standalone engine/model inputs and returns text output', async () => {
     const deps = createDependencies('openclaw-runner-text-');
@@ -290,13 +280,12 @@ describe('openclaw conversation runner', () => {
         model: 'claude-sonnet-4-5',
       });
       expect(result.session).toEqual({
-        key: deriveExpectedSessionKey('corr-123', 'idem-123'),
-        id: 'session-1',
+        key: deriveOpenClawConversationSessionKey('corr-123', 'idem-123'),
         cleanedUp: false,
       });
       expect(fake.calls.starts).toEqual([
         {
-          name: deriveExpectedSessionKey('corr-123', 'idem-123'),
+          name: deriveOpenClawConversationSessionKey('corr-123', 'idem-123'),
           cwd: '/tmp/worktree',
           engine: 'claude',
           model: 'claude-sonnet-4-5',
@@ -308,7 +297,7 @@ describe('openclaw conversation runner', () => {
       ).toMatchObject({
         correlationKey: 'corr-123',
         idempotencyKey: 'idem-123',
-        sessionKey: deriveExpectedSessionKey('corr-123', 'idem-123'),
+        sessionKey: deriveOpenClawConversationSessionKey('corr-123', 'idem-123'),
         sessionId: 'session-1',
         status: 'active',
       });
@@ -410,7 +399,6 @@ describe('openclaw conversation runner', () => {
       expect(cleanup.disposition).toBe('cleaned');
       expect(cleanup.session).toEqual({
         key: first.session.key,
-        id: 'session-1',
         cleanedUp: true,
       });
       expect(fake.calls.starts.at(-1)).toEqual({
@@ -462,7 +450,7 @@ describe('openclaw conversation runner', () => {
     }
   });
 
-  it('uses distinct session identities for independent concurrent helper executions', async () => {
+  it('uses distinct session identities for unrelated concurrent workflow correlations', async () => {
     const deps = createDependencies('openclaw-runner-concurrency-');
     const fake = createFakeOpenClawSessionManager({
       replyForMessage: async ({ name }) => `reply:${name}`,
@@ -486,8 +474,8 @@ describe('openclaw conversation runner', () => {
           buildRunRequest({
             correlation: {
               workflowKey: 'review-gate',
-              scopeKey: 'task-123',
-              correlationKey: 'corr-123',
+              scopeKey: 'task-456',
+              correlationKey: 'corr-456',
               idempotencyKey: 'idem-456',
             },
           }),
@@ -525,7 +513,7 @@ describe('openclaw conversation runner', () => {
         deps.stateStore.getOpenClawConversationSession('corr-123', 'idem-123')?.sessionKey,
       ).toBe(first.session.key);
       expect(
-        deps.stateStore.getOpenClawConversationSession('corr-123', 'idem-456')?.sessionKey,
+        deps.stateStore.getOpenClawConversationSession('corr-456', 'idem-456')?.sessionKey,
       ).toBe(second.session.key);
     } finally {
       deps.stateStore.close();
@@ -577,7 +565,7 @@ describe('openclaw conversation runner', () => {
         action: 'cleanup',
         correlation: buildRunRequest().correlation,
         session: {
-          key: deriveExpectedSessionKey('corr-123', 'idem-123'),
+          key: deriveOpenClawConversationSessionKey('corr-123', 'idem-123'),
         },
       });
 
@@ -604,7 +592,7 @@ describe('openclaw conversation runner', () => {
           action: 'cleanup',
           correlation: buildRunRequest().correlation,
           session: {
-            key: deriveExpectedSessionKey('corr-123', 'idem-123'),
+            key: deriveOpenClawConversationSessionKey('corr-123', 'idem-123'),
           },
         },
         {

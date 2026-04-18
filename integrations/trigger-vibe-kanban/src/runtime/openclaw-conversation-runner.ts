@@ -1,12 +1,14 @@
 import {
   SessionManager,
-  type EngineType,
-  type Logger as OpenClawLogger,
-  type SendResult,
-  type SessionConfig,
-  type SessionInfo,
-  type StreamEvent,
-} from '@enderfga/openclaw-claude-code';
+} from '@enderfga/openclaw-claude-code/dist/src/session-manager.js';
+import type {
+  EngineType,
+  SendResult,
+  SessionConfig,
+  SessionInfo,
+  StreamEvent,
+} from '@enderfga/openclaw-claude-code/dist/src/types.js';
+import type { Logger as OpenClawLogger } from '@enderfga/openclaw-claude-code/dist/src/logger.js';
 
 import type { JsonValue } from '../state/types';
 import type {
@@ -532,7 +534,6 @@ async function cleanupSessionInternal(
       disposition: 'already-cleaned',
       session: {
         key: sessionRecord.sessionKey,
-        id: sessionRecord.sessionId,
         cleanedUp: true,
       },
     };
@@ -571,7 +572,6 @@ async function cleanupSessionInternal(
     disposition: 'cleaned',
     session: {
       key: cleanedSession.sessionKey,
-      id: cleanedSession.sessionId,
       cleanedUp: true,
     },
   };
@@ -702,7 +702,6 @@ export async function runOpenClawConversationRequest(
       action: 'run',
       session: {
         key: persistedSession.sessionKey,
-        id: persistedSession.sessionId,
         cleanedUp: false,
       },
       selection: {

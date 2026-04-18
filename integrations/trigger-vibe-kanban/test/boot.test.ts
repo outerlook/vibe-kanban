@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { ORCHESTRATION_SCHEMA_VERSION } from '../../../shared/orchestration-events';
@@ -21,6 +22,74 @@ import {
 } from './helpers';
 
 describe('package boot surfaces', () => {
+  it('audits the Trigger integration tree for stale plugin-runtime references', () => {
+    const integrationRoot = join(import.meta.dir, '..');
+    const disallowedMatches: string[] = [];
+    let scannedFiles = 0;
+
+    function walk(directory: string) {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        if (
+          entry.name === 'node_modules' ||
+          entry.name === '.git' ||
+          entry.name === 'dist'
+        ) {
+          continue;
+        }
+
+        const absolutePath = join(directory, entry.name);
+        if (entry.isDirectory()) {
+          walk(absolutePath);
+          continue;
+        }
+
+        if (absolutePath.endsWith(join('test', 'boot.test.ts'))) {
+          continue;
+        }
+
+        scannedFiles += 1;
+        const contents = readFileSync(absolutePath, 'utf8');
+
+        if (/openclaw\/plugin-sdk/.test(contents)) {
+          disallowedMatches.push(`${absolutePath}:openclaw/plugin-sdk`);
+        }
+
+        if (
+          /from ['"]@enderfga\/openclaw-claude-code['"]/.test(contents) ||
+          /from ['"]@enderfga\/openclaw-claude-code['"];?/.test(contents)
+        ) {
+          disallowedMatches.push(`${absolutePath}:plugin package root import`);
+        }
+
+        if (/claude-code-skill serve/.test(contents)) {
+          disallowedMatches.push(`${absolutePath}:claude-code-skill serve`);
+        }
+
+        if (
+          absolutePath.endsWith('package.json') &&
+          /"openclaw"\s*:/.test(contents)
+        ) {
+          disallowedMatches.push(`${absolutePath}:package dependency openclaw`);
+        }
+      }
+    }
+
+    walk(integrationRoot);
+
+    const bunLockContents = readFileSync(join(integrationRoot, 'bun.lock'), 'utf8');
+    const workspaceDependencies =
+      bunLockContents.match(
+        /"dependencies":\s*\{([\s\S]*?)\n\s*\},\n\s*"devDependencies"/,
+      )?.[1] ?? '';
+
+    if (/"openclaw"\s*:/.test(workspaceDependencies)) {
+      disallowedMatches.push('bun.lock:workspace dependency openclaw');
+    }
+
+    expect(scannedFiles).toBeGreaterThan(0);
+    expect(disallowedMatches).toEqual([]);
+  });
+
   it('boots the scheduled CodeRabbit poller with Trigger-owned checkpoint state', async () => {
     const previousGitHubToken = process.env.GITHUB_TOKEN;
     process.env.GITHUB_TOKEN = 'test-token';
