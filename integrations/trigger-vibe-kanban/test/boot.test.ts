@@ -22,7 +22,7 @@ import {
 } from './helpers';
 
 describe('package boot surfaces', () => {
-  it('audits the Trigger integration tree for stale plugin-runtime references', () => {
+  it('audits the Trigger integration tree for legacy plugin-boundary usage while allowing the standalone SessionManager package seam', () => {
     const integrationRoot = join(import.meta.dir, '..');
     const disallowedMatches: string[] = [];
     let scannedFiles = 0;
@@ -54,6 +54,8 @@ describe('package boot surfaces', () => {
           disallowedMatches.push(`${absolutePath}:openclaw/plugin-sdk`);
         }
 
+        // The package root is the plugin entrypoint. Trigger should consume the
+        // standalone SessionManager seam via explicit subpath imports instead.
         if (
           /from ['"]@enderfga\/openclaw-claude-code['"]/.test(contents) ||
           /from ['"]@enderfga\/openclaw-claude-code['"];?/.test(contents)
@@ -69,13 +71,16 @@ describe('package boot surfaces', () => {
           absolutePath.endsWith('package.json') &&
           /"openclaw"\s*:/.test(contents)
         ) {
-          disallowedMatches.push(`${absolutePath}:package dependency openclaw`);
+          disallowedMatches.push(`${absolutePath}:direct package dependency openclaw`);
         }
       }
     }
 
     walk(integrationRoot);
 
+    // Bun lockfiles can still include transitive peer metadata for the allowed
+    // standalone package. We only reject direct workspace ownership of the
+    // `openclaw` package itself.
     const bunLockContents = readFileSync(join(integrationRoot, 'bun.lock'), 'utf8');
     const workspaceDependencies =
       bunLockContents.match(
@@ -83,7 +88,7 @@ describe('package boot surfaces', () => {
       )?.[1] ?? '';
 
     if (/"openclaw"\s*:/.test(workspaceDependencies)) {
-      disallowedMatches.push('bun.lock:workspace dependency openclaw');
+      disallowedMatches.push('bun.lock:direct workspace dependency openclaw');
     }
 
     expect(scannedFiles).toBeGreaterThan(0);
