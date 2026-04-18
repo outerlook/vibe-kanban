@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -10,7 +9,7 @@ import {
   OPENCLAW_CONVERSATION_TASK_ID,
   runOpenClawConversationRequest,
   type OpenClawConversationRunRequest,
-  type OpenClawSdk,
+  type OpenClawSessionManager,
   VkRuntimeClient,
 } from '../src';
 import { createConsoleLogger } from '../src/runtime/dependencies';
@@ -61,11 +60,11 @@ function createDependencies(prefix: string): RuntimeDependencies {
       authMode: 'none',
     }),
     logger: createConsoleLogger(),
-      openClawConversationExecutor: {
-        async run() {
-          throw new Error('OpenClaw conversation executor should not run in this test');
-        },
+    openClawConversationExecutor: {
+      async run() {
+        throw new Error('OpenClaw conversation executor should not run in this test');
       },
+    },
   };
 }
 
@@ -95,166 +94,233 @@ function buildRunRequest(
   };
 }
 
-type FakeOpenClawHarness = {
-  calls: {
-    getReply: number;
-    lastConfig: Record<string, unknown> | null;
-    lastContext: Record<string, unknown> | null;
-  };
-  sdk: OpenClawSdk;
-  storePath: string;
+type FakeSessionRecord = {
+  name: string;
+  sessionId: string;
+  cwd: string;
+  model: string | undefined;
+  engine: string | undefined;
+  created: string;
+  active: boolean;
+  persisted: boolean;
 };
 
-function createFakeOpenClawSdk(options: {
-  tempDir: string;
-  response?: string;
-  onGetReply?: (args: {
-    ctx: Record<string, unknown>;
-    opts: Record<string, unknown>;
-    configOverride: Record<string, unknown>;
-    storePath: string;
-    sessionKey: string;
-    transcriptPath: string;
-    stores: Map<string, Record<string, any>>;
-  }) => Promise<void> | void;
-}): FakeOpenClawHarness {
-  const stores = new Map<string, Record<string, any>>();
-  const calls = {
-    getReply: 0,
-    lastConfig: null as Record<string, unknown> | null,
-    lastContext: null as Record<string, unknown> | null,
+type FakeOpenClawHarness = {
+  calls: {
+    starts: Array<Record<string, unknown>>;
+    messages: Array<Record<string, unknown>>;
+    stops: string[];
   };
-  const storePath = join(options.tempDir, 'openclaw-sessions.json');
+  manager: OpenClawSessionManager;
+  unloadSession(name: string): void;
+};
 
-  const sdk: OpenClawSdk = {
-    applyModelOverrideToSessionEntry({ entry, selection, profileOverride }) {
-      entry.modelProvider = selection.provider;
-      entry.model = selection.model;
-      entry.modelOverride = `${selection.provider}/${selection.model}`;
-      if (profileOverride) {
-        entry.authProfileOverride = profileOverride;
+function createFakeOpenClawSessionManager(options: {
+  response?: string;
+  replyForMessage?: (input: { name: string; message: string }) => Promise<string> | string;
+  sendError?: Error;
+} = {}): FakeOpenClawHarness {
+  const sessions = new Map<string, FakeSessionRecord>();
+  const calls = {
+    starts: [] as Array<Record<string, unknown>>,
+    messages: [] as Array<Record<string, unknown>>,
+    stops: [] as string[],
+  };
+  let sessionSequence = 0;
+
+  function buildInfo(session: FakeSessionRecord) {
+    return {
+      name: session.name,
+      claudeSessionId: session.sessionId,
+      created: session.created,
+      cwd: session.cwd,
+      model: session.model,
+      paused: false,
+      stats: {
+        turns: 0,
+        toolCalls: 0,
+        toolErrors: 0,
+        tokensIn: 0,
+        tokensOut: 0,
+        cachedTokens: 0,
+        costUsd: 0,
+        isReady: true,
+        startTime: session.created,
+        lastActivity: session.created,
+        contextPercent: 0,
+        retries: 0,
+      },
+    };
+  }
+
+  const manager: OpenClawSessionManager = {
+    async startSession(config) {
+      const name = config.name ?? `session-${++sessionSequence}`;
+      calls.starts.push({
+        name,
+        cwd: config.cwd,
+        engine: config.engine,
+        model: config.model,
+      });
+
+      const existing = sessions.get(name);
+      if (existing) {
+        existing.active = true;
+        existing.persisted = true;
+        existing.cwd = config.cwd ?? existing.cwd;
+        existing.model = config.model ?? existing.model;
+        existing.engine = config.engine ?? existing.engine;
+        return buildInfo(existing) as Awaited<ReturnType<OpenClawSessionManager['startSession']>>;
       }
-      return { updated: true };
+
+      const created = new Date().toISOString();
+      const next: FakeSessionRecord = {
+        name,
+        sessionId: `session-${++sessionSequence}`,
+        cwd: config.cwd ?? process.cwd(),
+        model: config.model,
+        engine: config.engine,
+        created,
+        active: true,
+        persisted: true,
+      };
+      sessions.set(name, next);
+      return buildInfo(next) as Awaited<ReturnType<OpenClawSessionManager['startSession']>>;
     },
-    async getReplyFromConfig(ctx, opts, configOverride) {
-      calls.getReply += 1;
-      calls.lastConfig = configOverride as Record<string, unknown>;
-      calls.lastContext = ctx as Record<string, unknown>;
-
-      const sessionKey = String(ctx.SessionKey);
-      const transcriptPath = join(options.tempDir, `${sessionKey}.jsonl`);
-      writeFileSync(transcriptPath, 'assistant output');
-
-      stores.set(storePath, {
-        ...(stores.get(storePath) ?? {}),
-        [sessionKey]: {
-          sessionId: `session-${calls.getReply}`,
-          sessionFile: transcriptPath,
-        },
+    async sendMessage(name, message, requestOptions) {
+      calls.messages.push({
+        name,
+        message,
+        timeout: requestOptions?.timeout,
       });
 
-      opts?.onAgentRunStart?.(`run-${calls.getReply}`);
-      opts?.onModelSelected?.({
-        provider: 'anthropic',
-        model: 'claude-sonnet-4-5',
-        thinkLevel: 'medium',
-      } as never);
+      if (options.sendError) {
+        throw options.sendError;
+      }
 
-      await options.onGetReply?.({
-        ctx: ctx as Record<string, unknown>,
-        opts: opts as Record<string, unknown>,
-        configOverride: configOverride as Record<string, unknown>,
-        storePath,
-        sessionKey,
-        transcriptPath,
-        stores,
-      });
+      const session = sessions.get(name);
+      if (!session || !session.active) {
+        throw new Error(`Unknown active session ${name}`);
+      }
 
-      return { text: options.response ?? 'Looks good to me.' };
-    },
-    loadSessionStore(path) {
-      return structuredClone(stores.get(path) ?? {});
-    },
-    resolveSessionStoreEntry({ store, sessionKey }) {
+      const output = options.replyForMessage
+        ? await options.replyForMessage({ name, message })
+        : options.response ?? 'Looks good to me.';
+      requestOptions?.onChunk?.(output);
       return {
-        normalizedKey: sessionKey,
-        existing: store[sessionKey],
-        legacyKeys: [],
+        output,
+        sessionId: session.sessionId,
+        events: [],
       };
     },
-    resolveStorePath(store) {
-      return store ?? storePath;
+    async stopSession(name) {
+      calls.stops.push(name);
+      const session = sessions.get(name);
+      if (!session || !session.active) {
+        throw new Error(`Unknown active session ${name}`);
+      }
+
+      sessions.delete(name);
     },
-    async saveSessionStore(path, store) {
-      stores.set(path, structuredClone(store));
+    listSessions() {
+      return Array.from(sessions.values())
+        .filter((session) => session.active)
+        .map((session) => buildInfo(session)) as ReturnType<OpenClawSessionManager['listSessions']>;
+    },
+    listPersistedSessions() {
+      return Array.from(sessions.values())
+        .filter((session) => session.persisted)
+        .map((session) => ({ name: session.name }));
     },
   };
 
   return {
     calls,
-    sdk,
-    storePath,
+    manager,
+    unloadSession(name) {
+      const session = sessions.get(name);
+      if (session) {
+        session.active = false;
+      }
+    },
   };
 }
 
+function deriveExpectedSessionKey(
+  correlationKey: string,
+  idempotencyKey: string,
+): string {
+  return [
+    'trigger:openclaw',
+    Buffer.from(correlationKey, 'utf8').toString('base64url'),
+    Buffer.from(idempotencyKey, 'utf8').toString('base64url'),
+  ].join(':');
+}
+
 describe('openclaw conversation runner', () => {
-  it('returns a plain-text response and persists Trigger-owned session state', async () => {
+  it('resolves Trigger selection to standalone engine/model inputs and returns text output', async () => {
     const deps = createDependencies('openclaw-runner-text-');
-    const tempDir = join(deps.environment.stateDatabasePath, '..');
-    const fake = createFakeOpenClawSdk({
-      tempDir,
-      response: 'Ship it.',
+    const fake = createFakeOpenClawSessionManager({
+      response: 'Looks good to me.',
     });
 
     try {
       const result = await runOpenClawConversationRequest(
         buildRunRequest({
-          workingDirectory: '/repo/worktree',
+          selection: {
+            operationKey: TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateCreateConversation,
+          },
         }),
         deps,
-        fake.sdk,
+        fake.manager,
       );
 
       expect(result.response).toEqual({
         kind: 'text',
-        text: 'Ship it.',
+        text: 'Looks good to me.',
       });
       expect(result.selection).toEqual({
         profileName: 'CLAUDE_CODE.REVIEW',
         engineModel: 'anthropic.claude-sonnet-4-5',
         modelRef: 'anthropic/claude-sonnet-4-5',
       });
-      expect(result.run.agentRunId).toBe('run-1');
+      expect(result.run.agentRunId).toBeNull();
       expect(result.run.selectedModel).toEqual({
         provider: 'anthropic',
         model: 'claude-sonnet-4-5',
-        thinkingLevel: 'medium',
       });
-      expect(fake.calls.lastConfig?.agents).toEqual({
-        defaults: {
-          model: 'anthropic/claude-sonnet-4-5',
-          workspace: '/repo/worktree',
+      expect(result.session).toEqual({
+        key: deriveExpectedSessionKey('corr-123', 'idem-123'),
+        id: 'session-1',
+        cleanedUp: false,
+      });
+      expect(fake.calls.starts).toEqual([
+        {
+          name: deriveExpectedSessionKey('corr-123', 'idem-123'),
+          cwd: '/tmp/worktree',
+          engine: 'claude',
+          model: 'claude-sonnet-4-5',
         },
-      });
+      ]);
+      expect(fake.calls.messages).toHaveLength(1);
       expect(
-        deps.stateStore.getOpenClawConversationSession('corr-123'),
+        deps.stateStore.getOpenClawConversationSession('corr-123', 'idem-123'),
       ).toMatchObject({
         correlationKey: 'corr-123',
+        idempotencyKey: 'idem-123',
+        sessionKey: deriveExpectedSessionKey('corr-123', 'idem-123'),
         sessionId: 'session-1',
         status: 'active',
-        workingDirectory: '/repo/worktree',
       });
     } finally {
       deps.stateStore.close();
     }
   });
 
-  it('supports structured-output mode with semantic operation-key profile selection', async () => {
+  it('parses and validates structured output', async () => {
     const deps = createDependencies('openclaw-runner-structured-');
-    const tempDir = join(deps.environment.stateDatabasePath, '..');
-    const fake = createFakeOpenClawSdk({
-      tempDir,
-      response: '```json\n{"needs_attention":false,"reasoning":"Looks complete."}\n```',
+    const fake = createFakeOpenClawSessionManager({
+      response: JSON.stringify({ summary: 'Ship it', approved: true }),
     });
 
     try {
@@ -264,51 +330,32 @@ describe('openclaw conversation runner', () => {
             kind: 'structured',
             schema: {
               type: 'object',
+              required: ['summary', 'approved'],
               properties: {
-                needs_attention: { type: 'boolean' },
-                reasoning: { type: 'string', minLength: 1 },
+                summary: { type: 'string', minLength: 1 },
+                approved: { type: 'boolean' },
               },
-              required: ['needs_attention', 'reasoning'],
-              additionalProperties: false,
             },
-          },
-          selection: {
-            operationKey: TRIGGER_EXECUTOR_OPERATION_KEYS.reviewGateCreateConversation,
           },
         }),
         deps,
-        fake.sdk,
+        fake.manager,
       );
 
       expect(result.response).toEqual({
         kind: 'structured',
-        text: '```json\n{"needs_attention":false,"reasoning":"Looks complete."}\n```',
-        value: {
-          needs_attention: false,
-          reasoning: 'Looks complete.',
-        },
+        text: JSON.stringify({ summary: 'Ship it', approved: true }),
+        value: { summary: 'Ship it', approved: true },
       });
-      expect(result.selection.profileName).toBe('CLAUDE_CODE.REVIEW');
     } finally {
       deps.stateStore.close();
     }
   });
 
-  it('propagates timeout failures and records them in Trigger-owned idempotency state', async () => {
+  it('maps standalone timeout errors to the runner timeout contract', async () => {
     const deps = createDependencies('openclaw-runner-timeout-');
-    const tempDir = join(deps.environment.stateDatabasePath, '..');
-    const fake = createFakeOpenClawSdk({
-      tempDir,
-      onGetReply: async ({ opts }) => {
-        const abortSignal = opts.abortSignal as AbortSignal;
-        await new Promise((_, reject) => {
-          abortSignal.addEventListener(
-            'abort',
-            () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
-            { once: true },
-          );
-        });
-      },
+    const fake = createFakeOpenClawSessionManager({
+      sendError: new Error('Timeout waiting for response'),
     });
 
     try {
@@ -318,7 +365,7 @@ describe('openclaw conversation runner', () => {
             timeoutMs: 25,
           }),
           deps,
-          fake.sdk,
+          fake.manager,
         ),
       ).rejects.toThrow('timed out after 25ms');
 
@@ -333,11 +380,9 @@ describe('openclaw conversation runner', () => {
     }
   });
 
-  it('cleans up persisted OpenClaw session state explicitly', async () => {
+  it('cleans up a persisted standalone session and keeps cleanup idempotent', async () => {
     const deps = createDependencies('openclaw-runner-cleanup-');
-    const tempDir = join(deps.environment.stateDatabasePath, '..');
-    const fake = createFakeOpenClawSdk({
-      tempDir,
+    const fake = createFakeOpenClawSessionManager({
       response: 'Cleanup me.',
     });
 
@@ -345,11 +390,10 @@ describe('openclaw conversation runner', () => {
       const first = await runOpenClawConversationRequest(
         buildRunRequest(),
         deps,
-        fake.sdk,
+        fake.manager,
       );
-      const transcriptPath = join(tempDir, `${first.session.key}.jsonl`);
 
-      expect(Bun.file(transcriptPath).size).toBeGreaterThan(0);
+      fake.unloadSession(first.session.key);
 
       const cleanup = await cleanupOpenClawConversationRequest(
         {
@@ -360,16 +404,27 @@ describe('openclaw conversation runner', () => {
           },
         },
         deps,
-        fake.sdk,
+        fake.manager,
       );
 
       expect(cleanup.disposition).toBe('cleaned');
+      expect(cleanup.session).toEqual({
+        key: first.session.key,
+        id: 'session-1',
+        cleanedUp: true,
+      });
+      expect(fake.calls.starts.at(-1)).toEqual({
+        name: first.session.key,
+        cwd: '/tmp/worktree',
+        engine: 'claude',
+        model: 'claude-sonnet-4-5',
+      });
+      expect(fake.calls.stops).toEqual([first.session.key]);
       expect(
-        deps.stateStore.getOpenClawConversationSession('corr-123'),
+        deps.stateStore.getOpenClawConversationSession('corr-123', 'idem-123'),
       ).toMatchObject({
         status: 'cleaned',
       });
-      expect(await Bun.file(transcriptPath).exists()).toBe(false);
 
       const repeatCleanup = await cleanupOpenClawConversationRequest(
         {
@@ -380,7 +435,7 @@ describe('openclaw conversation runner', () => {
           },
         },
         deps,
-        fake.sdk,
+        fake.manager,
       );
 
       expect(repeatCleanup.disposition).toBe('already-cleaned');
@@ -391,19 +446,111 @@ describe('openclaw conversation runner', () => {
 
   it('returns the stored result on idempotent re-entry without re-running OpenClaw', async () => {
     const deps = createDependencies('openclaw-runner-idempotent-');
-    const tempDir = join(deps.environment.stateDatabasePath, '..');
-    const fake = createFakeOpenClawSdk({
-      tempDir,
+    const fake = createFakeOpenClawSessionManager({
       response: 'Only once.',
     });
 
     try {
       const request = buildRunRequest();
-      const first = await runOpenClawConversationRequest(request, deps, fake.sdk);
-      const second = await runOpenClawConversationRequest(request, deps, fake.sdk);
+      const first = await runOpenClawConversationRequest(request, deps, fake.manager);
+      const second = await runOpenClawConversationRequest(request, deps, fake.manager);
 
       expect(first).toEqual(second);
-      expect(fake.calls.getReply).toBe(1);
+      expect(fake.calls.messages).toHaveLength(1);
+    } finally {
+      deps.stateStore.close();
+    }
+  });
+
+  it('uses distinct session identities for independent concurrent helper executions', async () => {
+    const deps = createDependencies('openclaw-runner-concurrency-');
+    const fake = createFakeOpenClawSessionManager({
+      replyForMessage: async ({ name }) => `reply:${name}`,
+    });
+
+    try {
+      const [first, second] = await Promise.all([
+        runOpenClawConversationRequest(
+          buildRunRequest({
+            correlation: {
+              workflowKey: 'review-gate',
+              scopeKey: 'task-123',
+              correlationKey: 'corr-123',
+              idempotencyKey: 'idem-123',
+            },
+          }),
+          deps,
+          fake.manager,
+        ),
+        runOpenClawConversationRequest(
+          buildRunRequest({
+            correlation: {
+              workflowKey: 'review-gate',
+              scopeKey: 'task-123',
+              correlationKey: 'corr-123',
+              idempotencyKey: 'idem-456',
+            },
+          }),
+          deps,
+          fake.manager,
+        ),
+      ]);
+
+      expect(first.session.key).not.toBe(second.session.key);
+      expect(first.response).toEqual({
+        kind: 'text',
+        text: `reply:${first.session.key}`,
+      });
+      expect(second.response).toEqual({
+        kind: 'text',
+        text: `reply:${second.session.key}`,
+      });
+      expect(fake.calls.starts).toEqual(
+        expect.arrayContaining([
+          {
+            name: first.session.key,
+            cwd: '/tmp/worktree',
+            engine: 'claude',
+            model: 'claude-sonnet-4-5',
+          },
+          {
+            name: second.session.key,
+            cwd: '/tmp/worktree',
+            engine: 'claude',
+            model: 'claude-sonnet-4-5',
+          },
+        ]),
+      );
+      expect(
+        deps.stateStore.getOpenClawConversationSession('corr-123', 'idem-123')?.sessionKey,
+      ).toBe(first.session.key);
+      expect(
+        deps.stateStore.getOpenClawConversationSession('corr-123', 'idem-456')?.sessionKey,
+      ).toBe(second.session.key);
+    } finally {
+      deps.stateStore.close();
+    }
+  });
+
+  it('fails fast on unsupported standalone engine providers', async () => {
+    const deps = createDependencies('openclaw-runner-engine-');
+    const fake = createFakeOpenClawSessionManager();
+    deps.environment.openClawSessionConfigResolver = {
+      resolve() {
+        return {
+          engine: {
+            model: 'mystery.experimental',
+          },
+        };
+      },
+    };
+
+    try {
+      await expect(
+        runOpenClawConversationRequest(buildRunRequest(), deps, fake.manager),
+      ).rejects.toThrow(
+        "Resolved OpenClaw engine.model 'mystery.experimental' uses unsupported standalone engine 'mystery'.",
+      );
     } finally {
       deps.stateStore.close();
     }
@@ -430,7 +577,7 @@ describe('openclaw conversation runner', () => {
         action: 'cleanup',
         correlation: buildRunRequest().correlation,
         session: {
-          key: 'trigger:openclaw:Y29ycl8xMjM',
+          key: deriveExpectedSessionKey('corr-123', 'idem-123'),
         },
       });
 
@@ -457,7 +604,7 @@ describe('openclaw conversation runner', () => {
           action: 'cleanup',
           correlation: buildRunRequest().correlation,
           session: {
-            key: 'trigger:openclaw:Y29ycl8xMjM',
+            key: deriveExpectedSessionKey('corr-123', 'idem-123'),
           },
         },
         {

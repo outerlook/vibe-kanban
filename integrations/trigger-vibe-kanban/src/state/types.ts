@@ -53,11 +53,11 @@ export type OpenClawConversationSessionStatus = 'active' | 'cleaned';
 
 export type OpenClawConversationSessionRecord = {
   correlationKey: string;
+  idempotencyKey: string;
   workflowKey: string;
   scopeKey: string;
   sessionKey: string;
   sessionId: string | null;
-  sessionStorePath: string;
   profileName: string;
   engineModel: string;
   workingDirectory: string;
@@ -96,6 +96,7 @@ export interface OrchestratorStateStore {
   upsertReviewCorrelation(input: Omit<ReviewCorrelationRecord, 'createdAt' | 'updatedAt'>): ReviewCorrelationRecord;
   getOpenClawConversationSession(
     correlationKey: string,
+    idempotencyKey: string,
   ): OpenClawConversationSessionRecord | null;
   upsertOpenClawConversationSession(
     input: Omit<OpenClawConversationSessionRecord, 'createdAt' | 'updatedAt'>,

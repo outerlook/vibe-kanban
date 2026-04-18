@@ -1,19 +1,12 @@
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-
 import {
-  applyModelOverrideToSessionEntry,
-  loadSessionStore,
-  resolveSessionStoreEntry,
-  resolveStorePath,
-  saveSessionStore,
-  type OpenClawConfig,
-} from 'openclaw/plugin-sdk/config-runtime';
-import {
-  getReplyFromConfig,
-  type MsgContext,
-  type ReplyPayload,
-} from 'openclaw/plugin-sdk/reply-runtime';
+  SessionManager,
+  type EngineType,
+  type Logger as OpenClawLogger,
+  type SendResult,
+  type SessionConfig,
+  type SessionInfo,
+  type StreamEvent,
+} from '@enderfga/openclaw-claude-code';
 
 import type { JsonValue } from '../state/types';
 import type {
@@ -32,26 +25,37 @@ const OPENCLAW_CONVERSATION_WORKFLOW_KEY = 'openclaw/conversation';
 type SelectedModel = {
   provider: string;
   model: string;
-  thinkLevel?: string;
+  thinkingLevel?: string;
 };
 
-export type OpenClawSdk = {
-  applyModelOverrideToSessionEntry: typeof applyModelOverrideToSessionEntry;
-  getReplyFromConfig: typeof getReplyFromConfig;
-  loadSessionStore: typeof loadSessionStore;
-  resolveSessionStoreEntry: typeof resolveSessionStoreEntry;
-  resolveStorePath: typeof resolveStorePath;
-  saveSessionStore: typeof saveSessionStore;
+type OpenClawSessionStartConfig = Partial<SessionConfig> & {
+  name?: string;
 };
 
-const defaultOpenClawSdk: OpenClawSdk = {
-  applyModelOverrideToSessionEntry,
-  getReplyFromConfig,
-  loadSessionStore,
-  resolveSessionStoreEntry,
-  resolveStorePath,
-  saveSessionStore,
+export type OpenClawSessionManager = {
+  startSession(config: OpenClawSessionStartConfig): Promise<SessionInfo>;
+  sendMessage(
+    name: string,
+    message: string,
+    options?: {
+      timeout?: number;
+      onChunk?: (chunk: string) => void;
+      onEvent?: (event: StreamEvent) => void;
+    },
+  ): Promise<SendResult>;
+  stopSession(name: string): Promise<void>;
+  listSessions(): SessionInfo[];
+  listPersistedSessions(): Array<{ name: string }>;
 };
+
+type ResolvedSessionSelection = {
+  engine: EngineType;
+  provider: string;
+  model: string;
+  modelRef: string;
+};
+
+let sharedOpenClawSessionManager: OpenClawSessionManager | null = null;
 
 export class OpenClawConversationTimeoutError extends Error {
   readonly timeoutMs: number;
@@ -75,8 +79,15 @@ function encodeSessionKeyPart(value: string): string {
   return Buffer.from(value, 'utf8').toString('base64url');
 }
 
-function deriveSessionKey(correlationKey: string): string {
-  return `trigger:openclaw:${encodeSessionKeyPart(correlationKey)}`;
+function deriveSessionKey(
+  correlationKey: string,
+  idempotencyKey: string,
+): string {
+  return [
+    'trigger:openclaw',
+    encodeSessionKeyPart(correlationKey),
+    encodeSessionKeyPart(idempotencyKey),
+  ].join(':');
 }
 
 function resolveRequestedProfileName(
@@ -92,69 +103,97 @@ function resolveRequestedProfileName(
   );
 }
 
-function toOpenClawModelRef(engineModel: string): string {
+function mapEngineProviderToStandaloneEngine(
+  provider: string,
+  engineModel: string,
+): EngineType {
+  switch (provider.toLowerCase()) {
+    case 'anthropic':
+    case 'claude':
+      return 'claude';
+    case 'openai':
+    case 'openai-codex':
+    case 'codex':
+      return 'codex';
+    case 'google':
+    case 'gemini':
+      return 'gemini';
+    case 'cursor':
+      return 'cursor';
+    default:
+      throw new Error(
+        `Resolved OpenClaw engine.model '${engineModel}' uses unsupported standalone engine '${provider}'.`,
+      );
+  }
+}
+
+function parseStandaloneSessionSelection(
+  engineModel: string,
+): ResolvedSessionSelection {
   const trimmed = engineModel.trim();
   if (trimmed.length === 0) {
     throw new Error('Resolved OpenClaw engine.model must not be empty.');
   }
 
-  if (trimmed.includes('/')) {
-    return trimmed;
-  }
-
-  const firstDotIndex = trimmed.indexOf('.');
-  if (firstDotIndex <= 0 || firstDotIndex === trimmed.length - 1) {
+  const separatorIndex = trimmed.indexOf('.');
+  if (separatorIndex <= 0 || separatorIndex === trimmed.length - 1) {
     throw new Error(
-      `Resolved OpenClaw engine.model '${trimmed}' must use <ENGINE>.<MODEL> or <ENGINE>/<MODEL>.`,
+      `Resolved OpenClaw engine.model '${trimmed}' must use <ENGINE>.<MODEL>.`,
     );
   }
 
-  return `${trimmed.slice(0, firstDotIndex)}/${trimmed.slice(firstDotIndex + 1)}`;
-}
-
-function splitModelRef(modelRef: string): { provider: string; model: string } {
-  const separatorIndex = modelRef.indexOf('/');
-  if (separatorIndex <= 0 || separatorIndex === modelRef.length - 1) {
+  const provider = trimmed.slice(0, separatorIndex).trim();
+  const model = trimmed.slice(separatorIndex + 1).trim();
+  if (!provider || !model) {
     throw new Error(
-      `OpenClaw model reference '${modelRef}' must use <PROVIDER>/<MODEL>.`,
+      `Resolved OpenClaw engine.model '${trimmed}' must use <ENGINE>.<MODEL>.`,
     );
   }
 
   return {
-    provider: modelRef.slice(0, separatorIndex),
-    model: modelRef.slice(separatorIndex + 1),
+    provider,
+    engine: mapEngineProviderToStandaloneEngine(provider, trimmed),
+    model,
+    modelRef: `${provider}/${model}`,
   };
 }
 
-function resolveSessionStorePath(
-  deps: RuntimeDependencies,
-  sdk: OpenClawSdk,
-): string {
-  const defaultStorePath = join(
-    dirname(deps.environment.stateDatabasePath),
-    'openclaw-sessions.json',
-  );
-  const resolvedStorePath = sdk.resolveStorePath(defaultStorePath);
-  mkdirSync(dirname(resolvedStorePath), { recursive: true });
-  return resolvedStorePath;
+function sanitizeSessionKey(rawValue: string | undefined): string | null {
+  const sessionKey = rawValue?.trim();
+  return sessionKey ? sessionKey : null;
 }
 
-function buildConfigOverride(
+function resolveSessionKey(
   request: OpenClawConversationRunRequest,
-  modelRef: string,
-  storePath: string,
-): OpenClawConfig {
-  return {
-    session: {
-      store: storePath,
-    },
-    agents: {
-      defaults: {
-        model: modelRef,
-        workspace: request.workingDirectory,
-      },
-    },
-  } satisfies OpenClawConfig;
+  deps: RuntimeDependencies,
+): string {
+  const existing = deps.stateStore.getOpenClawConversationSession(
+    request.correlation.correlationKey,
+    request.correlation.idempotencyKey,
+  );
+  const explicitSessionKey = sanitizeSessionKey(request.session?.key);
+
+  if (existing?.status === 'active') {
+    if (explicitSessionKey && explicitSessionKey !== existing.sessionKey) {
+      throw new Error(
+        `OpenClaw conversation ${request.correlation.correlationKey}/${request.correlation.idempotencyKey} is already bound to session ${existing.sessionKey}.`,
+      );
+    }
+
+    return existing.sessionKey;
+  }
+
+  const derivedSessionKey = deriveSessionKey(
+    request.correlation.correlationKey,
+    request.correlation.idempotencyKey,
+  );
+  if (explicitSessionKey && explicitSessionKey !== derivedSessionKey) {
+    throw new Error(
+      `OpenClaw conversation ${request.correlation.correlationKey}/${request.correlation.idempotencyKey} must use session ${derivedSessionKey}, not ${explicitSessionKey}.`,
+    );
+  }
+
+  return derivedSessionKey;
 }
 
 function buildPrompt(request: OpenClawConversationRunRequest): string {
@@ -175,88 +214,6 @@ function buildPrompt(request: OpenClawConversationRunRequest): string {
     '',
     JSON.stringify(request.response.schema, null, 2),
   ].join('\n');
-}
-
-function buildMessageContext(
-  request: OpenClawConversationRunRequest,
-  sessionKey: string,
-  prompt: string,
-): MsgContext {
-  const from = `trigger:${encodeSessionKeyPart(request.correlation.workflowKey)}`;
-  return {
-    Provider: 'trigger',
-    Surface: 'trigger',
-    ChatType: 'direct',
-    Body: prompt,
-    BodyForAgent: prompt,
-    BodyForCommands: prompt,
-    RawBody: prompt,
-    CommandBody: prompt,
-    SessionKey: sessionKey,
-    From: from,
-    To: 'trigger:openclaw',
-    Timestamp: Date.now(),
-  } satisfies MsgContext;
-}
-
-function sanitizeSessionKey(rawValue: string | undefined): string | null {
-  const sessionKey = rawValue?.trim();
-  return sessionKey ? sessionKey : null;
-}
-
-function resolveSessionKey(
-  request: OpenClawConversationRunRequest,
-  deps: RuntimeDependencies,
-): string {
-  const existing = deps.stateStore.getOpenClawConversationSession(
-    request.correlation.correlationKey,
-  );
-  const explicitSessionKey = sanitizeSessionKey(request.session?.key);
-
-  if (existing?.status === 'active') {
-    if (explicitSessionKey && explicitSessionKey !== existing.sessionKey) {
-      throw new Error(
-        `OpenClaw conversation ${request.correlation.correlationKey} is already bound to session ${existing.sessionKey}.`,
-      );
-    }
-
-    return existing.sessionKey;
-  }
-
-  return explicitSessionKey ?? deriveSessionKey(request.correlation.correlationKey);
-}
-
-function toPayloadList(
-  response: ReplyPayload | ReplyPayload[] | undefined,
-  collectedPayloads: Array<ReplyPayload | ReplyPayload[]>,
-): ReplyPayload[] {
-  if (Array.isArray(response) && response.length > 0) {
-    return response;
-  }
-
-  if (!Array.isArray(response) && response) {
-    return [response];
-  }
-
-  return collectedPayloads.flatMap((payload) =>
-    Array.isArray(payload) ? payload : [payload],
-  );
-}
-
-function extractResponseText(payloads: ReplyPayload[]): string {
-  const text = payloads
-    .filter((payload) => payload.isReasoning !== true)
-    .filter((payload) => payload.isCompactionNotice !== true)
-    .map((payload) => payload.text?.trim())
-    .filter((value): value is string => Boolean(value))
-    .join('\n\n')
-    .trim();
-
-  if (text.length === 0) {
-    throw new Error('OpenClaw conversation completed without a text response.');
-  }
-
-  return text;
 }
 
 function normalizeStructuredText(text: string): string {
@@ -323,24 +280,16 @@ function validateSchema(
         }
       }
 
-      if (schema.additionalProperties === false && properties) {
-        for (const key of Object.keys(value)) {
-          if (!(key in properties)) {
-            return `${path}.${key}: additional properties are not allowed.`;
-          }
-        }
-      }
-
       if (!properties) {
         return null;
       }
 
-      for (const [key, propertySchema] of Object.entries(properties)) {
+      for (const [key, nestedSchema] of Object.entries(properties)) {
         if (!(key in value)) {
           continue;
         }
 
-        const nestedError = validateSchema(value[key], propertySchema as JsonValue, `${path}.${key}`);
+        const nestedError = validateSchema(value[key], nestedSchema as JsonValue, `${path}.${key}`);
         if (nestedError) {
           return nestedError;
         }
@@ -354,7 +303,7 @@ function validateSchema(
       }
 
       const itemSchema = schema.items as JsonValue | undefined;
-      if (itemSchema === undefined) {
+      if (!itemSchema) {
         return null;
       }
 
@@ -458,10 +407,95 @@ function normalizeSelectedModel(
   return {
     provider: selectedModel.provider,
     model: selectedModel.model,
-    ...(selectedModel.thinkLevel
-      ? { thinkingLevel: selectedModel.thinkLevel }
+    ...(selectedModel.thinkingLevel
+      ? { thinkingLevel: selectedModel.thinkingLevel }
       : {}),
   };
+}
+
+function createOpenClawSessionLogger(
+  logger: RuntimeDependencies['logger'],
+): OpenClawLogger {
+  return {
+    debug(message, ...context) {
+      logger.debug(message, context as JsonValue[]);
+    },
+    info(message, ...context) {
+      logger.info(message, context as JsonValue[]);
+    },
+    warn(message, ...context) {
+      logger.warn(message, context as JsonValue[]);
+    },
+    error(message, ...context) {
+      logger.error(message, context as JsonValue[]);
+    },
+  };
+}
+
+function resolveOpenClawSessionManager(
+  deps: RuntimeDependencies,
+  sessionManager?: OpenClawSessionManager,
+): OpenClawSessionManager {
+  if (sessionManager) {
+    return sessionManager;
+  }
+
+  if (!sharedOpenClawSessionManager) {
+    sharedOpenClawSessionManager = new SessionManager(
+      {
+        maxConcurrentSessions: Number.MAX_SAFE_INTEGER,
+      },
+      createOpenClawSessionLogger(deps.logger),
+    );
+  }
+
+  return sharedOpenClawSessionManager;
+}
+
+function buildSessionStartConfig(
+  sessionKey: string,
+  workingDirectory: string,
+  selection: ResolvedSessionSelection,
+): OpenClawSessionStartConfig {
+  return {
+    name: sessionKey,
+    cwd: workingDirectory,
+    engine: selection.engine,
+    model: selection.model,
+  };
+}
+
+function isTimeoutError(error: unknown): boolean {
+  const message = formatErrorMessage(error).toLowerCase();
+  return message.includes('timeout');
+}
+
+function normalizeSessionError(error: unknown, timeoutMs: number): Error {
+  if (error instanceof OpenClawConversationTimeoutError) {
+    return error;
+  }
+
+  if (isTimeoutError(error)) {
+    return new OpenClawConversationTimeoutError(timeoutMs);
+  }
+
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function hasActiveSession(
+  sessionManager: OpenClawSessionManager,
+  sessionKey: string,
+): boolean {
+  return sessionManager.listSessions().some((session) => session.name === sessionKey);
+}
+
+function hasPersistedSession(
+  sessionManager: OpenClawSessionManager,
+  sessionKey: string,
+): boolean {
+  return sessionManager
+    .listPersistedSessions()
+    .some((session) => session.name === sessionKey);
 }
 
 type CleanupOptions = {
@@ -471,23 +505,24 @@ type CleanupOptions = {
 async function cleanupSessionInternal(
   request: OpenClawConversationCleanupRequest,
   deps: RuntimeDependencies,
-  sdk: OpenClawSdk,
+  sessionManager: OpenClawSessionManager,
   options: CleanupOptions,
 ): Promise<OpenClawConversationCleanupResult> {
   const sessionRecord = deps.stateStore.getOpenClawConversationSession(
     request.correlation.correlationKey,
+    request.correlation.idempotencyKey,
   );
 
   if (!sessionRecord) {
     throw new Error(
-      `OpenClaw conversation ${request.correlation.correlationKey} does not have Trigger-owned session state.`,
+      `OpenClaw conversation ${request.correlation.correlationKey}/${request.correlation.idempotencyKey} does not have Trigger-owned session state.`,
     );
   }
 
   const requestedSessionKey = sanitizeSessionKey(request.session?.key);
   if (requestedSessionKey && requestedSessionKey !== sessionRecord.sessionKey) {
     throw new Error(
-      `OpenClaw conversation ${request.correlation.correlationKey} is bound to session ${sessionRecord.sessionKey}, not ${requestedSessionKey}.`,
+      `OpenClaw conversation ${request.correlation.correlationKey}/${request.correlation.idempotencyKey} is bound to session ${sessionRecord.sessionKey}, not ${requestedSessionKey}.`,
     );
   }
 
@@ -498,56 +533,32 @@ async function cleanupSessionInternal(
       session: {
         key: sessionRecord.sessionKey,
         id: sessionRecord.sessionId,
-        storePath: sessionRecord.sessionStorePath,
         cleanedUp: true,
       },
     };
   }
 
-  const store = sdk.loadSessionStore(sessionRecord.sessionStorePath);
-  const resolvedSession = sdk.resolveSessionStoreEntry({
-    store,
-    sessionKey: sessionRecord.sessionKey,
-  });
-
-  const sessionEntry = resolvedSession.existing;
-  if (!sessionEntry) {
-    if (!options.allowMissingSession && sessionRecord.sessionId) {
+  const active = hasActiveSession(sessionManager, sessionRecord.sessionKey);
+  const persisted = active || hasPersistedSession(sessionManager, sessionRecord.sessionKey);
+  if (!persisted) {
+    if (!options.allowMissingSession) {
       throw new Error(
-        `OpenClaw session ${sessionRecord.sessionKey} is missing from ${sessionRecord.sessionStorePath}.`,
+        `OpenClaw session ${sessionRecord.sessionKey} is missing from standalone SessionManager persistence.`,
       );
     }
   } else {
-    delete store[resolvedSession.normalizedKey];
-    await sdk.saveSessionStore(sessionRecord.sessionStorePath, store);
-
-    const sessionFile = typeof sessionEntry.sessionFile === 'string'
-      ? sessionEntry.sessionFile.trim()
-      : '';
-    if (sessionFile.length > 0) {
-      const storeDirectory = resolve(dirname(sessionRecord.sessionStorePath));
-      const resolvedSessionFile = resolve(
-        isAbsolute(sessionFile)
-          ? sessionFile
-          : join(storeDirectory, sessionFile),
+    if (!active) {
+      const selection = parseStandaloneSessionSelection(sessionRecord.engineModel);
+      await sessionManager.startSession(
+        buildSessionStartConfig(
+          sessionRecord.sessionKey,
+          sessionRecord.workingDirectory,
+          selection,
+        ),
       );
-      const relativePath = relative(storeDirectory, resolvedSessionFile);
-
-      // Keep cleanup constrained to OpenClaw's session store directory so
-      // persisted transcript metadata cannot target arbitrary filesystem paths.
-      if (
-        relativePath === '' ||
-        (relativePath !== '..' && !relativePath.startsWith(`..${sep}`))
-      ) {
-        if (existsSync(resolvedSessionFile)) {
-          rmSync(resolvedSessionFile);
-        }
-      } else {
-        throw new Error(
-          `Refusing to delete OpenClaw transcript outside the session store directory: ${resolvedSessionFile}`,
-        );
-      }
     }
+
+    await sessionManager.stopSession(sessionRecord.sessionKey);
   }
 
   const cleanedSession = deps.stateStore.upsertOpenClawConversationSession({
@@ -561,22 +572,7 @@ async function cleanupSessionInternal(
     session: {
       key: cleanedSession.sessionKey,
       id: cleanedSession.sessionId,
-      storePath: cleanedSession.sessionStorePath,
       cleanedUp: true,
-    },
-  };
-}
-
-function createAbortController(timeoutMs: number): {
-  controller: AbortController;
-  clear: () => void;
-} {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  return {
-    controller,
-    clear() {
-      clearTimeout(timeout);
     },
   };
 }
@@ -594,7 +590,7 @@ function validateRunRequest(request: OpenClawConversationRunRequest): void {
 export async function runOpenClawConversationRequest(
   request: OpenClawConversationRunRequest,
   deps: RuntimeDependencies,
-  sdk: OpenClawSdk = defaultOpenClawSdk,
+  sessionManager = resolveOpenClawSessionManager(deps),
 ): Promise<OpenClawConversationRunResult> {
   validateRunRequest(request);
 
@@ -637,113 +633,68 @@ export async function runOpenClawConversationRequest(
   const startedAt = Date.now();
   const existingSessionRecord = deps.stateStore.getOpenClawConversationSession(
     request.correlation.correlationKey,
+    request.correlation.idempotencyKey,
   );
   const profileName = resolveRequestedProfileName(request, deps);
   const sessionConfig = deps.environment.openClawSessionConfigResolver.resolve(
     profileName,
   );
   const engineModel = sessionConfig.engine.model;
-  const modelRef = toOpenClawModelRef(engineModel);
-  const { provider, model } = splitModelRef(modelRef);
-  const sessionStorePath = resolveSessionStorePath(deps, sdk);
+  const selectedSession = parseStandaloneSessionSelection(engineModel);
   const sessionKey = resolveSessionKey(request, deps);
-
-  const activeSession = deps.stateStore.upsertOpenClawConversationSession({
-    correlationKey: request.correlation.correlationKey,
-    workflowKey: request.correlation.workflowKey,
-    scopeKey: request.correlation.scopeKey,
-    sessionKey,
-    sessionId: existingSessionRecord?.sessionId ?? null,
-    sessionStorePath,
-    profileName,
-    engineModel,
-    workingDirectory: request.workingDirectory,
-    status: 'active',
-  });
-
-  const store = sdk.loadSessionStore(sessionStorePath);
-  const resolvedExistingSession = sdk.resolveSessionStoreEntry({
-    store,
-    sessionKey,
-  });
-  if (resolvedExistingSession.existing) {
-    const overrideResult = sdk.applyModelOverrideToSessionEntry({
-      entry: resolvedExistingSession.existing,
-      selection: {
-        provider,
-        model,
-      },
-      profileOverride: profileName,
-      profileOverrideSource: 'auto',
-      selectionSource: 'auto',
-    });
-
-    if (overrideResult.updated) {
-      store[resolvedExistingSession.normalizedKey] = resolvedExistingSession.existing;
-      await sdk.saveSessionStore(sessionStorePath, store);
-    }
-  }
-
-  deps.stateStore.markClaimDispatched(claimKey, {
-    sessionKey,
-    profileName,
-    engineModel,
-  });
 
   let cleanupResult: OpenClawConversationCleanupResult | null = null;
   try {
+    const startedSession = await sessionManager.startSession(
+      buildSessionStartConfig(
+        sessionKey,
+        request.workingDirectory,
+        selectedSession,
+      ),
+    );
+
+    const activeSession = deps.stateStore.upsertOpenClawConversationSession({
+      correlationKey: request.correlation.correlationKey,
+      idempotencyKey: request.correlation.idempotencyKey,
+      workflowKey: request.correlation.workflowKey,
+      scopeKey: request.correlation.scopeKey,
+      sessionKey,
+      sessionId:
+        startedSession.claudeSessionId ?? existingSessionRecord?.sessionId ?? null,
+      profileName,
+      engineModel,
+      workingDirectory: request.workingDirectory,
+      status: 'active',
+    });
+
+    deps.stateStore.markClaimDispatched(claimKey, {
+      sessionKey,
+      profileName,
+      engineModel,
+    });
+
     const prompt = buildPrompt(request);
-    const context = buildMessageContext(request, sessionKey, prompt);
-    const configOverride = buildConfigOverride(request, modelRef, sessionStorePath);
-    const observedPayloads: Array<ReplyPayload | ReplyPayload[]> = [];
-    let selectedModel: SelectedModel | null = null;
-    let agentRunId: string | null = null;
-
-    const { controller, clear } = createAbortController(request.timeoutMs);
-    let response: ReplyPayload | ReplyPayload[] | undefined;
+    let response: SendResult;
     try {
-      response = await sdk.getReplyFromConfig(
-        context,
-        {
-          abortSignal: controller.signal,
-          onAgentRunStart(runId) {
-            agentRunId = runId;
-          },
-          onBlockReply(payload) {
-            observedPayloads.push(payload);
-          },
-          onModelSelected(modelSelection) {
-            selectedModel = modelSelection as SelectedModel;
-          },
-        },
-        configOverride,
-      );
+      response = await sessionManager.sendMessage(sessionKey, prompt, {
+        timeout: request.timeoutMs,
+      });
     } catch (error) {
-      if (controller.signal.aborted) {
-        throw new OpenClawConversationTimeoutError(request.timeoutMs);
-      }
-
-      throw error;
-    } finally {
-      clear();
+      throw normalizeSessionError(error, request.timeoutMs);
     }
 
-    const payloads = toPayloadList(response, observedPayloads);
-    const text = extractResponseText(payloads);
-    const refreshedStore = sdk.loadSessionStore(sessionStorePath);
-    const resolvedSession = sdk.resolveSessionStoreEntry({
-      store: refreshedStore,
-      sessionKey,
-    });
-    if (!resolvedSession.existing) {
-      throw new Error(
-        `OpenClaw session ${sessionKey} was not persisted to ${sessionStorePath}.`,
-      );
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    const text = response.output.trim();
+    if (text.length === 0) {
+      throw new Error('OpenClaw conversation completed without a text response.');
     }
 
     const persistedSession = deps.stateStore.upsertOpenClawConversationSession({
       ...activeSession,
-      sessionId: resolvedSession.existing.sessionId ?? null,
+      sessionId: response.sessionId ?? activeSession.sessionId,
       status: 'active',
     });
 
@@ -752,21 +703,23 @@ export async function runOpenClawConversationRequest(
       session: {
         key: persistedSession.sessionKey,
         id: persistedSession.sessionId,
-        storePath: persistedSession.sessionStorePath,
         cleanedUp: false,
       },
       selection: {
         profileName,
         engineModel,
-        modelRef,
+        modelRef: selectedSession.modelRef,
       },
       response: buildStructuredResult(text, request.response),
       run: {
         claimKey,
         idempotencyKey: request.correlation.idempotencyKey,
         durationMs: Date.now() - startedAt,
-        agentRunId,
-        selectedModel: normalizeSelectedModel(selectedModel),
+        agentRunId: null,
+        selectedModel: normalizeSelectedModel({
+          provider: selectedSession.provider,
+          model: selectedSession.model,
+        }),
       },
     };
 
@@ -780,7 +733,7 @@ export async function runOpenClawConversationRequest(
           },
         },
         deps,
-        sdk,
+        sessionManager,
         { allowMissingSession: false },
       );
       result.session.cleanedUp = cleanupResult.session.cleanedUp;
@@ -800,7 +753,7 @@ export async function runOpenClawConversationRequest(
             session: { key: sessionKey },
           },
           deps,
-          sdk,
+          sessionManager,
           { allowMissingSession: true },
         );
       } catch (cleanupError) {
@@ -818,6 +771,7 @@ export async function runOpenClawConversationRequest(
     if (cleanupResult) {
       deps.logger.warn('OpenClaw conversation failed after cleanup', {
         correlationKey: request.correlation.correlationKey,
+        idempotencyKey: request.correlation.idempotencyKey,
         sessionKey: cleanupResult.session.key,
         error: errorMessage,
       });
@@ -830,9 +784,9 @@ export async function runOpenClawConversationRequest(
 export async function cleanupOpenClawConversationRequest(
   request: OpenClawConversationCleanupRequest,
   deps: RuntimeDependencies,
-  sdk: OpenClawSdk = defaultOpenClawSdk,
+  sessionManager = resolveOpenClawSessionManager(deps),
 ): Promise<OpenClawConversationCleanupResult> {
-  return cleanupSessionInternal(request, deps, sdk, {
+  return cleanupSessionInternal(request, deps, sessionManager, {
     allowMissingSession: false,
   });
 }
@@ -840,13 +794,13 @@ export async function cleanupOpenClawConversationRequest(
 export async function executeOpenClawConversationRequest(
   request: OpenClawConversationRequest,
   deps: RuntimeDependencies,
-  sdk: OpenClawSdk = defaultOpenClawSdk,
+  sessionManager = resolveOpenClawSessionManager(deps),
 ): Promise<OpenClawConversationResult> {
   if (request.action === 'cleanup') {
-    return cleanupOpenClawConversationRequest(request, deps, sdk);
+    return cleanupOpenClawConversationRequest(request, deps, sessionManager);
   }
 
-  return runOpenClawConversationRequest(request, deps, sdk);
+  return runOpenClawConversationRequest(request, deps, sessionManager);
 }
 
 export {

@@ -119,7 +119,6 @@ export type OpenClawConversationRunMetadata = {
 export type OpenClawConversationSessionMetadata = {
   key: string;
   id: string | null;
-  storePath: string;
   cleanedUp: boolean;
 };
 

@@ -220,7 +220,6 @@ class FakeOpenClawConversationExecutor {
         session: {
           key: 'trigger:openclaw:reviewer',
           id: 'session-reviewer',
-          storePath: '/tmp/openclaw-sessions.json',
           cleanedUp: true,
         },
         selection: resolvedSelection,
@@ -251,7 +250,6 @@ class FakeOpenClawConversationExecutor {
       session: {
         key: `trigger:openclaw:${repoId}`,
         id: `session-${repoId}`,
-        storePath: '/tmp/openclaw-sessions.json',
         cleanedUp: true,
       },
       selection: resolvedSelection,

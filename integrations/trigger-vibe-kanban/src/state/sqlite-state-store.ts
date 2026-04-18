@@ -50,11 +50,11 @@ type ReviewCorrelationRow = {
 
 type OpenClawConversationSessionRow = {
   correlation_key: string;
+  idempotency_key: string;
   workflow_key: string;
   scope_key: string;
   session_key: string;
   session_id: string | null;
-  session_store_path: string;
   profile_name: string;
   engine_model: string;
   working_directory: string;
@@ -62,6 +62,9 @@ type OpenClawConversationSessionRow = {
   created_at: string;
   updated_at: string;
 };
+
+const OPENCLAW_CONVERSATION_SESSION_TABLE =
+  'openclaw_conversation_sessions_v2';
 
 function serializeJson(value: JsonValue | null | undefined): string | null {
   if (value === undefined || value === null) {
@@ -125,11 +128,11 @@ function mapOpenClawConversationSession(
 ): OpenClawConversationSessionRecord {
   return {
     correlationKey: row.correlation_key,
+    idempotencyKey: row.idempotency_key,
     workflowKey: row.workflow_key,
     scopeKey: row.scope_key,
     sessionKey: row.session_key,
     sessionId: row.session_id,
-    sessionStorePath: row.session_store_path,
     profileName: row.profile_name,
     engineModel: row.engine_model,
     workingDirectory: row.working_directory,
@@ -187,19 +190,20 @@ export function createSqliteStateStore(databasePath: string): OrchestratorStateS
       updated_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS openclaw_conversation_sessions (
-      correlation_key TEXT PRIMARY KEY,
+    CREATE TABLE IF NOT EXISTS ${OPENCLAW_CONVERSATION_SESSION_TABLE} (
+      correlation_key TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
       workflow_key TEXT NOT NULL,
       scope_key TEXT NOT NULL,
       session_key TEXT NOT NULL,
       session_id TEXT,
-      session_store_path TEXT NOT NULL,
       profile_name TEXT NOT NULL,
       engine_model TEXT NOT NULL,
       working_directory TEXT NOT NULL,
       status TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (correlation_key, idempotency_key)
     );
   `);
 
@@ -319,34 +323,34 @@ export function createSqliteStateStore(databasePath: string): OrchestratorStateS
 
   const getOpenClawConversationSessionStatement = database.query<
     OpenClawConversationSessionRow,
-    [string]
+    [string, string]
   >(`
     SELECT
       correlation_key,
+      idempotency_key,
       workflow_key,
       scope_key,
       session_key,
       session_id,
-      session_store_path,
       profile_name,
       engine_model,
       working_directory,
       status,
       created_at,
       updated_at
-    FROM openclaw_conversation_sessions
-    WHERE correlation_key = ?1
+    FROM ${OPENCLAW_CONVERSATION_SESSION_TABLE}
+    WHERE correlation_key = ?1 AND idempotency_key = ?2
   `);
 
   const upsertOpenClawConversationSessionStatement = database.query(
     `
-      INSERT INTO openclaw_conversation_sessions (
+      INSERT INTO ${OPENCLAW_CONVERSATION_SESSION_TABLE} (
         correlation_key,
+        idempotency_key,
         workflow_key,
         scope_key,
         session_key,
         session_id,
-        session_store_path,
         profile_name,
         engine_model,
         working_directory,
@@ -354,13 +358,12 @@ export function createSqliteStateStore(databasePath: string): OrchestratorStateS
         created_at,
         updated_at
       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
-      ON CONFLICT(correlation_key)
+      ON CONFLICT(correlation_key, idempotency_key)
       DO UPDATE SET
         workflow_key = excluded.workflow_key,
         scope_key = excluded.scope_key,
         session_key = excluded.session_key,
         session_id = excluded.session_id,
-        session_store_path = excluded.session_store_path,
         profile_name = excluded.profile_name,
         engine_model = excluded.engine_model,
         working_directory = excluded.working_directory,
@@ -494,19 +497,22 @@ export function createSqliteStateStore(databasePath: string): OrchestratorStateS
 
       return mapReviewCorrelation(row);
     },
-    getOpenClawConversationSession(correlationKey) {
-      const row = getOpenClawConversationSessionStatement.get(correlationKey);
+    getOpenClawConversationSession(correlationKey, idempotencyKey) {
+      const row = getOpenClawConversationSessionStatement.get(
+        correlationKey,
+        idempotencyKey,
+      );
       return row ? mapOpenClawConversationSession(row) : null;
     },
     upsertOpenClawConversationSession(input) {
       const now = new Date().toISOString();
       upsertOpenClawConversationSessionStatement.run(
         input.correlationKey,
+        input.idempotencyKey,
         input.workflowKey,
         input.scopeKey,
         input.sessionKey,
         input.sessionId,
-        input.sessionStorePath,
         input.profileName,
         input.engineModel,
         input.workingDirectory,
@@ -514,10 +520,13 @@ export function createSqliteStateStore(databasePath: string): OrchestratorStateS
         now,
       );
 
-      const row = getOpenClawConversationSessionStatement.get(input.correlationKey);
+      const row = getOpenClawConversationSessionStatement.get(
+        input.correlationKey,
+        input.idempotencyKey,
+      );
       if (!row) {
         throw new Error(
-          `Missing OpenClaw conversation session '${input.correlationKey}' after upsert`,
+          `Missing OpenClaw conversation session '${input.correlationKey}/${input.idempotencyKey}' after upsert`,
         );
       }
 

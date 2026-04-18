@@ -26,7 +26,7 @@ export {
   openClawConversationClaimKey,
   runOpenClawConversationRequest,
 } from './runtime/openclaw-conversation-runner';
-export type { OpenClawSdk } from './runtime/openclaw-conversation-runner';
+export type { OpenClawSessionManager } from './runtime/openclaw-conversation-runner';
 export {
   createTriggerExecutorMapping,
   loadTriggerExecutorMapping,
