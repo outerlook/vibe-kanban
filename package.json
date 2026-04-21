@@ -27,19 +27,7 @@
     "langfuse:down": "docker compose -f docker-compose.langfuse.yml down",
     "langfuse:logs": "docker compose -f docker-compose.langfuse.yml logs -f",
     "seed-db": "cargo run --bin generate-seed",
-    "audit:orchestrator-cutover": "if rg -n --hidden --glob '!node_modules' --glob '!.git' --glob '!target' --glob '!dist' --glob '!build' --glob '!pnpm-lock.yaml' --glob '!Cargo.lock' '\\b\\x6e8n\\b|\\x6e8n-|\\x6e8n\\.example' .; then echo 'Found stale legacy orchestrator references'; exit 1; fi",
-    "trigger:install": "cd integrations/trigger-vibe-kanban && bun install --frozen-lockfile",
-    "trigger:ci": "npm run trigger:install && npm run trigger:check && npm run trigger:test",
-    "trigger:check": "pnpm run generate-types:check && cd integrations/trigger-vibe-kanban && bun run check",
-    "trigger:test": "cd integrations/trigger-vibe-kanban && bun test",
-    "trigger:dev": "node scripts/trigger-vk.js dev",
-    "trigger:mqtt": "node scripts/trigger-vk.js mqtt",
-    "trigger:coderabbit": "node scripts/trigger-vk.js coderabbit",
-    "trigger:deploy": "node scripts/trigger-vk.js deploy",
-    "trigger:push": "node scripts/trigger-vk.js push",
-    "trigger:deploy:staging": "node scripts/trigger-vk.js deploy:staging",
-    "trigger:deploy:dry-run": "node scripts/trigger-vk.js deploy:dry-run",
-    "trigger:stack": "concurrently \"npm run trigger:dev\" \"npm run trigger:mqtt\""
+    "audit:orchestrator-cutover": "if rg -n --hidden --glob '!node_modules' --glob '!.git' --glob '!target' --glob '!dist' --glob '!build' --glob '!pnpm-lock.yaml' --glob '!Cargo.lock' '\\b\\x6e8n\\b|\\x6e8n-|\\x6e8n\\.example' .; then echo 'Found stale legacy orchestrator references'; exit 1; fi"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
