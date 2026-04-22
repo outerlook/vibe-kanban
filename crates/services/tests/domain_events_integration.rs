@@ -89,6 +89,7 @@ fn test_workspace() -> Workspace {
         container_ref: Some("test-container".to_string()),
         branch: "feature/test-branch".to_string(),
         agent_working_dir: Some("/workspace/project".to_string()),
+        git_mode: db::models::git_mode::GitMode::Managed,
         setup_completed_at: Some(chrono::Utc::now()),
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),

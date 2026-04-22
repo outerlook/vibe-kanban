@@ -162,6 +162,8 @@ fn generate_types_content() -> String {
         db::models::image::Image::decl(),
         db::models::image::CreateImage::decl(),
         db::models::app_settings::GitHubSettingsStatus::decl(),
+        db::models::git_mode::GitMode::decl(),
+        db::models::git_mode::MergeStrategy::decl(),
         db::models::workspace::Workspace::decl(),
         db::models::workspace::WorkspaceWithSession::decl(),
         db::models::session::Session::decl(),

@@ -7,6 +7,7 @@ use axum::{
     routing::{get, post, put},
 };
 use db::models::{
+    git_mode::GitMode,
     task_group::{MergeError, TaskGroup, TaskGroupWithStats, UpdateTaskGroup},
     workflow_association::{
         UpsertWorkflowAssociation, WorkflowAssociation, WorkflowAssociationResolution,
@@ -38,6 +39,7 @@ pub struct CreateTaskGroupRequest {
     pub name: String,
     pub description: Option<String>,
     pub base_branch: Option<String>,
+    pub git_mode: Option<GitMode>,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -45,6 +47,7 @@ pub struct UpdateTaskGroupRequest {
     pub name: Option<String>,
     pub description: Option<String>,
     pub base_branch: Option<String>,
+    pub git_mode: Option<GitMode>,
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -143,12 +146,13 @@ pub async fn create_task_group(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateTaskGroupRequest>,
 ) -> Result<ResponseJson<ApiResponse<TaskGroup>>, ApiError> {
-    let task_group = TaskGroup::create(
+    let task_group = TaskGroup::create_with_git_mode(
         &deployment.db().pool,
         payload.project_id,
         payload.name,
         payload.description,
         payload.base_branch,
+        payload.git_mode.unwrap_or_default(),
     )
     .await?;
 
@@ -176,6 +180,7 @@ pub async fn update_task_group(
         name: payload.name,
         description: payload.description,
         base_branch: payload.base_branch,
+        git_mode: payload.git_mode,
     };
 
     let task_group = TaskGroup::update(&deployment.db().pool, existing.id, &update)
@@ -498,6 +503,7 @@ mod tests {
                 name: "Group A".to_string(),
                 description: None,
                 base_branch: None,
+                git_mode: None,
             }),
         )
         .await
@@ -544,6 +550,7 @@ mod tests {
                 name: Some("Group A+".to_string()),
                 description: None,
                 base_branch: None,
+                git_mode: None,
             }),
         )
         .await

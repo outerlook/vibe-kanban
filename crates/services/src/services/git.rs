@@ -839,6 +839,78 @@ impl GitService {
             }
         }
     }
+
+    /// Fast-forward the target branch to the current task branch head.
+    ///
+    /// This preserves the task branch commit graph exactly as produced by the
+    /// agent. It is intended for workflows where the agent already made a real
+    /// merge commit from the target branch into the task branch.
+    pub fn fast_forward_target_to_task_head(
+        &self,
+        base_worktree_path: &Path,
+        task_worktree_path: &Path,
+        task_branch_name: &str,
+        target_branch_name: &str,
+    ) -> Result<String, GitServiceError> {
+        let git_cli = GitCli::new();
+
+        if git_cli
+            .has_changes(task_worktree_path)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))?
+        {
+            return Err(GitServiceError::WorktreeDirty(
+                task_branch_name.to_string(),
+                "uncommitted changes present".to_string(),
+            ));
+        }
+
+        let target_oid = self.get_branch_oid(base_worktree_path, target_branch_name)?;
+        let task_oid = self.get_branch_oid(base_worktree_path, task_branch_name)?;
+
+        if target_oid == task_oid {
+            return Err(GitServiceError::NothingToMerge(format!(
+                "Target branch '{target_branch_name}' already points at task branch '{task_branch_name}'",
+            )));
+        }
+
+        let gix_repo = GixReader::open(base_worktree_path)?;
+        if !GixReader::is_ancestor_by_oid(&gix_repo, &target_oid, &task_oid)? {
+            return Err(GitServiceError::BranchesDiverged(format!(
+                "Cannot fast-forward target branch '{target_branch_name}' to task branch '{task_branch_name}': target is not an ancestor of task",
+            )));
+        }
+
+        match self.find_checkout_path_for_branch(base_worktree_path, target_branch_name)? {
+            Some(target_checkout_path) => {
+                if git_cli.has_changes(&target_checkout_path).map_err(|e| {
+                    GitServiceError::InvalidRepository(format!("git status failed: {e}"))
+                })? {
+                    return Err(GitServiceError::WorktreeDirty(
+                        target_branch_name.to_string(),
+                        "uncommitted changes present".to_string(),
+                    ));
+                }
+
+                git_cli
+                    .merge_ff_only(&target_checkout_path, task_branch_name)
+                    .map_err(|e| {
+                        GitServiceError::InvalidRepository(format!(
+                            "git merge --ff-only failed: {e}"
+                        ))
+                    })
+            }
+            None => {
+                let target_refname = format!("refs/heads/{target_branch_name}");
+                git_cli
+                    .update_ref_checked(base_worktree_path, &target_refname, &task_oid, &target_oid)
+                    .map_err(|e| {
+                        GitServiceError::InvalidRepository(format!("git update-ref failed: {e}"))
+                    })?;
+                Ok(task_oid)
+            }
+        }
+    }
+
     /// Compute ahead/behind between two OIDs using gix.
     fn ahead_behind_by_oid_gix(
         repo_path: &Path,
@@ -1908,6 +1980,33 @@ mod tests {
             .unwrap_or(0)
     }
 
+    fn git(repo_path: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to run git");
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn git_parent_count(repo_path: &Path, rev: &str) -> usize {
+        let output = Command::new("git")
+            .args(["rev-list", "--parents", "-n", "1", rev])
+            .current_dir(repo_path)
+            .output()
+            .expect("Failed to run git rev-list");
+        assert!(output.status.success());
+        String::from_utf8_lossy(&output.stdout)
+            .split_whitespace()
+            .count()
+            .saturating_sub(1)
+    }
+
     fn git_status_counts(repo_path: &Path) -> (usize, usize) {
         let output = Command::new("git")
             .args(["status", "--porcelain"])
@@ -2290,5 +2389,127 @@ mod tests {
             matches!(result, Err(GitServiceError::NothingToMerge(_))),
             "Should return NothingToMerge when task branch has no commits ahead of base"
         );
+    }
+
+    #[test]
+    fn test_fast_forward_target_preserves_merge_commit() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path_buf = temp_dir.path().join("repo");
+        fs::create_dir(&repo_path_buf).unwrap();
+        let repo_path = repo_path_buf.as_path();
+        init_test_repo_via_cli(repo_path);
+
+        let task_worktree = temp_dir.path().join("task-worktree");
+        git(
+            repo_path,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "task-branch",
+                task_worktree.to_str().unwrap(),
+                "main",
+            ],
+        );
+
+        fs::write(task_worktree.join("task.txt"), "task").unwrap();
+        git(&task_worktree, &["add", "."]);
+        git(&task_worktree, &["commit", "-m", "Task change"]);
+
+        fs::write(repo_path.join("base.txt"), "base").unwrap();
+        git(repo_path, &["add", "."]);
+        git(repo_path, &["commit", "-m", "Base change"]);
+
+        git(
+            &task_worktree,
+            &["merge", "main", "--no-ff", "-m", "Merge main into task"],
+        );
+        let task_head = git_rev_parse(&task_worktree, "HEAD");
+
+        let git_service = GitService::new();
+        let result = git_service
+            .fast_forward_target_to_task_head(repo_path, &task_worktree, "task-branch", "main")
+            .unwrap();
+
+        assert_eq!(result, task_head);
+        assert_eq!(git_rev_parse(repo_path, "main"), task_head);
+        assert_eq!(git_parent_count(repo_path, &task_head), 2);
+    }
+
+    #[test]
+    fn test_fast_forward_target_rejects_non_ancestor_target() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path_buf = temp_dir.path().join("repo");
+        fs::create_dir(&repo_path_buf).unwrap();
+        let repo_path = repo_path_buf.as_path();
+        init_test_repo_via_cli(repo_path);
+
+        let task_worktree = temp_dir.path().join("task-worktree");
+        git(
+            repo_path,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "task-branch",
+                task_worktree.to_str().unwrap(),
+                "main",
+            ],
+        );
+
+        fs::write(task_worktree.join("task.txt"), "task").unwrap();
+        git(&task_worktree, &["add", "."]);
+        git(&task_worktree, &["commit", "-m", "Task change"]);
+
+        fs::write(repo_path.join("base.txt"), "base").unwrap();
+        git(repo_path, &["add", "."]);
+        git(repo_path, &["commit", "-m", "Base change"]);
+
+        let git_service = GitService::new();
+        let result = git_service.fast_forward_target_to_task_head(
+            repo_path,
+            &task_worktree,
+            "task-branch",
+            "main",
+        );
+
+        assert!(matches!(result, Err(GitServiceError::BranchesDiverged(_))));
+    }
+
+    #[test]
+    fn test_fast_forward_target_rejects_dirty_task_worktree() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path_buf = temp_dir.path().join("repo");
+        fs::create_dir(&repo_path_buf).unwrap();
+        let repo_path = repo_path_buf.as_path();
+        init_test_repo_via_cli(repo_path);
+
+        let task_worktree = temp_dir.path().join("task-worktree");
+        git(
+            repo_path,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "task-branch",
+                task_worktree.to_str().unwrap(),
+                "main",
+            ],
+        );
+
+        fs::write(task_worktree.join("task.txt"), "task").unwrap();
+        git(&task_worktree, &["add", "."]);
+        git(&task_worktree, &["commit", "-m", "Task change"]);
+        fs::write(task_worktree.join("dirty.txt"), "dirty").unwrap();
+
+        let git_service = GitService::new();
+        let result = git_service.fast_forward_target_to_task_head(
+            repo_path,
+            &task_worktree,
+            "task-branch",
+            "main",
+        );
+
+        assert!(matches!(result, Err(GitServiceError::WorktreeDirty(_, _))));
     }
 }

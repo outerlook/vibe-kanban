@@ -22,6 +22,7 @@ export function useMerge(
         repo_id: params.repoId,
         commit_message: params.commitMessage ?? null,
         generate_commit_message: params.generateCommitMessage ?? null,
+        merge_strategy: null,
       });
     },
     onSuccess: () => {

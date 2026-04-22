@@ -551,6 +551,7 @@ mod tests {
             container_ref: None,
             branch: "test".to_string(),
             agent_working_dir: None,
+            git_mode: db::models::git_mode::GitMode::Managed,
             setup_completed_at: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),

@@ -428,7 +428,8 @@ mod orchestration_hydration_tests {
             project.id,
             workspace.id,
             Uuid::new_v4(),
-            "Merge main task".to_string(),
+            Some("Merge main task".to_string()),
+            db::models::git_mode::MergeStrategy::Squash,
         );
 
         let conversation = ConversationSession::create(

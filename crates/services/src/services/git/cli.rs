@@ -654,6 +654,21 @@ impl GitCli {
         Ok(sha)
     }
 
+    /// Fast-forward the current branch to from_branch. Returns new HEAD sha.
+    pub fn merge_ff_only(
+        &self,
+        repo_path: &Path,
+        from_branch: &str,
+    ) -> Result<String, GitCliError> {
+        self.git(repo_path, ["merge", "--ff-only", from_branch])
+            .map(|_| ())?;
+        let sha = self
+            .git(repo_path, ["rev-parse", "HEAD"])?
+            .trim()
+            .to_string();
+        Ok(sha)
+    }
+
     /// Update a ref to a specific sha in the repo.
     pub fn update_ref(
         &self,
@@ -663,6 +678,21 @@ impl GitCli {
     ) -> Result<(), GitCliError> {
         self.git(repo_path, ["update-ref", refname, sha])
             .map(|_| ())
+    }
+
+    /// Update a ref only if it still points at expected_old_sha.
+    pub fn update_ref_checked(
+        &self,
+        repo_path: &Path,
+        refname: &str,
+        new_sha: &str,
+        expected_old_sha: &str,
+    ) -> Result<(), GitCliError> {
+        self.git(
+            repo_path,
+            ["update-ref", refname, new_sha, expected_old_sha],
+        )
+        .map(|_| ())
     }
 
     pub fn abort_merge(&self, worktree_path: &Path) -> Result<(), GitCliError> {

@@ -224,7 +224,7 @@ export function TaskFollowUpSection({
         await updateScratch({
           payload: {
             type: 'DRAFT_FOLLOW_UP',
-            data: { message, variant },
+            data: { message, variant, structured_output: null },
           },
         });
       } catch (e) {

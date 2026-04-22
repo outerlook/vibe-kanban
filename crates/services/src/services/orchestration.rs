@@ -9,6 +9,7 @@ use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
     execution_process_repo_state::ExecutionProcessRepoState,
     execution_queue::ExecutionQueue,
+    git_mode::{GitMode, MergeStrategy},
     image::Image,
     review_attention::ReviewAttention,
     session::Session,
@@ -163,6 +164,7 @@ pub struct WorkspaceSnapshotDto {
     pub task_id: String,
     pub branch: String,
     pub agent_working_dir: Option<String>,
+    pub git_mode: GitMode,
     pub setup_completed_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -295,7 +297,8 @@ pub struct MergeQueueEntrySnapshotDto {
     pub workspace_id: String,
     pub repo_id: String,
     pub status: String,
-    pub commit_message: String,
+    pub commit_message: Option<String>,
+    pub merge_strategy: MergeStrategy,
     pub queued_at: String,
 }
 
@@ -307,6 +310,7 @@ pub struct TaskGroupSnapshotDto {
     pub name: String,
     pub description: Option<String>,
     pub base_branch: Option<String>,
+    pub git_mode: GitMode,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -1007,6 +1011,7 @@ impl From<Workspace> for WorkspaceSnapshotDto {
             task_id: normalize_uuid(workspace.task_id),
             branch: workspace.branch,
             agent_working_dir: workspace.agent_working_dir,
+            git_mode: workspace.git_mode,
             setup_completed_at: workspace.setup_completed_at.map(normalize_ts),
             created_at: normalize_ts(workspace.created_at),
             updated_at: normalize_ts(workspace.updated_at),
@@ -1082,6 +1087,7 @@ impl From<MergeQueueEntry> for MergeQueueEntrySnapshotDto {
             repo_id: normalize_uuid(entry.repo_id),
             status: enum_name(&entry.status),
             commit_message: entry.commit_message,
+            merge_strategy: entry.merge_strategy,
             queued_at: normalize_ts(entry.queued_at),
         }
     }
@@ -1095,6 +1101,7 @@ impl From<TaskGroup> for TaskGroupSnapshotDto {
             name: task_group.name,
             description: task_group.description,
             base_branch: task_group.base_branch,
+            git_mode: task_group.git_mode,
             created_at: normalize_ts(task_group.created_at),
             updated_at: normalize_ts(task_group.updated_at),
         }

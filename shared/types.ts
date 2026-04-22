@@ -72,11 +72,11 @@ export type EmbeddingStatus = { task_id: string, needs_embedding: boolean, last_
 
 export type TaskDependency = { id: string, task_id: string, depends_on_id: string, created_at: string, };
 
-export type TaskGroup = { id: string, project_id: string, name: string, description: string | null, base_branch: string | null, created_at: string, updated_at: string, };
+export type TaskGroup = { id: string, project_id: string, name: string, description: string | null, base_branch: string | null, git_mode: GitMode, created_at: string, updated_at: string, };
 
 export type TaskStatusCounts = { todo: number, inprogress: number, inreview: number, done: number, cancelled: number, };
 
-export type TaskGroupWithStats = { task_counts: TaskStatusCounts, id: string, project_id: string, name: string, description: string | null, base_branch: string | null, created_at: string, updated_at: string, };
+export type TaskGroupWithStats = { task_counts: TaskStatusCounts, id: string, project_id: string, name: string, description: string | null, base_branch: string | null, git_mode: GitMode, created_at: string, updated_at: string, };
 
 export type Notification = { id: string, project_id: string | null, notification_type: NotificationType, title: string, message: string, is_read: boolean, metadata: JsonValue | null, workspace_id: string | null, session_id: string | null, conversation_session_id: string | null, created_at: string, updated_at: string, };
 
@@ -102,9 +102,9 @@ export type GanttTask = { id: string, name: string, start: string, end: string, 
 
 export type PaginatedGanttTasks = { tasks: Array<GanttTask>, total: number, hasMore: boolean, };
 
-export type CreateTaskGroup = { project_id: string, name: string, description: string | null, base_branch: string | null, };
+export type CreateTaskGroup = { project_id: string, name: string, description: string | null, base_branch: string | null, git_mode: GitMode | null, };
 
-export type UpdateTaskGroup = { name: string | null, description: string | null, base_branch: string | null, };
+export type UpdateTaskGroup = { name: string | null, description: string | null, base_branch: string | null, git_mode: GitMode | null, };
 
 export type ConversationSession = { id: string, project_id: string, title: string, status: ConversationSessionStatus, executor: string | null, worktree_path: string | null, worktree_branch: string | null, created_at: string, updated_at: string, };
 
@@ -158,7 +158,7 @@ export type TaskListItemDto = { id: string, title: string, status: string, task_
 
 export type ImageSnapshotDto = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: number, created_at: string, };
 
-export type WorkspaceSnapshotDto = { id: string, task_id: string, branch: string, agent_working_dir: string | null, setup_completed_at: string | null, created_at: string, updated_at: string, };
+export type WorkspaceSnapshotDto = { id: string, task_id: string, branch: string, agent_working_dir: string | null, git_mode: GitMode, setup_completed_at: string | null, created_at: string, updated_at: string, };
 
 export type SessionSnapshotDto = { id: string, workspace_id: string, executor: string | null, created_at: string, updated_at: string, };
 
@@ -184,9 +184,9 @@ export type TaskQueueStateDto = { execution_queue: ExecutionQueueSnapshotDto | n
 
 export type ExecutionQueueSnapshotDto = { id: string, workspace_id: string, executor_profile: string, queued_at: string, session_id: string | null, is_follow_up: boolean, };
 
-export type MergeQueueEntrySnapshotDto = { id: string, project_id: string, workspace_id: string, repo_id: string, status: string, commit_message: string, queued_at: string, };
+export type MergeQueueEntrySnapshotDto = { id: string, project_id: string, workspace_id: string, repo_id: string, status: string, commit_message: string | null, merge_strategy: MergeStrategy, queued_at: string, };
 
-export type TaskGroupSnapshotDto = { id: string, project_id: string, name: string, description: string | null, base_branch: string | null, created_at: string, updated_at: string, };
+export type TaskGroupSnapshotDto = { id: string, project_id: string, name: string, description: string | null, base_branch: string | null, git_mode: GitMode, created_at: string, updated_at: string, };
 
 export type TaskGroupStatsDto = { todo: number, in_progress: number, in_review: number, done: number, cancelled: number, };
 
@@ -302,13 +302,17 @@ export type CreateImage = { file_path: string, original_name: string, mime_type:
 
 export type GitHubSettingsStatus = { configured: boolean, };
 
-export type Workspace = { id: string, task_id: string, container_ref: string | null, branch: string, agent_working_dir: string | null, setup_completed_at: string | null, created_at: string, updated_at: string, };
+export type GitMode = "managed" | "preserve_history";
+
+export type MergeStrategy = "squash" | "fast_forward_target";
+
+export type Workspace = { id: string, task_id: string, container_ref: string | null, branch: string, agent_working_dir: string | null, git_mode: GitMode, setup_completed_at: string | null, created_at: string, updated_at: string, };
 
 export type WorkspaceWithSession = { session: Session | null, 
 /**
  * Executor name if workspace is queued for execution (populated from execution_queue)
  */
-queued_executor: string | null, id: string, task_id: string, container_ref: string | null, branch: string, agent_working_dir: string | null, setup_completed_at: string | null, created_at: string, updated_at: string, };
+queued_executor: string | null, id: string, task_id: string, container_ref: string | null, branch: string, agent_working_dir: string | null, git_mode: GitMode, setup_completed_at: string | null, created_at: string, updated_at: string, };
 
 export type Session = { id: string, workspace_id: string, executor: string | null, created_at: string, updated_at: string, };
 
@@ -642,7 +646,7 @@ export type ChangeTargetBranchRequest = { repo_id: string, new_target_branch: st
 
 export type ChangeTargetBranchResponse = { repo_id: string, new_target_branch: string, status: [number, number], };
 
-export type MergeTaskAttemptRequest = { repo_id: string, commit_message: string | null, generate_commit_message: boolean | null, };
+export type MergeTaskAttemptRequest = { repo_id: string, commit_message: string | null, generate_commit_message: boolean | null, merge_strategy: MergeStrategy | null, };
 
 export type GenerateCommitMessageRequest = { repo_id: string, executor_profile_id: ExecutorProfileId | null, };
 
@@ -680,7 +684,7 @@ export type TaskExecutionExecutorStrategy = { "executor_selection": "default" } 
 
 export type TaskExecutionWorkspaceResolution = "created" | "reused";
 
-export type StartTaskExecutionCommand = { task_id: string, workspace_strategy: TaskExecutionWorkspaceStrategy, executor_strategy: TaskExecutionExecutorStrategy, repo_selection: TaskExecutionRepoSelection, };
+export type StartTaskExecutionCommand = { task_id: string, workspace_strategy: TaskExecutionWorkspaceStrategy, executor_strategy: TaskExecutionExecutorStrategy, repo_selection: TaskExecutionRepoSelection, git_mode: GitMode | null, };
 
 export type StartTaskExecutionResult = { "status": "started", workspace: Workspace, workspace_resolution: TaskExecutionWorkspaceResolution, executor_profile_id: ExecutorProfileId, execution_process: ExecutionProcess, } | { "status": "queued", workspace: Workspace, workspace_resolution: TaskExecutionWorkspaceResolution, executor_profile_id: ExecutorProfileId, queue_entry: ExecutionQueue, };
 
@@ -760,7 +764,7 @@ conflicted_files: Array<string>,
  */
 target_branch_has_uncommitted_changes: boolean | null, };
 
-export type QueueMergeRequest = { repo_id: string, commit_message: string | null, };
+export type QueueMergeRequest = { repo_id: string, commit_message: string | null, merge_strategy: MergeStrategy | null, };
 
 export type QueueMergeError = { "type": "no_commits_ahead" } | { "type": "has_conflicts" } | { "type": "already_merged" } | { "type": "already_queued" } | { "type": "workspace_repo_not_found" };
 
@@ -835,7 +839,7 @@ export type OperationStatus = { id: string, workspace_id: string, task_id: strin
 
 export type OperationStatusType = "generating_commit" | "rebasing" | "pushing" | "merging";
 
-export type MergeQueueEntry = { id: string, project_id: string, workspace_id: string, repo_id: string, queued_at: string, status: MergeQueueStatus, commit_message: string, };
+export type MergeQueueEntry = { id: string, project_id: string, workspace_id: string, repo_id: string, queued_at: string, status: MergeQueueStatus, commit_message: string | null, merge_strategy: MergeStrategy, };
 
 export type MergeQueueStatus = "queued" | "merging";
 

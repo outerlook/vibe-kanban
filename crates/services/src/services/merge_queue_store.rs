@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use db::models::git_mode::MergeStrategy;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -30,7 +31,8 @@ pub struct MergeQueueEntry {
     pub repo_id: Uuid,
     pub queued_at: DateTime<Utc>,
     pub status: MergeQueueStatus,
-    pub commit_message: String,
+    pub commit_message: Option<String>,
+    pub merge_strategy: MergeStrategy,
 }
 
 impl MergeQueueEntry {
@@ -38,7 +40,8 @@ impl MergeQueueEntry {
         project_id: Uuid,
         workspace_id: Uuid,
         repo_id: Uuid,
-        commit_message: String,
+        commit_message: Option<String>,
+        merge_strategy: MergeStrategy,
     ) -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -48,6 +51,7 @@ impl MergeQueueEntry {
             queued_at: Utc::now(),
             status: MergeQueueStatus::Queued,
             commit_message,
+            merge_strategy,
         }
     }
 }
@@ -78,9 +82,16 @@ impl MergeQueueStore {
         project_id: Uuid,
         workspace_id: Uuid,
         repo_id: Uuid,
-        commit_message: String,
+        commit_message: Option<String>,
+        merge_strategy: MergeStrategy,
     ) -> MergeQueueEntry {
-        let entry = MergeQueueEntry::new(project_id, workspace_id, repo_id, commit_message);
+        let entry = MergeQueueEntry::new(
+            project_id,
+            workspace_id,
+            repo_id,
+            commit_message,
+            merge_strategy,
+        );
 
         {
             let mut entries = self.entries.write();
@@ -208,7 +219,13 @@ mod tests {
         let workspace_id = Uuid::new_v4();
         let repo_id = Uuid::new_v4();
 
-        let entry = store.enqueue(project_id, workspace_id, repo_id, "Test commit".to_string());
+        let entry = store.enqueue(
+            project_id,
+            workspace_id,
+            repo_id,
+            Some("Test commit".to_string()),
+            MergeStrategy::Squash,
+        );
 
         assert_eq!(entry.project_id, project_id);
         assert_eq!(entry.workspace_id, workspace_id);
@@ -226,28 +243,46 @@ mod tests {
 
         // Enqueue 3 entries with small delays to ensure different timestamps
         let ws1 = Uuid::new_v4();
-        let entry1 = store.enqueue(project_id, ws1, repo_id, "First".to_string());
+        let entry1 = store.enqueue(
+            project_id,
+            ws1,
+            repo_id,
+            Some("First".to_string()),
+            MergeStrategy::Squash,
+        );
 
         std::thread::sleep(Duration::from_millis(10));
         let ws2 = Uuid::new_v4();
-        let _entry2 = store.enqueue(project_id, ws2, repo_id, "Second".to_string());
+        let _entry2 = store.enqueue(
+            project_id,
+            ws2,
+            repo_id,
+            Some("Second".to_string()),
+            MergeStrategy::Squash,
+        );
 
         std::thread::sleep(Duration::from_millis(10));
         let ws3 = Uuid::new_v4();
-        let _entry3 = store.enqueue(project_id, ws3, repo_id, "Third".to_string());
+        let _entry3 = store.enqueue(
+            project_id,
+            ws3,
+            repo_id,
+            Some("Third".to_string()),
+            MergeStrategy::Squash,
+        );
 
         // claim_next should return the oldest entry
         let claimed = store.claim_next(project_id).unwrap();
         assert_eq!(claimed.workspace_id, entry1.workspace_id);
-        assert_eq!(claimed.commit_message, "First");
+        assert_eq!(claimed.commit_message.as_deref(), Some("First"));
         assert_eq!(claimed.status, MergeQueueStatus::Merging);
 
         // Verify list_by_project returns in order
         let list = store.list_by_project(project_id);
         assert_eq!(list.len(), 3);
-        assert_eq!(list[0].commit_message, "First");
-        assert_eq!(list[1].commit_message, "Second");
-        assert_eq!(list[2].commit_message, "Third");
+        assert_eq!(list[0].commit_message.as_deref(), Some("First"));
+        assert_eq!(list[1].commit_message.as_deref(), Some("Second"));
+        assert_eq!(list[2].commit_message.as_deref(), Some("Third"));
     }
 
     #[test]
@@ -257,20 +292,32 @@ mod tests {
         let repo_id = Uuid::new_v4();
 
         let ws1 = Uuid::new_v4();
-        let _entry1 = store.enqueue(project_id, ws1, repo_id, "First".to_string());
+        let _entry1 = store.enqueue(
+            project_id,
+            ws1,
+            repo_id,
+            Some("First".to_string()),
+            MergeStrategy::Squash,
+        );
 
         std::thread::sleep(Duration::from_millis(10));
         let ws2 = Uuid::new_v4();
-        let entry2 = store.enqueue(project_id, ws2, repo_id, "Second".to_string());
+        let entry2 = store.enqueue(
+            project_id,
+            ws2,
+            repo_id,
+            Some("Second".to_string()),
+            MergeStrategy::Squash,
+        );
 
         // Claim the first entry
         let claimed1 = store.claim_next(project_id).unwrap();
-        assert_eq!(claimed1.commit_message, "First");
+        assert_eq!(claimed1.commit_message.as_deref(), Some("First"));
 
         // Next claim should skip the Merging entry and get the second
         let claimed2 = store.claim_next(project_id).unwrap();
         assert_eq!(claimed2.workspace_id, entry2.workspace_id);
-        assert_eq!(claimed2.commit_message, "Second");
+        assert_eq!(claimed2.commit_message.as_deref(), Some("Second"));
 
         // No more Queued entries
         assert!(store.claim_next(project_id).is_none());
@@ -283,7 +330,13 @@ mod tests {
         let workspace_id = Uuid::new_v4();
         let repo_id = Uuid::new_v4();
 
-        store.enqueue(project_id, workspace_id, repo_id, "Test".to_string());
+        store.enqueue(
+            project_id,
+            workspace_id,
+            repo_id,
+            Some("Test".to_string()),
+            MergeStrategy::Squash,
+        );
         assert!(store.get(workspace_id).is_some());
 
         let removed = store.remove(workspace_id);
@@ -304,16 +357,28 @@ mod tests {
         let ws1 = Uuid::new_v4();
         let ws2 = Uuid::new_v4();
 
-        store.enqueue(project1, ws1, repo_id, "Project 1".to_string());
-        store.enqueue(project2, ws2, repo_id, "Project 2".to_string());
+        store.enqueue(
+            project1,
+            ws1,
+            repo_id,
+            Some("Project 1".to_string()),
+            MergeStrategy::Squash,
+        );
+        store.enqueue(
+            project2,
+            ws2,
+            repo_id,
+            Some("Project 2".to_string()),
+            MergeStrategy::Squash,
+        );
 
         let list1 = store.list_by_project(project1);
         let list2 = store.list_by_project(project2);
 
         assert_eq!(list1.len(), 1);
         assert_eq!(list2.len(), 1);
-        assert_eq!(list1[0].commit_message, "Project 1");
-        assert_eq!(list2[0].commit_message, "Project 2");
+        assert_eq!(list1[0].commit_message.as_deref(), Some("Project 1"));
+        assert_eq!(list2[0].commit_message.as_deref(), Some("Project 2"));
 
         // claim_next respects project isolation
         let claimed = store.claim_next(project1).unwrap();
@@ -327,12 +392,24 @@ mod tests {
         let workspace_id = Uuid::new_v4();
         let repo_id = Uuid::new_v4();
 
-        store.enqueue(project_id, workspace_id, repo_id, "First".to_string());
-        store.enqueue(project_id, workspace_id, repo_id, "Second".to_string());
+        store.enqueue(
+            project_id,
+            workspace_id,
+            repo_id,
+            Some("First".to_string()),
+            MergeStrategy::Squash,
+        );
+        store.enqueue(
+            project_id,
+            workspace_id,
+            repo_id,
+            Some("Second".to_string()),
+            MergeStrategy::Squash,
+        );
 
         let list = store.list_by_project(project_id);
         assert_eq!(list.len(), 1);
-        assert_eq!(list[0].commit_message, "Second");
+        assert_eq!(list[0].commit_message.as_deref(), Some("Second"));
     }
 
     #[test]
@@ -346,7 +423,13 @@ mod tests {
         // Enqueue 10 entries
         let workspace_ids: Vec<_> = (0..10).map(|_| Uuid::new_v4()).collect();
         for (i, ws_id) in workspace_ids.iter().enumerate() {
-            store.enqueue(project_id, *ws_id, repo_id, format!("Entry {}", i));
+            store.enqueue(
+                project_id,
+                *ws_id,
+                repo_id,
+                Some(format!("Entry {}", i)),
+                MergeStrategy::Squash,
+            );
             std::thread::sleep(Duration::from_millis(1));
         }
 

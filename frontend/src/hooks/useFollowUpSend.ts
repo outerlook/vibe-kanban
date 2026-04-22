@@ -63,6 +63,7 @@ export function useFollowUpSend({
         retry_process_id: null,
         force_when_dirty: null,
         perform_git_reset: null,
+        structured_output: null,
       };
       const result = await sessionsApi.followUp(sessionId, body);
       if (result.status === 'queued') {

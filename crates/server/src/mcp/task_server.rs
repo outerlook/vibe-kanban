@@ -1835,6 +1835,7 @@ impl TaskServer {
             workspace_strategy,
             executor_strategy,
             repo_selection,
+            git_mode: None,
         };
 
         let url = self.url("/api/task-attempts/orchestration/task-executions");
@@ -2239,6 +2240,7 @@ impl TaskServer {
                 &QueueMergeRequest {
                     repo_id,
                     commit_message,
+                    merge_strategy: None,
                 },
             ))
             .await
@@ -3193,7 +3195,8 @@ mod tests {
             project.id,
             workspace.id,
             repo.id,
-            "already queued".to_string(),
+            Some("already queued".to_string()),
+            db::models::git_mode::MergeStrategy::Squash,
         );
 
         let (base_url, handle) = spawn_api_server(deployment).await;

@@ -5,6 +5,8 @@ use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
 
+use super::git_mode::GitMode;
+
 #[derive(Debug, Error)]
 pub enum MergeError {
     #[error("Cannot merge a group into itself")]
@@ -43,6 +45,7 @@ pub struct TaskGroup {
     pub name: String,
     pub description: Option<String>,
     pub base_branch: Option<String>,
+    pub git_mode: GitMode,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -53,6 +56,7 @@ pub struct CreateTaskGroup {
     pub name: String,
     pub description: Option<String>,
     pub base_branch: Option<String>,
+    pub git_mode: Option<GitMode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -60,6 +64,7 @@ pub struct UpdateTaskGroup {
     pub name: Option<String>,
     pub description: Option<String>,
     pub base_branch: Option<String>,
+    pub git_mode: Option<GitMode>,
 }
 
 impl TaskGroup {
@@ -70,23 +75,44 @@ impl TaskGroup {
         description: Option<String>,
         base_branch: Option<String>,
     ) -> Result<Self, sqlx::Error> {
+        Self::create_with_git_mode(
+            pool,
+            project_id,
+            name,
+            description,
+            base_branch,
+            GitMode::default(),
+        )
+        .await
+    }
+
+    pub async fn create_with_git_mode(
+        pool: &SqlitePool,
+        project_id: Uuid,
+        name: String,
+        description: Option<String>,
+        base_branch: Option<String>,
+        git_mode: GitMode,
+    ) -> Result<Self, sqlx::Error> {
         let id = Uuid::new_v4();
         sqlx::query_as!(
             TaskGroup,
-            r#"INSERT INTO task_groups (id, project_id, name, description, base_branch)
-               VALUES ($1, $2, $3, $4, $5)
+            r#"INSERT INTO task_groups (id, project_id, name, description, base_branch, git_mode)
+               VALUES ($1, $2, $3, $4, $5, $6)
                RETURNING id as "id!: Uuid",
                          project_id as "project_id!: Uuid",
                          name,
                          description,
                          base_branch,
+                         git_mode as "git_mode!: GitMode",
                          created_at as "created_at!: DateTime<Utc>",
                          updated_at as "updated_at!: DateTime<Utc>""#,
             id,
             project_id,
             name,
             description,
-            base_branch
+            base_branch,
+            git_mode
         )
         .fetch_one(pool)
         .await
@@ -100,6 +126,7 @@ impl TaskGroup {
                       name,
                       description,
                       base_branch,
+                      git_mode as "git_mode!: GitMode",
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>"
                FROM task_groups
@@ -121,6 +148,7 @@ impl TaskGroup {
                       name,
                       description,
                       base_branch,
+                      git_mode as "git_mode!: GitMode",
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>"
                FROM task_groups
@@ -145,6 +173,7 @@ impl TaskGroup {
                SET name = COALESCE($2, name),
                    description = CASE WHEN $3 THEN $4 ELSE description END,
                    base_branch = CASE WHEN $5 THEN $6 ELSE base_branch END,
+                   git_mode = COALESCE($7, git_mode),
                    updated_at = datetime('now', 'subsec')
                WHERE id = $1
                RETURNING id as "id!: Uuid",
@@ -152,6 +181,7 @@ impl TaskGroup {
                          name,
                          description,
                          base_branch,
+                         git_mode as "git_mode!: GitMode",
                          created_at as "created_at!: DateTime<Utc>",
                          updated_at as "updated_at!: DateTime<Utc>""#,
             id,
@@ -159,7 +189,8 @@ impl TaskGroup {
             update_description,
             update.description,
             update_base_branch,
-            update.base_branch
+            update.base_branch,
+            update.git_mode
         )
         .fetch_optional(pool)
         .await
@@ -260,6 +291,7 @@ impl TaskGroup {
             name: String,
             description: Option<String>,
             base_branch: Option<String>,
+            git_mode: GitMode,
             created_at: DateTime<Utc>,
             updated_at: DateTime<Utc>,
             todo: i64,
@@ -276,6 +308,7 @@ impl TaskGroup {
                 tg.name,
                 tg.description,
                 tg.base_branch,
+                tg.git_mode,
                 tg.created_at,
                 tg.updated_at,
                 COALESCE(SUM(CASE WHEN t.status = 'todo' THEN 1 ELSE 0 END), 0) AS todo,
@@ -302,6 +335,7 @@ impl TaskGroup {
                     name: row.name,
                     description: row.description,
                     base_branch: row.base_branch,
+                    git_mode: row.git_mode,
                     created_at: row.created_at,
                     updated_at: row.updated_at,
                 },

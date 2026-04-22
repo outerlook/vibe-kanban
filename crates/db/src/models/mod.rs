@@ -10,6 +10,7 @@ pub mod execution_process_normalized_entry;
 pub mod execution_process_repo_state;
 pub mod execution_queue;
 pub mod gantt;
+pub mod git_mode;
 pub mod image;
 pub mod merge;
 pub mod notification;

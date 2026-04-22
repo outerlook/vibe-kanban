@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT  id                AS \"id!: Uuid\",\n                       task_id           AS \"task_id!: Uuid\",\n                       container_ref,\n                       branch,\n                       agent_working_dir,\n                       setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                       created_at        AS \"created_at!: DateTime<Utc>\",\n                       updated_at        AS \"updated_at!: DateTime<Utc>\"\n               FROM    workspaces\n               WHERE   id = $1",
+  "query": "SELECT  id                AS \"id!: Uuid\",\n                       task_id           AS \"task_id!: Uuid\",\n                       container_ref,\n                       branch,\n                       agent_working_dir,\n                       git_mode AS \"git_mode!: GitMode\",\n                       setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                       created_at        AS \"created_at!: DateTime<Utc>\",\n                       updated_at        AS \"updated_at!: DateTime<Utc>\"\n               FROM    workspaces\n               WHERE   task_id = $1\n               ORDER BY created_at DESC\n               LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -29,18 +29,23 @@
         "type_info": "Text"
       },
       {
-        "name": "setup_completed_at: DateTime<Utc>",
+        "name": "git_mode!: GitMode",
         "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "setup_completed_at: DateTime<Utc>",
+        "ordinal": 6,
         "type_info": "Datetime"
       },
       {
         "name": "created_at!: DateTime<Utc>",
-        "ordinal": 6,
+        "ordinal": 7,
         "type_info": "Text"
       },
       {
         "name": "updated_at!: DateTime<Utc>",
-        "ordinal": 7,
+        "ordinal": 8,
         "type_info": "Text"
       }
     ],
@@ -53,10 +58,11 @@
       true,
       false,
       true,
+      false,
       true,
       false,
       false
     ]
   },
-  "hash": "b96fe730f54d9bea01ff6306bed580d7ad1f12d379d434898a77303d32a32efc"
+  "hash": "7b1dbe6c6adf7c658b4bd2bb4fe5b8ba14d46257deff03a872e0fe35962e22d4"
 }

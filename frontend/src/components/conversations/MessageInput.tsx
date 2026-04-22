@@ -7,7 +7,11 @@ import { imagesApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useScratch } from '@/hooks/useScratch';
 import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
-import type { ScratchType, DraftFollowUpData, QueuedMessage } from 'shared/types';
+import type {
+  ScratchType,
+  DraftFollowUpData,
+  QueuedMessage,
+} from 'shared/types';
 
 interface MessageInputProps {
   conversationId: string;
@@ -74,7 +78,7 @@ export function MessageInput({
         await updateScratch({
           payload: {
             type: 'DRAFT_CONVERSATION_MESSAGE',
-            data: { message, variant: null },
+            data: { message, variant: null, structured_output: null },
           },
         });
       } catch (e) {
@@ -87,10 +91,7 @@ export function MessageInput({
   // Debounced save for message changes (500ms)
   const { debounced: debouncedSave, cancel: cancelDebouncedSave } =
     useDebouncedCallback(
-      useCallback(
-        (value: string) => saveToScratch(value),
-        [saveToScratch]
-      ),
+      useCallback((value: string) => saveToScratch(value), [saveToScratch]),
       500
     );
 
@@ -238,7 +239,9 @@ export function MessageInput({
             }
           }}
         >
-          <div className={cn('flex-1 border rounded-md px-3 py-2 bg-background')}>
+          <div
+            className={cn('flex-1 border rounded-md px-3 py-2 bg-background')}
+          >
             <WYSIWYGEditor
               placeholder={placeholder ?? defaultPlaceholder}
               value={displayMessage}

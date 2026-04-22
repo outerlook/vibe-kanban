@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id AS \"id!: Uuid\",\n                              task_id AS \"task_id!: Uuid\",\n                              container_ref,\n                              branch,\n                              agent_working_dir,\n                              setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                              created_at AS \"created_at!: DateTime<Utc>\",\n                              updated_at AS \"updated_at!: DateTime<Utc>\"\n                       FROM workspaces\n                       WHERE task_id = $1\n                       ORDER BY created_at DESC",
+  "query": "SELECT id AS \"id!: Uuid\",\n                              task_id AS \"task_id!: Uuid\",\n                              container_ref,\n                              branch,\n                              agent_working_dir,\n                              git_mode AS \"git_mode!: GitMode\",\n                              setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                              created_at AS \"created_at!: DateTime<Utc>\",\n                              updated_at AS \"updated_at!: DateTime<Utc>\"\n                       FROM workspaces\n                       ORDER BY created_at DESC",
   "describe": {
     "columns": [
       {
@@ -29,23 +29,28 @@
         "type_info": "Text"
       },
       {
-        "name": "setup_completed_at: DateTime<Utc>",
+        "name": "git_mode!: GitMode",
         "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "setup_completed_at: DateTime<Utc>",
+        "ordinal": 6,
         "type_info": "Datetime"
       },
       {
         "name": "created_at!: DateTime<Utc>",
-        "ordinal": 6,
+        "ordinal": 7,
         "type_info": "Text"
       },
       {
         "name": "updated_at!: DateTime<Utc>",
-        "ordinal": 7,
+        "ordinal": 8,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 0
     },
     "nullable": [
       true,
@@ -53,10 +58,11 @@
       true,
       false,
       true,
+      false,
       true,
       false,
       false
     ]
   },
-  "hash": "4f2044112bb23e40b229804cfa535a6b631d95ff7b5596706711f76a50516b40"
+  "hash": "2382d0d191a8bdc3d7b86f40e2279dc71cf90a4c338c26d9510bfe590c6216f1"
 }

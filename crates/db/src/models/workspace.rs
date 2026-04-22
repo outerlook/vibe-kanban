@@ -6,6 +6,7 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use super::{
+    git_mode::GitMode,
     project::Project,
     session::Session,
     task::Task,
@@ -52,6 +53,7 @@ pub struct Workspace {
     pub container_ref: Option<String>,
     pub branch: String,
     pub agent_working_dir: Option<String>,
+    pub git_mode: GitMode,
     pub setup_completed_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -123,6 +125,7 @@ impl Workspace {
                               container_ref,
                               branch,
                               agent_working_dir,
+                              git_mode AS "git_mode!: GitMode",
                               setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                               created_at AS "created_at!: DateTime<Utc>",
                               updated_at AS "updated_at!: DateTime<Utc>"
@@ -141,6 +144,7 @@ impl Workspace {
                               container_ref,
                               branch,
                               agent_working_dir,
+                              git_mode AS "git_mode!: GitMode",
                               setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                               created_at AS "created_at!: DateTime<Utc>",
                               updated_at AS "updated_at!: DateTime<Utc>"
@@ -169,6 +173,7 @@ impl Workspace {
                        w.container_ref,
                        w.branch,
                        w.agent_working_dir,
+                       w.git_mode AS "git_mode!: GitMode",
                        w.setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                        w.created_at        AS "created_at!: DateTime<Utc>",
                        w.updated_at        AS "updated_at!: DateTime<Utc>"
@@ -243,6 +248,7 @@ impl Workspace {
                        container_ref,
                        branch,
                        agent_working_dir,
+                       git_mode AS "git_mode!: GitMode",
                        setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                        created_at        AS "created_at!: DateTime<Utc>",
                        updated_at        AS "updated_at!: DateTime<Utc>"
@@ -266,6 +272,7 @@ impl Workspace {
                        container_ref,
                        branch,
                        agent_working_dir,
+                       git_mode AS "git_mode!: GitMode",
                        setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                        created_at        AS "created_at!: DateTime<Utc>",
                        updated_at        AS "updated_at!: DateTime<Utc>"
@@ -287,6 +294,7 @@ impl Workspace {
                        container_ref,
                        branch,
                        agent_working_dir,
+                       git_mode AS "git_mode!: GitMode",
                        setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                        created_at        AS "created_at!: DateTime<Utc>",
                        updated_at        AS "updated_at!: DateTime<Utc>"
@@ -310,6 +318,7 @@ impl Workspace {
                       w.container_ref,
                       w.branch,
                       w.agent_working_dir,
+                      w.git_mode AS "git_mode!: GitMode",
                       w.setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                       w.created_at        AS "created_at!: DateTime<Utc>",
                       w.updated_at        AS "updated_at!: DateTime<Utc>"
@@ -350,6 +359,7 @@ impl Workspace {
                 w.container_ref,
                 w.branch as "branch!",
                 w.agent_working_dir,
+                w.git_mode as "git_mode!: GitMode",
                 w.setup_completed_at as "setup_completed_at: DateTime<Utc>",
                 w.created_at as "created_at!: DateTime<Utc>",
                 w.updated_at as "updated_at!: DateTime<Utc>"
@@ -390,16 +400,35 @@ impl Workspace {
         id: Uuid,
         task_id: Uuid,
     ) -> Result<Self, WorkspaceError> {
+        Self::create_with_git_mode(pool, data, id, task_id, GitMode::default()).await
+    }
+
+    pub async fn create_with_git_mode(
+        pool: &SqlitePool,
+        data: &CreateWorkspace,
+        id: Uuid,
+        task_id: Uuid,
+        git_mode: GitMode,
+    ) -> Result<Self, WorkspaceError> {
         Ok(sqlx::query_as!(
             Workspace,
-            r#"INSERT INTO workspaces (id, task_id, container_ref, branch, agent_working_dir, setup_completed_at)
-               VALUES ($1, $2, $3, $4, $5, $6)
-               RETURNING id as "id!: Uuid", task_id as "task_id!: Uuid", container_ref, branch, agent_working_dir, setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>""#,
+            r#"INSERT INTO workspaces (id, task_id, container_ref, branch, agent_working_dir, git_mode, setup_completed_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               RETURNING id as "id!: Uuid",
+                         task_id as "task_id!: Uuid",
+                         container_ref,
+                         branch,
+                         agent_working_dir,
+                         git_mode as "git_mode!: GitMode",
+                         setup_completed_at as "setup_completed_at: DateTime<Utc>",
+                         created_at as "created_at!: DateTime<Utc>",
+                         updated_at as "updated_at!: DateTime<Utc>""#,
             id,
             task_id,
             Option::<String>::None,
             data.branch,
             data.agent_working_dir,
+            git_mode,
             Option::<DateTime<Utc>>::None
         )
         .fetch_one(pool)
@@ -491,6 +520,7 @@ impl WorkspaceWithSession {
                 w.container_ref AS "w_container_ref: String",
                 w.branch AS "w_branch!: String",
                 w.agent_working_dir AS "w_agent_working_dir: String",
+                w.git_mode AS "w_git_mode!: GitMode",
                 w.setup_completed_at AS "w_setup_completed_at: DateTime<Utc>",
                 w.created_at AS "w_created_at!: DateTime<Utc>",
                 w.updated_at AS "w_updated_at!: DateTime<Utc>",
@@ -521,6 +551,7 @@ impl WorkspaceWithSession {
                     container_ref: row.w_container_ref,
                     branch: row.w_branch,
                     agent_working_dir: row.w_agent_working_dir,
+                    git_mode: row.w_git_mode,
                     setup_completed_at: row.w_setup_completed_at,
                     created_at: row.w_created_at,
                     updated_at: row.w_updated_at,

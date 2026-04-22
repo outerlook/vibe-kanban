@@ -125,6 +125,7 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
                 name: trimmedName,
                 description: description.trim() || null,
                 base_branch: baseBranch,
+                git_mode: null,
               })
             : await updateTaskGroup.mutateAsync({
                 groupId: props.group.id,
@@ -132,6 +133,7 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
                   name: trimmedName,
                   description: description.trim() || null,
                   base_branch: baseBranch,
+                  git_mode: null,
                 },
               });
 

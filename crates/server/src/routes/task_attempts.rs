@@ -34,6 +34,7 @@ use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
     execution_process_normalized_entry::ExecutionProcessNormalizedEntry,
     execution_queue::ExecutionQueue,
+    git_mode::{GitMode, MergeStrategy},
     merge::{Merge, MergeStatus, PrMerge, PullRequestInfo},
     project_repo::ProjectRepo,
     repo::{Repo, RepoError},
@@ -215,6 +216,7 @@ pub struct StartTaskExecutionCommand {
     pub executor_strategy: TaskExecutionExecutorStrategy,
     #[serde(default)]
     pub repo_selection: TaskExecutionRepoSelection,
+    pub git_mode: Option<GitMode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -310,9 +312,11 @@ async fn create_workspace_for_task_execution(
     deployment: &DeploymentImpl,
     task: &Task,
     repo_selection: TaskExecutionRepoSelection,
+    git_mode_override: Option<GitMode>,
 ) -> Result<(Workspace, usize), ApiError> {
     let pool = &deployment.db().pool;
     let repos = resolve_workspace_repos(pool, task, repo_selection).await?;
+    let git_mode = resolve_task_git_mode(pool, task, git_mode_override).await?;
     let project = task
         .parent_project(pool)
         .await?
@@ -330,7 +334,7 @@ async fn create_workspace_for_task_execution(
         .git_branch_from_workspace(&workspace_id, &task.title)
         .await;
 
-    let workspace = Workspace::create(
+    let workspace = Workspace::create_with_git_mode(
         pool,
         &CreateWorkspace {
             branch: git_branch_name,
@@ -338,6 +342,7 @@ async fn create_workspace_for_task_execution(
         },
         workspace_id,
         task.id,
+        git_mode,
     )
     .await?;
 
@@ -358,6 +363,25 @@ async fn create_workspace_for_task_execution(
     WorkspaceRepo::create_many(pool, workspace.id, &workspace_repos).await?;
 
     Ok((workspace, repos.len()))
+}
+
+async fn resolve_task_git_mode(
+    pool: &sqlx::SqlitePool,
+    task: &Task,
+    override_mode: Option<GitMode>,
+) -> Result<GitMode, ApiError> {
+    if let Some(git_mode) = override_mode {
+        return Ok(git_mode);
+    }
+
+    let Some(task_group_id) = task.task_group_id else {
+        return Ok(GitMode::Managed);
+    };
+
+    Ok(TaskGroup::find_by_id(pool, task_group_id)
+        .await?
+        .map(|group| group.git_mode)
+        .unwrap_or_default())
 }
 
 fn executor_profile_from_session(session: &Session) -> Option<ExecutorProfileId> {
@@ -412,6 +436,7 @@ async fn start_task_execution_internal(
         workspace_strategy,
         executor_strategy,
         repo_selection,
+        git_mode,
     } = command;
     let pool = &deployment.db().pool;
     let task = Task::find_by_id(pool, task_id)
@@ -443,6 +468,7 @@ async fn start_task_execution_internal(
                         deployment,
                         &task,
                         repo_selection.clone(),
+                        git_mode,
                     )
                     .await?;
                     (
@@ -455,7 +481,8 @@ async fn start_task_execution_internal(
         }
         TaskExecutionWorkspaceStrategy::CreateNew => {
             let (workspace, repository_count) =
-                create_workspace_for_task_execution(deployment, &task, repo_selection).await?;
+                create_workspace_for_task_execution(deployment, &task, repo_selection, git_mode)
+                    .await?;
             (
                 workspace,
                 TaskExecutionWorkspaceResolution::Created,
@@ -560,6 +587,7 @@ pub async fn create_task_attempt(
             repo_selection: TaskExecutionRepoSelection::Explicit {
                 repos: payload.repos,
             },
+            git_mode: None,
         },
     )
     .await?;
@@ -853,6 +881,7 @@ pub struct MergeTaskAttemptRequest {
     pub commit_message: Option<String>,
     #[serde(default)]
     pub generate_commit_message: Option<bool>,
+    pub merge_strategy: Option<MergeStrategy>,
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -900,46 +929,59 @@ pub async fn merge_task_attempt(
         .await?
         .ok_or(ApiError::Workspace(WorkspaceError::TaskNotFound))?;
 
-    // Determine commit message:
-    // 1. If request.commit_message provided → use it
-    // 2. Else if generate_commit_message == Some(true) → call AI generation
-    // 3. Else → fallback to task title/description
-    let commit_message = if let Some(msg) = request.commit_message {
-        msg
-    } else if request.generate_commit_message == Some(true) {
-        // Attempt AI generation with fallback on failure
-        let ai_result = generate_commit_message_for_merge_internal(
-            &deployment,
-            &workspace,
-            &task,
-            &repo,
-            &workspace_repo,
-            None,
-        )
-        .await;
+    let merge_strategy = request
+        .merge_strategy
+        .unwrap_or_else(|| workspace.git_mode.default_merge_strategy());
 
-        match ai_result {
-            Ok(msg) => msg,
-            Err(e) => {
-                tracing::warn!(
-                    workspace_id = %workspace.id,
-                    error = %e,
-                    "AI commit message generation failed, falling back to task title/description"
-                );
+    let merge_commit_id = match merge_strategy {
+        MergeStrategy::Squash => {
+            // Determine commit message:
+            // 1. If request.commit_message provided → use it
+            // 2. Else if generate_commit_message == Some(true) → call AI generation
+            // 3. Else → fallback to task title/description
+            let commit_message = if let Some(msg) = request.commit_message {
+                msg
+            } else if request.generate_commit_message == Some(true) {
+                let ai_result = generate_commit_message_for_merge_internal(
+                    &deployment,
+                    &workspace,
+                    &task,
+                    &repo,
+                    &workspace_repo,
+                    None,
+                )
+                .await;
+
+                match ai_result {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        tracing::warn!(
+                            workspace_id = %workspace.id,
+                            error = %e,
+                            "AI commit message generation failed, falling back to task title/description"
+                        );
+                        build_fallback_commit_message(&task)
+                    }
+                }
+            } else {
                 build_fallback_commit_message(&task)
-            }
-        }
-    } else {
-        build_fallback_commit_message(&task)
-    };
+            };
 
-    let merge_commit_id = deployment.git().merge_changes(
-        &repo.path,
-        &worktree_path,
-        &workspace.branch,
-        &workspace_repo.target_branch,
-        &commit_message,
-    )?;
+            deployment.git().merge_changes(
+                &repo.path,
+                &worktree_path,
+                &workspace.branch,
+                &workspace_repo.target_branch,
+                &commit_message,
+            )?
+        }
+        MergeStrategy::FastForwardTarget => deployment.git().fast_forward_target_to_task_head(
+            &repo.path,
+            &worktree_path,
+            &workspace.branch,
+            &workspace_repo.target_branch,
+        )?,
+    };
 
     Merge::create_direct(
         pool,
@@ -2392,6 +2434,7 @@ pub async fn get_task_attempt_repos(
 pub struct QueueMergeRequest {
     pub repo_id: Uuid,
     pub commit_message: Option<String>,
+    pub merge_strategy: Option<MergeStrategy>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -2478,13 +2521,17 @@ pub async fn queue_merge(
         .await?
         .ok_or(ApiError::Workspace(WorkspaceError::TaskNotFound))?;
 
-    // Determine commit message:
-    // 1. If request.commit_message provided → use it
-    // 2. Else → fallback to task title/description
-    let commit_message = if let Some(msg) = request.commit_message {
-        msg
-    } else {
-        build_fallback_commit_message(&task)
+    let merge_strategy = request
+        .merge_strategy
+        .unwrap_or_else(|| workspace.git_mode.default_merge_strategy());
+
+    let commit_message = match merge_strategy {
+        MergeStrategy::Squash => Some(
+            request
+                .commit_message
+                .unwrap_or_else(|| build_fallback_commit_message(&task)),
+        ),
+        MergeStrategy::FastForwardTarget => request.commit_message,
     };
 
     // Create the merge queue entry in the in-memory store
@@ -2493,6 +2540,7 @@ pub async fn queue_merge(
         workspace.id,
         request.repo_id,
         commit_message,
+        merge_strategy,
     );
 
     if let Some(dispatcher) = deployment.container().event_dispatch_callback() {
@@ -3001,6 +3049,7 @@ mod tests {
             Json(QueueMergeRequest {
                 repo_id: repo.id,
                 commit_message: Some("queue merge".to_string()),
+                merge_strategy: Some(MergeStrategy::Squash),
             }),
         )
         .await
@@ -3024,7 +3073,8 @@ mod tests {
             project.id,
             workspace.id,
             repo.id,
-            "manual queue".to_string(),
+            Some("manual queue".to_string()),
+            MergeStrategy::Squash,
         );
         let _ = cancel_queue_merge(Extension(workspace), State(deployment.clone()))
             .await
@@ -3049,12 +3099,13 @@ mod tests {
         deployment.config().write().await.max_concurrent_agents = 1;
 
         let project = create_project(&deployment, "workspace-execution-defaults").await;
-        let task_group = TaskGroup::create(
+        let task_group = TaskGroup::create_with_git_mode(
             &deployment.db().pool,
             project.id,
             "Backend".to_string(),
             None,
             Some("main".to_string()),
+            GitMode::PreserveHistory,
         )
         .await
         .unwrap();
@@ -3091,6 +3142,7 @@ mod tests {
                     executor_profile_id: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
                 },
                 repo_selection: TaskExecutionRepoSelection::TaskGroupDefault,
+                git_mode: None,
             }),
         )
         .await
@@ -3114,6 +3166,7 @@ mod tests {
         assert_eq!(attached_repos.len(), 1);
         assert_eq!(attached_repos[0].repo.id, repo.id);
         assert_eq!(attached_repos[0].target_branch, "main");
+        assert_eq!(workspace.git_mode, GitMode::PreserveHistory);
     }
 
     #[tokio::test]
@@ -3140,6 +3193,7 @@ mod tests {
                 workspace_strategy: TaskExecutionWorkspaceStrategy::LatestOrCreate,
                 executor_strategy: TaskExecutionExecutorStrategy::LatestOrDefault,
                 repo_selection: TaskExecutionRepoSelection::TaskGroupDefault,
+                git_mode: None,
             }),
         )
         .await
@@ -3192,6 +3246,7 @@ mod tests {
                     ),
                 },
                 repo_selection: TaskExecutionRepoSelection::TaskGroupDefault,
+                git_mode: None,
             }),
         )
         .await;
@@ -3302,7 +3357,8 @@ mod tests {
             project.id,
             workspace.id,
             repo.id,
-            "already queued".to_string(),
+            Some("already queued".to_string()),
+            MergeStrategy::Squash,
         );
 
         let result = queue_merge(
@@ -3311,6 +3367,7 @@ mod tests {
             Json(QueueMergeRequest {
                 repo_id: repo.id,
                 commit_message: Some("already queued".to_string()),
+                merge_strategy: Some(MergeStrategy::Squash),
             }),
         )
         .await

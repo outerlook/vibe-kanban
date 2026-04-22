@@ -196,15 +196,18 @@ impl OrchestrationEventEnvelope {
         let metadata = OrchestrationEventMetadata::new(event);
 
         match (event_type, payload) {
-            (OrchestrationEventType::TaskCreated, OrchestrationEventPayload::TaskLifecycle(payload)) => {
-                Self::TaskCreated { metadata, payload }
-            }
-            (OrchestrationEventType::TaskUpdated, OrchestrationEventPayload::TaskLifecycle(payload)) => {
-                Self::TaskUpdated { metadata, payload }
-            }
-            (OrchestrationEventType::TaskDeleted, OrchestrationEventPayload::TaskLifecycle(payload)) => {
-                Self::TaskDeleted { metadata, payload }
-            }
+            (
+                OrchestrationEventType::TaskCreated,
+                OrchestrationEventPayload::TaskLifecycle(payload),
+            ) => Self::TaskCreated { metadata, payload },
+            (
+                OrchestrationEventType::TaskUpdated,
+                OrchestrationEventPayload::TaskLifecycle(payload),
+            ) => Self::TaskUpdated { metadata, payload },
+            (
+                OrchestrationEventType::TaskDeleted,
+                OrchestrationEventPayload::TaskLifecycle(payload),
+            ) => Self::TaskDeleted { metadata, payload },
             (
                 OrchestrationEventType::TaskStatusChanged,
                 OrchestrationEventPayload::TaskStatusChanged(payload),
@@ -276,7 +279,9 @@ impl OrchestrationEventEnvelope {
             Self::ProjectUpdated { .. } => OrchestrationEventType::ProjectUpdated,
             Self::ApprovalRequested { .. } => OrchestrationEventType::ApprovalRequested,
             Self::ApprovalResolved { .. } => OrchestrationEventType::ApprovalResolved,
-            Self::ConversationMessageAdded { .. } => OrchestrationEventType::ConversationMessageAdded,
+            Self::ConversationMessageAdded { .. } => {
+                OrchestrationEventType::ConversationMessageAdded
+            }
             Self::FollowUpTransition { .. } => OrchestrationEventType::FollowUpTransition,
             Self::MergeQueueTransition { .. } => OrchestrationEventType::MergeQueueTransition,
             Self::TaskGroupTransition { .. } => OrchestrationEventType::TaskGroupTransition,

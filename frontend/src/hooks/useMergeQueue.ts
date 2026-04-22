@@ -37,12 +37,18 @@ export function useQueueMerge(
 ) {
   const queryClient = useQueryClient();
 
-  return useMutation<Result<MergeQueueEntry, QueueMergeError>, unknown, QueueMergeParams>({
+  return useMutation<
+    Result<MergeQueueEntry, QueueMergeError>,
+    unknown,
+    QueueMergeParams
+  >({
     mutationFn: (params: QueueMergeParams) => {
-      if (!attemptId) return Promise.resolve({ success: false, error: undefined });
+      if (!attemptId)
+        return Promise.resolve({ success: false, error: undefined });
       return attemptsApi.queueMerge(attemptId, {
         repo_id: params.repoId,
         commit_message: params.commitMessage ?? null,
+        merge_strategy: null,
       });
     },
     onSuccess: (result) => {

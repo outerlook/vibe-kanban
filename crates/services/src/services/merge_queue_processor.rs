@@ -6,19 +6,17 @@
 use std::{path::Path, sync::Arc};
 
 use db::models::{
-    execution_queue::ExecutionQueue,
+    git_mode::MergeStrategy,
     merge::Merge,
     repo::Repo,
-    session::Session,
     task::{Task, TaskStatus},
     workspace::Workspace,
     workspace_repo::WorkspaceRepo,
 };
-use executors::profile::ExecutorProfileId;
 use sqlx::SqlitePool;
 use thiserror::Error;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use super::{
@@ -55,6 +53,9 @@ pub enum MergeQueueError {
 
     #[error("Rebase conflict: {0}")]
     RebaseConflict(String),
+
+    #[error("Squash merge requires a commit message")]
+    MissingCommitMessage,
 }
 
 impl MergeQueueError {
@@ -325,23 +326,33 @@ impl MergeQueueProcessor {
             "Executing merge for workspace"
         );
 
-        // Step 1: Rebase task branch onto base branch
-        self.rebase_if_needed(repo_path, &worktree_path, base_branch, task_branch)
-            .await?;
-
-        // Step 2: Use commit message from entry (always populated at enqueue time)
-        let commit_message = &entry.commit_message;
-
-        // Step 3: Merge changes
-        let merge_commit = self
-            .merge_changes(
-                repo_path,
-                &worktree_path,
-                task_branch,
-                base_branch,
-                commit_message,
-            )
-            .await?;
+        let merge_commit = match entry.merge_strategy {
+            MergeStrategy::Squash => {
+                self.rebase_if_needed(repo_path, &worktree_path, base_branch, task_branch)
+                    .await?;
+                let commit_message = entry
+                    .commit_message
+                    .as_deref()
+                    .ok_or(MergeQueueError::MissingCommitMessage)?;
+                self.merge_changes(
+                    repo_path,
+                    &worktree_path,
+                    task_branch,
+                    base_branch,
+                    commit_message,
+                )
+                .await?
+            }
+            MergeStrategy::FastForwardTarget => {
+                self.fast_forward_target_to_task_head(
+                    repo_path,
+                    &worktree_path,
+                    task_branch,
+                    base_branch,
+                )
+                .await?
+            }
+        };
 
         self.complete_successful_entry(entry, &workspace, &repo, &task, base_branch, merge_commit)
             .await
@@ -466,6 +477,27 @@ impl MergeQueueProcessor {
                     msg
                 )))
             }
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    async fn fast_forward_target_to_task_head(
+        &self,
+        repo_path: &Path,
+        worktree_path: &Path,
+        task_branch: &str,
+        base_branch: &str,
+    ) -> Result<String, MergeQueueError> {
+        match self.git.fast_forward_target_to_task_head(
+            repo_path,
+            worktree_path,
+            task_branch,
+            base_branch,
+        ) {
+            Ok(commit_sha) => Ok(commit_sha),
+            Err(GitServiceError::BranchesDiverged(msg)) => Err(MergeQueueError::MergeConflict(
+                format!("Cannot fast-forward target branch: {}", msg),
+            )),
             Err(e) => Err(e.into()),
         }
     }
@@ -614,7 +646,8 @@ mod tests {
             project.id,
             workspace.id,
             repo.id,
-            "Merge feature branch".to_string(),
+            Some("Merge feature branch".to_string()),
+            MergeStrategy::Squash,
         );
 
         processor

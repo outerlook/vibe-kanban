@@ -49,6 +49,7 @@ const taskGroups: TaskGroupWithStats[] = [
     name: 'Feature A',
     description: 'Shipped branch',
     base_branch: 'feature-a',
+    git_mode: 'managed',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     task_counts: {
@@ -65,6 +66,7 @@ const taskGroups: TaskGroupWithStats[] = [
     name: 'Unloaded branch',
     description: null,
     base_branch: 'feature-b',
+    git_mode: 'managed',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     task_counts: {
@@ -84,6 +86,7 @@ const workspaces: Workspace[] = [
     container_ref: null,
     branch: 'feature-a',
     agent_working_dir: null,
+    git_mode: 'managed',
     setup_completed_at: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',

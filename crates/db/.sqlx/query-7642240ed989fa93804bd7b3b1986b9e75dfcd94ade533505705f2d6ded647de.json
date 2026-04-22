@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO workspaces (id, task_id, container_ref, branch, agent_working_dir, git_mode, setup_completed_at)\n               VALUES ($1, $2, $3, $4, $5, $6, $7)\n               RETURNING id as \"id!: Uuid\",\n                         task_id as \"task_id!: Uuid\",\n                         container_ref,\n                         branch,\n                         agent_working_dir,\n                         git_mode as \"git_mode!: GitMode\",\n                         setup_completed_at as \"setup_completed_at: DateTime<Utc>\",\n                         created_at as \"created_at!: DateTime<Utc>\",\n                         updated_at as \"updated_at!: DateTime<Utc>\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "task_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "container_ref",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "branch",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "agent_working_dir",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "git_mode!: GitMode",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "setup_completed_at: DateTime<Utc>",
+        "ordinal": 6,
+        "type_info": "Datetime"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 8,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "7642240ed989fa93804bd7b3b1986b9e75dfcd94ade533505705f2d6ded647de"
+}

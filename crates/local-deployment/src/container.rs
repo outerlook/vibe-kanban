@@ -2700,8 +2700,6 @@ impl ContainerService for LocalContainerService {
             return Ok(false);
         }
 
-        let message = self.get_commit_message(ctx).await;
-
         let container_ref = ctx
             .workspace
             .container_ref
@@ -2715,6 +2713,16 @@ impl ContainerService for LocalContainerService {
             return Ok(false);
         }
 
+        if !ctx.workspace.git_mode.should_auto_commit() {
+            tracing::info!(
+                workspace_id = %ctx.workspace.id,
+                git_mode = %ctx.workspace.git_mode,
+                "Skipping automatic commit for workspace git mode"
+            );
+            return Ok(true);
+        }
+
+        let message = self.get_commit_message(ctx).await;
         Ok(self.commit_repos(repos_with_changes, &message))
     }
 
