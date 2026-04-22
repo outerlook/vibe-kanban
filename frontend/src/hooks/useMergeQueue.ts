@@ -3,6 +3,8 @@ import { attemptsApi, projectsApi, taskGroupsApi, Result } from '@/lib/api';
 import type {
   MergeQueueEntry,
   MergeQueueCountResponse,
+  MergeStrategy,
+  QueueMergeRequest,
   QueueMergeError,
 } from 'shared/types';
 import { repoBranchKeys } from './useRepoBranches';
@@ -24,11 +26,22 @@ type QueryOptions = {
   retry?: number | false;
 };
 
-type QueueMergeParams = {
+export type QueueMergeParams = {
   repoId: string;
   commitMessage?: string;
   generateCommitMessage?: boolean;
+  mergeStrategy?: MergeStrategy | null;
 };
+
+export function buildQueueMergeRequest(
+  params: QueueMergeParams
+): QueueMergeRequest {
+  return {
+    repo_id: params.repoId,
+    commit_message: params.commitMessage ?? null,
+    merge_strategy: params.mergeStrategy ?? null,
+  };
+}
 
 export function useQueueMerge(
   attemptId?: string,
@@ -45,11 +58,7 @@ export function useQueueMerge(
     mutationFn: (params: QueueMergeParams) => {
       if (!attemptId)
         return Promise.resolve({ success: false, error: undefined });
-      return attemptsApi.queueMerge(attemptId, {
-        repo_id: params.repoId,
-        commit_message: params.commitMessage ?? null,
-        merge_strategy: null,
-      });
+      return attemptsApi.queueMerge(attemptId, buildQueueMergeRequest(params));
     },
     onSuccess: (result) => {
       if (result.success) {

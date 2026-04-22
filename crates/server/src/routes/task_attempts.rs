@@ -59,7 +59,7 @@ use serde::{Deserialize, Serialize};
 use services::services::{
     container::{ContainerService, StartWorkspaceResult},
     domain_events::{DomainEvent, MergeQueueTransitionState},
-    git::{ConflictOp, GitCliError, GitServiceError},
+    git::{BranchDiffCommit, ConflictOp, GitCliError, GitServiceError},
     github::GitHubService,
     merge_queue_processor::MergeQueueProcessor,
     merge_queue_store::MergeQueueEntry,
@@ -79,6 +79,8 @@ use crate::{
         task_attempts::gh_cli_setup::GhCliSetupError, ws_helpers::forward_stream_to_ws,
     },
 };
+
+const BRANCH_STATUS_COMMIT_LIST_LIMIT: usize = 50;
 
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct RebaseTaskAttemptRequest {
@@ -1395,9 +1397,32 @@ pub async fn open_task_attempt_in_editor(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct BranchStatusCommit {
+    pub oid: String,
+    pub subject: String,
+    pub author_name: Option<String>,
+    pub authored_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl From<BranchDiffCommit> for BranchStatusCommit {
+    fn from(commit: BranchDiffCommit) -> Self {
+        Self {
+            oid: commit.oid,
+            subject: commit.subject,
+            author_name: commit.author_name,
+            authored_at: commit.authored_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct BranchStatus {
     pub commits_behind: Option<usize>,
     pub commits_ahead: Option<usize>,
+    pub ahead_commits: Vec<BranchStatusCommit>,
+    pub behind_commits: Vec<BranchStatusCommit>,
+    pub ahead_commits_truncated: bool,
+    pub behind_commits_truncated: bool,
     pub has_uncommitted_changes: Option<bool>,
     pub head_oid: Option<String>,
     pub uncommitted_count: Option<usize>,
@@ -1602,10 +1627,18 @@ pub async fn get_task_attempt_branch_status(
             let branch = workspace.branch.clone();
             let target = target_branch.clone();
             move || match target_branch_type {
-                BranchType::Local => git.get_branch_status(&repo_path, &branch, &target),
-                BranchType::Remote => {
-                    git.get_remote_branch_status(&repo_path, &branch, Some(&target))
-                }
+                BranchType::Local => git.get_branch_status_details(
+                    &repo_path,
+                    &branch,
+                    &target,
+                    BRANCH_STATUS_COMMIT_LIST_LIMIT,
+                ),
+                BranchType::Remote => git.get_remote_branch_status_details(
+                    &repo_path,
+                    &branch,
+                    Some(&target),
+                    BRANCH_STATUS_COMMIT_LIST_LIMIT,
+                ),
             }
         });
 
@@ -1626,12 +1659,9 @@ pub async fn get_task_attempt_branch_status(
 
         let conflict_op = conflict_op_result
             .map_err(|e| ApiError::Internal(format!("spawn_blocking failed: {e}")))?;
-        let (commits_ahead, commits_behind) = {
-            let (a, b) = branch_status_result
-                .map_err(|e| ApiError::Internal(format!("spawn_blocking failed: {e}")))?
-                .map_err(ApiError::from)?;
-            (Some(a), Some(b))
-        };
+        let branch_status_details = branch_status_result
+            .map_err(|e| ApiError::Internal(format!("spawn_blocking failed: {e}")))?
+            .map_err(ApiError::from)?;
 
         let (remote_ahead, remote_behind) = if let Some(fut) = remote_status_future {
             match fut.await {
@@ -1646,8 +1676,20 @@ pub async fn get_task_attempt_branch_status(
             repo_id: repo.id,
             repo_name: repo.name,
             status: BranchStatus {
-                commits_ahead,
-                commits_behind,
+                commits_ahead: Some(branch_status_details.ahead),
+                commits_behind: Some(branch_status_details.behind),
+                ahead_commits: branch_status_details
+                    .ahead_commits
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
+                behind_commits: branch_status_details
+                    .behind_commits
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
+                ahead_commits_truncated: branch_status_details.ahead_commits_truncated,
+                behind_commits_truncated: branch_status_details.behind_commits_truncated,
                 has_uncommitted_changes,
                 head_oid,
                 uncommitted_count,

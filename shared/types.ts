@@ -308,7 +308,7 @@ export type MergeStrategy = "squash" | "fast_forward_target";
 
 export type Workspace = { id: string, task_id: string, container_ref: string | null, branch: string, agent_working_dir: string | null, git_mode: GitMode, setup_completed_at: string | null, created_at: string, updated_at: string, };
 
-export type WorkspaceWithSession = { session: Session | null, 
+export type WorkspaceWithSession = { session: Session | null,
 /**
  * Executor name if workspace is queued for execution (populated from execution_queue)
  */
@@ -316,15 +316,15 @@ queued_executor: string | null, id: string, task_id: string, container_ref: stri
 
 export type Session = { id: string, workspace_id: string, executor: string | null, created_at: string, updated_at: string, };
 
-export type ExecutionProcess = { id: string, 
+export type ExecutionProcess = { id: string,
 /**
  * Session ID for workspace-based executions (nullable for conversation-based)
  */
-session_id: string | null, 
+session_id: string | null,
 /**
  * Conversation session ID for disposable conversations (nullable for workspace-based)
  */
-conversation_session_id: string | null, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: number | null, 
+conversation_session_id: string | null, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: number | null,
 /**
  * dropped: true if this process is excluded from the current
  * history view (due to restore/trimming). Hidden from logs/timeline;
@@ -364,11 +364,11 @@ export type ApprovalRequestType = { "type": "tool_approval", tool_name: string, 
 
 export type ApprovalRequest = { id: string, request_type: ApprovalRequestType, tool_call_id: string, execution_process_id: string, created_at: string, timeout_at?: string, };
 
-export type Diff = { change: DiffChangeKind, oldPath: string | null, newPath: string | null, oldContent: string | null, newContent: string | null, 
+export type Diff = { change: DiffChangeKind, oldPath: string | null, newPath: string | null, oldContent: string | null, newContent: string | null,
 /**
  * True when file contents are intentionally omitted (e.g., too large)
  */
-contentOmitted: boolean, 
+contentOmitted: boolean,
 /**
  * Optional precomputed stats for omitted content
  */
@@ -378,39 +378,39 @@ export type DiffChangeKind = "added" | "deleted" | "modified" | "renamed" | "cop
 
 export type CustomSoundInfo = { filename: string, };
 
-export type SavedAccount = { 
+export type SavedAccount = {
 /**
  * First 8 characters of SHA256 hash of the access token
  */
-hashPrefix: string, 
+hashPrefix: string,
 /**
  * Stable account UUID from Anthropic OAuth profile
  */
-accountUuid: string | null, 
+accountUuid: string | null,
 /**
  * User-defined name for this account
  */
-name: string | null, 
+name: string | null,
 /**
  * Subscription type (e.g., "pro", "free")
  */
-subscriptionType: string, 
+subscriptionType: string,
 /**
  * Rate limit tier if available
  */
-rateLimitTier: string | null, 
+rateLimitTier: string | null,
 /**
  * When this account was saved
  */
 createdAt: string, };
 
-export type SaveAccountRequest = { 
+export type SaveAccountRequest = {
 /**
  * Optional name for this account
  */
 name: string | null, };
 
-export type UpdateNameRequest = { 
+export type UpdateNameRequest = {
 /**
  * New name for this account
  */
@@ -468,11 +468,11 @@ export type UpdateMemberRoleRequest = { role: MemberRole, };
 
 export type UpdateMemberRoleResponse = { user_id: string, role: MemberRole, };
 
-export type ServerLogEntry = { timestamp: string, 
+export type ServerLogEntry = { timestamp: string,
 /**
  * Log level: "TRACE", "DEBUG", "INFO", "WARN", "ERROR"
  */
-level: string, 
+level: string,
 /**
  * Module path (e.g., "server::routes::tasks")
  */
@@ -532,15 +532,15 @@ export type BatchBranchMergeStatus = { statuses: { [key in string]?: BranchMerge
 
 export type CheckBranchSyncStatusRequest = { branch_name: string, project_id: string, };
 
-export type BranchSyncStatus = { branch_name: string, 
+export type BranchSyncStatus = { branch_name: string,
 /**
  * Commits local has that remote doesn't (needs push)
  */
-remote_ahead: number | null, 
+remote_ahead: number | null,
 /**
  * Commits remote has that local doesn't (needs pull)
  */
-remote_behind: number | null, 
+remote_behind: number | null,
 /**
  * Error message if branch has no remote tracking
  */
@@ -562,7 +562,7 @@ export type TagSearchParams = { search: string | null, };
 
 export type TokenResponse = { access_token: string, expires_at: string | null, };
 
-export type UserSystemInfo = { config: Config, analytics_user_id: string, login_status: LoginStatus, environment: Environment, 
+export type UserSystemInfo = { config: Config, analytics_user_id: string, login_status: LoginStatus, environment: Environment,
 /**
  * Capabilities supported per executor (e.g., { "CLAUDE_CODE": ["SESSION_FORK"] })
  */
@@ -592,11 +592,11 @@ export type CheckCustomEditorAvailabilityResponse = { available: boolean, };
 
 export type CheckAgentAvailabilityQuery = { executor: BaseCodingAgent, };
 
-export type BundledSoundInfo = { 
+export type BundledSoundInfo = {
 /**
  * Identifier for API paths (e.g., "bundled:COW_MOOING")
  */
-identifier: string, 
+identifier: string,
 /**
  * Human-readable name (e.g., "Cow Mooing")
  */
@@ -614,11 +614,11 @@ export type ClaudeAccountInfo = { subscriptionType: string, rateLimitTier: strin
 
 export type ClaudeUsage = { fiveHour: UsageLimit, sevenDay: UsageLimit, sevenDayOpus: UsageLimit | null, sevenDaySonnet: UsageLimit | null, };
 
-export type UsageLimit = { 
+export type UsageLimit = {
 /**
  * Usage percentage from 0 to 100
  */
-usedPercent: number, 
+usedPercent: number,
 /**
  * ISO 8601 timestamp when this limit resets
  */
@@ -632,11 +632,11 @@ export type CreateFollowUpAttempt = { prompt: string, variant: string | null, st
 
 export type FollowUpResult = { "status": "started", execution_process: ExecutionProcess, } | { "status": "queued", queue_entry: ExecutionQueue, };
 
-export type ExecutionQueue = { id: string, workspace_id: string, executor_profile_id: ExecutorProfileId, queued_at: string, 
+export type ExecutionQueue = { id: string, workspace_id: string, executor_profile_id: ExecutorProfileId, queued_at: string,
 /**
  * Session ID for follow-up executions (None for initial workspace starts)
  */
-session_id: string | null, 
+session_id: string | null,
 /**
  * Serialized ExecutorAction for follow-up executions (None for initial workspace starts)
  */
@@ -706,19 +706,21 @@ export type PushError = { "type": "force_push_required" };
 
 export type CreatePrError = { "type": "github_cli_not_installed" } | { "type": "github_cli_not_logged_in" } | { "type": "git_cli_not_logged_in" } | { "type": "git_cli_not_installed" } | { "type": "target_branch_not_found", branch: string, };
 
-export type BranchStatus = { commits_behind: number | null, commits_ahead: number | null, has_uncommitted_changes: boolean | null, head_oid: string | null, uncommitted_count: number | null, untracked_count: number | null, target_branch_name: string, remote_commits_behind: number | null, remote_commits_ahead: number | null, merges: Array<Merge>, 
+export type BranchStatusCommit = { oid: string, subject: string, author_name: string | null, authored_at: string | null, };
+
+export type BranchStatus = { commits_behind: number | null, commits_ahead: number | null, ahead_commits: Array<BranchStatusCommit>, behind_commits: Array<BranchStatusCommit>, ahead_commits_truncated: boolean, behind_commits_truncated: boolean, has_uncommitted_changes: boolean | null, head_oid: string | null, uncommitted_count: number | null, untracked_count: number | null, target_branch_name: string, remote_commits_behind: number | null, remote_commits_ahead: number | null, merges: Array<Merge>,
 /**
  * True if a `git rebase` is currently in progress in this worktree
  */
-is_rebase_in_progress: boolean, 
+is_rebase_in_progress: boolean,
 /**
  * Current conflict operation if any
  */
-conflict_op: ConflictOp | null, 
+conflict_op: ConflictOp | null,
 /**
  * List of files currently in conflicted (unmerged) state
  */
-conflicted_files: Array<string>, 
+conflicted_files: Array<string>,
 /**
  * True if target branch checkout location has uncommitted tracked changes.
  * `Some(false)` when target branch is clean or not checked out anywhere.
@@ -744,19 +746,19 @@ export type UnifiedPrComment = { "comment_type": "general", id: string, author: 
 
 export type PullRequestSummary = { number: number, title: string, url: string, author: string, head_branch: string, base_branch: string, created_at: string, updated_at: string, };
 
-export type RepoBranchStatus = { repo_id: string, repo_name: string, commits_behind: number | null, commits_ahead: number | null, has_uncommitted_changes: boolean | null, head_oid: string | null, uncommitted_count: number | null, untracked_count: number | null, target_branch_name: string, remote_commits_behind: number | null, remote_commits_ahead: number | null, merges: Array<Merge>, 
+export type RepoBranchStatus = { repo_id: string, repo_name: string, commits_behind: number | null, commits_ahead: number | null, ahead_commits: Array<BranchStatusCommit>, behind_commits: Array<BranchStatusCommit>, ahead_commits_truncated: boolean, behind_commits_truncated: boolean, has_uncommitted_changes: boolean | null, head_oid: string | null, uncommitted_count: number | null, untracked_count: number | null, target_branch_name: string, remote_commits_behind: number | null, remote_commits_ahead: number | null, merges: Array<Merge>,
 /**
  * True if a `git rebase` is currently in progress in this worktree
  */
-is_rebase_in_progress: boolean, 
+is_rebase_in_progress: boolean,
 /**
  * Current conflict operation if any
  */
-conflict_op: ConflictOp | null, 
+conflict_op: ConflictOp | null,
 /**
  * List of files currently in conflicted (unmerged) state
  */
-conflicted_files: Array<string>, 
+conflicted_files: Array<string>,
 /**
  * True if target branch checkout location has uncommitted tracked changes.
  * `Some(false)` when target branch is clean or not checked out anywhere.
@@ -776,7 +778,7 @@ export type DirectoryListResponse = { entries: Array<DirectoryEntry>, current_pa
 
 export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, default_clone_directory: string | null, commit_message_auto_generate_enabled: boolean, commit_message_prompt: string | null, commit_message_executor_profile: ExecutorProfileId | null, max_concurrent_agents: number, langfuse_enabled: boolean, langfuse_public_key: string | null, langfuse_secret_key: string | null, langfuse_host: string | null, backup: BackupConfig, orchestration_event_publisher: OrchestrationEventPublisherConfig, };
 
-export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, error_sound_file: SoundFile, custom_sound_path: string | null, 
+export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, error_sound_file: SoundFile, custom_sound_path: string | null,
 /**
  * When true, the frontend handles sound playback instead of the backend.
  * This is useful for remote access where backend sound playback is not desired.
@@ -809,7 +811,7 @@ export type BackupConfig = { enabled: boolean, interval_hours: number, retention
 
 export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, last_commit_date: string, };
 
-export type GitStateChange = { kind: GitStateChangeKind, 
+export type GitStateChange = { kind: GitStateChangeKind,
 /**
  * Relative path within .git directory that changed
  */
@@ -819,15 +821,15 @@ export type GitStateChangeKind = "head" | "index" | "refs" | "rebase_head" | "me
 
 export type SharedTaskDetails = { id: string, project_id: string, title: string, description: string | null, status: TaskStatus, };
 
-export type QueuedMessage = { 
+export type QueuedMessage = {
 /**
  * The session this message is queued for
  */
-session_id: string, 
+session_id: string,
 /**
  * The follow-up data (message + variant)
  */
-data: DraftFollowUpData, 
+data: DraftFollowUpData,
 /**
  * Timestamp when the message was queued
  */
@@ -855,7 +857,7 @@ export type StructuredOutputContract = { schema: JsonValue, };
 
 export type ScriptContext = "SetupScript" | "CleanupScript" | "DevServer" | "ToolInstallScript";
 
-export type ScriptRequest = { script: string, language: ScriptRequestLanguage, context: ScriptContext, 
+export type ScriptRequest = { script: string, language: ScriptRequestLanguage, context: ScriptContext,
 /**
  * Optional relative path to execute the script in (relative to container_ref).
  * If None, uses the container_ref directory directly.
@@ -870,21 +872,21 @@ export type CodingAgent = { "CLAUDE_CODE": ClaudeCode } | { "AMP": Amp } | { "GE
 
 export type AvailabilityInfo = { "type": "LOGIN_DETECTED", last_auth_timestamp: number, } | { "type": "INSTALLATION_FOUND" } | { "type": "NOT_FOUND" };
 
-export type CommandBuilder = { 
+export type CommandBuilder = {
 /**
  * Base executable command (e.g., "npx -y @anthropic-ai/claude-code@latest")
  */
-base: string, 
+base: string,
 /**
  * Optional parameters to append to the base command
  */
 params: Array<string> | null, };
 
-export type ExecutorProfileId = { 
+export type ExecutorProfileId = {
 /**
  * The executor type (e.g., "CLAUDE_CODE", "AMP")
  */
-executor: BaseCodingAgent, 
+executor: BaseCodingAgent,
 /**
  * Optional variant name (e.g., "PLAN", "ROUTER")
  */
@@ -922,7 +924,7 @@ export type CursorAgent = { append_prompt: AppendPrompt, force?: boolean | null,
 
 export type Copilot = { append_prompt: AppendPrompt, model?: string | null, allow_all_tools?: boolean | null, allow_tool?: string | null, deny_tool?: string | null, add_dir?: Array<string> | null, disable_mcp_server?: Array<string> | null, base_command_override?: string | null, additional_params?: Array<string> | null, env?: { [key in string]?: string } | null, };
 
-export type Opencode = { append_prompt: AppendPrompt, model?: string | null, mode?: string | null, 
+export type Opencode = { append_prompt: AppendPrompt, model?: string | null, mode?: string | null,
 /**
  * Auto-approve agent actions
  */
@@ -938,22 +940,22 @@ export type DroidReasoningEffort = "none" | "dynamic" | "off" | "low" | "medium"
 
 export type AppendPrompt = string | null;
 
-export type CodingAgentInitialRequest = { prompt: string, structured_output: StructuredOutputContract | null, 
+export type CodingAgentInitialRequest = { prompt: string, structured_output: StructuredOutputContract | null,
 /**
  * Executor profile specification
  */
-executor_profile_id: ExecutorProfileId, 
+executor_profile_id: ExecutorProfileId,
 /**
  * Optional relative path to execute the agent in (relative to container_ref).
  * If None, uses the container_ref directory directly.
  */
 working_dir: string | null, };
 
-export type CodingAgentFollowUpRequest = { prompt: string, session_id: string, structured_output: StructuredOutputContract | null, 
+export type CodingAgentFollowUpRequest = { prompt: string, session_id: string, structured_output: StructuredOutputContract | null,
 /**
  * Executor profile specification
  */
-executor_profile_id: ExecutorProfileId, 
+executor_profile_id: ExecutorProfileId,
 /**
  * Optional relative path to execute the agent in (relative to container_ref).
  * If None, uses the container_ref directory directly.
@@ -968,11 +970,11 @@ export type NormalizedEntry = { timestamp: string | null, entry_type: Normalized
 
 export type NormalizedEntryType = { "type": "user_message" } | { "type": "user_feedback", denied_tool: string, } | { "type": "assistant_message" } | { "type": "tool_use", tool_name: string, action_type: ActionType, status: ToolStatus, } | { "type": "system_message" } | { "type": "error_message", error_type: NormalizedEntryError, } | { "type": "thinking" } | { "type": "loading" } | { "type": "next_action", failed: boolean, execution_processes: number, needs_setup: boolean, setup_help_text: string | null, } | { "type": "token_usage", input_tokens: number, output_tokens: number, };
 
-export type FileChange = { "action": "write", content: string, } | { "action": "delete" } | { "action": "rename", new_path: string, } | { "action": "edit", 
+export type FileChange = { "action": "write", content: string, } | { "action": "delete" } | { "action": "rename", new_path: string, } | { "action": "edit",
 /**
  * Unified diff containing file header and hunks.
  */
-unified_diff: string, 
+unified_diff: string,
 /**
  * Whether line number in the hunks are reliable.
  */
@@ -984,7 +986,7 @@ export type TodoItem = { content: string, status: string, priority: string | nul
 
 export type NormalizedEntryError = { "type": "setup_required" } | { "type": "other" };
 
-export type ToolResult = { type: ToolResultValueType, 
+export type ToolResult = { type: ToolResultValueType,
 /**
  * For Markdown, this will be a JSON string; for JSON, a structured value
  */

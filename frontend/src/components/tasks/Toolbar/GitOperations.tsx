@@ -25,6 +25,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   RepoBranchStatus,
   Merge,
+  MergeStrategy,
   TaskWithAttemptStatus,
   Workspace,
 } from 'shared/types';
@@ -43,11 +44,20 @@ import {
   type SplitButtonOption,
 } from '@/components/ui/split-button';
 import { useBranchStatusContext } from '@/contexts/BranchStatusContext';
+import { BranchCommitDiffMenu } from './BranchCommitDiffMenu';
 
 const MERGE_ACTION_STORAGE_KEY = 'vk-merge-action-preference';
 const QUEUE_MERGE_ENABLED_KEY = 'vk-queue-merge-enabled';
+const WORKSPACE_DEFAULT_MERGE_STRATEGY = 'workspace_default';
 
-type MergeAction = 'merge' | 'generate-preview' | 'generate-merge' | 'edit-merge';
+type MergeAction =
+  | 'merge'
+  | 'generate-preview'
+  | 'generate-merge'
+  | 'edit-merge';
+type MergeStrategySelection =
+  | typeof WORKSPACE_DEFAULT_MERGE_STRATEGY
+  | MergeStrategy;
 
 const mergeActionOptions: SplitButtonOption<MergeAction>[] = [
   {
@@ -118,12 +128,19 @@ function GitOperations({
   // Merge action preference state
   const [selectedMergeAction, setSelectedMergeAction] =
     useState<MergeAction>('merge');
+  const [selectedMergeStrategy, setSelectedMergeStrategy] =
+    useState<MergeStrategySelection>(WORKSPACE_DEFAULT_MERGE_STRATEGY);
   const [queueEnabled, setQueueEnabled] = useState(false);
 
   // Load merge action preference from localStorage on mount
   useEffect(() => {
     const stored = localStorage.getItem(MERGE_ACTION_STORAGE_KEY);
-    if (stored && ['merge', 'generate-preview', 'generate-merge', 'edit-merge'].includes(stored)) {
+    if (
+      stored &&
+      ['merge', 'generate-preview', 'generate-merge', 'edit-merge'].includes(
+        stored
+      )
+    ) {
       setSelectedMergeAction(stored as MergeAction);
     }
     const queueStored = localStorage.getItem(QUEUE_MERGE_ENABLED_KEY);
@@ -132,10 +149,46 @@ function GitOperations({
     }
   }, []);
 
+  useEffect(() => {
+    setSelectedMergeStrategy(WORKSPACE_DEFAULT_MERGE_STRATEGY);
+  }, [selectedAttempt.id]);
+
   const handleMergeActionSelect = (action: MergeAction) => {
     setSelectedMergeAction(action);
     localStorage.setItem(MERGE_ACTION_STORAGE_KEY, action);
   };
+
+  const mergeStrategyOverride =
+    selectedMergeStrategy === WORKSPACE_DEFAULT_MERGE_STRATEGY
+      ? null
+      : selectedMergeStrategy;
+
+  const mergeStrategyOptions = useMemo(
+    () => [
+      {
+        value: WORKSPACE_DEFAULT_MERGE_STRATEGY,
+        label:
+          selectedAttempt.git_mode === 'preserve_history'
+            ? t(
+                'git.mergeStrategy.workspaceDefaultPreserveHistory',
+                'Workspace default: preserve history'
+              )
+            : t(
+                'git.mergeStrategy.workspaceDefaultManaged',
+                'Workspace default: managed'
+              ),
+      },
+      {
+        value: 'squash',
+        label: t('git.mergeStrategy.squash', 'Squash'),
+      },
+      {
+        value: 'fast_forward_target',
+        label: t('git.mergeStrategy.fastForwardTarget', 'Fast-forward target'),
+      },
+    ],
+    [selectedAttempt.git_mode, t]
+  );
 
   // Target branch change handlers
   const handleChangeTargetBranchClick = async (newBranch: string) => {
@@ -233,42 +286,72 @@ function GitOperations({
     return t('git.states.createPr');
   }, [mergeInfo.hasOpenPR, pushSuccess, pushing, t]);
 
-  const isAlreadyQueued = queueStatus?.status === 'queued' || queueStatus?.status === 'merging';
+  const isAlreadyQueued =
+    queueStatus?.status === 'queued' || queueStatus?.status === 'merging';
 
   // Compute disabled reasons for tooltips
   const mergeDisabledReason = useMemo(() => {
-    if (mergeInfo.hasMergedPR) return t('git.disabled.prMerged', 'PR already merged');
-    if (mergeInfo.hasOpenPR) return t('git.disabled.prOpen', 'PR is open - close or merge it first');
-    if (hasConflictsCalculated) return t('git.disabled.conflicts', 'Resolve conflicts before proceeding');
-    if (isAttemptRunning) return t('git.disabled.attemptRunning', 'Wait for attempt to complete');
+    if (mergeInfo.hasMergedPR)
+      return t('git.disabled.prMerged', 'PR already merged');
+    if (mergeInfo.hasOpenPR)
+      return t('git.disabled.prOpen', 'PR is open - close or merge it first');
+    if (hasConflictsCalculated)
+      return t('git.disabled.conflicts', 'Resolve conflicts before proceeding');
+    if (isAttemptRunning)
+      return t('git.disabled.attemptRunning', 'Wait for attempt to complete');
     const commitsAhead = selectedRepoStatus?.commits_ahead ?? 0;
-    if (commitsAhead === 0) return t('git.disabled.noChanges', 'No changes to merge');
+    if (commitsAhead === 0)
+      return t('git.disabled.noChanges', 'No changes to merge');
     return null;
-  }, [mergeInfo.hasMergedPR, mergeInfo.hasOpenPR, hasConflictsCalculated, isAttemptRunning, selectedRepoStatus?.commits_ahead, t]);
+  }, [
+    mergeInfo.hasMergedPR,
+    mergeInfo.hasOpenPR,
+    hasConflictsCalculated,
+    isAttemptRunning,
+    selectedRepoStatus?.commits_ahead,
+    t,
+  ]);
 
   const prDisabledReason = useMemo(() => {
-    if (mergeInfo.hasMergedPR) return t('git.disabled.prMerged', 'PR already merged');
-    if (isAttemptRunning) return t('git.disabled.attemptRunning', 'Wait for attempt to complete');
-    if (hasConflictsCalculated) return t('git.disabled.conflicts', 'Resolve conflicts before proceeding');
+    if (mergeInfo.hasMergedPR)
+      return t('git.disabled.prMerged', 'PR already merged');
+    if (isAttemptRunning)
+      return t('git.disabled.attemptRunning', 'Wait for attempt to complete');
+    if (hasConflictsCalculated)
+      return t('git.disabled.conflicts', 'Resolve conflicts before proceeding');
     if (mergeInfo.hasOpenPR) {
       const remoteAhead = selectedRepoStatus?.remote_commits_ahead ?? 0;
-      if (remoteAhead === 0) return t('git.disabled.noPushChanges', 'No changes to push');
+      if (remoteAhead === 0)
+        return t('git.disabled.noPushChanges', 'No changes to push');
     }
     const commitsAhead = selectedRepoStatus?.commits_ahead ?? 0;
     const remoteAhead = selectedRepoStatus?.remote_commits_ahead ?? 0;
-    if (commitsAhead === 0 && remoteAhead === 0) return t('git.disabled.noChanges', 'No changes to push');
+    if (commitsAhead === 0 && remoteAhead === 0)
+      return t('git.disabled.noChanges', 'No changes to push');
     return null;
-  }, [mergeInfo.hasMergedPR, mergeInfo.hasOpenPR, hasConflictsCalculated, isAttemptRunning, selectedRepoStatus?.commits_ahead, selectedRepoStatus?.remote_commits_ahead, t]);
+  }, [
+    mergeInfo.hasMergedPR,
+    mergeInfo.hasOpenPR,
+    hasConflictsCalculated,
+    isAttemptRunning,
+    selectedRepoStatus?.commits_ahead,
+    selectedRepoStatus?.remote_commits_ahead,
+    t,
+  ]);
 
   const rebaseDisabledReason = useMemo(() => {
-    if (isAttemptRunning) return t('git.disabled.attemptRunning', 'Wait for attempt to complete');
-    if (hasConflictsCalculated) return t('git.disabled.conflicts', 'Resolve conflicts before proceeding');
+    if (isAttemptRunning)
+      return t('git.disabled.attemptRunning', 'Wait for attempt to complete');
+    if (hasConflictsCalculated)
+      return t('git.disabled.conflicts', 'Resolve conflicts before proceeding');
     return null;
   }, [isAttemptRunning, hasConflictsCalculated, t]);
 
   const settingsDisabledReason = useMemo(() => {
-    if (isAttemptRunning) return t('git.disabled.attemptRunning', 'Wait for attempt to complete');
-    if (hasConflictsCalculated) return t('git.disabled.conflicts', 'Resolve conflicts before proceeding');
+    if (isAttemptRunning)
+      return t('git.disabled.attemptRunning', 'Wait for attempt to complete');
+    if (hasConflictsCalculated)
+      return t('git.disabled.conflicts', 'Resolve conflicts before proceeding');
     return null;
   }, [isAttemptRunning, hasConflictsCalculated, t]);
 
@@ -277,42 +360,51 @@ function GitOperations({
     localStorage.setItem(QUEUE_MERGE_ENABLED_KEY, String(checked));
   };
 
-  const queueCheckboxDisabled = selectedMergeAction === 'generate-preview' || isAlreadyQueued;
+  const queueCheckboxDisabled =
+    selectedMergeAction === 'generate-preview' || isAlreadyQueued;
 
   const handleMergeClick = async (action: MergeAction) => {
     const repoId = getSelectedRepoId();
     if (!repoId) return;
 
-    // If queue is enabled, route through queue logic
-    if (queueEnabled && action !== 'generate-preview' && action !== 'edit-merge') {
-      if (action === 'merge') {
-        await performQueueMerge(repoId);
-      } else if (action === 'generate-merge') {
-        await performGenerateAndQueueMerge(repoId);
+    try {
+      // If queue is enabled, route through queue logic
+      if (
+        queueEnabled &&
+        action !== 'generate-preview' &&
+        action !== 'edit-merge'
+      ) {
+        if (action === 'merge') {
+          await performQueueMerge(repoId, mergeStrategyOverride);
+        } else if (action === 'generate-merge') {
+          await performGenerateAndQueueMerge(repoId, mergeStrategyOverride);
+        }
+        return;
       }
-      return;
-    }
 
-    // edit-merge with queue enabled uses its own queue function
-    if (queueEnabled && action === 'edit-merge') {
-      await performEditAndQueueMerge(repoId);
-      return;
-    }
+      // edit-merge with queue enabled uses its own queue function
+      if (queueEnabled && action === 'edit-merge') {
+        await performEditAndQueueMerge(repoId, mergeStrategyOverride);
+        return;
+      }
 
-    // Normal non-queued flow
-    switch (action) {
-      case 'merge':
-        await performMerge();
-        break;
-      case 'generate-preview':
-        await performGenerateAndPreview(repoId);
-        break;
-      case 'generate-merge':
-        await performGenerateAndMerge(repoId);
-        break;
-      case 'edit-merge':
-        await performEditAndMerge(repoId);
-        break;
+      // Normal non-queued flow
+      switch (action) {
+        case 'merge':
+          await performMerge(repoId, mergeStrategyOverride);
+          break;
+        case 'generate-preview':
+          await performGenerateAndPreview(repoId, mergeStrategyOverride);
+          break;
+        case 'generate-merge':
+          await performGenerateAndMerge(repoId, mergeStrategyOverride);
+          break;
+        case 'edit-merge':
+          await performEditAndMerge(repoId, mergeStrategyOverride);
+          break;
+      }
+    } finally {
+      setSelectedMergeStrategy(WORKSPACE_DEFAULT_MERGE_STRATEGY);
     }
   };
 
@@ -324,18 +416,24 @@ function GitOperations({
     return parts.join('\n');
   };
 
-  const performEditAndMerge = async (repoId: string) => {
+  const performEditAndMerge = async (
+    repoId: string,
+    mergeStrategy: MergeStrategy | null
+  ) => {
     const initialMessage = buildFallbackCommitMessage();
 
     await CommitMessagePreviewDialog.show({
       initialMessage,
       onConfirm: async (message: string) => {
-        await performMergeWithMessage(repoId, message);
+        await performMergeWithMessage(repoId, message, mergeStrategy);
       },
     });
   };
 
-  const performGenerateAndPreview = async (repoId: string) => {
+  const performGenerateAndPreview = async (
+    repoId: string,
+    mergeStrategy: MergeStrategy | null
+  ) => {
     try {
       setGenerating(true);
       const response = await generateCommitMessage.mutateAsync({ repoId });
@@ -344,10 +442,12 @@ function GitOperations({
       await CommitMessagePreviewDialog.show({
         initialMessage,
         onConfirm: async (message: string) => {
-          await performMergeWithMessage(repoId, message);
+          await performMergeWithMessage(repoId, message, mergeStrategy);
         },
         onRegenerate: async () => {
-          const newResponse = await generateCommitMessage.mutateAsync({ repoId });
+          const newResponse = await generateCommitMessage.mutateAsync({
+            repoId,
+          });
           return newResponse.commit_message;
         },
       });
@@ -356,12 +456,16 @@ function GitOperations({
     }
   };
 
-  const performGenerateAndMerge = async (repoId: string) => {
+  const performGenerateAndMerge = async (
+    repoId: string,
+    mergeStrategy: MergeStrategy | null
+  ) => {
     try {
       setMerging(true);
       await git.actions.merge({
         repoId,
         generateCommitMessage: true,
+        mergeStrategy,
       });
       setMergeSuccess(true);
       setTimeout(() => setMergeSuccess(false), 2000);
@@ -370,12 +474,17 @@ function GitOperations({
     }
   };
 
-  const performMergeWithMessage = async (repoId: string, commitMessage: string) => {
+  const performMergeWithMessage = async (
+    repoId: string,
+    commitMessage: string,
+    mergeStrategy: MergeStrategy | null
+  ) => {
     try {
       setMerging(true);
       await git.actions.merge({
         repoId,
         commitMessage,
+        mergeStrategy,
       });
       setMergeSuccess(true);
       setTimeout(() => setMergeSuccess(false), 2000);
@@ -397,13 +506,15 @@ function GitOperations({
     }
   };
 
-  const performMerge = async () => {
+  const performMerge = async (
+    repoId: string,
+    mergeStrategy: MergeStrategy | null
+  ) => {
     try {
       setMerging(true);
-      const repoId = getSelectedRepoId();
-      if (!repoId) return;
       await git.actions.merge({
         repoId,
+        mergeStrategy,
       });
       setMergeSuccess(true);
       setTimeout(() => setMergeSuccess(false), 2000);
@@ -412,10 +523,13 @@ function GitOperations({
     }
   };
 
-  const performQueueMerge = async (repoId: string) => {
+  const performQueueMerge = async (
+    repoId: string,
+    mergeStrategy: MergeStrategy | null
+  ) => {
     try {
       setQueuing(true);
-      await queueMerge.mutateAsync({ repoId });
+      await queueMerge.mutateAsync({ repoId, mergeStrategy });
       setQueueSuccess(true);
       setTimeout(() => setQueueSuccess(false), 2000);
     } finally {
@@ -423,10 +537,17 @@ function GitOperations({
     }
   };
 
-  const performGenerateAndQueueMerge = async (repoId: string) => {
+  const performGenerateAndQueueMerge = async (
+    repoId: string,
+    mergeStrategy: MergeStrategy | null
+  ) => {
     try {
       setQueuing(true);
-      await queueMerge.mutateAsync({ repoId, generateCommitMessage: true });
+      await queueMerge.mutateAsync({
+        repoId,
+        generateCommitMessage: true,
+        mergeStrategy,
+      });
       setQueueSuccess(true);
       setTimeout(() => setQueueSuccess(false), 2000);
     } finally {
@@ -434,7 +555,10 @@ function GitOperations({
     }
   };
 
-  const performEditAndQueueMerge = async (repoId: string) => {
+  const performEditAndQueueMerge = async (
+    repoId: string,
+    mergeStrategy: MergeStrategy | null
+  ) => {
     const initialMessage = buildFallbackCommitMessage();
 
     await CommitMessagePreviewDialog.show({
@@ -442,7 +566,11 @@ function GitOperations({
       onConfirm: async (message: string) => {
         try {
           setQueuing(true);
-          await queueMerge.mutateAsync({ repoId, commitMessage: message });
+          await queueMerge.mutateAsync({
+            repoId,
+            commitMessage: message,
+            mergeStrategy,
+          });
           setQueueSuccess(true);
           setTimeout(() => setQueueSuccess(false), 2000);
         } finally {
@@ -605,25 +733,50 @@ function GitOperations({
         }
         if (commitsAhead > 0) {
           chips.push(
-            <span
+            <BranchCommitDiffMenu
               key="ahead"
-              className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100/70 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+              direction="ahead"
+              count={commitsAhead}
+              targetBranchName={selectedRepoStatus?.target_branch_name ?? ''}
+              commits={selectedRepoStatus?.ahead_commits ?? []}
+              truncated={selectedRepoStatus?.ahead_commits_truncated ?? false}
             >
-              +{commitsAhead} {t('git.status.commits', { count: commitsAhead })}{' '}
-              {t('git.status.ahead')}
-            </span>
+              <button
+                type="button"
+                className="hidden sm:inline-flex items-center gap-1 rounded-full bg-emerald-100/70 px-2 py-0.5 text-emerald-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-emerald-900/30 dark:text-emerald-300"
+                aria-label={t('git.commitDiff.aheadAria', {
+                  branch: selectedRepoStatus?.target_branch_name ?? '',
+                })}
+              >
+                +{commitsAhead}{' '}
+                {t('git.status.commits', { count: commitsAhead })}{' '}
+                {t('git.status.ahead')}
+              </button>
+            </BranchCommitDiffMenu>
           );
         }
         if (commitsBehind > 0) {
           chips.push(
-            <span
+            <BranchCommitDiffMenu
               key="behind"
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100/60 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+              direction="behind"
+              count={commitsBehind}
+              targetBranchName={selectedRepoStatus?.target_branch_name ?? ''}
+              commits={selectedRepoStatus?.behind_commits ?? []}
+              truncated={selectedRepoStatus?.behind_commits_truncated ?? false}
             >
-              {commitsBehind}{' '}
-              {t('git.status.commits', { count: commitsBehind })}{' '}
-              {t('git.status.behind')}
-            </span>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-full bg-amber-100/60 px-2 py-0.5 text-amber-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-amber-900/30 dark:text-amber-300"
+                aria-label={t('git.commitDiff.behindAria', {
+                  branch: selectedRepoStatus?.target_branch_name ?? '',
+                })}
+              >
+                {commitsBehind}{' '}
+                {t('git.status.commits', { count: commitsBehind })}{' '}
+                {t('git.status.behind')}
+              </button>
+            </BranchCommitDiffMenu>
           );
         }
         if (chips.length > 0)
@@ -694,7 +847,8 @@ function GitOperations({
               </span>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              {settingsDisabledReason || t('branches.changeTarget.dialog.title')}
+              {settingsDisabledReason ||
+                t('branches.changeTarget.dialog.title')}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -774,7 +928,11 @@ function GitOperations({
                             ? t('git.states.generating', 'Generating...')
                             : t('git.states.merging')
                       }
-                      successLabel={queueSuccess ? t('git.states.queued', 'Queued') : t('git.states.merged')}
+                      successLabel={
+                        queueSuccess
+                          ? t('git.states.queued', 'Queued')
+                          : t('git.states.merged')
+                      }
                       showSuccess={mergeSuccess || queueSuccess}
                       variant="outline"
                       size="xs"
@@ -788,11 +946,24 @@ function GitOperations({
                           disabled: queueCheckboxDisabled,
                         },
                       ]}
+                      radioGroups={[
+                        {
+                          label: t('git.mergeStrategy.label', 'Merge strategy'),
+                          value: selectedMergeStrategy,
+                          onValueChange: (value) =>
+                            setSelectedMergeStrategy(
+                              value as MergeStrategySelection
+                            ),
+                          items: mergeStrategyOptions,
+                        },
+                      ]}
                     />
                   </span>
                 </TooltipTrigger>
                 {mergeDisabledReason && (
-                  <TooltipContent side="bottom">{mergeDisabledReason}</TooltipContent>
+                  <TooltipContent side="bottom">
+                    {mergeDisabledReason}
+                  </TooltipContent>
                 )}
               </Tooltip>
             </TooltipProvider>
@@ -809,9 +980,11 @@ function GitOperations({
                         isAttemptRunning ||
                         hasConflictsCalculated ||
                         (mergeInfo.hasOpenPR &&
-                          (selectedRepoStatus?.remote_commits_ahead ?? 0) === 0) ||
+                          (selectedRepoStatus?.remote_commits_ahead ?? 0) ===
+                            0) ||
                         ((selectedRepoStatus?.commits_ahead ?? 0) === 0 &&
-                          (selectedRepoStatus?.remote_commits_ahead ?? 0) === 0 &&
+                          (selectedRepoStatus?.remote_commits_ahead ?? 0) ===
+                            0 &&
                           !pushSuccess &&
                           !mergeSuccess)
                       }
@@ -821,12 +994,16 @@ function GitOperations({
                       aria-label={prButtonLabel}
                     >
                       <GitPullRequest className="h-3.5 w-3.5" />
-                      <span className="truncate max-w-[10ch]">{prButtonLabel}</span>
+                      <span className="truncate max-w-[10ch]">
+                        {prButtonLabel}
+                      </span>
                     </Button>
                   </span>
                 </TooltipTrigger>
                 {prDisabledReason && (
-                  <TooltipContent side="bottom">{prDisabledReason}</TooltipContent>
+                  <TooltipContent side="bottom">
+                    {prDisabledReason}
+                  </TooltipContent>
                 )}
               </Tooltip>
             </TooltipProvider>
@@ -837,7 +1014,9 @@ function GitOperations({
                   <span className="inline-flex shrink-0">
                     <Button
                       onClick={handleRebaseDialogOpen}
-                      disabled={rebasing || isAttemptRunning || hasConflictsCalculated}
+                      disabled={
+                        rebasing || isAttemptRunning || hasConflictsCalculated
+                      }
                       variant="outline"
                       size="xs"
                       className="border-warning text-warning hover:bg-warning gap-1 shrink-0"
@@ -846,12 +1025,16 @@ function GitOperations({
                       <RefreshCw
                         className={`h-3.5 w-3.5 ${rebasing ? 'animate-spin' : ''}`}
                       />
-                      <span className="truncate max-w-[10ch]">{rebaseButtonLabel}</span>
+                      <span className="truncate max-w-[10ch]">
+                        {rebaseButtonLabel}
+                      </span>
                     </Button>
                   </span>
                 </TooltipTrigger>
                 {rebaseDisabledReason && (
-                  <TooltipContent side="bottom">{rebaseDisabledReason}</TooltipContent>
+                  <TooltipContent side="bottom">
+                    {rebaseDisabledReason}
+                  </TooltipContent>
                 )}
               </Tooltip>
             </TooltipProvider>

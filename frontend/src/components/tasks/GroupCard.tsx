@@ -26,7 +26,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { getTaskGroupColorClass } from '@/lib/ganttColors';
-import { useBranchMergeStatus, useGroupQueueCount, useWorktrees } from '@/hooks';
+import {
+  useBranchMergeStatus,
+  useGroupQueueCount,
+  useWorktrees,
+} from '@/hooks';
 import { useDeleteTaskGroup } from '@/hooks/useTaskGroups';
 import { StatusCountBadge } from './StatusCountBadge';
 import {
@@ -217,6 +221,28 @@ export function GroupCard({
             </Badge>
           )}
 
+          {group.git_mode === 'preserve_history' && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="secondary"
+                    className="w-fit text-xs font-normal gap-1 px-2 py-0.5"
+                  >
+                    <GitMerge className="h-3 w-3" />
+                    {t('groupCard.gitMode.preserveHistory', 'Preserve history')}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t(
+                    'groupCard.gitMode.preserveHistoryTooltip',
+                    'New attempts inherit preserve-history merge behavior.'
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+
           <div className="flex flex-wrap gap-1.5">
             {statusOrder.map((status) => (
               <StatusCountBadge
@@ -264,7 +290,12 @@ export function GroupCard({
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
           {(groupWorktree || group.base_branch) && (
-            <DropdownMenuItem onClick={() => { closeContextMenu(); handleNewConversation(); }}>
+            <DropdownMenuItem
+              onClick={() => {
+                closeContextMenu();
+                handleNewConversation();
+              }}
+            >
               <MessageSquare className="h-4 w-4" />
               {t('groupCard.newConversation')}
             </DropdownMenuItem>

@@ -13,6 +13,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import BranchSelector from '@/components/tasks/BranchSelector';
 import { WorkflowAssociationFields } from '@/components/tasks/WorkflowAssociationFields';
 import {
@@ -31,7 +38,7 @@ import {
   useTaskGroupWorkflowAssociations,
   workflowAssociationKeys,
 } from '@/hooks/useWorkflowAssociations';
-import type { TaskGroup } from 'shared/types';
+import type { GitMode, TaskGroup } from 'shared/types';
 
 export type TaskGroupFormDialogProps =
   | { mode: 'create'; projectId: string }
@@ -48,6 +55,7 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [baseBranch, setBaseBranch] = useState<string | null>(null);
+    const [gitMode, setGitMode] = useState<GitMode>('managed');
     const [error, setError] = useState<string | null>(null);
     const [workflowAssociation, setWorkflowAssociation] = useState(
       emptyWorkflowAssociationFormState
@@ -82,10 +90,12 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
           setName(group.name);
           setDescription(group.description || '');
           setBaseBranch(group.base_branch);
+          setGitMode(group.git_mode);
         } else {
           setName('');
           setDescription('');
           setBaseBranch(null);
+          setGitMode('managed');
         }
         setWorkflowAssociation(
           workflowAssociationToFormState(
@@ -125,7 +135,7 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
                 name: trimmedName,
                 description: description.trim() || null,
                 base_branch: baseBranch,
-                git_mode: null,
+                git_mode: gitMode,
               })
             : await updateTaskGroup.mutateAsync({
                 groupId: props.group.id,
@@ -133,7 +143,7 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
                   name: trimmedName,
                   description: description.trim() || null,
                   base_branch: baseBranch,
-                  git_mode: null,
+                  git_mode: gitMode,
                 },
               });
 
@@ -250,6 +260,37 @@ const TaskGroupFormDialogImpl = NiceModal.create<TaskGroupFormDialogProps>(
                 </p>
               </div>
             )}
+
+            <div className="space-y-2">
+              <Label htmlFor="group-git-mode">
+                {t('taskGroupFormDialog.gitModeLabel', 'Git mode')}
+              </Label>
+              <Select
+                value={gitMode}
+                onValueChange={(value) => setGitMode(value as GitMode)}
+              >
+                <SelectTrigger id="group-git-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="managed">
+                    {t('taskGroupFormDialog.gitModeManaged', 'Managed')}
+                  </SelectItem>
+                  <SelectItem value="preserve_history">
+                    {t(
+                      'taskGroupFormDialog.gitModePreserveHistory',
+                      'Preserve history'
+                    )}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'taskGroupFormDialog.gitModeHint',
+                  'New attempts in this group inherit this merge behavior.'
+                )}
+              </p>
+            </div>
 
             <WorkflowAssociationFields
               title="Task group workflow default"

@@ -311,6 +311,7 @@ fn generate_types_content() -> String {
         server::routes::task_attempts::GitOperationError::decl(),
         server::routes::task_attempts::PushError::decl(),
         server::routes::task_attempts::pr::CreatePrError::decl(),
+        server::routes::task_attempts::BranchStatusCommit::decl(),
         server::routes::task_attempts::BranchStatus::decl(),
         server::routes::task_attempts::GitStateChangedMessage::decl(),
         server::routes::task_attempts::RunScriptError::decl(),
@@ -446,7 +447,12 @@ fn generate_types_declaration_content(types_content: &str) -> String {
 }
 
 fn normalize_json_transport_types(content: String) -> String {
-    content.replace("bigint", "number")
+    content
+        .replace("bigint", "number")
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn generate_json_schema<T: JsonSchema>() -> Result<String, serde_json::Error> {

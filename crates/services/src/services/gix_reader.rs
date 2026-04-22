@@ -89,6 +89,14 @@ pub struct TreeDiffEntry {
     pub new_mode: Option<gix::object::tree::EntryKind>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitSummary {
+    pub oid: String,
+    pub subject: String,
+    pub author_name: Option<String>,
+    pub authored_at: Option<DateTime<Utc>>,
+}
+
 /// Branch type enumeration matching git2::BranchType semantics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BranchType {
@@ -170,17 +178,73 @@ impl GixReader {
         }
 
         let mut count = 0;
-        let walk = repo.rev_walk([start]);
+        let walk = repo.rev_walk([start]).with_hidden([base]);
 
         for info_result in walk.all()? {
-            let info = info_result?;
-            if info.id == base {
-                break;
-            }
+            let _info = info_result?;
             count += 1;
         }
 
         Ok(count)
+    }
+
+    fn commit_summary(
+        repo: &gix::Repository,
+        oid: gix::ObjectId,
+    ) -> Result<CommitSummary, GixReaderError> {
+        use gix::bstr::ByteSlice;
+
+        let commit = repo
+            .find_commit(oid)
+            .map_err(|e| GixReaderError::ObjectNotFound(format!("Commit {oid}: {e}")))?;
+        let message = commit
+            .message_raw()
+            .map_err(|e| GixReaderError::Diff(format!("Failed to decode commit message: {e}")))?
+            .to_string();
+        let subject = message
+            .lines()
+            .next()
+            .filter(|line| !line.is_empty())
+            .unwrap_or("(no subject)")
+            .to_string();
+        let author = commit.author().ok();
+        let author_name = author
+            .as_ref()
+            .map(|signature| signature.name.to_str_lossy().to_string());
+        let authored_at = author
+            .and_then(|signature| signature.time().ok())
+            .and_then(|time| DateTime::from_timestamp(time.seconds, 0));
+
+        Ok(CommitSummary {
+            oid: oid.to_string(),
+            subject,
+            author_name,
+            authored_at,
+        })
+    }
+
+    fn list_commits_to_base(
+        repo: &gix::Repository,
+        start: gix::ObjectId,
+        base: gix::ObjectId,
+        limit: usize,
+    ) -> Result<(Vec<CommitSummary>, bool), GixReaderError> {
+        if start == base || limit == 0 {
+            return Ok((Vec::new(), start != base));
+        }
+
+        let mut commits = Vec::new();
+        let walk = repo.rev_walk([start]).with_hidden([base]);
+
+        for info_result in walk.all()? {
+            let info = info_result?;
+            if commits.len() >= limit {
+                return Ok((commits, true));
+            }
+            commits.push(Self::commit_summary(repo, info.id)?);
+        }
+
+        Ok((commits, false))
     }
 
     /// Calculate ahead/behind between two commits by their hex OID strings.
@@ -194,6 +258,26 @@ impl GixReader {
             Self::parse_oid(local_oid)?,
             Self::parse_oid(remote_oid)?,
         )
+    }
+
+    pub fn difference_commits_by_oid(
+        repo: &gix::Repository,
+        local_oid: &str,
+        remote_oid: &str,
+        limit: usize,
+    ) -> Result<((Vec<CommitSummary>, bool), (Vec<CommitSummary>, bool)), GixReaderError> {
+        let local = Self::parse_oid(local_oid)?;
+        let remote = Self::parse_oid(remote_oid)?;
+
+        if local == remote {
+            return Ok(((Vec::new(), false), (Vec::new(), false)));
+        }
+
+        let base: gix::ObjectId = repo.merge_base(local, remote)?.into();
+        let ahead = Self::list_commits_to_base(repo, local, base, limit)?;
+        let behind = Self::list_commits_to_base(repo, remote, base, limit)?;
+
+        Ok((ahead, behind))
     }
 
     /// Compute a tree-to-tree diff with rename detection.

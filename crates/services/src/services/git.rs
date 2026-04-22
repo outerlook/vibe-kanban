@@ -12,7 +12,9 @@ mod cli;
 use cli::{ChangeType, StatusDiffEntry, StatusDiffOptions};
 pub use cli::{GitCli, GitCliError, WorktreeEntry};
 
-use super::gix_reader::{DiffChangeType, FileStat, GixReader, GixReaderError, TreeDiffEntry};
+use super::gix_reader::{
+    CommitSummary, DiffChangeType, FileStat, GixReader, GixReaderError, TreeDiffEntry,
+};
 use crate::services::github::GitHubRepoInfo;
 
 #[derive(Debug, Error)]
@@ -70,6 +72,35 @@ pub struct GitBranch {
 pub struct HeadInfo {
     pub branch: String,
     pub oid: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BranchDiffCommit {
+    pub oid: String,
+    pub subject: String,
+    pub author_name: Option<String>,
+    pub authored_at: Option<DateTime<Utc>>,
+}
+
+impl From<CommitSummary> for BranchDiffCommit {
+    fn from(commit: CommitSummary) -> Self {
+        Self {
+            oid: commit.oid,
+            subject: commit.subject,
+            author_name: commit.author_name,
+            authored_at: commit.authored_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BranchStatusDetails {
+    pub ahead: usize,
+    pub behind: usize,
+    pub ahead_commits: Vec<BranchDiffCommit>,
+    pub behind_commits: Vec<BranchDiffCommit>,
+    pub ahead_commits_truncated: bool,
+    pub behind_commits_truncated: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -943,6 +974,41 @@ impl GitService {
         Self::ahead_behind_by_oid_gix(repo_path, &local_oid, &remote_oid)
     }
 
+    fn get_branch_status_details_inner(
+        &self,
+        repo_path: &Path,
+        branch_ref: &Reference,
+        base_branch_ref: &Reference,
+        commit_limit: usize,
+    ) -> Result<BranchStatusDetails, GitServiceError> {
+        let local_oid = branch_ref
+            .target()
+            .ok_or(GitServiceError::BranchNotFound(
+                "Branch not found".to_string(),
+            ))?
+            .to_string();
+        let remote_oid = base_branch_ref
+            .target()
+            .ok_or(GitServiceError::BranchNotFound(
+                "Base branch not found".to_string(),
+            ))?
+            .to_string();
+
+        let gix_repo = GixReader::open(repo_path)?;
+        let (ahead, behind) = GixReader::ahead_behind_by_oid(&gix_repo, &local_oid, &remote_oid)?;
+        let ((ahead_commits, ahead_commits_truncated), (behind_commits, behind_commits_truncated)) =
+            GixReader::difference_commits_by_oid(&gix_repo, &local_oid, &remote_oid, commit_limit)?;
+
+        Ok(BranchStatusDetails {
+            ahead,
+            behind,
+            ahead_commits: ahead_commits.into_iter().map(Into::into).collect(),
+            behind_commits: behind_commits.into_iter().map(Into::into).collect(),
+            ahead_commits_truncated,
+            behind_commits_truncated,
+        })
+    }
+
     pub fn get_branch_status(
         &self,
         repo_path: &Path,
@@ -956,6 +1022,24 @@ impl GitService {
             repo_path,
             &branch.into_reference(),
             &base_branch.into_reference(),
+        )
+    }
+
+    pub fn get_branch_status_details(
+        &self,
+        repo_path: &Path,
+        branch_name: &str,
+        base_branch_name: &str,
+        commit_limit: usize,
+    ) -> Result<BranchStatusDetails, GitServiceError> {
+        let repo = Repository::open(repo_path)?;
+        let branch = Self::find_branch(&repo, branch_name)?;
+        let base_branch = Self::find_branch(&repo, base_branch_name)?;
+        self.get_branch_status_details_inner(
+            repo_path,
+            &branch.into_reference(),
+            &base_branch.into_reference(),
+            commit_limit,
         )
     }
 
@@ -1003,6 +1087,27 @@ impl GitService {
         let remote = self.get_remote_from_branch_ref(&repo, &base_branch_ref)?;
         self.fetch_all_from_remote(&repo, &remote)?;
         self.get_branch_status_inner(repo_path, &branch_ref, &base_branch_ref)
+    }
+
+    pub fn get_remote_branch_status_details(
+        &self,
+        repo_path: &Path,
+        branch_name: &str,
+        base_branch_name: Option<&str>,
+        commit_limit: usize,
+    ) -> Result<BranchStatusDetails, GitServiceError> {
+        let repo = Repository::open(repo_path)?;
+        let branch_ref = Self::find_branch(&repo, branch_name)?.into_reference();
+        let base_branch_ref = if let Some(bn) = base_branch_name {
+            Self::find_branch(&repo, bn)?
+        } else {
+            repo.find_branch(branch_name, BranchType::Local)?
+                .upstream()?
+        }
+        .into_reference();
+        let remote = self.get_remote_from_branch_ref(&repo, &base_branch_ref)?;
+        self.fetch_all_from_remote(&repo, &remote)?;
+        self.get_branch_status_details_inner(repo_path, &branch_ref, &base_branch_ref, commit_limit)
     }
 
     pub fn is_worktree_clean(&self, worktree_path: &Path) -> Result<bool, GitServiceError> {
@@ -2179,6 +2284,68 @@ mod tests {
             behind, expected_behind,
             "Behind count should match git CLI (expected 2)"
         );
+    }
+
+    #[test]
+    fn test_git_service_branch_status_details_lists_different_commits() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path();
+        init_test_repo_via_cli(repo_path);
+
+        let commit_all = |message: &str, second: u8| {
+            let timestamp = format!("2024-01-01T00:00:{second:02}+00:00");
+            let output = Command::new("git")
+                .args(["commit", "-m", message])
+                .env("GIT_AUTHOR_DATE", &timestamp)
+                .env("GIT_COMMITTER_DATE", &timestamp)
+                .current_dir(repo_path)
+                .output()
+                .expect("Failed to run git commit");
+            assert!(
+                output.status.success(),
+                "git commit failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+
+        git(repo_path, &["checkout", "-b", "feature"]);
+        for i in 1..=3 {
+            fs::write(
+                repo_path.join(format!("feature{i}.txt")),
+                format!("content{i}"),
+            )
+            .unwrap();
+            git(repo_path, &["add", "."]);
+            commit_all(&format!("Feature commit {i}"), i);
+        }
+
+        git(repo_path, &["checkout", "main"]);
+        for i in 1..=2 {
+            fs::write(repo_path.join(format!("main{i}.txt")), format!("main{i}")).unwrap();
+            git(repo_path, &["add", "."]);
+            commit_all(&format!("Main commit {i}"), i + 10);
+        }
+
+        let git_service = GitService::new();
+        let details = git_service
+            .get_branch_status_details(repo_path, "feature", "main", 2)
+            .unwrap();
+
+        assert_eq!(details.ahead, 3);
+        assert_eq!(details.behind, 2);
+        assert_eq!(details.ahead_commits.len(), 2);
+        assert_eq!(details.behind_commits.len(), 2);
+        assert!(details.ahead_commits_truncated);
+        assert!(!details.behind_commits_truncated);
+        assert_eq!(details.ahead_commits[0].subject, "Feature commit 3");
+        assert_eq!(details.ahead_commits[1].subject, "Feature commit 2");
+        assert_eq!(details.behind_commits[0].subject, "Main commit 2");
+        assert_eq!(details.behind_commits[1].subject, "Main commit 1");
+        assert_eq!(
+            details.ahead_commits[0].author_name.as_deref(),
+            Some("Test")
+        );
+        assert!(details.ahead_commits[0].authored_at.is_some());
     }
 
     /// Integration test: verify GitService works with worktrees

@@ -267,6 +267,14 @@
       "behind": "behind",
       "targetDirty": "Target dirty"
     },
+    "commitDiff": {
+      "aheadTitle": "{{count}} {{commitLabel}} ahead of {{branch}}",
+      "behindTitle": "{{count}} {{commitLabel}} behind {{branch}}",
+      "aheadAria": "Show commits ahead of {{branch}}",
+      "behindAria": "Show commits behind {{branch}}",
+      "empty": "No commit details available.",
+      "truncated": "Showing first {{count}} commits"
+    },
     "states": {
       "merged": "Merged!",
       "merging": "Merging...",
@@ -281,6 +289,13 @@
       "creating": "Creating...",
       "createPr": "Create PR",
       "generating": "Generating..."
+    },
+    "mergeStrategy": {
+      "label": "Merge strategy",
+      "workspaceDefaultManaged": "Workspace default: managed",
+      "workspaceDefaultPreserveHistory": "Workspace default: preserve history",
+      "squash": "Squash",
+      "fastForwardTarget": "Fast-forward target"
     },
     "errors": {
       "changeTargetBranch": "Failed to change target branch",
@@ -572,6 +587,10 @@
     "loadingBranches": "Loading branches...",
     "selectBranch": "Select a branch",
     "baseBranchHint": "Tasks in this group will use this branch as their default base.",
+    "gitModeLabel": "Git mode",
+    "gitModeManaged": "Managed",
+    "gitModePreserveHistory": "Preserve history",
+    "gitModeHint": "New attempts in this group inherit this merge behavior.",
     "saving": "Saving...",
     "create": "Create Group",
     "update": "Update Group",
@@ -614,6 +633,10 @@
   },
   "groupCard": {
     "newConversation": "New Conversation",
+    "gitMode": {
+      "preserveHistory": "Preserve history",
+      "preserveHistoryTooltip": "New attempts inherit preserve-history merge behavior."
+    },
     "contextMenu": {
       "mergeInto": "Merge into...",
       "edit": "Edit group",

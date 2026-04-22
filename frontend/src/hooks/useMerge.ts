@@ -1,12 +1,25 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { attemptsApi } from '@/lib/api';
 import { repoBranchKeys } from './useRepoBranches';
+import type { MergeStrategy, MergeTaskAttemptRequest } from 'shared/types';
 
-type MergeParams = {
+export type MergeParams = {
   repoId: string;
   commitMessage?: string;
   generateCommitMessage?: boolean;
+  mergeStrategy?: MergeStrategy | null;
 };
+
+export function buildMergeTaskAttemptRequest(
+  params: MergeParams
+): MergeTaskAttemptRequest {
+  return {
+    repo_id: params.repoId,
+    commit_message: params.commitMessage ?? null,
+    generate_commit_message: params.generateCommitMessage ?? null,
+    merge_strategy: params.mergeStrategy ?? null,
+  };
+}
 
 export function useMerge(
   attemptId?: string,
@@ -18,12 +31,7 @@ export function useMerge(
   return useMutation<void, unknown, MergeParams>({
     mutationFn: (params: MergeParams) => {
       if (!attemptId) return Promise.resolve();
-      return attemptsApi.merge(attemptId, {
-        repo_id: params.repoId,
-        commit_message: params.commitMessage ?? null,
-        generate_commit_message: params.generateCommitMessage ?? null,
-        merge_strategy: null,
-      });
+      return attemptsApi.merge(attemptId, buildMergeTaskAttemptRequest(params));
     },
     onSuccess: () => {
       // Refresh attempt-specific branch information

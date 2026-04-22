@@ -6,6 +6,9 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './dropdown-menu';
@@ -25,6 +28,17 @@ export type SplitButtonCheckboxItem = {
   disabled?: boolean;
 };
 
+export type SplitButtonRadioGroup<T extends string = string> = {
+  label?: string;
+  value: T;
+  onValueChange: (value: T) => void;
+  items: {
+    value: T;
+    label: string;
+    disabled?: boolean;
+  }[];
+};
+
 type SplitButtonProps<T extends string = string> = {
   options: SplitButtonOption<T>[];
   selectedValue: T;
@@ -40,6 +54,7 @@ type SplitButtonProps<T extends string = string> = {
   size?: ButtonProps['size'];
   icon?: React.ReactNode;
   checkboxItems?: SplitButtonCheckboxItem[];
+  radioGroups?: SplitButtonRadioGroup[];
 };
 
 export function SplitButton<T extends string = string>({
@@ -57,6 +72,7 @@ export function SplitButton<T extends string = string>({
   size = 'xs',
   icon,
   checkboxItems,
+  radioGroups,
 }: SplitButtonProps<T>) {
   const selectedOption = options.find((o) => o.value === selectedValue);
   const displayLabel = showSuccess
@@ -115,6 +131,34 @@ export function SplitButton<T extends string = string>({
                 >
                   {item.label}
                 </DropdownMenuCheckboxItem>
+              ))}
+            </>
+          )}
+          {radioGroups && radioGroups.length > 0 && (
+            <>
+              <DropdownMenuSeparator />
+              {radioGroups.map((group) => (
+                <React.Fragment key={group.label ?? group.items[0]?.value}>
+                  {group.label && (
+                    <DropdownMenuLabel className="text-xs text-muted-foreground">
+                      {group.label}
+                    </DropdownMenuLabel>
+                  )}
+                  <DropdownMenuRadioGroup
+                    value={group.value}
+                    onValueChange={(value) => group.onValueChange(value)}
+                  >
+                    {group.items.map((item) => (
+                      <DropdownMenuRadioItem
+                        key={item.value}
+                        value={item.value}
+                        disabled={item.disabled}
+                      >
+                        {item.label}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </React.Fragment>
               ))}
             </>
           )}
