@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     collections::VecDeque,
     io,
     sync::{Arc, OnceLock},
@@ -7,14 +6,17 @@ use std::{
 
 use async_trait::async_trait;
 use codex_app_server_protocol::{
-    AddConversationListenerParams, AddConversationSubscriptionResponse, ApplyPatchApprovalResponse,
-    ClientInfo, ClientNotification, ClientRequest, ExecCommandApprovalResponse,
-    GetAuthStatusParams, GetAuthStatusResponse, InitializeParams, InitializeResponse, InputItem,
-    JSONRPCError, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse, NewConversationParams,
-    NewConversationResponse, RequestId, ResumeConversationParams, ResumeConversationResponse,
-    SendUserMessageParams, SendUserMessageResponse, ServerNotification, ServerRequest,
+    ApplyPatchApprovalResponse, ClientInfo, ClientNotification, ClientRequest,
+    CommandExecutionApprovalDecision, CommandExecutionRequestApprovalResponse,
+    ExecCommandApprovalResponse, FileChangeApprovalDecision, FileChangeRequestApprovalResponse,
+    GetAuthStatusParams, GetAuthStatusResponse, GrantedPermissionProfile, InitializeCapabilities,
+    InitializeParams, InitializeResponse, JSONRPCError, JSONRPCNotification, JSONRPCRequest,
+    JSONRPCResponse, McpServerElicitationAction, McpServerElicitationRequestResponse,
+    PermissionGrantScope, PermissionsRequestApprovalResponse, RequestId, ServerRequest,
+    ThreadResumeParams, ThreadResumeResponse, ThreadStartParams, ThreadStartResponse,
+    TurnStartParams, TurnStartResponse, UserInput,
 };
-use codex_protocol::{ConversationId, protocol::ReviewDecision};
+use codex_protocol::protocol::ReviewDecision;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{self, Value};
 use tokio::{
@@ -33,7 +35,7 @@ pub struct AppServerClient {
     rpc: OnceLock<JsonRpcPeer>,
     log_writer: LogWriter,
     approvals: Option<Arc<dyn ExecutorApprovalService>>,
-    conversation_id: Mutex<Option<ConversationId>>,
+    thread_id: Mutex<Option<String>>,
     pending_feedback: Mutex<VecDeque<String>>,
     auto_approve: bool,
 }
@@ -49,7 +51,7 @@ impl AppServerClient {
             log_writer,
             approvals,
             auto_approve,
-            conversation_id: Mutex::new(None),
+            thread_id: Mutex::new(None),
             pending_feedback: Mutex::new(VecDeque::new()),
         })
     }
@@ -71,6 +73,10 @@ impl AppServerClient {
                     title: None,
                     version: env!("CARGO_PKG_VERSION").to_string(),
                 },
+                capabilities: Some(InitializeCapabilities {
+                    experimental_api: true,
+                    ..Default::default()
+                }),
             },
         };
 
@@ -79,61 +85,55 @@ impl AppServerClient {
         self.send_message(&ClientNotification::Initialized).await
     }
 
-    pub async fn new_conversation(
+    pub async fn start_thread(
         &self,
-        params: NewConversationParams,
-    ) -> Result<NewConversationResponse, ExecutorError> {
-        let request = ClientRequest::NewConversation {
+        params: ThreadStartParams,
+    ) -> Result<ThreadStartResponse, ExecutorError> {
+        let request = ClientRequest::ThreadStart {
             request_id: self.next_request_id(),
             params,
         };
-        self.send_request(request, "newConversation").await
+        self.send_request(request, "thread/start").await
     }
 
-    pub async fn resume_conversation(
+    pub async fn resume_thread(
         &self,
         rollout_path: std::path::PathBuf,
-        overrides: NewConversationParams,
-    ) -> Result<ResumeConversationResponse, ExecutorError> {
-        let request = ClientRequest::ResumeConversation {
+        overrides: ThreadStartParams,
+    ) -> Result<ThreadResumeResponse, ExecutorError> {
+        let request = ClientRequest::ThreadResume {
             request_id: self.next_request_id(),
-            params: ResumeConversationParams {
-                path: Some(rollout_path),
-                overrides: Some(overrides),
-                conversation_id: None,
+            params: ThreadResumeParams {
+                thread_id: String::new(),
                 history: None,
+                path: Some(rollout_path),
+                model: overrides.model,
+                model_provider: overrides.model_provider,
+                service_tier: overrides.service_tier,
+                cwd: overrides.cwd,
+                approval_policy: overrides.approval_policy,
+                approvals_reviewer: overrides.approvals_reviewer,
+                sandbox: overrides.sandbox,
+                config: overrides.config,
+                base_instructions: overrides.base_instructions,
+                developer_instructions: overrides.developer_instructions,
+                personality: overrides.personality,
+                persist_extended_history: overrides.persist_extended_history,
             },
         };
-        self.send_request(request, "resumeConversation").await
+        self.send_request(request, "thread/resume").await
     }
 
-    pub async fn add_conversation_listener(
+    pub async fn start_turn(
         &self,
-        conversation_id: codex_protocol::ConversationId,
-    ) -> Result<AddConversationSubscriptionResponse, ExecutorError> {
-        let request = ClientRequest::AddConversationListener {
-            request_id: self.next_request_id(),
-            params: AddConversationListenerParams {
-                conversation_id,
-                experimental_raw_events: false,
-            },
-        };
-        self.send_request(request, "addConversationListener").await
-    }
-
-    pub async fn send_user_message(
-        &self,
-        conversation_id: codex_protocol::ConversationId,
+        thread_id: String,
         message: String,
-    ) -> Result<SendUserMessageResponse, ExecutorError> {
-        let request = ClientRequest::SendUserMessage {
+    ) -> Result<TurnStartResponse, ExecutorError> {
+        let request = ClientRequest::TurnStart {
             request_id: self.next_request_id(),
-            params: SendUserMessageParams {
-                conversation_id,
-                items: vec![InputItem::Text { text: message }],
-            },
+            params: text_turn_params(thread_id, message),
         };
-        self.send_request(request, "sendUserMessage").await
+        self.send_request(request, "turn/start").await
     }
 
     pub async fn get_auth_status(&self) -> Result<GetAuthStatusResponse, ExecutorError> {
@@ -221,15 +221,105 @@ impl AppServerClient {
                 }
                 Ok(())
             }
-            ServerRequest::CommandExecutionRequestApproval { .. }
-            | ServerRequest::FileChangeRequestApproval { .. } => {
-                // These are unreachable until switching to v2 APIs for starting the session.
-                // https://github.com/openai/codex/blob/cbd7d0d54330443887852b21636c816f60f1bde8/codex-rs/app-server-protocol/src/protocol/common.rs#L445
-                tracing::error!("received unsupported server request: {:?}", request);
-                Err(
-                    ExecutorApprovalError::RequestFailed("unsupported server request".to_string())
-                        .into(),
+            ServerRequest::FileChangeRequestApproval { request_id, params } => {
+                let call_id = params.item_id.clone();
+                let input = serde_json::to_value(&params)
+                    .map_err(|err| ExecutorError::Io(io::Error::other(err.to_string())))?;
+                let status = match self.request_tool_approval("edit", input, &call_id).await {
+                    Ok(status) => status,
+                    Err(err) => {
+                        tracing::error!("failed to request file change approval: {err}");
+                        ApprovalStatus::Denied {
+                            reason: Some("approval service error".to_string()),
+                        }
+                    }
+                };
+                self.log_writer
+                    .log_raw(
+                        &Approval::approval_response(
+                            call_id.clone(),
+                            "codex.apply_patch".to_string(),
+                            status.clone(),
+                        )
+                        .raw(),
+                    )
+                    .await?;
+                let (decision, feedback) = self.review_decision(&status).await?;
+                let response = FileChangeRequestApprovalResponse {
+                    decision: file_change_decision(decision),
+                };
+                send_server_response(peer, request_id, response).await?;
+                if let Some(message) = feedback {
+                    tracing::debug!("queueing file change denial feedback: {message}");
+                    self.enqueue_feedback(message).await;
+                }
+                Ok(())
+            }
+            ServerRequest::CommandExecutionRequestApproval { request_id, params } => {
+                let call_id = params
+                    .approval_id
+                    .clone()
+                    .unwrap_or_else(|| params.item_id.clone());
+                let input = serde_json::to_value(&params)
+                    .map_err(|err| ExecutorError::Io(io::Error::other(err.to_string())))?;
+                let status = match self.request_tool_approval("bash", input, &call_id).await {
+                    Ok(status) => status,
+                    Err(err) => {
+                        tracing::error!("failed to request command execution approval: {err}");
+                        ApprovalStatus::Denied {
+                            reason: Some("approval service error".to_string()),
+                        }
+                    }
+                };
+                self.log_writer
+                    .log_raw(
+                        &Approval::approval_response(
+                            call_id,
+                            "codex.exec_command".to_string(),
+                            status.clone(),
+                        )
+                        .raw(),
+                    )
+                    .await?;
+
+                let (decision, feedback) = self.review_decision(&status).await?;
+                let response = CommandExecutionRequestApprovalResponse {
+                    decision: CommandExecutionApprovalDecision::from(decision),
+                };
+                send_server_response(peer, request_id, response).await?;
+                if let Some(message) = feedback {
+                    tracing::debug!("queueing command execution denial feedback: {message}");
+                    self.enqueue_feedback(message).await;
+                }
+                Ok(())
+            }
+            ServerRequest::McpServerElicitationRequest { request_id, .. } => {
+                send_server_response(
+                    peer,
+                    request_id,
+                    McpServerElicitationRequestResponse {
+                        action: McpServerElicitationAction::Decline,
+                        content: None,
+                        meta: None,
+                    },
                 )
+                .await
+            }
+            ServerRequest::PermissionsRequestApproval { request_id, .. } => {
+                send_server_response(
+                    peer,
+                    request_id,
+                    PermissionsRequestApprovalResponse {
+                        permissions: GrantedPermissionProfile::default(),
+                        scope: PermissionGrantScope::Turn,
+                    },
+                )
+                .await
+            }
+            other => {
+                let request_id = other.id().clone();
+                tracing::error!("received unsupported server request: {:?}", other);
+                send_server_response(peer, request_id, Value::Null).await
             }
         }
     }
@@ -252,13 +342,10 @@ impl AppServerClient {
             .await?)
     }
 
-    pub async fn register_session(
-        &self,
-        conversation_id: &ConversationId,
-    ) -> Result<(), ExecutorError> {
+    pub async fn register_session(&self, thread_id: &str) -> Result<(), ExecutorError> {
         {
-            let mut guard = self.conversation_id.lock().await;
-            guard.replace(*conversation_id);
+            let mut guard = self.thread_id.lock().await;
+            guard.replace(thread_id.to_string());
         }
         self.flush_pending_feedback().await;
         Ok(())
@@ -331,9 +418,9 @@ impl AppServerClient {
             return;
         }
 
-        let Some(conversation_id) = *self.conversation_id.lock().await else {
+        let Some(thread_id) = self.thread_id.lock().await.clone() else {
             tracing::warn!(
-                "pending Codex feedback but conversation id unavailable; dropping {} messages",
+                "pending Codex feedback but thread id unavailable; dropping {} messages",
                 messages.len()
             );
             return;
@@ -344,28 +431,23 @@ impl AppServerClient {
             if trimmed.is_empty() {
                 continue;
             }
-            self.spawn_feedback_message(conversation_id, trimmed.to_string());
+            self.spawn_feedback_message(thread_id.clone(), trimmed.to_string());
         }
     }
 
-    fn spawn_feedback_message(&self, conversation_id: ConversationId, feedback: String) {
+    async fn has_pending_feedback(&self) -> bool {
+        !self.pending_feedback.lock().await.is_empty()
+    }
+
+    fn spawn_feedback_message(&self, thread_id: String, feedback: String) {
         let peer = self.rpc().clone();
-        let request = ClientRequest::SendUserMessage {
+        let request = ClientRequest::TurnStart {
             request_id: peer.next_request_id(),
-            params: SendUserMessageParams {
-                conversation_id,
-                items: vec![InputItem::Text {
-                    text: format!("User feedback: {feedback}"),
-                }],
-            },
+            params: text_turn_params(thread_id, format!("User feedback: {feedback}")),
         };
         tokio::spawn(async move {
             if let Err(err) = peer
-                .request::<SendUserMessageResponse, _>(
-                    request_id(&request),
-                    &request,
-                    "sendUserMessage",
-                )
+                .request::<TurnStartResponse, _>(request_id(&request), &request, "turn/start")
                 .await
             {
                 tracing::error!("failed to send feedback follow-up message: {err}");
@@ -420,23 +502,15 @@ impl JsonRpcCallbacks for AppServerClient {
         raw: &str,
         notification: JSONRPCNotification,
     ) -> Result<bool, ExecutorError> {
-        let raw =
-            if let Ok(mut server_notification) = serde_json::from_str::<ServerNotification>(raw) {
-                if let ServerNotification::SessionConfigured(session_configured) =
-                    &mut server_notification
-                {
-                    // history can be large, which might get truncated during transmission, corrupting the JSON line and losing valuable session and model information.
-                    session_configured.initial_messages = None;
-                    Cow::Owned(serde_json::to_string(&server_notification)?)
-                } else {
-                    Cow::Borrowed(raw)
-                }
-            } else {
-                Cow::Borrowed(raw)
-            };
-        self.log_writer.log_raw(&raw).await?;
+        self.log_writer.log_raw(raw).await?;
 
         let method = notification.method.as_str();
+        if method == "turn/completed" {
+            let had_pending_feedback = self.has_pending_feedback().await;
+            self.flush_pending_feedback().await;
+            return Ok(!had_pending_feedback);
+        }
+
         if !method.starts_with("codex/event") {
             return Ok(false);
         }
@@ -478,14 +552,30 @@ where
 }
 
 fn request_id(request: &ClientRequest) -> RequestId {
-    match request {
-        ClientRequest::Initialize { request_id, .. }
-        | ClientRequest::NewConversation { request_id, .. }
-        | ClientRequest::GetAuthStatus { request_id, .. }
-        | ClientRequest::ResumeConversation { request_id, .. }
-        | ClientRequest::AddConversationListener { request_id, .. }
-        | ClientRequest::SendUserMessage { request_id, .. } => request_id.clone(),
-        _ => unreachable!("request_id called for unsupported request variant"),
+    request.id().clone()
+}
+
+fn text_turn_params(thread_id: String, text: String) -> TurnStartParams {
+    TurnStartParams {
+        thread_id,
+        input: vec![UserInput::Text {
+            text,
+            text_elements: Vec::new(),
+        }],
+        ..Default::default()
+    }
+}
+
+fn file_change_decision(decision: ReviewDecision) -> FileChangeApprovalDecision {
+    match decision {
+        ReviewDecision::Approved => FileChangeApprovalDecision::Accept,
+        ReviewDecision::ApprovedForSession
+        | ReviewDecision::ApprovedExecpolicyAmendment { .. }
+        | ReviewDecision::NetworkPolicyAmendment { .. } => {
+            FileChangeApprovalDecision::AcceptForSession
+        }
+        ReviewDecision::Denied | ReviewDecision::TimedOut => FileChangeApprovalDecision::Decline,
+        ReviewDecision::Abort => FileChangeApprovalDecision::Cancel,
     }
 }
 

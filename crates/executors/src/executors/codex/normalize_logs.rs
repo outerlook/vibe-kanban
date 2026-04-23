@@ -5,10 +5,12 @@ use std::{
 };
 
 use codex_app_server_protocol::{
-    JSONRPCNotification, JSONRPCResponse, NewConversationResponse, ServerNotification,
+    CommandExecutionStatus, FileUpdateChange, JSONRPCNotification, JSONRPCResponse,
+    McpToolCallStatus, PatchApplyStatus, PatchChangeKind, ServerNotification, ThreadItem,
+    ThreadResumeResponse, ThreadStartResponse,
 };
-use codex_mcp_types::ContentBlock;
 use codex_protocol::{
+    mcp::CallToolResult,
     openai_models::ReasoningEffort,
     plan_tool::{StepStatus, UpdatePlanArgs},
     protocol::{
@@ -32,7 +34,6 @@ use workspace_utils::{
 
 use crate::{
     approvals::ToolCallMetadata,
-    executors::codex::session::SessionHandler,
     logs::{
         ActionType, CommandExitStatus, CommandRunResult, FileChange, NormalizedEntry,
         NormalizedEntryError, NormalizedEntryType, TodoItem, ToolResult, ToolResultValueType,
@@ -348,6 +349,455 @@ fn normalize_file_changes(
         .collect()
 }
 
+fn normalize_v2_file_changes(
+    worktree_path: &str,
+    changes: &[FileUpdateChange],
+) -> Vec<(String, Vec<FileChange>)> {
+    changes
+        .iter()
+        .map(|change| {
+            let relative = make_path_relative(&change.path, worktree_path);
+            let mut file_changes = Vec::new();
+            match &change.kind {
+                PatchChangeKind::Add => file_changes.push(FileChange::Edit {
+                    unified_diff: normalize_unified_diff(&relative, &change.diff),
+                    has_line_numbers: true,
+                }),
+                PatchChangeKind::Delete => file_changes.push(FileChange::Delete),
+                PatchChangeKind::Update { move_path } => {
+                    if let Some(dest) = move_path {
+                        let dest_rel =
+                            make_path_relative(dest.to_string_lossy().as_ref(), worktree_path);
+                        file_changes.push(FileChange::Rename { new_path: dest_rel });
+                    }
+                    file_changes.push(FileChange::Edit {
+                        unified_diff: normalize_unified_diff(&relative, &change.diff),
+                        has_line_numbers: true,
+                    });
+                }
+            }
+            (relative, file_changes)
+        })
+        .collect()
+}
+
+fn tool_status_from_command_status(
+    status: CommandExecutionStatus,
+    exit_code: Option<i32>,
+) -> ToolStatus {
+    match status {
+        CommandExecutionStatus::InProgress => ToolStatus::Created,
+        CommandExecutionStatus::Completed => {
+            if exit_code.is_some_and(|code| code != 0) {
+                ToolStatus::Failed
+            } else {
+                ToolStatus::Success
+            }
+        }
+        CommandExecutionStatus::Failed => ToolStatus::Failed,
+        CommandExecutionStatus::Declined => ToolStatus::Denied { reason: None },
+    }
+}
+
+fn tool_status_from_patch_status(status: PatchApplyStatus) -> ToolStatus {
+    match status {
+        PatchApplyStatus::InProgress => ToolStatus::Created,
+        PatchApplyStatus::Completed => ToolStatus::Success,
+        PatchApplyStatus::Failed => ToolStatus::Failed,
+        PatchApplyStatus::Declined => ToolStatus::Denied { reason: None },
+    }
+}
+
+fn tool_status_from_mcp_status(status: McpToolCallStatus) -> ToolStatus {
+    match status {
+        McpToolCallStatus::InProgress => ToolStatus::Created,
+        McpToolCallStatus::Completed => ToolStatus::Success,
+        McpToolCallStatus::Failed => ToolStatus::Failed,
+    }
+}
+
+fn upsert_v2_command(
+    state: &mut LogState,
+    msg_store: &Arc<MsgStore>,
+    entry_index: &EntryIndexProvider,
+    id: String,
+    command: String,
+    status: CommandExecutionStatus,
+    aggregated_output: Option<String>,
+    exit_code: Option<i32>,
+) {
+    state.assistant = None;
+    state.thinking = None;
+
+    let command_state = state.commands.entry(id.clone()).or_insert(CommandState {
+        index: None,
+        command: command.clone(),
+        stdout: String::new(),
+        stderr: String::new(),
+        formatted_output: None,
+        status: ToolStatus::Created,
+        exit_code: None,
+        awaiting_approval: false,
+        call_id: id,
+    });
+
+    command_state.command = command;
+    command_state.status = tool_status_from_command_status(status, exit_code);
+    command_state.exit_code = exit_code;
+    if let Some(output) = aggregated_output {
+        command_state.formatted_output = Some(output);
+    }
+
+    match command_state.index {
+        Some(index) => {
+            replace_normalized_entry(msg_store, index, command_state.to_normalized_entry())
+        }
+        None => {
+            let index =
+                add_normalized_entry(msg_store, entry_index, command_state.to_normalized_entry());
+            command_state.index = Some(index);
+        }
+    }
+}
+
+fn upsert_v2_file_change(
+    state: &mut LogState,
+    msg_store: &Arc<MsgStore>,
+    entry_index: &EntryIndexProvider,
+    worktree_path: &str,
+    id: String,
+    changes: Vec<FileUpdateChange>,
+    status: PatchApplyStatus,
+) {
+    state.assistant = None;
+    state.thinking = None;
+    let normalized = normalize_v2_file_changes(worktree_path, &changes);
+    let patch_state = state.patches.entry(id.clone()).or_default();
+
+    for (entry_index_in_patch, (path, file_changes)) in normalized.into_iter().enumerate() {
+        if patch_state.entries.len() <= entry_index_in_patch {
+            patch_state.entries.push(PatchEntry {
+                index: None,
+                path: path.clone(),
+                changes: file_changes.clone(),
+                status: ToolStatus::Created,
+                awaiting_approval: false,
+                call_id: id.clone(),
+            });
+        }
+
+        let entry = &mut patch_state.entries[entry_index_in_patch];
+        entry.path = path;
+        entry.changes = file_changes;
+        entry.status = tool_status_from_patch_status(status.clone());
+        entry.awaiting_approval = false;
+
+        match entry.index {
+            Some(index) => replace_normalized_entry(msg_store, index, entry.to_normalized_entry()),
+            None => {
+                let index =
+                    add_normalized_entry(msg_store, entry_index, entry.to_normalized_entry());
+                entry.index = Some(index);
+            }
+        }
+    }
+}
+
+fn upsert_v2_mcp_tool(
+    state: &mut LogState,
+    msg_store: &Arc<MsgStore>,
+    entry_index: &EntryIndexProvider,
+    id: String,
+    server: String,
+    tool: String,
+    status: McpToolCallStatus,
+    arguments: Value,
+    result: Option<codex_app_server_protocol::McpToolCallResult>,
+    error: Option<codex_app_server_protocol::McpToolCallError>,
+) {
+    state.assistant = None;
+    state.thinking = None;
+
+    let mcp_state = state.mcp_tools.entry(id).or_insert(McpToolState {
+        index: None,
+        invocation: McpInvocation {
+            server: server.clone(),
+            tool: tool.clone(),
+            arguments: Some(arguments.clone()),
+        },
+        result: None,
+        status: ToolStatus::Created,
+    });
+    mcp_state.invocation = McpInvocation {
+        server,
+        tool,
+        arguments: Some(arguments),
+    };
+    mcp_state.status = tool_status_from_mcp_status(status);
+    mcp_state.result = error
+        .map(|err| ToolResult {
+            r#type: ToolResultValueType::Markdown,
+            value: Value::String(err.message),
+        })
+        .or_else(|| {
+            result.map(|value| ToolResult {
+                r#type: ToolResultValueType::Json,
+                value: value
+                    .structured_content
+                    .unwrap_or_else(|| Value::Array(value.content)),
+            })
+        });
+
+    match mcp_state.index {
+        Some(index) => replace_normalized_entry(msg_store, index, mcp_state.to_normalized_entry()),
+        None => {
+            let index =
+                add_normalized_entry(msg_store, entry_index, mcp_state.to_normalized_entry());
+            mcp_state.index = Some(index);
+        }
+    }
+}
+
+fn mcp_text_content(block: &Value) -> Option<String> {
+    let object = block.as_object()?;
+    if object.get("type").and_then(Value::as_str) != Some("text") {
+        return None;
+    }
+    object
+        .get("text")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+}
+
+fn mcp_call_tool_result_to_tool_result(value: CallToolResult) -> ToolResult {
+    let text_blocks = value
+        .content
+        .iter()
+        .map(mcp_text_content)
+        .collect::<Option<Vec<String>>>();
+
+    if let Some(text_blocks) = text_blocks {
+        ToolResult {
+            r#type: ToolResultValueType::Markdown,
+            value: Value::String(text_blocks.join("\n")),
+        }
+    } else {
+        ToolResult {
+            r#type: ToolResultValueType::Json,
+            value: value
+                .structured_content
+                .unwrap_or(Value::Array(value.content)),
+        }
+    }
+}
+
+fn handle_v2_thread_item(
+    item: ThreadItem,
+    state: &mut LogState,
+    msg_store: &Arc<MsgStore>,
+    entry_index: &EntryIndexProvider,
+    worktree_path: &str,
+) {
+    match item {
+        ThreadItem::AgentMessage { text, .. } => {
+            state.thinking = None;
+            let (entry, index, is_new) = state.assistant_message(text);
+            upsert_normalized_entry(msg_store, index, entry, is_new);
+            state.assistant = None;
+        }
+        ThreadItem::Reasoning {
+            summary, content, ..
+        } => {
+            state.assistant = None;
+            let text = summary
+                .into_iter()
+                .chain(content)
+                .collect::<Vec<_>>()
+                .join("\n");
+            if !text.is_empty() {
+                let (entry, index, is_new) = state.thinking(text);
+                upsert_normalized_entry(msg_store, index, entry, is_new);
+                state.thinking = None;
+            }
+        }
+        ThreadItem::CommandExecution {
+            id,
+            command,
+            status,
+            aggregated_output,
+            exit_code,
+            ..
+        } => upsert_v2_command(
+            state,
+            msg_store,
+            entry_index,
+            id,
+            command,
+            status,
+            aggregated_output,
+            exit_code,
+        ),
+        ThreadItem::FileChange {
+            id,
+            changes,
+            status,
+        } => upsert_v2_file_change(
+            state,
+            msg_store,
+            entry_index,
+            worktree_path,
+            id,
+            changes,
+            status,
+        ),
+        ThreadItem::McpToolCall {
+            id,
+            server,
+            tool,
+            status,
+            arguments,
+            result,
+            error,
+            ..
+        } => upsert_v2_mcp_tool(
+            state,
+            msg_store,
+            entry_index,
+            id,
+            server,
+            tool,
+            status,
+            arguments,
+            result,
+            error,
+        ),
+        ThreadItem::WebSearch { id: _, query, .. } => {
+            state.assistant = None;
+            state.thinking = None;
+            add_normalized_entry(
+                msg_store,
+                entry_index,
+                NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::ToolUse {
+                        tool_name: "web_search".to_string(),
+                        action_type: ActionType::WebFetch { url: query.clone() },
+                        status: ToolStatus::Success,
+                    },
+                    content: query,
+                    metadata: None,
+                },
+            );
+        }
+        ThreadItem::ImageView { path, .. } => {
+            state.assistant = None;
+            state.thinking = None;
+            let path_str = path.to_string_lossy().to_string();
+            let relative_path = make_path_relative(&path_str, worktree_path);
+            add_normalized_entry(
+                msg_store,
+                entry_index,
+                NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::ToolUse {
+                        tool_name: "view_image".to_string(),
+                        action_type: ActionType::FileRead {
+                            path: relative_path.clone(),
+                        },
+                        status: ToolStatus::Success,
+                    },
+                    content: relative_path,
+                    metadata: None,
+                },
+            );
+        }
+        _ => {}
+    }
+}
+
+fn handle_server_notification(
+    notification: ServerNotification,
+    state: &mut LogState,
+    msg_store: &Arc<MsgStore>,
+    entry_index: &EntryIndexProvider,
+    worktree_path: &str,
+) {
+    match notification {
+        ServerNotification::ThreadStarted(payload) => {
+            msg_store.push_session_id(payload.thread.id);
+        }
+        ServerNotification::AgentMessageDelta(payload) => {
+            state.thinking = None;
+            let (entry, index, is_new) = state.assistant_message_append(payload.delta);
+            upsert_normalized_entry(msg_store, index, entry, is_new);
+        }
+        ServerNotification::ReasoningSummaryTextDelta(payload) => {
+            state.assistant = None;
+            let (entry, index, is_new) = state.thinking_append(payload.delta);
+            upsert_normalized_entry(msg_store, index, entry, is_new);
+        }
+        ServerNotification::ReasoningTextDelta(payload) => {
+            state.assistant = None;
+            let (entry, index, is_new) = state.thinking_append(payload.delta);
+            upsert_normalized_entry(msg_store, index, entry, is_new);
+        }
+        ServerNotification::CommandExecutionOutputDelta(payload) => {
+            if let Some(command_state) = state.commands.get_mut(&payload.item_id) {
+                if !payload.delta.is_empty() {
+                    command_state.stdout.push_str(&payload.delta);
+                    if let Some(index) = command_state.index {
+                        replace_normalized_entry(
+                            msg_store,
+                            index,
+                            command_state.to_normalized_entry(),
+                        );
+                    }
+                }
+            }
+        }
+        ServerNotification::ItemStarted(payload) => {
+            handle_v2_thread_item(payload.item, state, msg_store, entry_index, worktree_path);
+        }
+        ServerNotification::ItemCompleted(payload) => {
+            handle_v2_thread_item(payload.item, state, msg_store, entry_index, worktree_path);
+        }
+        ServerNotification::ThreadTokenUsageUpdated(payload) => {
+            let input_tokens = payload.token_usage.total.input_tokens;
+            let output_tokens = payload.token_usage.total.output_tokens;
+            if input_tokens > 0 || output_tokens > 0 {
+                add_normalized_entry(
+                    msg_store,
+                    entry_index,
+                    NormalizedEntry {
+                        timestamp: None,
+                        entry_type: NormalizedEntryType::TokenUsage {
+                            input_tokens,
+                            output_tokens,
+                        },
+                        content: String::new(),
+                        metadata: None,
+                    },
+                );
+            }
+        }
+        ServerNotification::Error(payload) => {
+            add_normalized_entry(
+                msg_store,
+                entry_index,
+                NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::ErrorMessage {
+                        error_type: NormalizedEntryError::Other,
+                    },
+                    content: payload.error.message,
+                    metadata: None,
+                },
+            );
+        }
+        _ => {}
+    }
+}
+
 fn format_todo_status(status: &StepStatus) -> String {
     match status {
         StepStatus::Pending => "pending",
@@ -385,17 +835,13 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
             }
 
             if let Ok(server_notification) = serde_json::from_str::<ServerNotification>(&line) {
-                if let ServerNotification::SessionConfigured(session_configured) =
-                    server_notification
-                {
-                    msg_store.push_session_id(session_configured.session_id.to_string());
-                    handle_model_params(
-                        session_configured.model,
-                        session_configured.reasoning_effort,
-                        &msg_store,
-                        &entry_index,
-                    );
-                };
+                handle_server_notification(
+                    server_notification,
+                    &mut state,
+                    &msg_store,
+                    &entry_index,
+                    &worktree_path_str,
+                );
                 continue;
             } else if let Some(session_id) = line
                 .strip_prefix(r#"{"method":"sessionConfigured","params":{"sessionId":""#)
@@ -444,7 +890,7 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     let (entry, index, is_new) = state.thinking_append(delta);
                     upsert_normalized_entry(&msg_store, index, entry, is_new);
                 }
-                EventMsg::AgentMessage(AgentMessageEvent { message }) => {
+                EventMsg::AgentMessage(AgentMessageEvent { message, .. }) => {
                     state.thinking = None;
                     let (entry, index, is_new) = state.assistant_message(message);
                     upsert_normalized_entry(&msg_store, index, entry, is_new);
@@ -471,6 +917,7 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     reason,
                     parsed_cmd: _,
                     proposed_execpolicy_amendment: _,
+                    ..
                 }) => {
                     state.assistant = None;
                     state.thinking = None;
@@ -619,6 +1066,7 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     duration: _,
                     formatted_output,
                     process_id: _,
+                    ..
                 }) => {
                     if let Some(mut command_state) = state.commands.remove(&call_id) {
                         command_state.formatted_output = Some(formatted_output);
@@ -655,6 +1103,7 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                 EventMsg::StreamError(StreamErrorEvent {
                     message,
                     codex_error_info,
+                    ..
                 }) => {
                     add_normalized_entry(
                         &msg_store,
@@ -703,38 +1152,8 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                                 } else {
                                     ToolStatus::Success
                                 };
-                                if value
-                                    .content
-                                    .iter()
-                                    .all(|block| matches!(block, ContentBlock::TextContent(_)))
-                                {
-                                    mcp_tool_state.result = Some(ToolResult {
-                                        r#type: ToolResultValueType::Markdown,
-                                        value: Value::String(
-                                            value
-                                                .content
-                                                .iter()
-                                                .map(|block| {
-                                                    if let ContentBlock::TextContent(content) =
-                                                        block
-                                                    {
-                                                        content.text.clone()
-                                                    } else {
-                                                        unreachable!()
-                                                    }
-                                                })
-                                                .collect::<Vec<String>>()
-                                                .join("\n"),
-                                        ),
-                                    });
-                                } else {
-                                    mcp_tool_state.result = Some(ToolResult {
-                                        r#type: ToolResultValueType::Json,
-                                        value: value.structured_content.unwrap_or_else(|| {
-                                            serde_json::to_value(value.content).unwrap_or_default()
-                                        }),
-                                    });
-                                }
+                                mcp_tool_state.result =
+                                    Some(mcp_call_tool_result_to_tool_result(value));
                             }
                             Err(err) => {
                                 mcp_tool_state.status = ToolStatus::Failed;
@@ -862,7 +1281,7 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     let index = add_normalized_entry(&msg_store, &entry_index, normalized_entry);
                     web_search_state.index = Some(index);
                 }
-                EventMsg::WebSearchEnd(WebSearchEndEvent { call_id, query }) => {
+                EventMsg::WebSearchEnd(WebSearchEndEvent { call_id, query, .. }) => {
                     state.assistant = None;
                     state.thinking = None;
                     if let Some(mut entry) = state.web_searches.remove(&call_id) {
@@ -988,30 +1407,59 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                 }
                 EventMsg::AgentReasoningRawContent(..)
                 | EventMsg::AgentReasoningRawContentDelta(..)
-                | EventMsg::TaskStarted(..)
+                | EventMsg::RealtimeConversationStarted(..)
+                | EventMsg::RealtimeConversationRealtime(..)
+                | EventMsg::RealtimeConversationClosed(..)
+                | EventMsg::RealtimeConversationSdp(..)
+                | EventMsg::ModelReroute(..)
+                | EventMsg::ThreadRolledBack(..)
+                | EventMsg::TurnStarted(..)
                 | EventMsg::UserMessage(..)
+                | EventMsg::ThreadNameUpdated(..)
                 | EventMsg::TurnDiff(..)
                 | EventMsg::GetHistoryEntryResponse(..)
                 | EventMsg::McpListToolsResponse(..)
                 | EventMsg::McpStartupComplete(..)
                 | EventMsg::McpStartupUpdate(..)
+                | EventMsg::ImageGenerationBegin(..)
+                | EventMsg::ImageGenerationEnd(..)
+                | EventMsg::RequestPermissions(..)
+                | EventMsg::RequestUserInput(..)
+                | EventMsg::DynamicToolCallRequest(..)
+                | EventMsg::DynamicToolCallResponse(..)
+                | EventMsg::GuardianAssessment(..)
                 | EventMsg::DeprecationNotice(..)
                 | EventMsg::UndoCompleted(..)
                 | EventMsg::UndoStarted(..)
                 | EventMsg::RawResponseItem(..)
                 | EventMsg::ItemStarted(..)
                 | EventMsg::ItemCompleted(..)
+                | EventMsg::HookStarted(..)
+                | EventMsg::HookCompleted(..)
                 | EventMsg::AgentMessageContentDelta(..)
+                | EventMsg::PlanDelta(..)
                 | EventMsg::ReasoningContentDelta(..)
                 | EventMsg::ReasoningRawContentDelta(..)
-                | EventMsg::ListCustomPromptsResponse(..)
+                | EventMsg::ListSkillsResponse(..)
+                | EventMsg::RealtimeConversationListVoicesResponse(..)
+                | EventMsg::SkillsUpdateAvailable
                 | EventMsg::TurnAborted(..)
                 | EventMsg::ShutdownComplete
                 | EventMsg::EnteredReviewMode(..)
                 | EventMsg::ExitedReviewMode(..)
                 | EventMsg::TerminalInteraction(..)
                 | EventMsg::ElicitationRequest(..)
-                | EventMsg::TaskComplete(..) => {}
+                | EventMsg::CollabAgentSpawnBegin(..)
+                | EventMsg::CollabAgentSpawnEnd(..)
+                | EventMsg::CollabAgentInteractionBegin(..)
+                | EventMsg::CollabAgentInteractionEnd(..)
+                | EventMsg::CollabWaitingBegin(..)
+                | EventMsg::CollabWaitingEnd(..)
+                | EventMsg::CollabCloseBegin(..)
+                | EventMsg::CollabCloseEnd(..)
+                | EventMsg::CollabResumeBegin(..)
+                | EventMsg::CollabResumeEnd(..)
+                | EventMsg::TurnComplete(..) => {}
             }
         }
 
@@ -1043,22 +1491,27 @@ fn handle_jsonrpc_response(
     msg_store: &Arc<MsgStore>,
     entry_index: &EntryIndexProvider,
 ) {
-    let Ok(response) = serde_json::from_value::<NewConversationResponse>(response.result.clone())
-    else {
+    if let Ok(response) = serde_json::from_value::<ThreadStartResponse>(response.result.clone()) {
+        msg_store.push_session_id(response.thread.id);
+        handle_model_params(
+            response.model,
+            response.reasoning_effort,
+            msg_store,
+            entry_index,
+        );
         return;
-    };
-
-    match SessionHandler::extract_session_id_from_rollout_path(response.rollout_path) {
-        Ok(session_id) => msg_store.push_session_id(session_id),
-        Err(err) => tracing::error!("failed to extract session id: {err}"),
     }
 
-    handle_model_params(
-        response.model,
-        response.reasoning_effort,
-        msg_store,
-        entry_index,
-    );
+    if let Ok(response) = serde_json::from_value::<ThreadResumeResponse>(response.result.clone()) {
+        msg_store.push_session_id(response.thread.id);
+        handle_model_params(
+            response.model,
+            response.reasoning_effort,
+            msg_store,
+            entry_index,
+        );
+        return;
+    }
 }
 
 fn handle_model_params(
