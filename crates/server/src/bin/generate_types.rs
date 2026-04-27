@@ -48,6 +48,8 @@ fn generate_types_content() -> String {
         db::models::embedding::EmbeddingStatus::decl(),
         db::models::task_dependency::TaskDependency::decl(),
         db::models::task_group::TaskGroup::decl(),
+        db::models::task_group::DeletedTaskGroup::decl(),
+        db::models::task_group::EmptyTaskGroupCleanupResult::decl(),
         db::models::task_group::TaskStatusCounts::decl(),
         db::models::task_group::TaskGroupWithStats::decl(),
         db::models::notification::Notification::decl(),

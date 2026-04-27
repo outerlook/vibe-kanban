@@ -25,6 +25,7 @@ import {
   CreateTaskAttemptBody,
   CreateTag,
   CreateTaskGroup,
+  EmptyTaskGroupCleanupResult,
   DirectoryListResponse,
   DirectoryEntry,
   ExecutionProcess,
@@ -962,6 +963,16 @@ export const taskGroupsApi = {
       `/api/task-groups/${groupId}/merge-queue-count`
     );
     return handleApiResponse<MergeQueueCountResponse>(response);
+  },
+
+  cleanupEmpty: async (
+    projectId: string
+  ): Promise<EmptyTaskGroupCleanupResult> => {
+    const response = await makeRequest(
+      `/api/task-groups/cleanup-empty?project_id=${encodeURIComponent(projectId)}`,
+      { method: 'POST' }
+    );
+    return handleApiResponse<EmptyTaskGroupCleanupResult>(response);
   },
 };
 

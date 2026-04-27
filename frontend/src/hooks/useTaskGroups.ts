@@ -3,8 +3,10 @@ import { taskGroupsApi } from '@/lib/api';
 import type {
   TaskGroup,
   CreateTaskGroup,
+  EmptyTaskGroupCleanupResult,
   UpdateTaskGroup,
 } from 'shared/types';
+import { taskGroupStatsKeys } from './useTaskGroupStats';
 
 export const taskGroupKeys = {
   all: ['taskGroups'] as const,
@@ -72,6 +74,9 @@ export function useTaskGroupMutations(
       queryClient.invalidateQueries({
         queryKey: taskGroupKeys.byProject(projectId),
       });
+      queryClient.invalidateQueries({
+        queryKey: taskGroupStatsKeys.byProject(projectId),
+      });
       options?.onCreateSuccess?.(group);
     },
     onError: (err) => {
@@ -93,6 +98,9 @@ export function useTaskGroupMutations(
       });
       queryClient.invalidateQueries({
         queryKey: taskGroupKeys.byProject(updatedGroup.project_id),
+      });
+      queryClient.invalidateQueries({
+        queryKey: taskGroupStatsKeys.byProject(updatedGroup.project_id),
       });
       options?.onUpdateSuccess?.(updatedGroup);
     },
@@ -120,6 +128,9 @@ export function useDeleteTaskGroup() {
       queryClient.invalidateQueries({
         queryKey: taskGroupKeys.byProject(projectId),
       });
+      queryClient.invalidateQueries({
+        queryKey: taskGroupStatsKeys.byProject(projectId),
+      });
       // Task cache updates (task_group_id cleared) handled by WebSocket stream
     },
     onError: (err) => {
@@ -143,6 +154,9 @@ export function useAssignTasksToGroup() {
       // Invalidate task groups for the project
       queryClient.invalidateQueries({
         queryKey: taskGroupKeys.byProject(projectId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: taskGroupStatsKeys.byProject(projectId),
       });
     },
     onError: (err) => {
@@ -170,10 +184,36 @@ export function useMergeTaskGroup() {
       queryClient.invalidateQueries({
         queryKey: taskGroupKeys.byProject(projectId),
       });
+      queryClient.invalidateQueries({
+        queryKey: taskGroupStatsKeys.byProject(projectId),
+      });
       // Task cache updates (task_group_id changed) handled by WebSocket stream
     },
     onError: (err) => {
       console.error('Failed to merge task groups:', err);
+    },
+  });
+}
+
+export function useCleanupEmptyTaskGroups() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    EmptyTaskGroupCleanupResult,
+    unknown,
+    { projectId: string }
+  >({
+    mutationFn: ({ projectId }) => taskGroupsApi.cleanupEmpty(projectId),
+    onSuccess: (_data, { projectId }) => {
+      queryClient.invalidateQueries({
+        queryKey: taskGroupKeys.byProject(projectId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: taskGroupStatsKeys.byProject(projectId),
+      });
+    },
+    onError: (err) => {
+      console.error('Failed to clean up empty task groups:', err);
     },
   });
 }

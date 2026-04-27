@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{self, Error as AnyhowError};
+use db::models::task_group::TaskGroup;
 use deployment::{Deployment, DeploymentError};
 use server::{DeploymentImpl, perform_cleanup_actions, routes, shutdown_signal};
 use services::services::container::ContainerService;
@@ -70,6 +71,18 @@ async fn main() -> Result<(), VibeKanbanError> {
 
     let deployment = DeploymentImpl::new_with_log_store(server_log_store).await?;
     deployment.update_sentry_scope().await?;
+    match TaskGroup::delete_empty_all(&deployment.db().pool).await {
+        Ok(result) if result.deleted_count > 0 => {
+            tracing::info!(
+                deleted_count = result.deleted_count,
+                "Deleted empty task groups on startup"
+            );
+        }
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!("Failed to delete empty task groups on startup: {}", e);
+        }
+    }
     let deployment_for_orphan_cleanup = deployment.clone();
     tokio::spawn(async move {
         if let Err(e) = deployment_for_orphan_cleanup

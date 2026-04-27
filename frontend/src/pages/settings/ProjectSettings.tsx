@@ -25,7 +25,12 @@ import { FolderGit2, Loader2, Plus, Trash2, Users } from 'lucide-react';
 import { useProjects } from '@/hooks/useProjects';
 import { useProjectMutations } from '@/hooks/useProjectMutations';
 import { useScriptPlaceholders } from '@/hooks/useScriptPlaceholders';
-import { useDeleteTaskGroup, useTaskGroups } from '@/hooks/useTaskGroups';
+import {
+  useCleanupEmptyTaskGroups,
+  useDeleteTaskGroup,
+  useTaskGroups,
+} from '@/hooks/useTaskGroups';
+import { useTaskGroupStats } from '@/hooks/useTaskGroupStats';
 import { CopyFilesField } from '@/components/projects/CopyFilesField';
 import { WorkflowAssociationFields } from '@/components/tasks/WorkflowAssociationFields';
 import {
@@ -130,9 +135,13 @@ export function ProjectSettings() {
     isLoading: loadingTaskGroups,
     error: taskGroupsError,
   } = useTaskGroups(selectedProjectId);
+  const { data: taskGroupStats = [], isLoading: loadingTaskGroupStats } =
+    useTaskGroupStats(selectedProjectId);
   const deleteTaskGroup = useDeleteTaskGroup();
+  const cleanupEmptyTaskGroups = useCleanupEmptyTaskGroups();
   const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
   const [taskGroupError, setTaskGroupError] = useState<string | null>(null);
+  const [taskGroupSuccess, setTaskGroupSuccess] = useState<string | null>(null);
 
   // Scripts repo state (per-repo scripts)
   const [selectedScriptsRepoId, setSelectedScriptsRepoId] = useState<
@@ -174,6 +183,22 @@ export function ProjectSettings() {
     );
   }, [scriptsDraft, selectedProjectRepo]);
 
+  const emptyTaskGroupCount = useMemo(
+    () =>
+      taskGroupStats.filter((group) => {
+        const counts = group.task_counts;
+        return (
+          counts.todo +
+            counts.inprogress +
+            counts.inreview +
+            counts.done +
+            counts.cancelled ===
+          0
+        );
+      }).length,
+    [taskGroupStats]
+  );
+
   // Combined check for any unsaved changes
   const hasUnsavedChanges =
     hasUnsavedProjectChanges ||
@@ -199,6 +224,9 @@ export function ProjectSettings() {
         setSuccess(false);
         setError(null);
       }
+
+      setTaskGroupError(null);
+      setTaskGroupSuccess(null);
 
       // Update state and URL
       setSelectedProjectId(id);
@@ -505,6 +533,7 @@ export function ProjectSettings() {
 
     setDeletingGroupId(groupId);
     setTaskGroupError(null);
+    setTaskGroupSuccess(null);
     try {
       await deleteTaskGroup.mutateAsync({
         groupId,
@@ -516,6 +545,34 @@ export function ProjectSettings() {
       );
     } finally {
       setDeletingGroupId(null);
+    }
+  };
+
+  const handleClearEmptyTaskGroups = async () => {
+    if (!selectedProjectId) return;
+
+    const confirmed = window.confirm(
+      `Delete ${emptyTaskGroupCount} empty task group${
+        emptyTaskGroupCount === 1 ? '' : 's'
+      } for this project? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setTaskGroupError(null);
+    setTaskGroupSuccess(null);
+    try {
+      const result = await cleanupEmptyTaskGroups.mutateAsync({
+        projectId: selectedProjectId,
+      });
+      setTaskGroupSuccess(
+        `Deleted ${result.deleted_count} empty task group${
+          result.deleted_count === 1 ? '' : 's'
+        }.`
+      );
+    } catch (err) {
+      setTaskGroupError(
+        err instanceof Error ? err.message : 'Failed to clear empty task groups'
+      );
     }
   };
 
@@ -1007,6 +1064,11 @@ export function ProjectSettings() {
                   </AlertDescription>
                 </Alert>
               )}
+              {taskGroupSuccess && (
+                <Alert>
+                  <AlertDescription>{taskGroupSuccess}</AlertDescription>
+                </Alert>
+              )}
 
               {loadingTaskGroups ? (
                 <SkeletonList items={3} showIcon showSecondaryText />
@@ -1065,20 +1127,46 @@ export function ProjectSettings() {
                 </div>
               )}
 
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  TaskGroupFormDialog.show({
-                    mode: 'create',
-                    projectId: selectedProject.id,
-                  })
-                }
-                className="w-full"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Create Group
-              </Button>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    TaskGroupFormDialog.show({
+                      mode: 'create',
+                      projectId: selectedProject.id,
+                    })
+                  }
+                  className="w-full"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Group
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClearEmptyTaskGroups}
+                  disabled={
+                    cleanupEmptyTaskGroups.isPending ||
+                    loadingTaskGroups ||
+                    loadingTaskGroupStats ||
+                    emptyTaskGroupCount === 0
+                  }
+                  className="w-full"
+                >
+                  {cleanupEmptyTaskGroups.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Clearing
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Clear Empty Groups
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           </SettingsSection>
 

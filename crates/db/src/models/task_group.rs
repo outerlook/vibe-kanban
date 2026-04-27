@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{FromRow, QueryBuilder, Sqlite, SqlitePool};
 use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -36,6 +36,19 @@ pub struct TaskGroupWithStats {
     #[ts(flatten)]
     pub group: TaskGroup,
     pub task_counts: TaskStatusCounts,
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
+pub struct DeletedTaskGroup {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct EmptyTaskGroupCleanupResult {
+    pub deleted_count: u64,
+    pub deleted_groups: Vec<DeletedTaskGroup>,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
@@ -203,6 +216,76 @@ impl TaskGroup {
         Ok(result.rows_affected())
     }
 
+    pub async fn delete_empty_all(
+        pool: &SqlitePool,
+    ) -> Result<EmptyTaskGroupCleanupResult, sqlx::Error> {
+        Self::delete_empty(pool, None).await
+    }
+
+    pub async fn delete_empty_for_project(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<EmptyTaskGroupCleanupResult, sqlx::Error> {
+        Self::delete_empty(pool, Some(project_id)).await
+    }
+
+    async fn delete_empty(
+        pool: &SqlitePool,
+        project_id: Option<Uuid>,
+    ) -> Result<EmptyTaskGroupCleanupResult, sqlx::Error> {
+        let mut tx = pool.begin().await?;
+        let mut query_builder: QueryBuilder<Sqlite> = QueryBuilder::new(
+            r#"SELECT g.id, g.project_id, g.name
+               FROM task_groups g
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM tasks t WHERE t.task_group_id = g.id
+               )"#,
+        );
+
+        if let Some(project_id) = project_id {
+            query_builder.push(" AND g.project_id = ");
+            query_builder.push_bind(project_id);
+        }
+
+        query_builder.push(" ORDER BY g.created_at DESC");
+
+        let deleted_groups: Vec<DeletedTaskGroup> =
+            query_builder.build_query_as().fetch_all(&mut *tx).await?;
+
+        if deleted_groups.is_empty() {
+            tx.commit().await?;
+            return Ok(EmptyTaskGroupCleanupResult {
+                deleted_count: 0,
+                deleted_groups,
+            });
+        }
+
+        let mut association_delete: QueryBuilder<Sqlite> =
+            QueryBuilder::new("DELETE FROM workflow_associations WHERE task_group_id IN (");
+        let mut separated = association_delete.separated(", ");
+        for group in &deleted_groups {
+            separated.push_bind(group.id);
+        }
+        separated.push_unseparated(")");
+        association_delete.build().execute(&mut *tx).await?;
+
+        let mut group_delete: QueryBuilder<Sqlite> =
+            QueryBuilder::new("DELETE FROM task_groups WHERE id IN (");
+        let mut separated = group_delete.separated(", ");
+        for group in &deleted_groups {
+            separated.push_bind(group.id);
+        }
+        separated.push_unseparated(")");
+        group_delete.build().execute(&mut *tx).await?;
+
+        tx.commit().await?;
+
+        Ok(EmptyTaskGroupCleanupResult {
+            deleted_count: deleted_groups.len() as u64,
+            deleted_groups,
+        })
+    }
+
     /// Bulk assign tasks to this task group.
     /// Only updates tasks that belong to the same project as the task group.
     pub async fn bulk_assign_tasks(
@@ -367,5 +450,168 @@ impl TaskGroup {
         .await?;
 
         Ok(rows)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
+    use uuid::Uuid;
+
+    use super::TaskGroup;
+    use crate::models::{
+        project::{CreateProject, Project},
+        task::{CreateTask, Task, TaskStatus},
+        workflow_association::{UpsertWorkflowAssociation, WorkflowAssociation},
+    };
+
+    async fn setup_pool() -> SqlitePool {
+        crate::init_sqlite_vec();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        pool
+    }
+
+    async fn create_project(pool: &SqlitePool, name: &str) -> Project {
+        Project::create(
+            pool,
+            &CreateProject {
+                name: name.to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn delete_empty_for_project_only_removes_empty_groups_in_that_project() {
+        let pool = setup_pool().await;
+        let project = create_project(&pool, "target").await;
+        let other_project = create_project(&pool, "other").await;
+
+        let empty_group = TaskGroup::create(&pool, project.id, "Empty".to_string(), None, None)
+            .await
+            .unwrap();
+        let occupied_group =
+            TaskGroup::create(&pool, project.id, "Occupied".to_string(), None, None)
+                .await
+                .unwrap();
+        let other_empty_group =
+            TaskGroup::create(&pool, other_project.id, "Other".to_string(), None, None)
+                .await
+                .unwrap();
+
+        WorkflowAssociation::upsert_for_task_group(
+            &pool,
+            empty_group.id,
+            &UpsertWorkflowAssociation {
+                workflow_id: "wf-empty".to_string(),
+                label: "Empty".to_string(),
+                url: "https://example.test/workflow".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+        Task::create(
+            &pool,
+            &CreateTask {
+                project_id: project.id,
+                title: "Kept task".to_string(),
+                description: None,
+                status: Some(TaskStatus::Todo),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: Some(occupied_group.id),
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        let result = TaskGroup::delete_empty_for_project(&pool, project.id)
+            .await
+            .unwrap();
+
+        assert_eq!(result.deleted_count, 1);
+        assert_eq!(result.deleted_groups[0].id, empty_group.id);
+        assert!(
+            TaskGroup::find_by_id(&pool, empty_group.id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            WorkflowAssociation::find_by_task_group_id(&pool, empty_group.id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            TaskGroup::find_by_id(&pool, occupied_group.id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            TaskGroup::find_by_id(&pool, other_empty_group.id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_empty_all_removes_empty_groups_across_projects() {
+        let pool = setup_pool().await;
+        let project = create_project(&pool, "target").await;
+        let other_project = create_project(&pool, "other").await;
+
+        let empty_group = TaskGroup::create(&pool, project.id, "Empty".to_string(), None, None)
+            .await
+            .unwrap();
+        let other_empty_group =
+            TaskGroup::create(&pool, other_project.id, "Other".to_string(), None, None)
+                .await
+                .unwrap();
+
+        let result = TaskGroup::delete_empty_all(&pool).await.unwrap();
+
+        assert_eq!(result.deleted_count, 2);
+        assert!(
+            result
+                .deleted_groups
+                .iter()
+                .any(|group| group.id == empty_group.id)
+        );
+        assert!(
+            result
+                .deleted_groups
+                .iter()
+                .any(|group| group.id == other_empty_group.id)
+        );
+        assert!(
+            TaskGroup::find_by_id(&pool, empty_group.id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            TaskGroup::find_by_id(&pool, other_empty_group.id)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 }

@@ -8,7 +8,9 @@ use axum::{
 };
 use db::models::{
     git_mode::GitMode,
-    task_group::{MergeError, TaskGroup, TaskGroupWithStats, UpdateTaskGroup},
+    task_group::{
+        EmptyTaskGroupCleanupResult, MergeError, TaskGroup, TaskGroupWithStats, UpdateTaskGroup,
+    },
     workflow_association::{
         UpsertWorkflowAssociation, WorkflowAssociation, WorkflowAssociationResolution,
     },
@@ -70,6 +72,11 @@ pub struct GetTaskGroupStatsQuery {
     pub project_id: Uuid,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CleanupEmptyTaskGroupsQuery {
+    pub project_id: Uuid,
+}
+
 pub async fn get_task_group_stats(
     State(deployment): State<DeploymentImpl>,
     axum::extract::Query(query): axum::extract::Query<GetTaskGroupStatsQuery>,
@@ -84,6 +91,31 @@ pub async fn list_task_groups(
 ) -> Result<ResponseJson<ApiResponse<Vec<TaskGroup>>>, ApiError> {
     let groups = TaskGroup::find_by_project_id(&deployment.db().pool, query.project_id).await?;
     Ok(ResponseJson(ApiResponse::success(groups)))
+}
+
+pub async fn cleanup_empty_task_groups(
+    State(deployment): State<DeploymentImpl>,
+    axum::extract::Query(query): axum::extract::Query<CleanupEmptyTaskGroupsQuery>,
+) -> Result<ResponseJson<ApiResponse<EmptyTaskGroupCleanupResult>>, ApiError> {
+    let result =
+        TaskGroup::delete_empty_for_project(&deployment.db().pool, query.project_id).await?;
+    let occurred_at = chrono::Utc::now();
+
+    for group in &result.deleted_groups {
+        deployment
+            .container()
+            .dispatch_event(DomainEvent::TaskGroupTransition {
+                action: TaskGroupTransitionAction::Deleted,
+                project_id: group.project_id,
+                task_group_id: Some(group.id),
+                previous_task_group_id: None,
+                task_ids: Vec::new(),
+                occurred_at,
+            })
+            .await;
+    }
+
+    Ok(ResponseJson(ApiResponse::success(result)))
 }
 
 pub async fn get_task_group(
@@ -359,6 +391,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let inner = Router::new()
         .route("/", get(list_task_groups).post(create_task_group))
         .route("/stats", get(get_task_group_stats))
+        .route("/cleanup-empty", post(cleanup_empty_task_groups))
         .nest("/{group_id}", task_group_actions);
 
     Router::new().nest("/task-groups", inner)
@@ -564,6 +597,129 @@ mod tests {
             .unwrap();
 
         let event_types = wait_for_event_types(&publisher, 4).await;
+        assert!(event_types.contains(&OrchestrationEventType::TaskGroupTransition));
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn cleanup_empty_task_groups_deletes_only_empty_groups_for_project() {
+        let _lock = crate::TEST_DB_LOCK.lock().unwrap();
+        reset_test_database();
+        let publisher = RecordingOrchestrationEventPublisher::default();
+        let publisher_handle: OrchestrationEventPublisherHandle = Arc::new(publisher.clone());
+        let deployment = LocalDeployment::new_with_orchestration_event_publisher(publisher_handle)
+            .await
+            .unwrap();
+        let project = create_project(&deployment, "cleanup-target").await;
+        let other_project = create_project(&deployment, "cleanup-other").await;
+
+        let empty_group = TaskGroup::create(
+            &deployment.db().pool,
+            project.id,
+            "Empty".to_string(),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let occupied_group = TaskGroup::create(
+            &deployment.db().pool,
+            project.id,
+            "Occupied".to_string(),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let other_empty_group = TaskGroup::create(
+            &deployment.db().pool,
+            other_project.id,
+            "Other empty".to_string(),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        WorkflowAssociation::upsert_for_task_group(
+            &deployment.db().pool,
+            empty_group.id,
+            &UpsertWorkflowAssociation {
+                workflow_id: "wf-empty".to_string(),
+                label: "Empty".to_string(),
+                url: "https://example.test/workflow".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+        Task::create(
+            &deployment.db().pool,
+            &CreateTask {
+                project_id: project.id,
+                title: "Kept task".to_string(),
+                description: None,
+                status: Some(db::models::task::TaskStatus::Todo),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: Some(occupied_group.id),
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        let app = super::router(&deployment).with_state(deployment.clone());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/task-groups/cleanup-empty?project_id={}",
+                        project.id
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let api_response: ApiResponse<EmptyTaskGroupCleanupResult> =
+            serde_json::from_slice(&body).unwrap();
+        let result = api_response.into_data().unwrap();
+        assert_eq!(result.deleted_count, 1);
+        assert_eq!(result.deleted_groups[0].id, empty_group.id);
+
+        assert!(
+            TaskGroup::find_by_id(&deployment.db().pool, empty_group.id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            WorkflowAssociation::find_by_task_group_id(&deployment.db().pool, empty_group.id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            TaskGroup::find_by_id(&deployment.db().pool, occupied_group.id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            TaskGroup::find_by_id(&deployment.db().pool, other_empty_group.id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        let event_types = wait_for_event_types(&publisher, 1).await;
         assert!(event_types.contains(&OrchestrationEventType::TaskGroupTransition));
     }
 }

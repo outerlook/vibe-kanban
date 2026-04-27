@@ -74,6 +74,10 @@ export type TaskDependency = { id: string, task_id: string, depends_on_id: strin
 
 export type TaskGroup = { id: string, project_id: string, name: string, description: string | null, base_branch: string | null, git_mode: GitMode, created_at: string, updated_at: string, };
 
+export type DeletedTaskGroup = { id: string, project_id: string, name: string, };
+
+export type EmptyTaskGroupCleanupResult = { deleted_count: number, deleted_groups: Array<DeletedTaskGroup>, };
+
 export type TaskStatusCounts = { todo: number, inprogress: number, inreview: number, done: number, cancelled: number, };
 
 export type TaskGroupWithStats = { task_counts: TaskStatusCounts, id: string, project_id: string, name: string, description: string | null, base_branch: string | null, git_mode: GitMode, created_at: string, updated_at: string, };

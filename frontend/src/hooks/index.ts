@@ -72,6 +72,7 @@ export {
   useTaskGroupMutations,
   useDeleteTaskGroup,
   useAssignTasksToGroup,
+  useCleanupEmptyTaskGroups,
 } from './useTaskGroups';
 export type { UseTaskGroupMutationsOptions } from './useTaskGroups';
 export { taskGroupStatsKeys, useTaskGroupStats } from './useTaskGroupStats';
