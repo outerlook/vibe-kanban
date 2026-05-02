@@ -240,7 +240,7 @@ export type ConversationMessageAddedEventPayload = { conversation_session_id: st
 
 export type FollowUpTransitionEventPayload = { state: FollowUpTransitionState, scope: FollowUpScope, queue_kind: FollowUpQueueKind | null, execution_process_id: string | null, };
 
-export type MergeQueueTransitionEventPayload = { entry_id: string, project_id: string, repo_id: string, state: MergeQueueTransitionState, merge_commit: string | null, detail: string | null, };
+export type MergeQueueTransitionEventPayload = { entry_id: string, project_id: string, repo_id: string, state: MergeQueueTransitionState, merge_commit: string | null, detail: string | null, conflict_op: ConflictOp | null, conflicted_files: Array<string>, };
 
 export type TaskGroupTransitionEventPayload = { action: TaskGroupTransitionAction, project_id: string, task_group_id: string | null, previous_task_group_id: string | null, task_ids: Array<string>, };
 

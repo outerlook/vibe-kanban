@@ -22,7 +22,7 @@ use uuid::Uuid;
 use super::{
     config::Config,
     domain_events::{DomainEvent, EventDispatchCallback},
-    git::{GitService, GitServiceError},
+    git::{ConflictOp, GitService, GitServiceError},
     merge_queue_store::{MergeQueueEntry, MergeQueueStore},
     operation_status::{OperationStatus, OperationStatusStore, OperationStatusType},
 };
@@ -48,11 +48,17 @@ pub enum MergeQueueError {
     #[error("WorkspaceRepo not found for workspace {0} and repo {1}")]
     WorkspaceRepoNotFound(Uuid, Uuid),
 
-    #[error("Merge conflict: {0}")]
-    MergeConflict(String),
+    #[error("Merge conflict: {message}")]
+    MergeConflict {
+        message: String,
+        conflicted_files: Vec<String>,
+    },
 
-    #[error("Rebase conflict: {0}")]
-    RebaseConflict(String),
+    #[error("Rebase conflict: {message}")]
+    RebaseConflict {
+        message: String,
+        conflicted_files: Vec<String>,
+    },
 
     #[error("Squash merge requires a commit message")]
     MissingCommitMessage,
@@ -63,15 +69,36 @@ impl MergeQueueError {
     pub fn is_conflict(&self) -> bool {
         matches!(
             self,
-            MergeQueueError::MergeConflict(_) | MergeQueueError::RebaseConflict(_)
+            MergeQueueError::MergeConflict { .. } | MergeQueueError::RebaseConflict { .. }
         )
     }
 
     /// Returns the conflict message if this is a conflict error
     pub fn conflict_message(&self) -> Option<&str> {
         match self {
-            MergeQueueError::MergeConflict(msg) | MergeQueueError::RebaseConflict(msg) => Some(msg),
+            MergeQueueError::MergeConflict { message, .. }
+            | MergeQueueError::RebaseConflict { message, .. } => Some(message),
             _ => None,
+        }
+    }
+
+    pub fn conflict_op(&self) -> Option<ConflictOp> {
+        match self {
+            MergeQueueError::MergeConflict { .. } => Some(ConflictOp::Merge),
+            MergeQueueError::RebaseConflict { .. } => Some(ConflictOp::Rebase),
+            _ => None,
+        }
+    }
+
+    pub fn conflicted_files(&self) -> &[String] {
+        match self {
+            MergeQueueError::MergeConflict {
+                conflicted_files, ..
+            }
+            | MergeQueueError::RebaseConflict {
+                conflicted_files, ..
+            } => conflicted_files,
+            _ => &[],
         }
     }
 }
@@ -132,6 +159,8 @@ impl MergeQueueProcessor {
         state: super::domain_events::MergeQueueTransitionState,
         merge_commit: Option<String>,
         detail: Option<String>,
+        conflict_op: Option<ConflictOp>,
+        conflicted_files: Vec<String>,
     ) {
         let Some(dispatcher) = &self.event_dispatcher else {
             return;
@@ -147,6 +176,8 @@ impl MergeQueueProcessor {
             state,
             merge_commit,
             detail,
+            conflict_op,
+            conflicted_files,
             occurred_at: chrono::Utc::now(),
         })
         .await;
@@ -187,6 +218,8 @@ impl MergeQueueProcessor {
                 super::domain_events::MergeQueueTransitionState::Claimed,
                 None,
                 None,
+                None,
+                vec![],
             )
             .await;
 
@@ -227,12 +260,21 @@ impl MergeQueueProcessor {
                         "Merge queue entry has conflicts, removing entry"
                     );
                     self.merge_queue_store.remove(entry.workspace_id);
+                    let conflict_task =
+                        match Workspace::find_by_id(&self.pool, entry.workspace_id).await {
+                            Ok(Some(workspace)) => {
+                                workspace.parent_task(&self.pool).await.ok().flatten()
+                            }
+                            _ => None,
+                        };
                     self.dispatch_merge_queue_transition(
                         &entry,
-                        None,
+                        conflict_task.as_ref(),
                         super::domain_events::MergeQueueTransitionState::Conflict,
                         None,
                         e.conflict_message().map(str::to_string),
+                        e.conflict_op(),
+                        e.conflicted_files().to_vec(),
                     )
                     .await;
                     // Continue to next entry
@@ -250,6 +292,8 @@ impl MergeQueueProcessor {
                         super::domain_events::MergeQueueTransitionState::Removed,
                         None,
                         Some(e.to_string()),
+                        None,
+                        vec![],
                     )
                     .await;
                     // Continue to next entry
@@ -311,6 +355,8 @@ impl MergeQueueProcessor {
                 super::domain_events::MergeQueueTransitionState::Skipped,
                 None,
                 Some("nothing_to_merge".to_string()),
+                None,
+                vec![],
             )
             .await;
             return Ok("skipped:nothing_to_merge".to_string());
@@ -392,6 +438,8 @@ impl MergeQueueProcessor {
             super::domain_events::MergeQueueTransitionState::Completed,
             Some(merge_commit.clone()),
             None,
+            None,
+            vec![],
         )
         .await;
 
@@ -447,7 +495,13 @@ impl MergeQueueProcessor {
             task_branch,
         ) {
             Ok(_) => Ok(()),
-            Err(GitServiceError::MergeConflicts(msg)) => Err(MergeQueueError::RebaseConflict(msg)),
+            Err(GitServiceError::MergeConflicts(msg)) => Err(MergeQueueError::RebaseConflict {
+                message: msg,
+                conflicted_files: self
+                    .git
+                    .get_conflicted_files(worktree_path)
+                    .unwrap_or_default(),
+            }),
             Err(e) => Err(e.into()),
         }
     }
@@ -469,13 +523,19 @@ impl MergeQueueProcessor {
             commit_message,
         ) {
             Ok(commit_sha) => Ok(commit_sha),
-            Err(GitServiceError::MergeConflicts(msg)) => Err(MergeQueueError::MergeConflict(msg)),
+            Err(GitServiceError::MergeConflicts(msg)) => Err(MergeQueueError::MergeConflict {
+                message: msg,
+                conflicted_files: self
+                    .git
+                    .get_conflicted_files(worktree_path)
+                    .unwrap_or_default(),
+            }),
             Err(GitServiceError::BranchesDiverged(msg)) => {
                 // If branches diverged after rebase, treat as conflict
-                Err(MergeQueueError::MergeConflict(format!(
-                    "Branches diverged: {}",
-                    msg
-                )))
+                Err(MergeQueueError::MergeConflict {
+                    message: format!("Branches diverged: {}", msg),
+                    conflicted_files: vec![],
+                })
             }
             Err(e) => Err(e.into()),
         }
@@ -495,9 +555,10 @@ impl MergeQueueProcessor {
             base_branch,
         ) {
             Ok(commit_sha) => Ok(commit_sha),
-            Err(GitServiceError::BranchesDiverged(msg)) => Err(MergeQueueError::MergeConflict(
-                format!("Cannot fast-forward target branch: {}", msg),
-            )),
+            Err(GitServiceError::BranchesDiverged(msg)) => Err(MergeQueueError::MergeConflict {
+                message: format!("Cannot fast-forward target branch: {}", msg),
+                conflicted_files: vec![],
+            }),
             Err(e) => Err(e.into()),
         }
     }
@@ -521,27 +582,52 @@ mod tests {
 
     use super::*;
     use crate::services::domain_events::{
-        EventDispatchCallback, OrchestrationEventMapper, OrchestrationEventPublisher,
-        OrchestrationEventType, RecordingOrchestrationEventPublisher, default_topic_namespace,
+        EventDispatchCallback, MergeQueueTransitionState, OrchestrationEventMapper,
+        OrchestrationEventPublisher, OrchestrationEventType, RecordingOrchestrationEventPublisher,
+        default_topic_namespace,
     };
 
     #[test]
     fn test_merge_queue_error_is_conflict() {
-        assert!(MergeQueueError::MergeConflict("test".to_string()).is_conflict());
-        assert!(MergeQueueError::RebaseConflict("test".to_string()).is_conflict());
+        assert!(
+            MergeQueueError::MergeConflict {
+                message: "test".to_string(),
+                conflicted_files: vec![],
+            }
+            .is_conflict()
+        );
+        assert!(
+            MergeQueueError::RebaseConflict {
+                message: "test".to_string(),
+                conflicted_files: vec!["src/conflict.rs".to_string()],
+            }
+            .is_conflict()
+        );
         assert!(!MergeQueueError::TaskNotFound(Uuid::new_v4()).is_conflict());
         assert!(!MergeQueueError::RepoNotFound(Uuid::new_v4()).is_conflict());
     }
 
     #[test]
     fn test_merge_queue_error_conflict_message() {
-        let merge_err = MergeQueueError::MergeConflict("merge conflict details".to_string());
+        let merge_err = MergeQueueError::MergeConflict {
+            message: "merge conflict details".to_string(),
+            conflicted_files: vec![],
+        };
         assert_eq!(merge_err.conflict_message(), Some("merge conflict details"));
+        assert_eq!(merge_err.conflict_op(), Some(ConflictOp::Merge));
 
-        let rebase_err = MergeQueueError::RebaseConflict("rebase conflict details".to_string());
+        let rebase_err = MergeQueueError::RebaseConflict {
+            message: "rebase conflict details".to_string(),
+            conflicted_files: vec!["src/conflict.rs".to_string()],
+        };
         assert_eq!(
             rebase_err.conflict_message(),
             Some("rebase conflict details")
+        );
+        assert_eq!(rebase_err.conflict_op(), Some(ConflictOp::Rebase));
+        assert_eq!(
+            rebase_err.conflicted_files(),
+            &["src/conflict.rs".to_string()]
         );
 
         let other_err = MergeQueueError::TaskNotFound(Uuid::new_v4());
@@ -686,5 +772,102 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(event_types.contains(&OrchestrationEventType::MergeQueueTransition));
         assert!(event_types.contains(&OrchestrationEventType::TaskStatusChanged));
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn merge_queue_conflict_transition_includes_rebase_context() {
+        let _lock = crate::services::TEST_DB_LOCK.lock().expect("lock poisoned");
+        let db = DBService::new().await.expect("db service");
+        let publisher = RecordingOrchestrationEventPublisher::default();
+        let store = MergeQueueStore::new(Arc::new(MsgStore::new()));
+        let processor = MergeQueueProcessor::new(
+            db.pool.clone(),
+            GitService::new(),
+            store.clone(),
+            Arc::new(RwLock::new(Config::default())),
+        )
+        .with_event_dispatcher(recording_dispatcher(&db, publisher.clone()));
+
+        let project = Project::create(
+            &db.pool,
+            &CreateProject {
+                name: "merge-queue-rebase-conflict".to_string(),
+                repositories: vec![],
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .expect("create project");
+        let task = Task::create(
+            &db.pool,
+            &CreateTask {
+                project_id: project.id,
+                title: "rebase-conflict".to_string(),
+                description: None,
+                status: Some(TaskStatus::InProgress),
+                parent_workspace_id: None,
+                image_ids: None,
+                shared_task_id: None,
+                task_group_id: None,
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .expect("create task");
+        let workspace = Workspace::create(
+            &db.pool,
+            &CreateWorkspace {
+                branch: "feature/rebase-conflict".to_string(),
+                agent_working_dir: None,
+            },
+            Uuid::new_v4(),
+            task.id,
+        )
+        .await
+        .expect("create workspace");
+        let tempdir = TempDir::new().expect("tempdir");
+        let repo = Repo::find_or_create(&db.pool, tempdir.path(), "repo")
+            .await
+            .expect("create repo");
+        let entry = store.enqueue(
+            project.id,
+            workspace.id,
+            repo.id,
+            Some("Merge feature branch".to_string()),
+            MergeStrategy::Squash,
+        );
+
+        processor
+            .dispatch_merge_queue_transition(
+                &entry,
+                Some(&task),
+                MergeQueueTransitionState::Conflict,
+                None,
+                Some("Rebase encountered merge conflicts.".to_string()),
+                Some(ConflictOp::Rebase),
+                vec!["src/conflict.rs".to_string()],
+            )
+            .await;
+
+        let published = publisher.published();
+        let (_, envelope) = published
+            .iter()
+            .find(|(_, envelope)| {
+                envelope.event_type() == OrchestrationEventType::MergeQueueTransition
+            })
+            .expect("merge queue event");
+        let json = serde_json::to_value(envelope).expect("serialize envelope");
+
+        assert_eq!(json["payload"]["state"], "conflict");
+        assert_eq!(json["payload"]["conflict_op"], "rebase");
+        assert_eq!(
+            json["payload"]["detail"],
+            "Rebase encountered merge conflicts."
+        );
+        assert_eq!(
+            json["payload"]["conflicted_files"],
+            serde_json::json!(["src/conflict.rs"])
+        );
     }
 }

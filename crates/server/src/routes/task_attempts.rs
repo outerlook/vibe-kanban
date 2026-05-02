@@ -2596,6 +2596,8 @@ pub async fn queue_merge(
             state: MergeQueueTransitionState::Queued,
             merge_commit: None,
             detail: None,
+            conflict_op: None,
+            conflicted_files: vec![],
             occurred_at: entry.queued_at,
         })
         .await;
@@ -2686,6 +2688,8 @@ pub async fn cancel_queue_merge(
             state: MergeQueueTransitionState::Removed,
             merge_commit: None,
             detail: None,
+            conflict_op: None,
+            conflicted_files: vec![],
             occurred_at: chrono::Utc::now(),
         })
         .await;

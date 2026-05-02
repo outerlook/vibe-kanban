@@ -18,6 +18,7 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use super::{DomainEvent, TaskGroupTransitionAction, TaskLifecycleAction};
+use crate::services::git::ConflictOp;
 
 pub const DEFAULT_ORCHESTRATION_EVENT_SCHEMA_VERSION: &str = "vk_orchestration_v1";
 
@@ -384,6 +385,8 @@ pub struct MergeQueueTransitionEventPayload {
     pub state: super::MergeQueueTransitionState,
     pub merge_commit: Option<String>,
     pub detail: Option<String>,
+    pub conflict_op: Option<ConflictOp>,
+    pub conflicted_files: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
@@ -792,6 +795,8 @@ impl OrchestrationEventMapper {
                 state,
                 merge_commit,
                 detail,
+                conflict_op,
+                conflicted_files,
                 ..
             } => OrchestrationEventEnvelope::new(
                 event,
@@ -803,6 +808,8 @@ impl OrchestrationEventMapper {
                     state: *state,
                     merge_commit: merge_commit.clone(),
                     detail: detail.clone(),
+                    conflict_op: conflict_op.clone(),
+                    conflicted_files: conflicted_files.clone(),
                 }),
             ),
             DomainEvent::TaskGroupTransition {
@@ -1421,6 +1428,8 @@ mod tests {
             state: MergeQueueTransitionState::Claimed,
             merge_commit: None,
             detail: Some("claimed by processor".to_string()),
+            conflict_op: None,
+            conflicted_files: vec![],
             occurred_at: now,
         });
         assert_eq!(
@@ -1430,6 +1439,14 @@ mod tests {
         let merge_queue_json =
             serde_json::to_value(&merge_queue).expect("serialize merge queue event");
         assert_eq!(merge_queue_json["payload"]["state"], "claimed");
+        assert_eq!(
+            merge_queue_json["payload"]["conflict_op"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            merge_queue_json["payload"]["conflicted_files"],
+            serde_json::json!([])
+        );
 
         let resolved = mapper.map_primary_event(&DomainEvent::ApprovalResolved {
             approval_id: "approval-1".to_string(),

@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
+use crate::services::git::ConflictOp;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct DomainEventEntityIds {
@@ -201,6 +203,8 @@ pub enum DomainEvent {
         state: MergeQueueTransitionState,
         merge_commit: Option<String>,
         detail: Option<String>,
+        conflict_op: Option<ConflictOp>,
+        conflicted_files: Vec<String>,
         occurred_at: DateTime<Utc>,
     },
 
